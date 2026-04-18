@@ -12,6 +12,8 @@ use std::sync::{Mutex, OnceLock};
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
+use super::ux_tree_source::PaneTreeWalker;
+
 use crate::app::workbench_layout_policy::AnchorEdge;
 use crate::app::{
     GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode, SurfaceHostId,
@@ -520,7 +522,7 @@ fn build_snapshot_with_rects_inner(
         }
     });
 
-    let active: HashSet<TileId> = tiles_tree.active_tiles().into_iter().collect();
+    let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
     let node_attach_attempts = take_node_pane_attach_attempt_metadata();
 
     let mut snapshot = root_snapshot(build_duration_us, false, Vec::new());
@@ -528,12 +530,11 @@ fn build_snapshot_with_rects_inner(
     let mut presentation_nodes = std::mem::take(&mut snapshot.presentation_nodes);
     let mut trace_nodes = std::mem::take(&mut snapshot.trace_nodes);
 
-    if let Some(root) = tiles_tree.root() {
+    if let Some(root) = walker.root() {
         push_nodes(
-            tiles_tree,
+            &walker,
             graph_app,
             root,
-            &active,
             Some(UX_TREE_WORKBENCH_ROOT_ID),
             node_rects,
             &node_attach_attempts,
@@ -744,18 +745,6 @@ fn append_command_surface_nodes(
             diagnostics_counter: 1,
         });
     }
-}
-
-fn current_frame_tab_container_label(
-    tiles_tree: &Tree<TileKind>,
-    graph_app: &GraphBrowserApp,
-    tile_id: TileId,
-    child_count: usize,
-) -> Option<String> {
-    (tiles_tree.root() == Some(tile_id))
-        .then(|| graph_app.current_frame_name())
-        .flatten()
-        .map(|frame_name| format!("Frame: {frame_name} ({child_count})"))
 }
 
 fn append_workbench_semantics_nodes(
@@ -1439,10 +1428,9 @@ fn append_graph_surface_semantics(
 }
 
 fn push_nodes(
-    tiles_tree: &Tree<TileKind>,
+    walker: &dyn super::ux_tree_source::PaneTreeWalker,
     graph_app: &GraphBrowserApp,
-    tile_id: TileId,
-    active: &HashSet<TileId>,
+    handle: super::ux_tree_source::UxPaneHandle,
     parent_ux_node_id: Option<&str>,
     node_rects: &HashMap<NodeKey, egui::Rect>,
     node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
@@ -1450,28 +1438,75 @@ fn push_nodes(
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
-    let Some(tile) = tiles_tree.tiles.get(tile_id) else {
+    use super::ux_tree_source::{ContainerKind, ResolvedPane};
+
+    let Some(resolved) = walker.resolve(graph_app, handle) else {
         return;
     };
 
-    let ux_node_id = ux_node_id_for_tile(tile_id, tile);
-    let focused = active.contains(&tile_id);
-    let tile_selected = if let Tile::Pane(kind) = tile {
-        graph_app
-            .workbench_tile_selection()
-            .selected_pane_ids
-            .contains(&kind.pane_id())
-    } else {
-        false
-    };
+    let focused = walker.is_active(handle);
 
-    match tile {
-        Tile::Pane(TileKind::Pane(
+    match resolved {
+        ResolvedPane::Pane { ux_node_id, payload } => push_pane_nodes(
+            graph_app,
+            &ux_node_id,
+            parent_ux_node_id,
+            focused,
+            &payload,
+            node_rects,
+            node_attach_attempts,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        ),
+        ResolvedPane::Container {
+            ux_node_id,
+            kind,
+            children,
+            label,
+        } => push_container_nodes(
+            walker,
+            graph_app,
+            &ux_node_id,
+            parent_ux_node_id,
+            focused,
+            kind,
+            &children,
+            label.as_deref(),
+            node_rects,
+            node_attach_attempts,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        ),
+    }
+}
+
+/// Emit semantic/presentation/trace entries for a leaf pane.
+fn push_pane_nodes(
+    graph_app: &GraphBrowserApp,
+    ux_node_id: &str,
+    parent_ux_node_id: Option<&str>,
+    focused: bool,
+    payload: &TileKind,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let tile_selected = graph_app
+        .workbench_tile_selection()
+        .selected_pane_ids
+        .contains(&payload.pane_id());
+
+    match payload {
+        TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
-        )) => {
+        ) => {
             append_graph_surface_semantics(
                 graph_app,
-                &ux_node_id,
+                ux_node_id,
                 parent_ux_node_id,
                 view_ref.graph_view_id,
                 Some(view_ref.pane_id),
@@ -1483,71 +1518,28 @@ fn push_nodes(
                 trace_nodes,
             );
         }
-        Tile::Pane(TileKind::Pane(
+        TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
-        )) => {
-            let focused_selection = graph_app.focused_selection();
-            let blocked = graph_app.runtime_block_state_for_node(state.node).is_some();
-            let degraded = matches!(state.render_mode, TileRenderMode::Placeholder);
-            let selected = focused_selection.contains(&state.node);
-
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::NodePane,
-                label: format!("Node Pane {:?}", state.node),
-                state: UxNodeState {
-                    focused,
-                    selected: selected || tile_selected,
-                    blocked,
-                    degraded,
-                },
-                allowed_actions: vec![
-                    UxAction::Focus,
-                    UxAction::Open,
-                    UxAction::Close,
-                    UxAction::SplitHorizontal,
-                ],
-                domain: UxDomainIdentity::Node {
-                    node_key: state.node,
-                    pane_id: Some(state.pane_id),
-                    lifecycle: node_lifecycle_for_key(graph_app, state.node),
-                    attach_attempt: node_attach_attempts.get(&state.node).copied(),
-                },
-            });
-            let bounds = node_rects
-                .get(&state.node)
-                .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds,
-                render_mode: Some(state.render_mode),
-                z_pass: "workbench.content",
-                style_flags: presentation_style_flags_for_mode(
-                    &["surface:node"],
-                    state.presentation_mode,
-                ),
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "workbench.node_route",
-                backend_path: match state.render_mode {
-                    TileRenderMode::CompositedTexture => "viewer.composited",
-                    TileRenderMode::NativeOverlay => "viewer.native_overlay",
-                    TileRenderMode::EmbeddedEgui => "viewer.embedded_egui",
-                    TileRenderMode::Placeholder => "viewer.placeholder",
-                },
-                diagnostics_counter: u64::from(focused),
-            });
-        }
+        ) => push_node_pane_entries(
+            graph_app,
+            ux_node_id,
+            parent_ux_node_id,
+            focused,
+            tile_selected,
+            state,
+            node_rects,
+            node_attach_attempts,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        ),
         #[cfg(feature = "diagnostics")]
-        Tile::Pane(TileKind::Pane(
+        TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
-        )) => {
+        ) => {
             let tool_kind = tool.title();
             semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
+                ux_node_id: ux_node_id.to_string(),
                 parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::ToolPane,
                 label: format!("Tool Pane {tool_kind}"),
@@ -1564,10 +1556,10 @@ fn push_nodes(
                 },
             });
         }
-        Tile::Pane(TileKind::Graph(view_ref)) => {
+        TileKind::Graph(view_ref) => {
             append_graph_surface_semantics(
                 graph_app,
-                &ux_node_id,
+                ux_node_id,
                 parent_ux_node_id,
                 view_ref.graph_view_id,
                 Some(view_ref.pane_id),
@@ -1582,67 +1574,24 @@ fn push_nodes(
                 trace_nodes,
             );
         }
-        Tile::Pane(TileKind::Node(state)) => {
-            let focused_selection = graph_app.focused_selection();
-            let blocked = graph_app.runtime_block_state_for_node(state.node).is_some();
-            let degraded = matches!(state.render_mode, TileRenderMode::Placeholder);
-            let selected = focused_selection.contains(&state.node);
-
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::NodePane,
-                label: format!("Node Pane {:?}", state.node),
-                state: UxNodeState {
-                    focused,
-                    selected: selected || tile_selected,
-                    blocked,
-                    degraded,
-                },
-                allowed_actions: vec![
-                    UxAction::Focus,
-                    UxAction::Open,
-                    UxAction::Close,
-                    UxAction::SplitHorizontal,
-                ],
-                domain: UxDomainIdentity::Node {
-                    node_key: state.node,
-                    pane_id: Some(state.pane_id),
-                    lifecycle: node_lifecycle_for_key(graph_app, state.node),
-                    attach_attempt: node_attach_attempts.get(&state.node).copied(),
-                },
-            });
-            let bounds = node_rects
-                .get(&state.node)
-                .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds,
-                render_mode: Some(state.render_mode),
-                z_pass: "workbench.content",
-                style_flags: presentation_style_flags_for_mode(
-                    &["surface:node"],
-                    state.presentation_mode,
-                ),
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "workbench.node_route",
-                backend_path: match state.render_mode {
-                    TileRenderMode::CompositedTexture => "viewer.composited",
-                    TileRenderMode::NativeOverlay => "viewer.native_overlay",
-                    TileRenderMode::EmbeddedEgui => "viewer.embedded_egui",
-                    TileRenderMode::Placeholder => "viewer.placeholder",
-                },
-                diagnostics_counter: u64::from(focused),
-            });
-        }
+        TileKind::Node(state) => push_node_pane_entries(
+            graph_app,
+            ux_node_id,
+            parent_ux_node_id,
+            focused,
+            tile_selected,
+            state,
+            node_rects,
+            node_attach_attempts,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        ),
         #[cfg(feature = "diagnostics")]
-        Tile::Pane(TileKind::Tool(tool)) => {
+        TileKind::Tool(tool) => {
             let tool_kind = tool.title();
             semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
+                ux_node_id: ux_node_id.to_string(),
                 parent_ux_node_id: parent_ux_node_id.map(str::to_string),
                 role: UxNodeRole::ToolPane,
                 label: format!("Tool Pane {tool_kind}"),
@@ -1659,7 +1608,7 @@ fn push_nodes(
                 },
             });
             presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
+                ux_node_id: ux_node_id.to_string(),
                 bounds: None,
                 render_mode: Some(TileRenderMode::EmbeddedEgui),
                 z_pass: "workbench.tool",
@@ -1670,154 +1619,174 @@ fn push_nodes(
                 transient_flags: Vec::new(),
             });
             trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
+                ux_node_id: ux_node_id.to_string(),
                 event_route: "workbench.tool_route",
                 backend_path: "egui",
                 diagnostics_counter: 0,
             });
         }
-        Tile::Container(Container::Tabs(tabs)) => {
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::TabContainer,
-                label: current_frame_tab_container_label(
-                    tiles_tree,
-                    graph_app,
-                    tile_id,
-                    tabs.children.len(),
-                )
-                .unwrap_or_else(|| format!("Tabs ({})", tabs.children.len())),
-                state: UxNodeState {
-                    focused,
-                    selected: false,
-                    blocked: false,
-                    degraded: false,
-                },
-                allowed_actions: vec![UxAction::Focus],
-                domain: UxDomainIdentity::Workbench,
-            });
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds: None,
-                render_mode: None,
-                z_pass: "workbench.tabs",
-                style_flags: vec!["container:tabs"],
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "workbench.tabs_route",
-                backend_path: "egui_tiles",
-                diagnostics_counter: tabs.children.len() as u64,
-            });
+    }
+}
 
-            for child in &tabs.children {
-                push_nodes(
-                    tiles_tree,
-                    graph_app,
-                    *child,
-                    active,
-                    Some(ux_node_id.as_str()),
-                    node_rects,
-                    node_attach_attempts,
-                    semantic_nodes,
-                    presentation_nodes,
-                    trace_nodes,
-                );
-            }
-        }
-        Tile::Container(Container::Linear(linear)) => {
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::SplitContainer,
-                label: format!("Split ({})", linear.children.len()),
-                state: UxNodeState {
-                    focused,
-                    selected: false,
-                    blocked: false,
-                    degraded: false,
-                },
-                allowed_actions: vec![UxAction::Focus],
-                domain: UxDomainIdentity::Workbench,
-            });
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds: None,
-                render_mode: None,
-                z_pass: "workbench.split",
-                style_flags: vec!["container:linear"],
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "workbench.split_route",
-                backend_path: "egui_tiles",
-                diagnostics_counter: linear.children.len() as u64,
-            });
+/// Helper used by both NodePane code paths (PaneViewState::Node and
+/// TileKind::Node). Behavior preserved exactly — matches the pre-refactor
+/// push_nodes output byte-for-byte.
+fn push_node_pane_entries(
+    graph_app: &GraphBrowserApp,
+    ux_node_id: &str,
+    parent_ux_node_id: Option<&str>,
+    focused: bool,
+    tile_selected: bool,
+    state: &crate::shell::desktop::workbench::pane_model::NodePaneState,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let focused_selection = graph_app.focused_selection();
+    let blocked = graph_app.runtime_block_state_for_node(state.node).is_some();
+    let degraded = matches!(state.render_mode, TileRenderMode::Placeholder);
+    let selected = focused_selection.contains(&state.node);
 
-            for child in &linear.children {
-                push_nodes(
-                    tiles_tree,
-                    graph_app,
-                    *child,
-                    active,
-                    Some(ux_node_id.as_str()),
-                    node_rects,
-                    node_attach_attempts,
-                    semantic_nodes,
-                    presentation_nodes,
-                    trace_nodes,
-                );
-            }
-        }
-        Tile::Container(Container::Grid(grid)) => {
-            let grid_children_count = grid.children().count();
-            semantic_nodes.push(UxSemanticNode {
-                ux_node_id: ux_node_id.clone(),
-                parent_ux_node_id: parent_ux_node_id.map(str::to_string),
-                role: UxNodeRole::SplitContainer,
-                label: format!("Grid ({})", grid_children_count),
-                state: UxNodeState {
-                    focused,
-                    selected: false,
-                    blocked: false,
-                    degraded: false,
-                },
-                allowed_actions: vec![UxAction::Focus],
-                domain: UxDomainIdentity::Workbench,
-            });
-            presentation_nodes.push(UxPresentationNode {
-                ux_node_id: ux_node_id.clone(),
-                bounds: None,
-                render_mode: None,
-                z_pass: "workbench.grid",
-                style_flags: vec!["container:grid"],
-                transient_flags: Vec::new(),
-            });
-            trace_nodes.push(UxTraceNode {
-                ux_node_id: ux_node_id.clone(),
-                event_route: "workbench.grid_route",
-                backend_path: "egui_tiles",
-                diagnostics_counter: grid_children_count as u64,
-            });
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: ux_node_id.to_string(),
+        parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+        role: UxNodeRole::NodePane,
+        label: format!("Node Pane {:?}", state.node),
+        state: UxNodeState {
+            focused,
+            selected: selected || tile_selected,
+            blocked,
+            degraded,
+        },
+        allowed_actions: vec![
+            UxAction::Focus,
+            UxAction::Open,
+            UxAction::Close,
+            UxAction::SplitHorizontal,
+        ],
+        domain: UxDomainIdentity::Node {
+            node_key: state.node,
+            pane_id: Some(state.pane_id),
+            lifecycle: node_lifecycle_for_key(graph_app, state.node),
+            attach_attempt: node_attach_attempts.get(&state.node).copied(),
+        },
+    });
+    let bounds = node_rects
+        .get(&state.node)
+        .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: ux_node_id.to_string(),
+        bounds,
+        render_mode: Some(state.render_mode),
+        z_pass: "workbench.content",
+        style_flags: presentation_style_flags_for_mode(
+            &["surface:node"],
+            state.presentation_mode,
+        ),
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: ux_node_id.to_string(),
+        event_route: "workbench.node_route",
+        backend_path: match state.render_mode {
+            TileRenderMode::CompositedTexture => "viewer.composited",
+            TileRenderMode::NativeOverlay => "viewer.native_overlay",
+            TileRenderMode::EmbeddedEgui => "viewer.embedded_egui",
+            TileRenderMode::Placeholder => "viewer.placeholder",
+        },
+        diagnostics_counter: u64::from(focused),
+    });
+}
 
-            for child in grid.children() {
-                push_nodes(
-                    tiles_tree,
-                    graph_app,
-                    *child,
-                    active,
-                    Some(ux_node_id.as_str()),
-                    node_rects,
-                    node_attach_attempts,
-                    semantic_nodes,
-                    presentation_nodes,
-                    trace_nodes,
-                );
-            }
-        }
+/// Emit container entry + recurse into children via the walker.
+#[allow(clippy::too_many_arguments)]
+fn push_container_nodes(
+    walker: &dyn super::ux_tree_source::PaneTreeWalker,
+    graph_app: &GraphBrowserApp,
+    ux_node_id: &str,
+    parent_ux_node_id: Option<&str>,
+    focused: bool,
+    kind: super::ux_tree_source::ContainerKind,
+    children: &[super::ux_tree_source::UxPaneHandle],
+    label_override: Option<&str>,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    use super::ux_tree_source::ContainerKind;
+
+    let child_count = children.len();
+    let (role, label, z_pass, style_flag, route) = match kind {
+        ContainerKind::Tabs => (
+            UxNodeRole::TabContainer,
+            label_override
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("Tabs ({child_count})")),
+            "workbench.tabs",
+            "container:tabs",
+            "workbench.tabs_route",
+        ),
+        ContainerKind::Linear => (
+            UxNodeRole::SplitContainer,
+            format!("Split ({child_count})"),
+            "workbench.split",
+            "container:linear",
+            "workbench.split_route",
+        ),
+        ContainerKind::Grid => (
+            UxNodeRole::SplitContainer,
+            format!("Grid ({child_count})"),
+            "workbench.grid",
+            "container:grid",
+            "workbench.grid_route",
+        ),
+    };
+
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: ux_node_id.to_string(),
+        parent_ux_node_id: parent_ux_node_id.map(str::to_string),
+        role,
+        label,
+        state: UxNodeState {
+            focused,
+            selected: false,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Focus],
+        domain: UxDomainIdentity::Workbench,
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: ux_node_id.to_string(),
+        bounds: None,
+        render_mode: None,
+        z_pass,
+        style_flags: vec![style_flag],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: ux_node_id.to_string(),
+        event_route: route,
+        backend_path: "egui_tiles",
+        diagnostics_counter: child_count as u64,
+    });
+
+    for child in children {
+        push_nodes(
+            walker,
+            graph_app,
+            *child,
+            Some(ux_node_id),
+            node_rects,
+            node_attach_attempts,
+            semantic_nodes,
+            presentation_nodes,
+            trace_nodes,
+        );
     }
 }
 
