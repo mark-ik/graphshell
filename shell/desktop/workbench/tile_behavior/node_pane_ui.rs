@@ -45,7 +45,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         view_id: crate::app::GraphViewId,
     ) {
         let pane_rect = ui.max_rect();
-        let actions = render::render_graph_in_ui_collect_actions(
+        let actions = render::render_graph_canvas_in_ui(
             ui,
             self.graph_app,
             view_id,

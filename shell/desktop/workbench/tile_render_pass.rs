@@ -51,7 +51,8 @@ pub(crate) struct TileRenderPassArgs<'a> {
     /// (Phase E) and the dual-write target for tile mutations (Phase B).
     /// Rects still come from egui_tiles during migration.
     pub graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub graph_search_matches: &'a HashSet<NodeKey>,
     pub active_search_match: Option<NodeKey>,
@@ -90,20 +91,6 @@ fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind
         .unwrap_or_default()
 }
 
-fn use_graph_canvas_live_path() -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        return crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
-            .profile
-            .use_graph_canvas_renderer;
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        false
-    }
-}
-
 /// Render a specialty graphlet canvas for a Navigator host using a specific
 /// `view_id` (whose `graphlet_node_mask` already constrains visible nodes).
 /// Search filtering is not applied — the graphlet mask is the scope.
@@ -116,27 +103,15 @@ pub(crate) fn render_specialty_graph_in_ui(
     view_id: crate::app::GraphViewId,
 ) -> Vec<GraphIntent> {
     let empty_matches: HashSet<NodeKey> = HashSet::new();
-    let actions = if use_graph_canvas_live_path() {
-        render::render_graph_canvas_in_ui(
-            ui,
-            graph_app,
-            view_id,
-            &empty_matches,
-            None,
-            crate::app::SearchDisplayMode::Highlight,
-            false,
-        )
-    } else {
-        render::render_graph_in_ui_collect_actions(
-            ui,
-            graph_app,
-            view_id,
-            &empty_matches,
-            None,
-            crate::app::SearchDisplayMode::Highlight,
-            false,
-        )
-    };
+    let actions = render::render_graph_canvas_in_ui(
+        ui,
+        graph_app,
+        view_id,
+        &empty_matches,
+        None,
+        crate::app::SearchDisplayMode::Highlight,
+        false,
+    );
     let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
     let mut post_render_intents = Vec::new();
     let mut pending_open_nodes = Vec::new();
@@ -194,27 +169,7 @@ pub(crate) fn render_primary_graph_in_ui(
 ) -> Vec<GraphIntent> {
     let view_id = primary_graph_view_id(graph_app, tiles_tree);
 
-    // M2 graph-canvas path: when enabled, use the portable graph-canvas
-    // pipeline instead of egui_graphs for scene derivation, painting, and
-    // interaction. Toggle via `use_graph_canvas_renderer` on the canvas profile.
-    if use_graph_canvas_live_path() {
-        let actions = render::render_graph_canvas_in_ui(
-            ui,
-            graph_app,
-            view_id,
-            graph_search_matches,
-            active_search_match,
-            if graph_search_filter_mode {
-                SearchDisplayMode::Filter
-            } else {
-                SearchDisplayMode::Highlight
-            },
-            search_query_active,
-        );
-        return render::intents_from_graph_actions(actions);
-    }
-
-    let actions = render::render_graph_in_ui_collect_actions(
+    let actions = render::render_graph_canvas_in_ui(
         ui,
         graph_app,
         view_id,
@@ -661,11 +616,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         *focused_node_hint = None;
         None
     } else {
-        tile_compositor::activate_focused_node_for_frame(
-            window,
-            graph_app,
-            focused_node_hint,
-        );
+        tile_compositor::activate_focused_node_for_frame(window, graph_app, focused_node_hint);
 
         if let Some(node_key) = *focused_node_hint
             && graph_app.get_webview_for_node(node_key).is_none()
