@@ -255,7 +255,7 @@ impl Default for CanvasRegistry {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
-                use_graph_canvas_renderer: false,
+                use_graph_canvas_renderer: true,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
@@ -356,7 +356,7 @@ mod tests {
                     label_culling_enabled: true,
                     edge_lod: EdgeLodPolicy::SkipLabels,
                 },
-                use_graph_canvas_renderer: false,
+                use_graph_canvas_renderer: true,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
@@ -458,7 +458,7 @@ mod tests {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
-                use_graph_canvas_renderer: false,
+                use_graph_canvas_renderer: true,
                 subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
