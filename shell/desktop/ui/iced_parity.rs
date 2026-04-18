@@ -52,9 +52,8 @@ mod tests {
             pressed: true,
             modifiers: egui::Modifiers::default(),
         };
-        let iced_event = iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
-            iced::mouse::Button::Left,
-        ));
+        let iced_event =
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left));
 
         let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");
         let from_iced = from_iced_event(&iced_event).expect("iced translates");
@@ -141,9 +140,13 @@ mod tests {
         // egui port bundle needs real toast + clipboard holders.
         let mut toasts = egui_notify::Toasts::default();
         let mut clipboard: Option<arboard::Clipboard> = None;
+        let mut pending_webview_a11y_updates = std::collections::HashMap::new();
+        let mut pending_accesskit_focus_requests = Vec::new();
         let mut egui_ports = EguiHostPorts {
             toasts: &mut toasts,
             clipboard: &mut clipboard,
+            pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
+            pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
         };
         let mut iced_ports = IcedHostPorts;
 
@@ -168,16 +171,8 @@ mod tests {
 
         // Underlying runtime state agrees.
         assert_eq!(
-            runtime_egui
-                .graph_app
-                .domain_graph()
-                .nodes()
-                .count(),
-            runtime_iced
-                .graph_app
-                .domain_graph()
-                .nodes()
-                .count(),
+            runtime_egui.graph_app.domain_graph().nodes().count(),
+            runtime_iced.graph_app.domain_graph().nodes().count(),
         );
     }
 
@@ -191,9 +186,7 @@ mod tests {
     #[test]
     fn graph_tree_walker_snapshot_emits_pane_entries() {
         use crate::graph::NodeKey;
-        use crate::shell::desktop::workbench::ux_tree::{
-            UxNodeRole, build_snapshot_with_walker,
-        };
+        use crate::shell::desktop::workbench::ux_tree::{UxNodeRole, build_snapshot_with_walker};
         use crate::shell::desktop::workbench::ux_tree_source::GraphTreeWalker;
         use graph_tree::{Lifecycle, MemberEntry, Provenance, TreeTopology};
 
@@ -203,7 +196,10 @@ mod tests {
         let mut topology = TreeTopology::<NodeKey>::new();
         topology.attach_root(node);
         let tree = graph_tree::GraphTree::<NodeKey>::from_members(
-            vec![(node, MemberEntry::new(Lifecycle::Active, Provenance::Anchor))],
+            vec![(
+                node,
+                MemberEntry::new(Lifecycle::Active, Provenance::Anchor),
+            )],
             topology,
             Vec::new(),
             graph_tree::LayoutMode::TreeStyleTabs,
@@ -261,9 +257,13 @@ mod tests {
 
         let mut toasts = egui_notify::Toasts::default();
         let mut clipboard: Option<arboard::Clipboard> = None;
+        let mut pending_webview_a11y_updates = std::collections::HashMap::new();
+        let mut pending_accesskit_focus_requests = Vec::new();
         let mut egui_ports = EguiHostPorts {
             toasts: &mut toasts,
             clipboard: &mut clipboard,
+            pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
+            pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
         };
         let mut iced_ports = IcedHostPorts;
 
