@@ -172,7 +172,7 @@ fn graph_search_history_pushes_previous_search_when_request_changes() {
     app.workspace.graph_runtime.active_graph_search_origin =
         crate::app::GraphSearchOrigin::SemanticTag;
 
-    super::maybe_push_graph_search_history(
+    super::graph_search_flow_phase::maybe_push_graph_search_history(
         &mut app,
         &crate::app::GraphSearchRequest {
             query: "udc:519.6".to_string(),
@@ -241,7 +241,7 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
 
     let mut matches = Vec::new();
     let mut active_index = None;
-    super::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+    super::graph_search_flow_phase::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
 
     assert!(matches.contains(&anchor));
     assert!(matches.contains(&far));
@@ -300,7 +300,7 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
 
     let mut matches = Vec::new();
     let mut active_index = None;
-    super::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+    super::graph_search_flow_phase::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
 
     assert!(matches.contains(&anchor));
     assert!(matches.contains(&neighbor));
