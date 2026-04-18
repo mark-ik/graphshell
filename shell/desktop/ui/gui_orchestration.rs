@@ -3,15 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::{Receiver, Sender};
-
-use arboard::Clipboard;
 
 use crate::app::{
-    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
-    GraphSearchOrigin, GraphSearchRequest, LifecycleCause, NodeStatusNoticeRequest,
-    PendingTileOpenMode, SearchDisplayMode, UiNotificationLevel, UndoBoundaryReason,
-    WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry, GraphSearchOrigin, GraphSearchRequest,
+    LifecycleCause, PendingTileOpenMode, SearchDisplayMode, UndoBoundaryReason, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -23,7 +18,7 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
     CHANNEL_UX_FOCUS_REALIZATION_MISMATCH, CHANNEL_UX_FOCUS_RETURN_FALLBACK,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
@@ -31,12 +26,11 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::graph_search_ui::{self, GraphSearchUiArgs};
 use crate::shell::desktop::ui::gui_frame::ToolbarDialogPhaseArgs;
-use crate::shell::desktop::ui::gui_frame::{self, PreFrameIngestArgs};
+use crate::shell::desktop::ui::gui_frame::{self};
 use crate::shell::desktop::ui::gui_state::{
     LocalFocusTarget, RuntimeFocusAuthorityState, ToolbarState,
 };
 use crate::shell::desktop::ui::nav_targeting;
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
@@ -54,6 +48,8 @@ mod clipboard_flow;
 mod focus_realizer;
 #[path = "gui/graph_search_orchestration.rs"]
 mod graph_search_orchestration;
+#[path = "gui/pre_frame_flow.rs"]
+mod pre_frame_flow;
 #[path = "gui/toast_flow.rs"]
 mod toast_flow;
 #[path = "gui/workbench_intent_interceptor.rs"]
@@ -66,6 +62,7 @@ pub(crate) use clipboard_flow::{
     clipboard_copy_missing_node_failure_text, clipboard_copy_success_text,
     handle_pending_clipboard_copy_requests,
 };
+pub(crate) use pre_frame_flow::{PreFramePhaseOutput, run_pre_frame_phase};
 pub(crate) use toast_flow::{ToastsAdapter, handle_pending_node_status_notices};
 
 use focus_realizer::FocusRealizer;
@@ -127,48 +124,6 @@ const UX_DISPATCH_NODE_WORKBENCH: u64 = 1;
 const UX_DISPATCH_NODE_COMMAND_SURFACE: u64 = 2;
 const UX_DISPATCH_NODE_TOOL_SURFACE: u64 = 3;
 const UX_DISPATCH_NODE_GRAPH_SURFACE: u64 = 4;
-
-pub(crate) struct PreFramePhaseOutput {
-    pub(crate) frame_intents: Vec<GraphIntent>,
-    pub(crate) responsive_webviews: HashSet<WebViewId>,
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_pre_frame_phase(
-    ctx: &egui::Context,
-    graph_app: &mut GraphBrowserApp,
-    state: &RunningAppState,
-    window: &EmbedderWindow,
-    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    thumbnail_capture_tx: &Sender<ThumbnailCaptureResult>,
-    thumbnail_capture_rx: &Receiver<ThumbnailCaptureResult>,
-    thumbnail_capture_in_flight: &mut HashSet<WebViewId>,
-    command_palette_toggle_requested: &mut bool,
-) -> PreFramePhaseOutput {
-    let mut frame_intents = Vec::new();
-    if *command_palette_toggle_requested {
-        *command_palette_toggle_requested = false;
-        toolbar_routing::request_command_palette_toggle(graph_app);
-    }
-
-    let pre_frame = gui_frame::ingest_pre_frame(
-        PreFrameIngestArgs {
-            ctx,
-            graph_app,
-            app_state: state,
-            window,
-            favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
-            thumbnail_capture_in_flight,
-        },
-        &mut frame_intents,
-    );
-    PreFramePhaseOutput {
-        frame_intents,
-        responsive_webviews: pre_frame.responsive_webviews,
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_graph_search_phase(
