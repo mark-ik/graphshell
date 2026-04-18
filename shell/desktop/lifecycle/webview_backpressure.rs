@@ -9,7 +9,10 @@ use std::time::{Duration, Instant};
 
 use backon::{BackoffBuilder, ExponentialBuilder};
 use log::warn;
-use servo::{OffscreenRenderingContext, RenderingContext, WebViewId, WindowRenderingContext};
+use servo::{
+    OffscreenRenderingContext, RenderingContext, RenderingContextCore, WebViewId,
+    WindowRenderingContext,
+};
 use url::Url;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason, RuntimeEvent};

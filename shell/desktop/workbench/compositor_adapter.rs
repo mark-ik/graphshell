@@ -77,7 +77,7 @@ use dpi::PhysicalSize;
 use egui::{Area, Context, Id, LayerId, Order, Rect as EguiRect, Stroke, StrokeKind};
 use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
-use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
+use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, RenderingContextCore, WebView};
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED;
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED;
