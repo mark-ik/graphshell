@@ -6,6 +6,8 @@ pub(crate) mod caches;
 pub(crate) mod cli;
 pub(crate) mod control_panel;
 pub(crate) mod diagnostics;
+#[cfg(test)]
+pub(crate) mod diagnostics_coverage;
 pub(crate) mod nip07_bridge;
 pub(crate) mod protocol_probe;
 pub(crate) mod protocols;
