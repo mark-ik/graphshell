@@ -379,12 +379,30 @@ pub(crate) fn clear_snapshot() {
     }
 }
 
+/// Host-neutral snapshot builder — takes a `PaneTreeWalker`. Iced and
+/// any future host call this variant directly; the tiles-backed
+/// compatibility wrapper below keeps existing egui-side callers
+/// working unchanged during the migration.
+pub(crate) fn build_snapshot_with_walker(
+    walker: &dyn PaneTreeWalker,
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+) -> UxTreeSnapshot {
+    build_snapshot_with_walker_and_rects(walker, graph_app, build_duration_us, &HashMap::new())
+}
+
+/// Tiles-backed convenience: constructs a `TilesTreeWalker` and
+/// delegates to the host-neutral builder. Preserved so existing
+/// callers (host pipeline, tests, webdriver) don't churn in a single
+/// commit. Follow-on cleanup migrates each caller onto
+/// `build_snapshot_with_walker` or retires it alongside tiles_tree.
 pub(crate) fn build_snapshot(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
-    build_snapshot_with_rects(tiles_tree, graph_app, build_duration_us, &HashMap::new())
+    let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
+    build_snapshot_with_walker(&walker, graph_app, build_duration_us)
 }
 
 /// Host-neutral snapshot builder — M6 §5.1 first step.
@@ -500,17 +518,22 @@ fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
+/// Tiles-backed convenience for `build_snapshot_with_walker_and_rects`.
 pub(crate) fn build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> UxTreeSnapshot {
-    build_snapshot_with_rects_inner(tiles_tree, graph_app, build_duration_us, node_rects)
+    let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
+    build_snapshot_with_walker_and_rects(&walker, graph_app, build_duration_us, node_rects)
 }
 
-fn build_snapshot_with_rects_inner(
-    tiles_tree: &Tree<TileKind>,
+/// Host-neutral snapshot builder with per-pane rects. The core of the
+/// uxtree pipeline — both egui and iced pass their own
+/// `PaneTreeWalker` impl.
+pub(crate) fn build_snapshot_with_walker_and_rects(
+    walker: &dyn PaneTreeWalker,
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
@@ -522,7 +545,6 @@ fn build_snapshot_with_rects_inner(
         }
     });
 
-    let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
     let node_attach_attempts = take_node_pane_attach_attempt_metadata();
 
     let mut snapshot = root_snapshot(build_duration_us, false, Vec::new());
@@ -532,7 +554,7 @@ fn build_snapshot_with_rects_inner(
 
     if let Some(root) = walker.root() {
         push_nodes(
-            &walker,
+            walker,
             graph_app,
             root,
             Some(UX_TREE_WORKBENCH_ROOT_ID),
@@ -567,14 +589,27 @@ fn build_snapshot_with_rects_inner(
     snapshot
 }
 
+/// Tiles-backed convenience for `try_build_snapshot_with_walker_and_rects`.
 pub(crate) fn try_build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> Result<UxTreeSnapshot, String> {
+    let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
+    try_build_snapshot_with_walker_and_rects(&walker, graph_app, build_duration_us, node_rects)
+}
+
+/// Host-neutral panic-safe snapshot builder. Returns the panic message
+/// on failure so the host can fall back to a degraded snapshot.
+pub(crate) fn try_build_snapshot_with_walker_and_rects(
+    walker: &dyn PaneTreeWalker,
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+    node_rects: &HashMap<NodeKey, egui::Rect>,
+) -> Result<UxTreeSnapshot, String> {
     catch_unwind(AssertUnwindSafe(|| {
-        build_snapshot_with_rects_inner(tiles_tree, graph_app, build_duration_us, node_rects)
+        build_snapshot_with_walker_and_rects(walker, graph_app, build_duration_us, node_rects)
     }))
     .map_err(panic_payload_message)
 }
