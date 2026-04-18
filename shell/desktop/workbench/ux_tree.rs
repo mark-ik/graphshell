@@ -1821,7 +1821,7 @@ fn push_nodes(
     }
 }
 
-fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
+pub(crate) fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
     match tile {
         Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),

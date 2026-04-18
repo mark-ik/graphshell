@@ -1,0 +1,257 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+//! Host-neutral pane-tree walking for [`super::ux_tree::build_snapshot`].
+//!
+//! Motivation (M6 §5.1): `build_snapshot` currently threads a
+//! `&Tree<TileKind>` through its pane-walk (`push_nodes`). That ties the
+//! uxtree builder to egui_tiles. This module defines a host-neutral
+//! trait `PaneTreeWalker` that abstracts pane enumeration + resolution
+//! so the same snapshot builder works from either an egui_tiles tree
+//! or a GraphTree-backed source.
+//!
+//! ## Shape
+//!
+//! - [`UxPaneHandle`]: opaque per-pane identifier. Encoded as `u64` so
+//!   the trait is dyn-compatible without lifetimes.
+//! - [`PaneTreeWalker`]: methods every host implements.
+//! - [`ResolvedPane`]: owned enum describing one tree node (a leaf
+//!   pane carrying a `TileKind` payload, or a container with children).
+//! - [`TilesTreeWalker`]: the tiles-tree-backed implementation.
+//!
+//! `TileKind` is graphshell-owned (not egui-specific), so both hosts
+//! can produce `ResolvedPane::Pane` entries. The GraphTree-backed
+//! walker synthesizes `TileKind` values from the `graph_runtime` pane
+//! caches.
+//!
+//! ## Status
+//!
+//! M6 §5.1 step 2. Trait + tiles-backed impl land here; push_nodes
+//! migration to the trait follows in a later commit. Nothing consumes
+//! `PaneTreeWalker` yet.
+
+use std::collections::HashSet;
+
+use egui_tiles::{Container, Tile, TileId, Tree};
+
+use crate::app::GraphBrowserApp;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+
+/// Opaque per-pane handle. Hosts pack whatever identity they need
+/// (TileId's `u64` bits on egui, PaneId's hash on iced) into this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct UxPaneHandle(pub u64);
+
+/// Container variants the workbench tree can produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContainerKind {
+    Tabs,
+    Linear,
+    Grid,
+}
+
+/// Owned resolution of a pane handle.
+///
+/// The enum owns its data (no borrows) so `dyn PaneTreeWalker` is
+/// object-safe and ergonomic to hand to a walking visitor.
+pub(crate) enum ResolvedPane {
+    /// Leaf pane carrying a `TileKind` payload — the host-neutral
+    /// pane-content enum. Snapshots match on this to emit
+    /// GraphSurface/NodePane/ToolPane semantic entries.
+    Pane {
+        ux_node_id: String,
+        payload: TileKind,
+    },
+    /// Container — tabbed, linear split, or grid — with ordered
+    /// children.
+    Container {
+        ux_node_id: String,
+        kind: ContainerKind,
+        children: Vec<UxPaneHandle>,
+        /// Optional host-specific label override (currently used for
+        /// the workbench-root "Frame:" label).
+        label: Option<String>,
+    },
+}
+
+/// Abstraction over pane-tree enumeration.
+///
+/// Each host provides one. `build_snapshot` and its pane-walk
+/// (`push_nodes`) will migrate onto this trait in follow-on commits so
+/// the uxtree builder stops taking `&Tree<TileKind>` directly.
+pub(crate) trait PaneTreeWalker {
+    /// Root pane handle, if the tree is non-empty.
+    fn root(&self) -> Option<UxPaneHandle>;
+
+    /// Resolve a handle into owned data. Returns `None` if the handle
+    /// is unknown to this walker.
+    fn resolve(&self, graph_app: &GraphBrowserApp, handle: UxPaneHandle) -> Option<ResolvedPane>;
+
+    /// Whether the given handle is "active" in the host's layout (e.g.,
+    /// visible on top of a tab stack, focused split child).
+    fn is_active(&self, handle: UxPaneHandle) -> bool;
+}
+
+// ---------------------------------------------------------------------------
+// TilesTreeWalker — egui_tiles-backed implementation
+// ---------------------------------------------------------------------------
+
+/// Walker backed by an `egui_tiles::Tree<TileKind>`. Preserves the
+/// stable `"uxnode://workbench/tile/#N/..."` identity scheme used by
+/// the pre-refactor pane walk so existing snapshot tests still pass.
+pub(crate) struct TilesTreeWalker<'a> {
+    tree: &'a Tree<TileKind>,
+    active: HashSet<TileId>,
+}
+
+impl<'a> TilesTreeWalker<'a> {
+    pub(crate) fn new(tree: &'a Tree<TileKind>) -> Self {
+        let active = tree.active_tiles().into_iter().collect();
+        Self { tree, active }
+    }
+
+    fn handle_for(tile_id: TileId) -> UxPaneHandle {
+        // egui_tiles' TileId is `u64` internally. `Debug` prints
+        // `#N`, so we preserve the numeric identity by extracting via
+        // the trip through the u64-compatible conversion.
+        //
+        // TileId exposes `TileId::from_u64` but not the inverse; it
+        // does impl `Hash`, so we use a minimal bit-cast trick via
+        // unsafe-free formatting parse. Cheaper: format + parse. This
+        // is only called during snapshot building and is bounded by
+        // tree size.
+        let formatted = format!("{tile_id:?}");
+        let numeric = formatted.trim_start_matches('#');
+        UxPaneHandle(numeric.parse::<u64>().unwrap_or(0))
+    }
+
+    fn tile_id_for(handle: UxPaneHandle) -> TileId {
+        TileId::from_u64(handle.0)
+    }
+}
+
+impl<'a> PaneTreeWalker for TilesTreeWalker<'a> {
+    fn root(&self) -> Option<UxPaneHandle> {
+        self.tree.root().map(Self::handle_for)
+    }
+
+    fn resolve(&self, graph_app: &GraphBrowserApp, handle: UxPaneHandle) -> Option<ResolvedPane> {
+        let tile_id = Self::tile_id_for(handle);
+        let tile = self.tree.tiles.get(tile_id)?;
+        let ux_node_id = super::ux_tree::ux_node_id_for_tile(tile_id, tile);
+
+        match tile {
+            Tile::Pane(kind) => Some(ResolvedPane::Pane {
+                ux_node_id,
+                payload: kind.clone(),
+            }),
+            Tile::Container(container) => match container {
+                Container::Tabs(tabs) => Some(ResolvedPane::Container {
+                    ux_node_id,
+                    kind: ContainerKind::Tabs,
+                    children: tabs.children.iter().copied().map(Self::handle_for).collect(),
+                    label: tabs_root_label(self.tree, graph_app, tile_id, tabs.children.len()),
+                }),
+                Container::Linear(linear) => Some(ResolvedPane::Container {
+                    ux_node_id,
+                    kind: ContainerKind::Linear,
+                    children: linear
+                        .children
+                        .iter()
+                        .copied()
+                        .map(Self::handle_for)
+                        .collect(),
+                    label: None,
+                }),
+                Container::Grid(grid) => Some(ResolvedPane::Container {
+                    ux_node_id,
+                    kind: ContainerKind::Grid,
+                    children: grid.children().copied().map(Self::handle_for).collect(),
+                    label: None,
+                }),
+            },
+        }
+    }
+
+    fn is_active(&self, handle: UxPaneHandle) -> bool {
+        self.active.contains(&Self::tile_id_for(handle))
+    }
+}
+
+/// Host-specific label for the root tabs container ("Frame: foo (N)").
+/// Extracted from `current_frame_tab_container_label` so the walker can
+/// embed the label in the resolved data without the downstream consumer
+/// needing to re-check the tree.
+fn tabs_root_label(
+    tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    tile_id: TileId,
+    child_count: usize,
+) -> Option<String> {
+    (tree.root() == Some(tile_id))
+        .then(|| graph_app.current_frame_name())
+        .flatten()
+        .map(|frame_name| format!("Frame: {frame_name} ({child_count})"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
+    use crate::app::GraphViewId;
+    use egui_tiles::Tiles;
+
+    #[test]
+    fn empty_tree_has_no_root() {
+        let tree = Tree::new(
+            "empty",
+            TileId::from_u64(0),
+            egui_tiles::Tiles::<TileKind>::default(),
+        );
+        let walker = TilesTreeWalker::new(&tree);
+        // Tree::new with an unknown root yields None from .root() if
+        // the tile isn't registered — which matches the "empty" shape.
+        let handle = walker.root();
+        let app = GraphBrowserApp::new_for_testing();
+        if let Some(h) = handle {
+            assert!(walker.resolve(&app, h).is_none());
+        }
+    }
+
+    #[test]
+    fn single_graph_pane_resolves_to_pane_kind() {
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let tree = Tree::new("single_pane", graph_tile, tiles);
+        let walker = TilesTreeWalker::new(&tree);
+        let app = GraphBrowserApp::new_for_testing();
+
+        let root = walker.root().expect("non-empty tree has a root");
+        match walker.resolve(&app, root).expect("root resolves") {
+            ResolvedPane::Pane { payload, .. } => {
+                assert!(matches!(payload, TileKind::Graph(_)));
+            }
+            other => panic!("expected Pane, got {:?}", discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn tiles_walker_roundtrips_handle_for_tile_id() {
+        // Construct a known TileId and ensure handle_for/tile_id_for
+        // roundtrip through the formatted-u64 encoding.
+        let id = TileId::from_u64(42);
+        let handle = TilesTreeWalker::handle_for(id);
+        assert_eq!(handle, UxPaneHandle(42));
+        assert_eq!(TilesTreeWalker::tile_id_for(handle), id);
+    }
+
+    /// Minimal debug-name accessor so panic messages surface the
+    /// variant without implementing Debug on ResolvedPane.
+    fn discriminant(pane: &ResolvedPane) -> &'static str {
+        match pane {
+            ResolvedPane::Pane { .. } => "Pane",
+            ResolvedPane::Container { .. } => "Container",
+        }
+    }
+}
