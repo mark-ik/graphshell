@@ -180,4 +180,36 @@ mod tests {
                 .count(),
         );
     }
+
+    /// Host-neutral `UxTreeSnapshot` parity — both hosts' runtimes produce
+    /// identical snapshots via `build_snapshot_host_neutral` after the
+    /// same tick. Pins §5.1's invariant: the non-pane portion of the
+    /// snapshot is host-independent.
+    #[test]
+    fn host_neutral_snapshot_parity_across_host_ports() {
+        use crate::shell::desktop::workbench::ux_tree::build_snapshot_host_neutral;
+
+        let input = FrameHostInput::default();
+
+        let mut runtime_egui = GraphshellRuntime::for_testing();
+        let mut runtime_iced = GraphshellRuntime::for_testing();
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<arboard::Clipboard> = None;
+        let mut egui_ports = EguiHostPorts {
+            toasts: &mut toasts,
+            clipboard: &mut clipboard,
+        };
+        let mut iced_ports = IcedHostPorts;
+
+        let _ = runtime_egui.tick(&input, &mut egui_ports);
+        let _ = runtime_iced.tick(&input, &mut iced_ports);
+
+        let snap_egui = build_snapshot_host_neutral(&runtime_egui.graph_app, 0);
+        let snap_iced = build_snapshot_host_neutral(&runtime_iced.graph_app, 0);
+
+        // Build durations zeroed; trace_summary's `build_duration_us` is
+        // the only time-varying field, and we passed 0 on both sides.
+        assert_eq!(snap_egui, snap_iced);
+    }
 }

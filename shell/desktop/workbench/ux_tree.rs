@@ -385,6 +385,52 @@ pub(crate) fn build_snapshot(
     build_snapshot_with_rects(tiles_tree, graph_app, build_duration_us, &HashMap::new())
 }
 
+/// Host-neutral snapshot builder — M6 §5.1 first step.
+///
+/// Produces the subset of the `UxTreeSnapshot` that does not require a
+/// tiles_tree walk: root node, radial palette, command-surface entries,
+/// and workbench semantic nodes. Any host (egui today, iced tomorrow)
+/// can call this directly from the shared `GraphshellRuntime`.
+///
+/// **Known gap**: pane-level semantic/presentation entries (node panes,
+/// graph panes, tool panes) still require the tiles_tree walk in
+/// [`build_snapshot`]. Follow-on work lifts the walk onto the GraphTree
+/// membership authority so both hosts share a single pane semantics
+/// path. Until then, iced snapshots emitted via this function will be
+/// missing pane entries — which is fine for M5 parity testing at the
+/// workbench/semantics level.
+pub(crate) fn build_snapshot_host_neutral(
+    graph_app: &GraphBrowserApp,
+    build_duration_us: u64,
+) -> UxTreeSnapshot {
+    let mut snapshot = root_snapshot(build_duration_us, false, Vec::new());
+    let mut semantic_nodes = std::mem::take(&mut snapshot.semantic_nodes);
+    let mut presentation_nodes = std::mem::take(&mut snapshot.presentation_nodes);
+    let mut trace_nodes = std::mem::take(&mut snapshot.trace_nodes);
+
+    append_radial_palette_nodes(
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
+    append_command_surface_nodes(
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
+    append_workbench_semantics_nodes(
+        graph_app,
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
+
+    snapshot.semantic_nodes = semantic_nodes;
+    snapshot.presentation_nodes = presentation_nodes;
+    snapshot.trace_nodes = trace_nodes;
+    snapshot
+}
+
 fn root_snapshot(
     build_duration_us: u64,
     degraded: bool,
@@ -2387,6 +2433,68 @@ mod tests {
         OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
         clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
     };
+
+    #[test]
+    fn host_neutral_builder_matches_tiles_builder_on_empty_tree() {
+        // With an empty tiles tree, the tile-walking builder adds no
+        // pane entries. In that configuration, the tiles-based builder
+        // and the host-neutral builder must produce identical
+        // snapshots — pinning the invariant that all non-pane content
+        // flows through the host-neutral path.
+        let mut harness = TestRegistry::new();
+        harness.tiles_tree = Tree::new(
+            "test_empty_tiles_tree",
+            TileId::from_u64(0),
+            egui_tiles::Tiles::default(),
+        );
+        // `Tree::new` with an unknown root id produces a tree whose
+        // `root()` resolves to `None`, matching the "no panes" case.
+        assert!(
+            harness.tiles_tree.root().is_none()
+                || harness.tiles_tree.tiles.get(harness.tiles_tree.root().unwrap()).is_none()
+        );
+
+        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
+        let host_neutral = build_snapshot_host_neutral(&harness.app, 42);
+
+        assert_eq!(host_neutral, tiles_snapshot);
+    }
+
+    #[test]
+    fn host_neutral_builder_is_strict_prefix_of_tiles_builder() {
+        // With a non-empty tiles tree, the host-neutral snapshot
+        // should still contain every non-pane entry from the
+        // tiles-based snapshot in the same order. The tiles snapshot
+        // adds extra pane entries that the host-neutral builder skips.
+        let harness = TestRegistry::new();
+        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
+        let host_neutral = build_snapshot_host_neutral(&harness.app, 42);
+
+        let non_pane: Vec<_> = tiles_snapshot
+            .semantic_nodes
+            .iter()
+            .filter(|n| !matches!(n.role, UxNodeRole::GraphSurface | UxNodeRole::NodePane))
+            .cloned()
+            .collect();
+        assert_eq!(host_neutral.semantic_nodes, non_pane);
+    }
+
+    #[test]
+    fn host_neutral_builder_includes_root_radial_command_workbench() {
+        // Even without a tiles tree, the host-neutral builder always
+        // emits the workbench root. Radial/command/workbench-semantics
+        // content depends on published registries; the root entry is
+        // unconditional and serves as the structural anchor.
+        let harness = TestRegistry::new();
+        let snap = build_snapshot_host_neutral(&harness.app, 7);
+        let root = snap
+            .semantic_nodes
+            .iter()
+            .find(|n| n.ux_node_id == UX_TREE_WORKBENCH_ROOT_ID)
+            .expect("root semantic node should be present");
+        assert!(matches!(root.role, UxNodeRole::Workbench));
+        assert!(!root.state.degraded);
+    }
 
     #[test]
     fn snapshot_uses_single_canonical_id_space_across_layers() {
