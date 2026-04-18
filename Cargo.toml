@@ -98,7 +98,7 @@ image = { version = "0.25", default-features = false, features = ["avif", "rayon
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
-servo = { path = "../servo/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false }
+servo = { path = "../servo-wgpu/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
@@ -126,7 +126,7 @@ url = "2.5"
 uuid = { version = "1.23.0", features = ["serde", "v4"] }
 rand = "0.8"
 rand_09 = { package = "rand", version = "0.9" }
-webdriver_server = { path = "../servo/components/webdriver_server", package = "servo-webdriver-server" }
+webdriver_server = { path = "../servo-wgpu/components/webdriver_server", package = "servo-webdriver-server" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
@@ -152,7 +152,7 @@ ohos-window-manager-sys = { version = "0.1", features = ["api-14"] }
 xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
 
 [target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
-base = { path = "../servo/components/shared/base", package = "servo-base" }
+base = { path = "../servo-wgpu/components/shared/base", package = "servo-base" }
 nix = { version = "0.30", features = ["fs"] }
 serde_json = "1.0"
 surfman = { version = "0.12.0", features = ["sm-angle-default", "chains"] }
@@ -200,7 +200,7 @@ extism = "1.21.0"
 wasmparser = "0.240.0"
 pollster = "0.4.0"
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
-servo_allocator = { path = "../servo/components/allocator", package = "servo-allocator" }
+servo_allocator = { path = "../servo-wgpu/components/allocator", package = "servo-allocator" }
 surfman = { version = "0.12.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
 wry = { version = "0.55", optional = true }
@@ -212,7 +212,7 @@ rodio = { version = "0.20", optional = true, default-features = false }
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo = { path = "../servo/components/servo", features = ["no-wgl"] }
+servo = { path = "../servo-wgpu/components/servo", features = ["no-wgl"] }
 webview2-com = "0.38.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
@@ -235,7 +235,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-base = { path = "../servo/components/shared/base", package = "servo-base" }
+base = { path = "../servo-wgpu/components/shared/base", package = "servo-base" }
 graphshell-comms = { path = "crates/graphshell-comms", features = ["test-support"] }
 insta = "1"
 proptest = "1"
@@ -247,9 +247,18 @@ inventory = "0.3"
 wat = "1"
 
 [patch.crates-io]
-webrender = { path = "../webrender/webrender" }
-webrender_api = { path = "../webrender/webrender_api" }
-wr_malloc_size_of = { path = "../webrender/wr_malloc_size_of" }
+webrender = { path = "../webrender-wgpu/webrender" }
+webrender_api = { path = "../webrender-wgpu/webrender_api" }
+wr_malloc_size_of = { path = "../webrender-wgpu/wr_malloc_size_of" }
+
+# Servo-wgpu's Cargo.toml has this same patch, but `[patch]` sections
+# only take effect from the root manifest. Graphshell is the root when
+# we build, so we need to duplicate the redirect or cargo will pull
+# the old wgpu-28-based git revision alongside the local wgpu-29 path,
+# producing "two different versions of wgpu" type errors.
+[patch."https://github.com/mark-ik/wgpu-gui-bridge"]
+servo-wgpu-interop-adapter = { path = "../wgpu-gui-bridge/servo-wgpu-interop-adapter" }
+wgpu-native-texture-interop = { path = "../wgpu-gui-bridge/wgpu-native-texture-interop" }
 
 [[test]]
 name = "scenarios"

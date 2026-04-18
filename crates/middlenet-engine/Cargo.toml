@@ -21,7 +21,7 @@ tempfile = "3"
 html5ever = "0.27"
 taffy = "0.3"
 tiny-skia = "0.11"
-webrender = { path = "../../../webrender/webrender" }
+webrender = { path = "../../../webrender-wgpu/webrender" }
 
 parley = "0.8"
 
