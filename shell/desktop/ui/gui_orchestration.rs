@@ -52,6 +52,8 @@ mod graph_search_orchestration;
 mod pre_frame_flow;
 #[path = "gui/toast_flow.rs"]
 mod toast_flow;
+#[path = "gui/toolbar_phase_flow.rs"]
+mod toolbar_phase_flow;
 #[path = "gui/workbench_intent_interceptor.rs"]
 mod workbench_intent_interceptor;
 
@@ -64,6 +66,7 @@ pub(crate) use clipboard_flow::{
 };
 pub(crate) use pre_frame_flow::{PreFramePhaseOutput, run_pre_frame_phase};
 pub(crate) use toast_flow::{ToastsAdapter, handle_pending_node_status_notices};
+pub(crate) use toolbar_phase_flow::{run_keyboard_phase, run_toolbar_phase};
 
 use focus_realizer::FocusRealizer;
 
@@ -432,208 +435,12 @@ fn step_graph_search_active_match(
     *active_index = Some(next);
 }
 
-fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
-    match mode {
-        ToolbarOpenMode::Tab => TileOpenMode::Tab,
-        ToolbarOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
-    }
-}
-
 fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
     match mode {
         PendingTileOpenMode::Tab => TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
         PendingTileOpenMode::QuarterPane => TileOpenMode::QuarterPane,
         PendingTileOpenMode::HalfPane => TileOpenMode::HalfPane,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_keyboard_phase(
-    ctx: &egui::Context,
-    graph_app: &mut GraphBrowserApp,
-    graph_surface_focused: bool,
-    window: &EmbedderWindow,
-    tiles_tree: &mut Tree<TileKind>,
-    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    suppress_toggle_view: bool,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    gui_frame::handle_keyboard_phase(
-        gui_frame::KeyboardPhaseArgs {
-            ctx,
-            graph_app,
-            graph_surface_focused,
-            window,
-            tiles_tree,
-            viewer_surfaces,
-            tile_favicon_textures,
-            favicon_textures,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            responsive_webviews,
-            webview_creation_backpressure,
-            suppress_toggle_view,
-        },
-        frame_intents,
-        |tiles_tree,
-         graph_app,
-         window,
-         app_state,
-         rendering_context,
-         window_rendering_context,
-         viewer_surfaces,
-         responsive_webviews,
-         webview_creation_backpressure,
-         frame_intents| {
-            crate::shell::desktop::workbench::tile_view_ops::toggle_tile_view(ToggleTileViewArgs {
-                tiles_tree,
-                graph_app,
-                window,
-                app_state,
-                base_rendering_context: rendering_context,
-                window_rendering_context,
-                viewer_surfaces,
-                responsive_webviews,
-                webview_creation_backpressure,
-                lifecycle_intents: frame_intents,
-            });
-        },
-        |tiles_tree, viewer_surfaces, tile_favicon_textures, favicon_textures| {
-            crate::shell::desktop::workbench::tile_runtime::reset_runtime_webview_state(
-                tiles_tree,
-                viewer_surfaces,
-                tile_favicon_textures,
-                favicon_textures,
-            );
-        },
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn run_toolbar_phase(
-    ctx: &egui::Context,
-    winit_window: &Window,
-    state: &RunningAppState,
-    graph_app: &mut GraphBrowserApp,
-    control_panel: &mut ControlPanel,
-    #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
-    window: &EmbedderWindow,
-    tiles_tree: &mut Tree<TileKind>,
-    graph_tree: &mut graph_tree::GraphTree<NodeKey>,
-    graph_surface_focused: bool,
-    focus_authority: &RuntimeFocusAuthorityState,
-    local_widget_focus: &mut Option<LocalFocusTarget>,
-    toolbar_state: &mut ToolbarState,
-    focus_location_field_for_search: bool,
-    omnibar_search_session: &mut Option<OmnibarSearchSession>,
-    toasts: &mut egui_notify::Toasts,
-    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    frame_intents: &mut Vec<GraphIntent>,
-    open_node_tile_after_intents: &mut Option<TileOpenMode>,
-) -> (bool, bool) {
-    let toolbar_dialog_phase = gui_frame::handle_toolbar_dialog_phase(
-        ToolbarDialogPhaseArgs {
-            ctx,
-            winit_window,
-            state,
-            graph_app,
-            control_panel,
-            window,
-            tiles_tree,
-            graph_tree,
-            graph_surface_focused,
-            focus_authority,
-            local_widget_focus,
-            location: &mut toolbar_state.location,
-            location_dirty: &mut toolbar_state.location_dirty,
-            location_submitted: &mut toolbar_state.location_submitted,
-            focus_location_field_for_search,
-            show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
-            omnibar_search_session,
-            toasts,
-            viewer_surfaces,
-            tile_favicon_textures,
-            favicon_textures,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
-        },
-        frame_intents,
-    );
-    let toolbar_output = toolbar_dialog_phase.toolbar_output;
-    let is_graph_view = toolbar_dialog_phase.is_graph_view;
-    handle_toolbar_toggle_tile_view_request(
-        toolbar_output.toggle_tile_view_requested,
-        tiles_tree,
-        graph_app,
-        window,
-        app_state,
-        rendering_context,
-        window_rendering_context,
-        viewer_surfaces,
-        responsive_webviews,
-        webview_creation_backpressure,
-        frame_intents,
-    );
-    handle_toolbar_open_selected_mode_after_submit(
-        toolbar_output.open_selected_mode_after_submit,
-        open_node_tile_after_intents,
-    );
-
-    (toolbar_output.toolbar_visible, is_graph_view)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn handle_toolbar_toggle_tile_view_request(
-    toggle_tile_view_requested: bool,
-    tiles_tree: &mut Tree<TileKind>,
-    graph_app: &mut GraphBrowserApp,
-    window: &EmbedderWindow,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    frame_intents: &mut Vec<GraphIntent>,
-) {
-    if toggle_tile_view_requested && !graph_app.history_health_summary().preview_mode_active {
-        crate::shell::desktop::workbench::tile_view_ops::toggle_tile_view(ToggleTileViewArgs {
-            tiles_tree,
-            graph_app,
-            window,
-            app_state,
-            base_rendering_context: rendering_context,
-            window_rendering_context,
-            viewer_surfaces,
-            responsive_webviews,
-            webview_creation_backpressure,
-            lifecycle_intents: frame_intents,
-        });
-    }
-}
-
-fn handle_toolbar_open_selected_mode_after_submit(
-    open_selected_mode_after_submit: Option<ToolbarOpenMode>,
-    open_node_tile_after_intents: &mut Option<TileOpenMode>,
-) {
-    if let Some(open_mode) = open_selected_mode_after_submit {
-        *open_node_tile_after_intents = Some(open_mode_from_toolbar(open_mode));
     }
 }
 
