@@ -477,7 +477,7 @@ fn apply_canvas_region_focus_state(
     }
 }
 
-pub(super) fn apply_pane_activation_focus_state(
+pub(crate) fn apply_pane_activation_focus_state(
     runtime_state: &mut GraphshellRuntime,
     pane_id: Option<PaneId>,
 ) {
@@ -750,7 +750,8 @@ pub(crate) fn seed_transient_surface_return_target_from_authority(
 
 pub(super) fn sync_runtime_focus_authority_state(runtime: &mut GraphshellRuntime) {
     let local_widget_focus = runtime.focus_authority.local_widget_focus.clone();
-    let realized = workspace_runtime_focus_state(&runtime.graph_app, None, local_widget_focus, false);
+    let realized =
+        workspace_runtime_focus_state(&runtime.graph_app, None, local_widget_focus, false);
     runtime.focus_authority.realized_focus_state = Some(realized);
 }
 

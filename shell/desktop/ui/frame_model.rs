@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::graph::NodeKey;
+use crate::shell::desktop::ui::gui_state::ToolbarDraft;
 use crate::shell::desktop::workbench::compositor_adapter::OverlayStrokePass;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
@@ -127,16 +128,10 @@ pub(crate) struct ToolbarViewModel {
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
     /// Per-pane location-bar drafts. The host uses these to populate the
-    /// input widget when the active pane changes.
-    pub(crate) per_pane_drafts: HashMap<PaneId, ToolbarDraftSnapshot>,
-}
-
-/// Immutable snapshot of a per-pane toolbar draft, safe to share with the host.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ToolbarDraftSnapshot {
-    pub(crate) location: String,
-    pub(crate) location_dirty: bool,
-    pub(crate) location_submitted: bool,
+    /// input widget when the active pane changes. The draft type is shared
+    /// with the runtime's live bookkeeping (see `GraphshellRuntime::toolbar_drafts`);
+    /// hosts treat the values as read-only.
+    pub(crate) per_pane_drafts: HashMap<PaneId, ToolbarDraft>,
 }
 
 /// Which dialogs / overlays are open. Flags for booleans; detailed state for

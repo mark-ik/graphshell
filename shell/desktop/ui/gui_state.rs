@@ -14,7 +14,7 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::ui::frame_model::{
     DialogsViewModel, FocusRingSpec, FocusViewModel, FrameHostInput, FrameViewModel,
-    ToolbarDraftSnapshot, ToolbarViewModel,
+    ToolbarViewModel,
 };
 use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
 use crate::shell::desktop::ui::host_ports::HostPorts;
@@ -35,7 +35,7 @@ pub(crate) struct ToolbarState {
     pub(crate) can_go_forward: bool,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ToolbarDraft {
     pub(crate) location: String,
     pub(crate) location_dirty: bool,
@@ -375,20 +375,7 @@ impl GraphshellRuntime {
                 status_text: self.toolbar_state.status_text.clone(),
                 can_go_back: self.toolbar_state.can_go_back,
                 can_go_forward: self.toolbar_state.can_go_forward,
-                per_pane_drafts: self
-                    .toolbar_drafts
-                    .iter()
-                    .map(|(pane_id, draft)| {
-                        (
-                            *pane_id,
-                            ToolbarDraftSnapshot {
-                                location: draft.location.clone(),
-                                location_dirty: draft.location_dirty,
-                                location_submitted: draft.location_submitted,
-                            },
-                        )
-                    })
-                    .collect(),
+                per_pane_drafts: self.toolbar_drafts.clone(),
             },
             overlays: Vec::new(),
             dialogs: DialogsViewModel {

@@ -31,7 +31,7 @@ use super::gui_orchestration;
 use super::gui_state::{
     BookmarkImportDialogState, GraphshellRuntime, LocalFocusTarget, PaneRegionHint,
     PendingWebviewContextSurfaceRequest, RuntimeFocusAuthorityState, RuntimeFocusInputs,
-    RuntimeFocusInspector, RuntimeFocusState, ToolbarDraft, ToolbarState,
+    RuntimeFocusInspector, RuntimeFocusState, ToolbarState,
 };
 use super::persistence_ops;
 #[cfg(test)]
@@ -123,7 +123,7 @@ use update_frame_phases::ExecuteUpdateFrameArgs;
 #[allow(unused_imports)]
 pub(crate) use focus_state::{
     apply_focus_command, apply_graph_search_local_focus_state,
-    capture_command_surface_return_target_in_authority,
+    apply_pane_activation_focus_state, capture_command_surface_return_target_in_authority,
     capture_tool_surface_return_target_in_authority, desired_runtime_focus_state,
     realize_embedded_content_focus_from_authority, refresh_realized_runtime_focus_state,
     runtime_focus_inspector, seed_command_surface_return_target_from_authority,
@@ -277,13 +277,6 @@ fn apply_graph_surface_focus_state(
     active_graph_view: Option<GraphViewId>,
 ) {
     focus_state::apply_graph_surface_focus_state(runtime_state, active_graph_view)
-}
-
-fn apply_pane_activation_focus_state(
-    runtime_state: &mut GraphshellRuntime,
-    pane_id: Option<PaneId>,
-) {
-    focus_state::apply_pane_activation_focus_state(runtime_state, pane_id)
 }
 
 fn clear_embedded_content_focus(runtime: &mut GraphshellRuntime) {
@@ -776,35 +769,11 @@ impl EguiHost {
     }
 
     fn persist_active_toolbar_draft(&mut self) {
-        let Some(active_pane) = self.runtime.focus_authority.pane_activation else {
-            return;
-        };
-        self.runtime.toolbar_drafts.insert(
-            active_pane,
-            ToolbarDraft::from_toolbar_state(&self.runtime.toolbar_state),
-        );
+        gui_orchestration::persist_active_toolbar_draft(&mut self.runtime);
     }
 
     fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
-        let next_active_pane = window.focused_pane();
-        if self.runtime.focus_authority.pane_activation == next_active_pane {
-            return;
-        }
-
-        self.persist_active_toolbar_draft();
-        apply_pane_activation_focus_state(&mut self.runtime, next_active_pane);
-
-        let Some(active_pane) = next_active_pane else {
-            return;
-        };
-
-        let draft = self
-            .runtime
-            .toolbar_drafts
-            .entry(active_pane)
-            .or_insert_with(|| ToolbarDraft::from_toolbar_state(&self.runtime.toolbar_state))
-            .clone();
-        draft.apply_to_toolbar_state(&mut self.runtime.toolbar_state);
+        gui_orchestration::sync_active_toolbar_draft(&mut self.runtime, window.focused_pane());
     }
 
     pub(crate) fn request_browser_command(

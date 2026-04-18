@@ -74,6 +74,8 @@ mod pre_frame_flow;
 mod semantic_lifecycle_flow;
 #[path = "gui/toast_flow.rs"]
 mod toast_flow;
+#[path = "gui/toolbar_draft.rs"]
+mod toolbar_draft;
 #[path = "gui/toolbar_phase_flow.rs"]
 mod toolbar_phase_flow;
 #[path = "gui/workbench_dispatch_flow.rs"]
@@ -99,6 +101,7 @@ pub(crate) use graph_search_flow_phase::{
 pub(crate) use pre_frame_flow::{PreFramePhaseOutput, run_pre_frame_phase};
 pub(crate) use semantic_lifecycle_flow::run_semantic_lifecycle_phase;
 pub(crate) use toast_flow::{ToastsAdapter, handle_pending_node_status_notices};
+pub(crate) use toolbar_draft::{persist_active_toolbar_draft, sync_active_toolbar_draft};
 pub(crate) use toolbar_phase_flow::{run_keyboard_phase, run_toolbar_phase};
 pub(crate) use workbench_dispatch_flow::handle_tool_pane_intents;
 
