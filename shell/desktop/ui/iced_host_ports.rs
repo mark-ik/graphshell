@@ -222,13 +222,20 @@ impl HostAccessibilityPort for IcedHostPorts {
         _webview_id: WebViewId,
         _update: servo::accesskit::TreeUpdate,
     ) {
-        // todo(m5): route through iced_accesskit once that bridge is
-        // available, or buffer and flush on next frame as the egui
-        // adapter does.
+        // M6 §5.2 follow-on: iced's accesskit integration is not yet
+        // wired. Until it is, runtime-driven webview a11y tree updates
+        // are dropped on the iced host. This is documented as the
+        // blocker preventing chrome surfaces from landing in iced —
+        // see 2026-04-17_chrome_port_cleanup_plan.md §5.2.
+        //
+        // The egui host's shape (buffer on `IcedHost` + drain in frame
+        // prelude, mirroring `EguiHost::pending_webview_a11y_updates`)
+        // is the target when the bridge lands.
     }
 
     fn request_focus(&mut self, _node_id: accesskit::NodeId) {
-        // todo(m5): iced focus routing through winit's accesskit adapter.
+        // M6 §5.2 follow-on: same as above — iced focus requests
+        // through winit's accesskit adapter land with the bridge.
     }
 }
 

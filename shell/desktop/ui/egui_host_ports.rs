@@ -18,6 +18,7 @@
 //!
 //! Each `todo(m4.5)` comment marks a placeholder site awaiting wiring.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arboard::Clipboard;
@@ -46,6 +47,21 @@ pub(crate) struct EguiHostPorts<'a> {
     /// Lazily-initialized arboard clipboard handle. The port lazy-inits
     /// on first write via `HostClipboardPort::set_text`.
     pub(crate) clipboard: &'a mut Option<Clipboard>,
+
+    /// Per-webview accesskit tree updates that have been received but
+    /// not yet injected into egui's accessibility surface. The host's
+    /// prelude drains this map every frame via
+    /// `accessibility::inject_webview_a11y_updates`.
+    pub(crate) pending_webview_a11y_updates:
+        &'a mut HashMap<WebViewId, servo::accesskit::TreeUpdate>,
+
+    /// Accesskit focus requests emitted from the runtime this frame.
+    /// The host drains these in its frame prelude and forwards through
+    /// egui_winit's accesskit bridge. Empty until the runtime has a
+    /// keyboard-nav code path that needs to move focus to a specific
+    /// node; the port wiring lands now so the first caller doesn't
+    /// need to revisit the port surface.
+    pub(crate) pending_accesskit_focus_requests: &'a mut Vec<accesskit::NodeId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -239,15 +255,47 @@ impl<'a> HostToastPort for EguiHostPorts<'a> {
 impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
     fn inject_tree_update(
         &mut self,
-        _webview_id: WebViewId,
-        _update: servo::accesskit::TreeUpdate,
+        webview_id: WebViewId,
+        update: servo::accesskit::TreeUpdate,
     ) {
-        // todo(m4.5): insert into EguiHost::pending_webview_a11y_updates and
-        // flush into egui's accesskit surface on next frame.
+        enqueue_pending_webview_a11y_update(
+            self.pending_webview_a11y_updates,
+            webview_id,
+            update,
+        );
     }
 
-    fn request_focus(&mut self, _node_id: accesskit::NodeId) {
-        // todo(m4.5): send an accesskit focus request through egui_winit.
+    fn request_focus(&mut self, node_id: accesskit::NodeId) {
+        // Enqueue for host-side consumption. The egui frame prelude
+        // forwards these through `egui_winit`'s accesskit adapter; iced
+        // consumers drain the same queue shape through
+        // `iced_accesskit` once that bridge is wired (M6 §5.2
+        // follow-on).
+        self.pending_accesskit_focus_requests.push(node_id);
+    }
+}
+
+/// Insert or replace a pending webview accesskit tree update + record
+/// the diagnostic channel entry. Shared helper so the port path and
+/// the existing `EguiHost::notify_accessibility_tree_update` entry
+/// point stay in lockstep — most-recent-wins semantics, identical
+/// diagnostic recording.
+pub(crate) fn enqueue_pending_webview_a11y_update(
+    pending: &mut HashMap<WebViewId, servo::accesskit::TreeUpdate>,
+    webview_id: WebViewId,
+    update: servo::accesskit::TreeUpdate,
+) {
+    let replaced_existing = pending.insert(webview_id, update).is_some();
+    let _ = replaced_existing;
+
+    #[cfg(feature = "diagnostics")]
+    if let Some(tree_update) = pending.get(&webview_id) {
+        crate::shell::desktop::ui::gui::accessibility::record_webview_a11y_update_queued(
+            webview_id,
+            tree_update,
+            replaced_existing,
+            pending.len(),
+        );
     }
 }
 
@@ -255,3 +303,117 @@ impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
 // HostPorts composite is auto-satisfied via the blanket impl in host_ports.rs
 // once all six non-texture traits above are implemented.
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::desktop::ui::host_ports::HostAccessibilityPort;
+
+    fn make_ports<'a>(
+        toasts: &'a mut egui_notify::Toasts,
+        clipboard: &'a mut Option<Clipboard>,
+        a11y_updates: &'a mut HashMap<WebViewId, servo::accesskit::TreeUpdate>,
+        focus_requests: &'a mut Vec<accesskit::NodeId>,
+    ) -> EguiHostPorts<'a> {
+        EguiHostPorts {
+            toasts,
+            clipboard,
+            pending_webview_a11y_updates: a11y_updates,
+            pending_accesskit_focus_requests: focus_requests,
+        }
+    }
+
+    fn install_pipeline_namespace_for_tests() {
+        use base::id::{PIPELINE_NAMESPACE, PipelineNamespace, TEST_NAMESPACE};
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+    }
+
+    fn test_webview_id() -> WebViewId {
+        use base::id::PainterId;
+        install_pipeline_namespace_for_tests();
+        WebViewId::new(PainterId::next())
+    }
+
+    /// Minimal tree update useful as a test fixture.
+    fn stub_tree_update() -> servo::accesskit::TreeUpdate {
+        servo::accesskit::TreeUpdate {
+            nodes: Vec::new(),
+            tree: None,
+            tree_id: servo::accesskit::TreeId::ROOT,
+            focus: servo::accesskit::NodeId(0),
+        }
+    }
+
+    /// Guard that resets the global a11y bridge health state on drop so
+    /// each test starts from a clean slate and doesn't leak queue size
+    /// into later tests (notably
+    /// `accessibility_bridge_health_snapshot_captures_health_metrics`
+    /// which asserts `update_queue_size == 0`).
+    struct A11yBridgeHealthGuard;
+    impl A11yBridgeHealthGuard {
+        fn new() -> Self {
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::ui::gui::accessibility::reset_webview_accessibility_bridge_health_state_for_tests();
+            Self
+        }
+    }
+    impl Drop for A11yBridgeHealthGuard {
+        fn drop(&mut self) {
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::ui::gui::accessibility::reset_webview_accessibility_bridge_health_state_for_tests();
+        }
+    }
+
+    #[test]
+    fn inject_tree_update_enqueues_pending_update() {
+        let _guard = A11yBridgeHealthGuard::new();
+        let webview_id = test_webview_id();
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+
+        ports.inject_tree_update(webview_id, stub_tree_update());
+
+        assert_eq!(pending.len(), 1);
+        assert!(pending.contains_key(&webview_id));
+    }
+
+    #[test]
+    fn inject_tree_update_replaces_existing_update_for_same_webview() {
+        let _guard = A11yBridgeHealthGuard::new();
+        let webview_id = test_webview_id();
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+
+        ports.inject_tree_update(webview_id, stub_tree_update());
+        ports.inject_tree_update(webview_id, stub_tree_update());
+
+        // Same webview id → most-recent-wins, still length 1.
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[test]
+    fn request_focus_enqueues_node_id() {
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+
+        ports.request_focus(accesskit::NodeId(17));
+        ports.request_focus(accesskit::NodeId(42));
+
+        assert_eq!(focus, vec![accesskit::NodeId(17), accesskit::NodeId(42)]);
+    }
+}

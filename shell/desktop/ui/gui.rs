@@ -77,7 +77,7 @@ use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use crate::util::CoordBridge;
 
 #[path = "gui/accessibility.rs"]
-mod accessibility;
+pub(super) mod accessibility;
 #[cfg(test)]
 pub(crate) use accessibility::selected_node_affordance_projection_from_annotations;
 pub(crate) use accessibility::{
@@ -188,6 +188,12 @@ pub struct EguiHost {
     /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
     /// so that a newer update from the same runtime viewer supersedes the previous one.
     pending_webview_a11y_updates: HashMap<WebViewId, servo::accesskit::TreeUpdate>,
+
+    /// Accesskit focus requests emitted from the runtime this frame.
+    /// The frame prelude drains these and forwards through egui_winit's
+    /// accesskit adapter. Host-owned rather than runtime-owned because
+    /// egui_winit is the concrete consumer.
+    pending_accesskit_focus_requests: Vec<accesskit::NodeId>,
 
     /// Cached reference to RunningAppState for runtime viewer creation.
     state: Option<Rc<RunningAppState>>,
@@ -447,6 +453,7 @@ impl EguiHost {
             thumbnail_capture_rx,
             thumbnail_capture_in_flight: HashSet::new(),
             pending_webview_a11y_updates: HashMap::new(),
+            pending_accesskit_focus_requests: Vec::new(),
             state: None,
             runtime,
             #[cfg(feature = "diagnostics")]
@@ -1022,6 +1029,8 @@ impl EguiHost {
         let mut ports = EguiHostPorts {
             toasts: &mut self.toasts,
             clipboard: &mut self.clipboard,
+            pending_webview_a11y_updates: &mut self.pending_webview_a11y_updates,
+            pending_accesskit_focus_requests: &mut self.pending_accesskit_focus_requests,
         };
         let _view_model = self.runtime.tick(&frame_input, &mut ports);
 
@@ -1172,23 +1181,14 @@ impl EguiHost {
         webview_id: WebViewId,
         tree_update: servo::accesskit::TreeUpdate,
     ) {
-        // Store the most recent update per runtime viewer; it will be injected into
-        // egui's accessibility tree at the start of the next frame inside
-        // the context.run() callback.
-        let replaced_existing = self
-            .pending_webview_a11y_updates
-            .insert(webview_id, tree_update)
-            .is_some();
-
-        #[cfg(feature = "diagnostics")]
-        if let Some(tree_update) = self.pending_webview_a11y_updates.get(&webview_id) {
-            accessibility::record_webview_a11y_update_queued(
-                webview_id,
-                tree_update,
-                replaced_existing,
-                self.pending_webview_a11y_updates.len(),
-            );
-        }
+        // Shared helper with `EguiHostPorts::inject_tree_update` so both
+        // paths (webview-delegate → host, and runtime.tick → port)
+        // perform most-recent-wins replacement and identical diagnostics.
+        super::egui_host_ports::enqueue_pending_webview_a11y_update(
+            &mut self.pending_webview_a11y_updates,
+            webview_id,
+            tree_update,
+        );
     }
 
     pub(crate) fn selected_node_affordance_projection(

@@ -77,7 +77,7 @@ fn with_webview_accessibility_bridge_health_state<R>(
 }
 
 #[cfg(feature = "diagnostics")]
-pub(super) fn record_webview_a11y_update_queued(
+pub(crate) fn record_webview_a11y_update_queued(
     webview_id: WebViewId,
     tree_update: &TreeUpdate,
     replaced_existing: bool,
@@ -105,6 +105,15 @@ pub(super) fn webview_accessibility_bridge_health_snapshot(
             degradation_state: state.degradation_state.label(),
         }
     })
+}
+
+/// Test-only helper: reset the global `WebViewAccessibilityBridgeHealthState`
+/// so tests that record queue metrics don't leak into later tests' asserts.
+#[cfg(all(test, feature = "diagnostics"))]
+pub(crate) fn reset_webview_accessibility_bridge_health_state_for_tests() {
+    with_webview_accessibility_bridge_health_state(|state| {
+        *state = WebViewAccessibilityBridgeHealthState::default();
+    });
 }
 
 #[cfg(feature = "diagnostics")]
