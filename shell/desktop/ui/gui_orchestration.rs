@@ -48,12 +48,25 @@ use servo::{OffscreenRenderingContext, WindowRenderingContext};
 use std::rc::Rc;
 use winit::window::Window;
 
+#[path = "gui/clipboard_flow.rs"]
+mod clipboard_flow;
 #[path = "gui/focus_realizer.rs"]
 mod focus_realizer;
 #[path = "gui/graph_search_orchestration.rs"]
 mod graph_search_orchestration;
+#[path = "gui/toast_flow.rs"]
+mod toast_flow;
 #[path = "gui/workbench_intent_interceptor.rs"]
 mod workbench_intent_interceptor;
+
+pub(crate) use clipboard_flow::{
+    CLIPBOARD_STATUS_EMPTY_TEXT, CLIPBOARD_STATUS_FAILURE_PREFIX,
+    CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT, CLIPBOARD_STATUS_SUCCESS_URL_TEXT,
+    CLIPBOARD_STATUS_UNAVAILABLE_TEXT, ClipboardAdapter, clipboard_copy_failure_text,
+    clipboard_copy_missing_node_failure_text, clipboard_copy_success_text,
+    handle_pending_clipboard_copy_requests,
+};
+pub(crate) use toast_flow::{ToastsAdapter, handle_pending_node_status_notices};
 
 use focus_realizer::FocusRealizer;
 
@@ -667,231 +680,6 @@ fn handle_toolbar_open_selected_mode_after_submit(
     if let Some(open_mode) = open_selected_mode_after_submit {
         *open_node_tile_after_intents = Some(open_mode_from_toolbar(open_mode));
     }
-}
-
-/// Adapter that bridges a raw `&mut egui_notify::Toasts` into
-/// `HostToastPort`. Used by tests that want the port-taking drain
-/// functions without building the full `EguiHostPorts` bundle.
-pub(crate) struct ToastsAdapter<'a> {
-    pub(crate) toasts: &'a mut egui_notify::Toasts,
-}
-
-impl<'a> crate::shell::desktop::ui::host_ports::HostToastPort for ToastsAdapter<'a> {
-    fn enqueue(&mut self, toast: crate::shell::desktop::ui::frame_model::ToastSpec) {
-        use crate::shell::desktop::ui::frame_model::ToastSeverity;
-        let entry = match toast.severity {
-            ToastSeverity::Info => self.toasts.info(toast.message),
-            ToastSeverity::Success => self.toasts.success(toast.message),
-            ToastSeverity::Warning => self.toasts.warning(toast.message),
-            ToastSeverity::Error => self.toasts.error(toast.message),
-        };
-        if let Some(duration) = toast.duration {
-            entry.duration(Some(duration));
-        }
-    }
-}
-
-/// Adapter that bridges a raw `&mut Option<Clipboard>` into
-/// `HostClipboardPort`. Mirrors the wiring in `EguiHostPorts::clipboard`
-/// and is used by the same test-path entry points as `ToastsAdapter`.
-pub(crate) struct ClipboardAdapter<'a> {
-    pub(crate) clipboard: &'a mut Option<Clipboard>,
-}
-
-impl<'a> crate::shell::desktop::ui::host_ports::HostClipboardPort for ClipboardAdapter<'a> {
-    fn get_text(&mut self) -> Option<String> {
-        let cb = self.clipboard.as_mut()?;
-        cb.get_text().ok()
-    }
-
-    fn set_text(&mut self, text: &str) -> Result<(), String> {
-        if self.clipboard.is_none() {
-            *self.clipboard = Clipboard::new().ok();
-        }
-        let Some(cb) = self.clipboard.as_mut() else {
-            return Err("clipboard unavailable".to_string());
-        };
-        cb.set_text(text).map_err(|e| e.to_string())
-    }
-}
-
-pub(crate) fn handle_pending_clipboard_copy_requests<P>(graph_app: &mut GraphBrowserApp, ports: &mut P)
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort
-        + crate::shell::desktop::ui::host_ports::HostClipboardPort,
-{
-    while let Some(ClipboardCopyRequest { key, kind }) = graph_app.take_pending_clipboard_copy() {
-        handle_pending_clipboard_copy_request(graph_app, ports, key, kind);
-    }
-}
-
-pub(crate) fn handle_pending_node_status_notices<P>(graph_app: &mut GraphBrowserApp, port: &mut P)
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort + ?Sized,
-{
-    while let Some(NodeStatusNoticeRequest {
-        key,
-        level,
-        message,
-        audit_event,
-    }) = graph_app.take_pending_node_status_notice()
-    {
-        emit_node_status_toast(port, level, &message);
-
-        let Some(event) = audit_event else {
-            continue;
-        };
-        graph_app.log_node_audit_event(key, event);
-    }
-}
-
-fn handle_pending_clipboard_copy_request<P>(
-    graph_app: &GraphBrowserApp,
-    ports: &mut P,
-    key: NodeKey,
-    kind: ClipboardCopyKind,
-) where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort
-        + crate::shell::desktop::ui::host_ports::HostClipboardPort,
-{
-    let Some(value) = clipboard_copy_value_for_node(graph_app, key, kind, ports) else {
-        return;
-    };
-
-    match ports.set_text(&value) {
-        Ok(()) => emit_clipboard_copy_success_toast(ports, kind),
-        Err(e) => {
-            emit_clipboard_copy_failure(e.len());
-            let failure_text = if e == "clipboard unavailable" {
-                CLIPBOARD_STATUS_UNAVAILABLE_TEXT.to_string()
-            } else {
-                clipboard_copy_failure_text(&e)
-            };
-            port_error(ports, failure_text);
-        }
-    }
-}
-
-fn port_error<P>(port: &mut P, message: impl Into<String>)
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort + ?Sized,
-{
-    use crate::shell::desktop::ui::frame_model::ToastSeverity;
-    port.enqueue_message(ToastSeverity::Error, message, None);
-}
-
-fn emit_node_status_toast<P>(port: &mut P, level: UiNotificationLevel, message: &str)
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort + ?Sized,
-{
-    use crate::shell::desktop::ui::frame_model::ToastSeverity;
-    let severity = match level {
-        UiNotificationLevel::Success => ToastSeverity::Success,
-        UiNotificationLevel::Warning => ToastSeverity::Warning,
-        UiNotificationLevel::Error => ToastSeverity::Error,
-    };
-    port.enqueue_message(severity, message.to_string(), None);
-}
-
-const CLIPBOARD_STATUS_SUCCESS_URL_TEXT: &str = "Copied URL";
-const CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT: &str = "Copied title";
-const CLIPBOARD_STATUS_UNAVAILABLE_TEXT: &str = "Clipboard unavailable";
-const CLIPBOARD_STATUS_EMPTY_TEXT: &str = "Nothing to copy";
-const CLIPBOARD_STATUS_FAILURE_PREFIX: &str = "Copy failed";
-const CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT: &str = "select a node and try again";
-
-fn clipboard_copy_value_for_node<P>(
-    graph_app: &GraphBrowserApp,
-    key: NodeKey,
-    kind: ClipboardCopyKind,
-    port: &mut P,
-) -> Option<String>
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort + ?Sized,
-{
-    use crate::shell::desktop::ui::frame_model::ToastSeverity;
-
-    let Some(node) = graph_app.domain_graph().get_node(key) else {
-        port.enqueue_message(
-            ToastSeverity::Error,
-            clipboard_copy_missing_node_failure_text(),
-            None,
-        );
-        return None;
-    };
-
-    let visible_url = graph_app
-        .user_visible_node_url(key)
-        .unwrap_or_else(|| node.url().to_string());
-    let visible_title = graph_app
-        .user_visible_node_title(key)
-        .unwrap_or_else(|| node.title.clone());
-
-    let value = match kind {
-        ClipboardCopyKind::Url => visible_url,
-        ClipboardCopyKind::Title => {
-            clipboard_title_or_url(visible_title.as_str(), visible_url.as_str())
-        }
-    };
-
-    if value.trim().is_empty() {
-        port.enqueue_message(ToastSeverity::Warning, CLIPBOARD_STATUS_EMPTY_TEXT, None);
-        return None;
-    }
-
-    Some(value)
-}
-
-fn clipboard_title_or_url(title: &str, url: &str) -> String {
-    if title.is_empty() {
-        url.to_owned()
-    } else {
-        title.to_owned()
-    }
-}
-
-#[allow(dead_code)]
-fn ensure_clipboard_initialized(clipboard: &mut Option<Clipboard>) -> bool {
-    if clipboard.is_none() {
-        *clipboard = Clipboard::new().ok();
-    }
-    clipboard.is_some()
-}
-
-fn emit_clipboard_copy_failure(byte_len: usize) {
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
-        byte_len,
-    });
-}
-
-fn emit_clipboard_copy_success_toast<P>(port: &mut P, kind: ClipboardCopyKind)
-where
-    P: crate::shell::desktop::ui::host_ports::HostToastPort + ?Sized,
-{
-    use crate::shell::desktop::ui::frame_model::ToastSeverity;
-    port.enqueue_message(
-        ToastSeverity::Success,
-        clipboard_copy_success_text(kind).to_string(),
-        None,
-    );
-}
-
-fn clipboard_copy_success_text(kind: ClipboardCopyKind) -> &'static str {
-    match kind {
-        ClipboardCopyKind::Url => CLIPBOARD_STATUS_SUCCESS_URL_TEXT,
-        ClipboardCopyKind::Title => CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT,
-    }
-}
-
-fn clipboard_copy_failure_text(detail: &str) -> String {
-    format!("{CLIPBOARD_STATUS_FAILURE_PREFIX}: {detail}")
-}
-
-fn clipboard_copy_missing_node_failure_text() -> String {
-    clipboard_copy_failure_text(
-        format!("node no longer exists; {CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT}").as_str(),
-    )
 }
 
 pub(crate) fn handle_pending_open_node_after_intents(
