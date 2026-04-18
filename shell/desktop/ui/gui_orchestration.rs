@@ -654,6 +654,19 @@ fn maybe_push_grouped_edge_after_tab_open(
 /// toggles/settings URLs) must be drained here, before `apply_intents` is
 /// called. Any that leak through will trip reducer hardening (panic in
 /// debug/test, warning in release for non-layout authority leaks).
+/// Drain workbench-authority intents (tool-pane open/close, pane
+/// splits, viewer backend swaps, etc.) from `workbench_intents` and
+/// dispatch them through the interceptor. Modal state is derived from
+/// `graph_app`; callers that need to override it (e.g. simulating
+/// a clear-data-confirm dialog in tests) should call
+/// `workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority`
+/// directly.
+///
+/// Previously existed as three variants (`handle_tool_pane_intents`,
+/// `…_with_modal_state`, `…_with_modal_state_and_focus_authority`) that
+/// all forwarded to the same interceptor entry with different default
+/// fills. Collapsed in M6 §4.1 cleanup; test callers that wanted the
+/// extended shapes now talk to the interceptor directly.
 pub(crate) fn handle_tool_pane_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -664,41 +677,8 @@ pub(crate) fn handle_tool_pane_intents(
         tiles_tree,
         None,
         workbench_intents,
-        modal_surface_active(graph_app),
+        modal_surface_active(graph_app, None),
         None,
-    );
-}
-
-pub(crate) fn handle_tool_pane_intents_with_modal_state(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    workbench_intents: &mut Vec<WorkbenchIntent>,
-    modal_surface_active: bool,
-) {
-    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
-        graph_app,
-        tiles_tree,
-        None,
-        workbench_intents,
-        modal_surface_active,
-        None,
-    );
-}
-
-fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    workbench_intents: &mut Vec<WorkbenchIntent>,
-    modal_surface_active: bool,
-    focus_authority: Option<&mut RuntimeFocusAuthorityState>,
-) {
-    workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
-        graph_app,
-        tiles_tree,
-        None,
-        workbench_intents,
-        modal_surface_active,
-        focus_authority,
     );
 }
 
@@ -1154,15 +1134,12 @@ fn emit_dispatch_phase(phase: UxDispatchPhase) {
     });
 }
 
-fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {
-    modal_surface_active_with_focus_authority(graph_app, None)
-}
-
-fn modal_allows_workbench_intent(graph_app: &GraphBrowserApp, intent: &WorkbenchIntent) -> bool {
-    modal_allows_workbench_intent_with_focus_authority(graph_app, intent, None)
-}
-
-fn modal_surface_active_with_focus_authority(
+/// Whether an overlay / modal surface is currently active (command
+/// palette, help panel, radial menu, clear-data-confirm, etc.).
+/// Collapsed from `modal_surface_active` + `modal_surface_active_with_focus_authority`
+/// in M6 §4.1 — callers pass `None` for `focus_authority` when they
+/// don't have one.
+fn modal_surface_active(
     graph_app: &GraphBrowserApp,
     focus_authority: Option<&RuntimeFocusAuthorityState>,
 ) -> bool {
@@ -1175,7 +1152,9 @@ fn modal_surface_active_with_focus_authority(
     .overlay_active()
 }
 
-fn modal_allows_workbench_intent_with_focus_authority(
+/// Does the currently active modal allow the given workbench intent to
+/// still run? Collapsed from the `_with_focus_authority` pair.
+fn modal_allows_workbench_intent(
     graph_app: &GraphBrowserApp,
     intent: &WorkbenchIntent,
     focus_authority: Option<&RuntimeFocusAuthorityState>,

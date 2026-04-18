@@ -422,7 +422,9 @@ fn pending_node_status_notice_records_audit_event() {
         euclid::default::Point2D::new(0.0, 0.0),
     );
     let mut toasts = egui_notify::Toasts::default();
-    let mut toast_port = gui_orchestration::ToastsAdapter { toasts: &mut toasts };
+    let mut toast_port = gui_orchestration::ToastsAdapter {
+        toasts: &mut toasts,
+    };
 
     app.request_node_status_notice(
         key,
@@ -463,7 +465,9 @@ fn pending_node_status_notices_record_titan_and_misfin_management_audit_events()
         euclid::default::Point2D::new(0.0, 0.0),
     );
     let mut toasts = egui_notify::Toasts::default();
-    let mut toast_port = gui_orchestration::ToastsAdapter { toasts: &mut toasts };
+    let mut toast_port = gui_orchestration::ToastsAdapter {
+        toasts: &mut toasts,
+    };
 
     app.request_node_status_notice(
         key,
@@ -2135,11 +2139,13 @@ fn clear_data_confirm_blocks_cycle_focus_region() {
     // must be dropped — the active tile must not change.
     let active_before: Vec<_> = tree.active_tiles();
     let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
-    gui_orchestration::handle_tool_pane_intents_with_modal_state(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+        None,
         &mut intents,
         true, // modal_surface_active: clear_data_confirm is open
+        None,
     );
     assert!(
         intents.is_empty(),
@@ -2153,11 +2159,13 @@ fn clear_data_confirm_blocks_cycle_focus_region() {
 
     // With modal dismissed, CycleFocusRegion must route normally.
     let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
-    gui_orchestration::handle_tool_pane_intents_with_modal_state(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+        None,
         &mut intents,
         false, // modal dismissed
+        None,
     );
     assert!(
         intents.is_empty(),
@@ -2244,9 +2252,10 @@ fn command_palette_close_uses_runtime_focus_authority_when_app_queue_is_empty() 
     assert!(app.pending_command_surface_return_target().is_none());
 
     let mut intents = vec![WorkbenchIntent::CloseCommandPalette];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2383,9 +2392,10 @@ fn cycle_focus_region_updates_runtime_semantic_region_in_same_pass() {
     );
 
     let mut intents = vec![WorkbenchIntent::CycleFocusRegion];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2445,9 +2455,10 @@ fn authority_realizer_opens_context_palette_when_semantic_region_requests_it() {
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
     let mut intents = vec![WorkbenchIntent::OpenCommandPalette];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2502,9 +2513,10 @@ fn authority_realizer_opens_help_panel_from_focus_authority() {
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
     let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2539,9 +2551,10 @@ fn authority_realizer_closes_help_panel_and_restores_graph_focus() {
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
     let mut intents = vec![WorkbenchIntent::ToggleHelpPanel];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2576,9 +2589,10 @@ fn authority_realizer_opens_radial_menu_from_focus_authority() {
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
     let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2613,9 +2627,10 @@ fn authority_realizer_closes_radial_menu_and_restores_graph_focus() {
         Some(ToolSurfaceReturnTarget::Graph(graph_view));
 
     let mut intents = vec![WorkbenchIntent::ToggleRadialMenu];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2789,9 +2804,10 @@ fn authority_realizer_closes_tool_pane_and_restores_graph_focus() {
         kind: ToolPaneState::Settings,
         restore_previous_focus: true,
     }];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2831,9 +2847,10 @@ fn authority_realizer_closes_workbench_overlay_and_restores_graph_focus() {
         Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::ToolPane { pane_id: None });
 
     let mut intents = vec![WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false }];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2872,9 +2889,10 @@ fn command_palette_restore_mismatch_emits_focus_realization_mismatch() {
         Some(crate::shell::desktop::ui::gui_state::SemanticRegionFocus::CommandPalette);
 
     let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),
@@ -2912,9 +2930,10 @@ fn tool_pane_restore_mismatch_emits_focus_realization_mismatch() {
         kind: ToolPaneState::Settings,
         restore_previous_focus: true,
     }];
-    super::handle_tool_pane_intents_with_modal_state_and_focus_authority(
+    super::workbench_intent_interceptor::handle_tool_pane_intents_with_modal_state_and_focus_authority(
         &mut app,
         &mut tree,
+            None,
         &mut intents,
         false,
         Some(&mut focus_authority),

@@ -34,11 +34,7 @@ pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
         emit_dispatch_phase(UxDispatchPhase::Capture);
         let modal_focus_authority = focus_authority.as_deref();
         if modal_surface_active
-            && !modal_allows_workbench_intent_with_focus_authority(
-                graph_app,
-                &intent,
-                modal_focus_authority,
-            )
+            && !modal_allows_workbench_intent(graph_app, &intent, modal_focus_authority)
         {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
