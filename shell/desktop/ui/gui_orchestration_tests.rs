@@ -2303,7 +2303,7 @@ fn transient_surface_restore_returns_focus_to_captured_graph_target() {
 
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
-    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
 
     assert!(app.pending_transient_surface_return_target().is_none());
     assert!(
@@ -2344,7 +2344,7 @@ fn transient_surface_restore_uses_runtime_focus_authority_when_app_queue_is_empt
     assert_eq!(active_node_key(&tree), Some(node_key));
     assert!(app.pending_transient_surface_return_target().is_none());
 
-    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
 
     assert!(app.pending_transient_surface_return_target().is_none());
     assert!(focus_authority.transient_surface_return_target.is_none());
@@ -2373,7 +2373,7 @@ fn cycle_focus_region_updates_runtime_semantic_region_in_same_pass() {
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
     let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
-    super::refresh_runtime_focus_authority_after_workbench_intent(
+    super::workbench_dispatch_flow::refresh_runtime_focus_authority_after_workbench_intent(
         &mut focus_authority,
         &app,
         &tree,
@@ -2422,7 +2422,7 @@ fn prime_focus_authority_for_command_palette_applies_focus_command_first() {
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
     let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2480,7 +2480,7 @@ fn prime_focus_authority_for_help_panel_applies_focus_command_first() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2659,7 +2659,7 @@ fn prime_focus_authority_for_tool_pane_applies_focus_command_first() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2688,7 +2688,7 @@ fn prime_focus_authority_for_workbench_overlay_applies_tool_focus_first() {
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2729,7 +2729,7 @@ fn prime_focus_authority_for_workbench_overlay_prefers_last_non_graph_pane() {
 
     focus_authority.last_non_graph_pane_activation = Some(node_pane_id);
 
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2761,7 +2761,7 @@ fn prime_focus_authority_for_diagnostics_tool_pane_captures_graph_return_target(
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
-    super::prime_runtime_focus_authority_for_workbench_intent(
+    super::workbench_dispatch_flow::prime_runtime_focus_authority_for_workbench_intent(
         &mut focus_authority,
         &mut app,
         &tree,
@@ -2964,7 +2964,7 @@ fn transient_restore_mismatch_emits_focus_realization_mismatch() {
         Some(ToolSurfaceReturnTarget::Node(missing_node));
     app.request_restore_transient_surface_focus();
 
-    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
@@ -3024,7 +3024,7 @@ fn transient_surface_restore_invalid_target_emits_focus_return_fallback_and_mism
 
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
-    super::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
