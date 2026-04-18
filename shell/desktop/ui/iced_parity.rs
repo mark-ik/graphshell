@@ -99,6 +99,7 @@ mod tests {
             location: iced::keyboard::Location::Standard,
             modifiers: iced::keyboard::Modifiers::empty(),
             text: None,
+            repeat: false,
         });
 
         let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");

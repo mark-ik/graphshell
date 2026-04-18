@@ -33,6 +33,10 @@ pub(crate) fn from_iced_event(event: &iced::Event) -> Option<HostEvent> {
         iced::Event::Keyboard(keyboard_event) => from_iced_keyboard_event(keyboard_event),
         iced::Event::Window(window_event) => from_iced_window_event(window_event),
         iced::Event::Touch(_) => None,
+        // iced 0.14 added `InputMethod` for IME events. We don't have a
+        // host-neutral IME vocabulary yet; drop them until an explicit
+        // IME pass lands in `HostEvent`.
+        iced::Event::InputMethod(_) => None,
     }
 }
 
@@ -70,9 +74,9 @@ fn from_iced_keyboard_event(event: &keyboard::Event) -> Option<HostEvent> {
             text,
             ..
         } => keyboard_event_as_host(key, *modifiers, true, text.as_deref()),
-        keyboard::Event::KeyReleased {
-            key, modifiers, ..
-        } => keyboard_event_as_host(key, *modifiers, false, None),
+        keyboard::Event::KeyReleased { key, modifiers, .. } => {
+            keyboard_event_as_host(key, *modifiers, false, None)
+        }
         keyboard::Event::ModifiersChanged(_) => None,
     }
 }
@@ -220,6 +224,7 @@ mod tests {
             location: keyboard::Location::Standard,
             modifiers,
             text: None,
+            repeat: false,
         });
         match from_iced_event(&event).expect("should translate") {
             HostEvent::Key { key, pressed, .. } => {
@@ -241,6 +246,7 @@ mod tests {
             location: keyboard::Location::Standard,
             modifiers: keyboard::Modifiers::empty(),
             text: None,
+            repeat: false,
         });
         // 'z' isn't in the limited key subset; translation returns None.
         assert!(from_iced_event(&event).is_none());

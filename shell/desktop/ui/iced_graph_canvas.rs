@@ -114,10 +114,7 @@ impl GraphCanvasProgram {
         let avail_w = (bounds.width - 2.0 * PADDING).max(1.0);
         let avail_h = (bounds.height - 2.0 * PADDING).max(1.0);
 
-        let scale = (avail_w / span_x)
-            .min(avail_h / span_y)
-            .max(0.0)
-            .min(100.0);
+        let scale = (avail_w / span_x).min(avail_h / span_y).max(0.0).min(100.0);
         let scale = if scale.is_finite() && scale > 0.0 {
             scale
         } else {
@@ -205,9 +202,8 @@ mod tests {
             ],
             edges: Vec::new(),
         };
-        let (min_x, min_y, max_x, max_y) = program
-            .bounding_box()
-            .expect("non-empty graph has bounds");
+        let (min_x, min_y, max_x, max_y) =
+            program.bounding_box().expect("non-empty graph has bounds");
         assert_eq!(min_x, -10.0);
         assert_eq!(min_y, -3.0);
         assert_eq!(max_x, 20.0);

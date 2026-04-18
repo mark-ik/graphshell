@@ -103,9 +103,34 @@ impl IcedApp {
 /// The runtime passed in is the minimal bring-up variant (no Servo, no
 /// persistence). Follow-on work: swap in a production runtime builder
 /// once the host boundary owns webview + persistence init.
+///
+/// iced 0.14 note: the builder signature changed from
+/// `application(title, update, view).run_with(boot)` to
+/// `application(boot, update, view).title(title).run()`. `boot` is
+/// invoked once by iced to produce `(State, Task<Message>)`; we use
+/// an `Option::take` so the captured `runtime` is moved into the
+/// constructed `IcedApp` exactly once.
 pub(crate) fn run_application(runtime: GraphshellRuntime) -> iced::Result {
-    iced::application(IcedApp::title, IcedApp::update, IcedApp::view)
-        .run_with(move || (IcedApp::with_runtime(runtime), Task::none()))
+    // iced 0.14's `BootFn` requires `Fn` (not `FnOnce`), so a plain
+    // `Option::take` on a captured `mut` binding won't compile — the
+    // closure would be `FnMut`. `RefCell` gives us interior mutability
+    // while the closure itself captures only a shared reference, which
+    // satisfies `Fn`. In practice the boot closure is invoked exactly
+    // once by iced; the second-call panic is defensive.
+    let runtime_slot = std::cell::RefCell::new(Some(runtime));
+    iced::application(
+        move || {
+            let runtime = runtime_slot
+                .borrow_mut()
+                .take()
+                .expect("iced application boot closure called more than once");
+            (IcedApp::with_runtime(runtime), Task::none())
+        },
+        IcedApp::update,
+        IcedApp::view,
+    )
+    .title(IcedApp::title)
+    .run()
 }
 
 #[cfg(test)]
