@@ -768,13 +768,6 @@ impl EguiHost {
         );
     }
 
-    fn persist_active_toolbar_draft(&mut self) {
-        gui_orchestration::persist_active_toolbar_draft(&mut self.runtime);
-    }
-
-    fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
-        gui_orchestration::sync_active_toolbar_draft(&mut self.runtime, window.focused_pane());
-    }
 
     pub(crate) fn request_browser_command(
         &mut self,
@@ -860,7 +853,7 @@ impl EguiHost {
             window,
             headed_window,
         } = input;
-        self.sync_active_toolbar_draft(window);
+        gui_orchestration::sync_active_toolbar_draft(&mut self.runtime, window.focused_pane());
         // Note: We need Rc<RunningAppState> for runtime viewer creation, but this method
         // is called from trait methods that only provide &RunningAppState.
         // The caller should have Rc available at the call site.
@@ -1000,7 +993,7 @@ impl EguiHost {
             }
         }
 
-        self.persist_active_toolbar_draft();
+        gui_orchestration::persist_active_toolbar_draft(&mut self.runtime);
 
         // M4.5b dry-run: exercise the runtime's host-neutral tick path every
         // frame, discarding the returned view-model. Phases still run through
@@ -1048,13 +1041,13 @@ impl EguiHost {
     /// Updates all fields taken from the given [`EmbedderWindow`], such as the location field.
     /// Returns true iff the egui needs an update.
     pub(crate) fn update_webview_data(&mut self, window: &EmbedderWindow) -> bool {
-        self.sync_active_toolbar_draft(window);
+        gui_orchestration::sync_active_toolbar_draft(&mut self.runtime, window.focused_pane());
         // Note: We must use the "bitwise OR" (|) operator here instead of "logical OR" (||)
         //       because logical OR would short-circuit if any of the functions return true.
         //       We want to ensure that all functions are called. The "bitwise OR" operator
         //       does not short-circuit.
         let changed = input_routing::collect_webview_update_flags(self, window);
-        self.persist_active_toolbar_draft();
+        gui_orchestration::persist_active_toolbar_draft(&mut self.runtime);
         changed
     }
 
