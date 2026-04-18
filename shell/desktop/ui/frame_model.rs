@@ -152,6 +152,15 @@ pub(crate) struct DialogsViewModel {
     pub(crate) show_settings_overlay: bool,
     pub(crate) show_clip_inspector: bool,
     pub(crate) show_scene_overlay: bool,
+    /// "Clear graph and saved data" two-step confirmation is primed.
+    /// The host renders a warning toast + arms the runtime-owned
+    /// deadline; a second click within the window executes.
+    pub(crate) show_clear_data_confirm: bool,
+    /// Unix-seconds deadline for the clear-data confirm two-step
+    /// prompt. `None` when not armed. Lives on `GraphshellRuntime` so
+    /// it survives the host migration without relying on egui's
+    /// per-frame `data_mut` temp storage.
+    pub(crate) clear_data_confirm_deadline_secs: Option<f64>,
 }
 
 /// Host-neutral toast spec. The host maps this onto its notification system

@@ -19,7 +19,8 @@ pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) graph_search_active_match_index: &'a mut Option<usize>,
     pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
     pub(super) toolbar_state: &'a mut ToolbarState,
-    pub(super) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -47,9 +48,11 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) graph_surface_focused: bool,
     pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
     pub(super) toolbar_state: &'a mut ToolbarState,
+    pub(super) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub(super) toasts: &'a mut egui_notify::Toasts,
-    pub(super) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -79,7 +82,8 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
     pub(super) app_state: &'a Option<Rc<RunningAppState>>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(super) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -101,7 +105,8 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
     pub(super) modal_surface_active: bool,
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
-    pub(super) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -160,11 +165,13 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
     pub(super) toolbar_state: &'a mut ToolbarState,
+    pub(super) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) clipboard: &'a mut Option<Clipboard>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    pub(super) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
     pub(super) thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,

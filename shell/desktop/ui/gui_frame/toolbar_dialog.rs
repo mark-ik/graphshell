@@ -42,9 +42,11 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) location_submitted: &'a mut bool,
     pub(crate) focus_location_field_for_search: bool,
     pub(crate) show_clear_data_confirm: &'a mut bool,
+    pub(crate) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(crate) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
-    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -79,6 +81,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         location_submitted,
         focus_location_field_for_search,
         show_clear_data_confirm,
+        clear_data_confirm_deadline_secs,
         omnibar_search_session,
         toasts,
         viewer_surfaces,
@@ -178,6 +181,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         location_dirty,
         location_submitted,
         show_clear_data_confirm,
+        clear_data_confirm_deadline_secs,
         toasts,
     });
 

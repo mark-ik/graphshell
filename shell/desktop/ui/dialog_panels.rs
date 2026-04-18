@@ -30,7 +30,8 @@ pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -38,17 +39,14 @@ pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) location_dirty: &'a mut bool,
     pub(crate) location_submitted: &'a mut bool,
     pub(crate) show_clear_data_confirm: &'a mut bool,
+    pub(crate) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
 }
 
 pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
     if *args.show_clear_data_confirm {
-        let confirm_deadline_id = egui::Id::new("clear_data_confirm_deadline_secs");
         let now = args.ctx.input(|i| i.time);
-        let armed_deadline = args
-            .ctx
-            .data_mut(|d| d.get_temp::<f64>(confirm_deadline_id));
-        match classify_clear_data_confirm_action(now, armed_deadline) {
+        match classify_clear_data_confirm_action(now, *args.clear_data_confirm_deadline_secs) {
             ClearDataConfirmAction::Execute => {
                 args.frame_intents
                     .extend(webview_controller::close_all_webviews(
@@ -64,12 +62,11 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
                 args.graph_app.clear_graph_and_persistence();
                 *args.location_dirty = false;
                 *args.location_submitted = false;
-                args.ctx.data_mut(|d| d.remove::<f64>(confirm_deadline_id));
+                *args.clear_data_confirm_deadline_secs = None;
                 args.toasts.success(CLEAR_DATA_CONFIRM_SUCCESS_TEXT);
             }
             ClearDataConfirmAction::Arm { next_deadline } => {
-                args.ctx
-                    .data_mut(|d| d.insert_temp(confirm_deadline_id, next_deadline));
+                *args.clear_data_confirm_deadline_secs = Some(next_deadline);
                 args.toasts.warning(CLEAR_DATA_CONFIRM_WARNING_TEXT);
             }
         }

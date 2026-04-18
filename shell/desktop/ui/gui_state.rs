@@ -183,6 +183,11 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(crate) command_palette_toggle_requested: bool,
     pub(crate) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
+    /// Two-step "clear graph and saved data" confirm deadline (unix
+    /// seconds). `None` when not armed. Previously lived inside egui's
+    /// `ctx::data_mut` temp storage; moved onto runtime state in M6
+    /// §4.2 so iced can read/write it the same way.
+    pub(crate) clear_data_confirm_deadline_secs: Option<f64>,
 }
 
 impl GraphshellRuntime {
@@ -267,7 +272,8 @@ impl GraphshellRuntime {
         if input.had_input_events {
             self.control_panel.notify_user_gesture();
         }
-        self.control_panel.tick_idle_watchdog(&self.registry_runtime);
+        self.control_panel
+            .tick_idle_watchdog(&self.registry_runtime);
     }
 
     /// Drain the subset of frame-inbox signals whose consumers depend only
@@ -294,9 +300,7 @@ impl GraphshellRuntime {
         let prefetch_target = self.graph_app.get_single_selected_node();
         let (prefetch_enabled, prefetch_interval) = match memory_pressure_level {
             MemoryPressureLevel::Critical => (false, Duration::from_secs(30)),
-            MemoryPressureLevel::Warning => {
-                (prefetch_target.is_some(), Duration::from_secs(20))
-            }
+            MemoryPressureLevel::Warning => (prefetch_target.is_some(), Duration::from_secs(20)),
             MemoryPressureLevel::Normal => (prefetch_target.is_some(), Duration::from_secs(8)),
             MemoryPressureLevel::Unknown => (prefetch_target.is_some(), Duration::from_secs(12)),
         };
@@ -397,6 +401,8 @@ impl GraphshellRuntime {
                 show_settings_overlay: chrome_ui.show_settings_overlay,
                 show_clip_inspector: chrome_ui.show_clip_inspector,
                 show_scene_overlay: chrome_ui.show_scene_overlay,
+                show_clear_data_confirm: self.toolbar_state.show_clear_data_confirm,
+                clear_data_confirm_deadline_secs: self.clear_data_confirm_deadline_secs,
             },
             toasts: Vec::new(),
             surfaces_to_present: Vec::new(),
@@ -456,6 +462,7 @@ impl GraphshellRuntime {
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
             pending_webview_context_surface_requests: Vec::new(),
+            clear_data_confirm_deadline_secs: None,
         }
     }
 }

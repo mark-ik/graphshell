@@ -213,7 +213,8 @@ impl Drop for EguiHost {
             warn!("Failed to serialize tile layout for persistence");
         }
         if let Ok(graph_tree_json) = serde_json::to_string(&self.runtime.graph_tree) {
-            self.runtime.graph_app
+            self.runtime
+                .graph_app
                 .save_graph_tree_json(self.runtime.workbench_view_id, &graph_tree_json);
         } else {
             warn!("Failed to serialize graph tree for persistence");
@@ -278,16 +279,15 @@ fn apply_graph_surface_focus_state(
     focus_state::apply_graph_surface_focus_state(runtime_state, active_graph_view)
 }
 
-fn apply_pane_activation_focus_state(runtime_state: &mut GraphshellRuntime, pane_id: Option<PaneId>) {
+fn apply_pane_activation_focus_state(
+    runtime_state: &mut GraphshellRuntime,
+    pane_id: Option<PaneId>,
+) {
     focus_state::apply_pane_activation_focus_state(runtime_state, pane_id)
 }
 
 fn clear_embedded_content_focus(runtime: &mut GraphshellRuntime) {
-    if runtime
-        .graph_app
-        .embedded_content_focus_webview()
-        .is_some()
-    {
+    if runtime.graph_app.embedded_content_focus_webview().is_some() {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM,
             latency_us: 0,
@@ -393,7 +393,8 @@ impl EguiHost {
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
         let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
 
-        let toast_anchor = Self::toast_anchor(graph_app.workspace.chrome_ui.toast_anchor_preference);
+        let toast_anchor =
+            Self::toast_anchor(graph_app.workspace.chrome_ui.toast_anchor_preference);
         let runtime = GraphshellRuntime {
             graph_app,
             graph_tree: graph_tree::GraphTree::new(
@@ -435,6 +436,7 @@ impl EguiHost {
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
             pending_webview_context_surface_requests: Vec::new(),
+            clear_data_confirm_deadline_secs: None,
         };
 
         let mut gui = Self {
@@ -471,7 +473,11 @@ impl EguiHost {
 
         // Restore GraphTree from persistence if available, preserving topology
         // and expansion state. Fall back to rebuilding from tile tree.
-        if let Some(json) = gui.runtime.graph_app.load_graph_tree_json(gui.runtime.workbench_view_id) {
+        if let Some(json) = gui
+            .runtime
+            .graph_app
+            .load_graph_tree_json(gui.runtime.workbench_view_id)
+        {
             if let Ok(restored) = serde_json::from_str::<graph_tree::GraphTree<NodeKey>>(&json) {
                 log::debug!(
                     "gui: restored GraphTree from persistence ({} members)",
@@ -550,7 +556,8 @@ impl EguiHost {
             .graph_app
             .get_node_for_webview(webview_id)
             .and_then(|node_key| {
-                self.runtime.graph_app
+                self.runtime
+                    .graph_app
                     .workspace
                     .domain
                     .graph
@@ -570,7 +577,9 @@ impl EguiHost {
         let grants_after =
             crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
         if grants_before != grants_after {
-            self.runtime.graph_app.save_persisted_nostr_nip07_permissions();
+            self.runtime
+                .graph_app
+                .save_persisted_nostr_nip07_permissions();
         }
 
         match result {
@@ -636,7 +645,11 @@ impl EguiHost {
 
     fn apply_pending_settings_route_updates(&mut self) {
         for url in self.runtime.frame_inbox.take_settings_routes() {
-            apply_requested_settings_route_update(&mut self.runtime.graph_app, &mut self.tiles_tree, url);
+            apply_requested_settings_route_update(
+                &mut self.runtime.graph_app,
+                &mut self.tiles_tree,
+                url,
+            );
         }
     }
 
@@ -648,7 +661,8 @@ impl EguiHost {
     }
 
     fn apply_runtime_theme_visuals(&mut self) {
-        let resolution = phase3_resolve_active_theme(self.runtime.graph_app.default_registry_theme_id());
+        let resolution =
+            phase3_resolve_active_theme(self.runtime.graph_app.default_registry_theme_id());
         let visuals = match resolution.resolved_id.as_str() {
             crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT => {
                 egui::Visuals::light()
@@ -753,14 +767,12 @@ impl EguiHost {
         webview_id: WebViewId,
         anchor: [f32; 2],
     ) {
-        self.runtime
-            .pending_webview_context_surface_requests
-            .push(
-                crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest {
-                    webview_id,
-                    anchor,
-                },
-            );
+        self.runtime.pending_webview_context_surface_requests.push(
+            crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest {
+                webview_id,
+                anchor,
+            },
+        );
     }
 
     fn persist_active_toolbar_draft(&mut self) {
@@ -800,7 +812,9 @@ impl EguiHost {
         target: BrowserCommandTarget,
         command: BrowserCommand,
     ) {
-        self.runtime.graph_app.request_browser_command(target, command);
+        self.runtime
+            .graph_app
+            .request_browser_command(target, command);
     }
 
     pub(crate) fn request_toolbar_nav_action_for_webview(
@@ -883,11 +897,7 @@ impl EguiHost {
         // The caller should have Rc available at the call site.
         activate_ui_render_backend(self.rendering_context.as_ref());
         tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
-        let local_widget_focus = self
-            .runtime
-            .focus_authority
-            .local_widget_focus
-            .clone();
+        let local_widget_focus = self.runtime.focus_authority.local_widget_focus.clone();
         focus_state::refresh_realized_runtime_focus_state(
             &mut self.runtime.focus_authority,
             &self.runtime.graph_app,
@@ -920,6 +930,7 @@ impl EguiHost {
                     graph_tree,
                     workbench_view_id: _,
                     toolbar_state,
+                    clear_data_confirm_deadline_secs,
                     bookmark_import_dialog,
                     control_panel,
                     registry_runtime,
@@ -967,6 +978,7 @@ impl EguiHost {
                 graph_tree,
                 toolbar_height,
                 toolbar_state,
+                clear_data_confirm_deadline_secs,
                 toasts,
                 clipboard,
                 favicon_textures: renderer_favicon_textures,
@@ -1097,7 +1109,11 @@ impl EguiHost {
             }
         };
 
-        match self.runtime.graph_app.create_clip_node_from_capture(&capture) {
+        match self
+            .runtime
+            .graph_app
+            .create_clip_node_from_capture(&capture)
+        {
             Ok(node_key) => {
                 crate::shell::desktop::workbench::graph_tree_dual_write::open_or_focus_node_with_mode(
                     &mut self.tiles_tree,
@@ -1145,13 +1161,15 @@ impl EguiHost {
         result: Result<Vec<crate::app::ClipCaptureData>, String>,
     ) {
         if let Ok(stack) = result {
-            self.runtime.graph_app
+            self.runtime
+                .graph_app
                 .update_clip_inspector_pointer_stack(webview_id, stack);
         }
     }
 
     pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<WebViewId> {
-        self.runtime.graph_app
+        self.runtime
+            .graph_app
             .workspace
             .graph_runtime
             .clip_inspector_state
