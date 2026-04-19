@@ -10,7 +10,7 @@ use egui_wgpu::RendererOptions;
 use egui_wgpu::winit::Painter;
 use egui_winit::EventResponse;
 use pollster::block_on;
-use servo::RenderingContext;
+use servo::RenderingContextCore;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
@@ -62,9 +62,10 @@ pub(crate) fn texture_id_from_token(token: BackendTextureToken) -> egui::Texture
 }
 
 pub(crate) fn activate_ui_render_backend(render_context: &servo::OffscreenRenderingContext) {
-    render_context
-        .make_current()
-        .expect("Could not make window RenderingContext current");
+    if let Some(gl) = render_context.gl() {
+        gl.make_current()
+            .expect("Could not make window RenderingContext current");
+    }
 }
 
 pub(crate) fn begin_ui_render_backend_paint(_render_context: &servo::OffscreenRenderingContext) {}

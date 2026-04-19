@@ -22,7 +22,7 @@ use servo::{
     AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel, Cursor,
     DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel,
     EmbedderControl, EmbedderControlId, InputEventId, InputEventResult, MediaSessionEvent,
-    PermissionRequest, RenderingContext, ScreenGeometry, Servo, UserContentManager, WebView,
+    PermissionRequest, RenderingContextCore, ScreenGeometry, Servo, UserContentManager, WebView,
     WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
@@ -198,7 +198,7 @@ impl EmbedderWindow {
         &self,
         state: Rc<T>,
         url: Url,
-        rendering_context: Rc<dyn RenderingContext>,
+        rendering_context: Rc<dyn RenderingContextCore>,
     ) -> WebView
     where
         T: WebViewCreationContext + 'static,
@@ -222,10 +222,10 @@ impl EmbedderWindow {
             return;
         }
 
-        self.platform_window()
-            .rendering_context()
-            .make_current()
-            .expect("Could not make PlatformWindow RenderingContext current");
+        if let Some(gl) = self.platform_window().rendering_context().gl() {
+            gl.make_current()
+                .expect("Could not make PlatformWindow RenderingContext current");
+        }
         for webview_id in visible_renderers {
             let Some(webview) = self.webview_by_id(webview_id) else {
                 continue;
@@ -663,7 +663,7 @@ pub(crate) trait PlatformWindowRendering {
     fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
     fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
     /// This returns [`RenderingContext`] matching the viewport.
-    fn rendering_context(&self) -> Rc<dyn RenderingContext>;
+    fn rendering_context(&self) -> Rc<dyn RenderingContextCore>;
     fn theme(&self) -> servo::Theme {
         servo::Theme::Light
     }

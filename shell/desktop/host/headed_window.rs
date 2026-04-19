@@ -20,7 +20,7 @@ use servo::{
     DeviceIndependentPixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint,
     EmbedderControl, EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
     InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
-    PermissionRequest, RenderingContext, RenderingContextCore, ScreenGeometry, Theme, TouchEvent,
+    PermissionRequest, RenderingContextCore, ScreenGeometry, Theme, TouchEvent,
     TouchEventType, TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext, convert_rect_to_css_pixel,
 };
@@ -191,9 +191,10 @@ impl HeadedWindow {
         }
 
         // Make sure the gl context is made current.
-        window_rendering_context
-            .make_current()
-            .expect("Could not make window RenderingContext current");
+        if let Some(gl) = window_rendering_context.gl() {
+            gl.make_current()
+                .expect("Could not make window RenderingContext current");
+        }
 
         let rendering_context = Rc::new(window_rendering_context.offscreen_context(inner_size));
         let render_host = UiHostRenderBootstrap::new(
@@ -1003,7 +1004,7 @@ impl PlatformWindowRendering for HeadedWindow {
             .unwrap_or_else(|| self.device_hidpi_scale_factor())
     }
 
-    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
+    fn rendering_context(&self) -> Rc<dyn RenderingContextCore> {
         self.rendering_context.clone()
     }
 

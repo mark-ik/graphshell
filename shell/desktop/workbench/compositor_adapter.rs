@@ -77,7 +77,7 @@ use dpi::PhysicalSize;
 use egui::{Area, Context, Id, LayerId, Order, Rect as EguiRect, Stroke, StrokeKind};
 use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
-use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, RenderingContextCore, WebView};
+use servo::{DevicePixel, OffscreenRenderingContext, RenderingContextCore, WebView};
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED;
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED;
@@ -1051,12 +1051,13 @@ impl CompositorAdapter {
             },
         );
 
-        if let Err(e) = render_context.make_current() {
-            warn!("Failed to make tile rendering context current: {e:?}");
-            return false;
+        if let Some(gl) = render_context.gl() {
+            if let Err(e) = gl.make_current() {
+                warn!("Failed to make tile rendering context current: {e:?}");
+                return false;
+            }
+            gl.prepare_for_rendering();
         }
-
-        render_context.prepare_for_rendering();
         paint();
         render_context.present();
 

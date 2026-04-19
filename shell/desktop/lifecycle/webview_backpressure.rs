@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use backon::{BackoffBuilder, ExponentialBuilder};
 use log::warn;
 use servo::{
-    OffscreenRenderingContext, RenderingContext, RenderingContextCore, WebViewId,
+    OffscreenRenderingContext, RenderingContextCore, WebViewId,
     WindowRenderingContext,
 };
 use url::Url;

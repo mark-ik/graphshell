@@ -15,7 +15,7 @@ use euclid::{Point2D, Scale, Size2D};
 use log::error;
 use servo::{
     DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize,
-    DevicePixel, RenderingContext, ScreenGeometry, SoftwareRenderingContext, WebView,
+    DevicePixel, RenderingContextCore, ScreenGeometry, SoftwareRenderingContext, WebView,
     convert_rect_to_css_pixel,
 };
 use winit::dpi::PhysicalSize;
@@ -76,8 +76,10 @@ impl HeadlessWindow {
 
 impl Drop for HeadlessWindow {
     fn drop(&mut self) {
-        if let Err(error) = self.rendering_context.make_current() {
-            error!("Failed to make the rendering context current: {error:?}");
+        if let Some(gl) = self.rendering_context.gl() {
+            if let Err(error) = gl.make_current() {
+                error!("Failed to make the rendering context current: {error:?}");
+            }
         }
     }
 }
@@ -107,7 +109,7 @@ impl PlatformWindowRendering for HeadlessWindow {
             .unwrap_or_else(|| self.device_hidpi_scale_factor())
     }
 
-    fn rendering_context(&self) -> Rc<dyn RenderingContext> {
+    fn rendering_context(&self) -> Rc<dyn RenderingContextCore> {
         self.rendering_context.clone()
     }
 
