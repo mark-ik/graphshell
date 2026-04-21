@@ -52,14 +52,14 @@ use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
     OverlayStrokePass,
 };
-use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 use crate::shell::desktop::workbench::interaction_policy::{
     InteractionUiState, OverlaySuppressionReason,
 };
+use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 #[cfg(test)]
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 #[cfg(feature = "wry")]
-use crate::{mods::native::verso, mods::native::verso::wry_manager::OverlayRect as WryOverlayRect};
+use crate::{mods::native::web_runtime, mods::native::web_runtime::wry_manager::OverlayRect as WryOverlayRect};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TileSelectionState {
@@ -598,7 +598,7 @@ fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visibl
 
     #[cfg(feature = "wry")]
     {
-        verso::sync_wry_overlay_for_node(
+        web_runtime::sync_wry_overlay_for_node(
             node_key,
             WryOverlayRect {
                 x: tile_rect.min.x,
@@ -1059,13 +1059,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         .iter()
         .copied()
         .map(|(pane_id, node_key, tile_rect)| {
-            resolve_tile_semantic_input(
-                graph_app,
-                pane_id,
-                node_key,
-                tile_rect,
-                focus_delta,
-            )
+            resolve_tile_semantic_input(graph_app, pane_id, node_key, tile_rect, focus_delta)
         })
         .collect();
     let scheduled_passes = schedule_active_node_pane_passes(
@@ -1307,7 +1301,6 @@ fn render_degraded_receipts(
     }
 }
 
-
 #[derive(Clone, Copy)]
 struct OverlayAffordancePolicy {
     style: OverlayAffordanceStyle,
@@ -1465,7 +1458,7 @@ fn thumbnail_ghost_hash(width: u32, height: u32, bytes: &[u8]) -> u64 {
 
 #[cfg(feature = "wry")]
 fn wry_preview_texture_id(ctx: &egui::Context, node_key: NodeKey) -> Option<TextureId> {
-    let png_bytes = verso::wry_frame_png_bytes_for_node(node_key)?;
+    let png_bytes = web_runtime::wry_frame_png_bytes_for_node(node_key)?;
     let image = load_from_memory(&png_bytes).ok()?.to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     let rgba = image.into_raw();
@@ -1536,12 +1529,12 @@ fn render_wry_preview_frame_if_needed(
         if let Some(refresh_interval) =
             webview_preview_refresh_interval_for_lifecycle(graph_app, semantic.lifecycle)
         {
-            let _ = verso::refresh_wry_frame_for_node_if_stale(semantic.node_key, refresh_interval);
+            let _ = web_runtime::refresh_wry_frame_for_node_if_stale(semantic.node_key, refresh_interval);
         }
         Some(texture_id)
     } else {
         if webview_preview_refresh_interval_for_lifecycle(graph_app, semantic.lifecycle).is_some() {
-            verso::refresh_wry_frame_for_node(semantic.node_key);
+            web_runtime::refresh_wry_frame_for_node(semantic.node_key);
         }
         wry_preview_texture_id(ctx, semantic.node_key)
     };
@@ -1883,7 +1876,7 @@ mod tests {
     use std::sync::atomic::AtomicU64;
 
     #[cfg(feature = "wry")]
-    use crate::mods::native::verso;
+    use crate::mods::native::web_runtime;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
@@ -2153,13 +2146,13 @@ mod tests {
     #[cfg(feature = "wry")]
     #[test]
     fn native_overlay_sync_records_visible_true() {
-        verso::reset_wry_manager_for_tests();
+        web_runtime::reset_wry_manager_for_tests();
         let node_key = NodeKey::new(700);
         let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(300.0, 150.0));
 
         sync_native_overlay_for_tile(node_key, rect, true);
 
-        let state = verso::last_wry_overlay_sync_for_node_for_tests(node_key)
+        let state = web_runtime::last_wry_overlay_sync_for_node_for_tests(node_key)
             .expect("expected overlay sync state");
         assert!(state.visible);
         assert_eq!(state.rect.width, 300.0);
@@ -2169,13 +2162,13 @@ mod tests {
     #[cfg(feature = "wry")]
     #[test]
     fn native_overlay_sync_records_visible_false_for_hidden_tiles() {
-        verso::reset_wry_manager_for_tests();
+        web_runtime::reset_wry_manager_for_tests();
         let node_key = NodeKey::new(701);
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(120.0, 80.0));
 
         sync_native_overlay_for_tile(node_key, rect, false);
 
-        let state = verso::last_wry_overlay_sync_for_node_for_tests(node_key)
+        let state = web_runtime::last_wry_overlay_sync_for_node_for_tests(node_key)
             .expect("expected overlay sync state");
         assert!(!state.visible);
     }
@@ -2213,10 +2206,7 @@ mod tests {
         );
 
         assert_eq!(effective_mode, TileRenderMode::Placeholder);
-        assert!(matches!(
-            overlay.style,
-            OverlayAffordanceStyle::AreaStroke
-        ));
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::AreaStroke));
     }
 
     #[test]
@@ -2380,10 +2370,7 @@ mod tests {
             &test_presentation_profile(),
         );
 
-        assert!(matches!(
-            overlay.style,
-            OverlayAffordanceStyle::AreaStroke
-        ));
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::AreaStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
 
@@ -2397,10 +2384,7 @@ mod tests {
             &test_presentation_profile(),
         );
 
-        assert!(matches!(
-            overlay.style,
-            OverlayAffordanceStyle::AreaStroke
-        ));
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::AreaStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
     }
 
@@ -2412,10 +2396,7 @@ mod tests {
         semantic.selection_state = TileSelectionState::SelectionPrimary;
         let overlay = selection_overlay_for_mode(semantic, tile_rect, &test_presentation_profile());
 
-        assert!(matches!(
-            overlay.style,
-            OverlayAffordanceStyle::AreaStroke
-        ));
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::AreaStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
     }
 

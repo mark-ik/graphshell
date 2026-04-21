@@ -32,6 +32,18 @@ impl_display_from_str!(DefaultWebViewerBackend {
     DefaultWebViewerBackend::Wry => "viewer:wry",
 });
 
+impl DefaultWebViewerBackend {
+    /// Map the user-facing web-backend setting to the verso routing
+    /// authority's preference type. Centralizes the conversion so
+    /// call sites stop open-coding the match.
+    pub fn web_engine_preference(self) -> ::verso::WebEnginePreference {
+        match self {
+            Self::Servo => ::verso::WebEnginePreference::Servo,
+            Self::Wry => ::verso::WebEnginePreference::Wry,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WryRenderModePreference {
     #[default]
@@ -95,8 +107,6 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
-            || name == Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME
-            || name == Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME
             || name == Self::SETTINGS_LASSO_BINDING_NAME
             || name == Self::SETTINGS_INPUT_BINDING_REMAPS_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
@@ -201,24 +211,13 @@ impl GraphBrowserApp {
         self.save_keyboard_pan_input_mode();
     }
 
-    pub fn camera_pan_inertia_enabled(&self) -> bool {
-        self.workspace.chrome_ui.camera_pan_inertia_enabled
-    }
-
-    pub fn set_camera_pan_inertia_enabled(&mut self, enabled: bool) {
-        self.workspace.chrome_ui.camera_pan_inertia_enabled = enabled;
-        self.save_camera_pan_inertia_enabled();
-    }
-
-    pub fn camera_pan_inertia_damping(&self) -> f32 {
-        self.workspace.chrome_ui.camera_pan_inertia_damping
-    }
-
-    pub fn set_camera_pan_inertia_damping(&mut self, damping: f32) {
-        let normalized = damping.clamp(0.70, 0.99);
-        self.workspace.chrome_ui.camera_pan_inertia_damping = normalized;
-        self.save_camera_pan_inertia_damping();
-    }
+    // `camera_pan_inertia_*` used to live here as zombie workspace-global
+    // preferences that persisted and displayed but never drove behavior.
+    // Pan inertia on/off and damping now resolve through
+    // `GraphBrowserApp::resolve_navigation_policy(view_id)` →
+    // `NavigationPolicy::{pan_inertia_enabled, pan_damping_per_second}`
+    // with per-view override + per-graph default. Removed 2026-04-20
+    // per the Node Style configurability sweep follow-on.
 
     pub fn lasso_binding_preference(&self) -> CanvasLassoBinding {
         self.workspace.chrome_ui.lasso_binding_preference
@@ -328,24 +327,6 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
             &self.workspace.chrome_ui.keyboard_pan_input_mode.to_string(),
-        );
-    }
-
-    fn save_camera_pan_inertia_enabled(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME,
-            if self.workspace.chrome_ui.camera_pan_inertia_enabled {
-                "true"
-            } else {
-                "false"
-            },
-        );
-    }
-
-    fn save_camera_pan_inertia_damping(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME,
-            &format!("{:.3}", self.workspace.chrome_ui.camera_pan_inertia_damping),
         );
     }
 
@@ -1020,28 +1001,13 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
             }
         }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME)
-        {
-            match raw.trim().to_ascii_lowercase().as_str() {
-                "true" | "1" | "yes" | "on" => {
-                    self.workspace.chrome_ui.camera_pan_inertia_enabled = true
-                }
-                "false" | "0" | "no" | "off" => {
-                    self.workspace.chrome_ui.camera_pan_inertia_enabled = false
-                }
-                _ => warn!("Ignoring invalid persisted camera pan inertia enabled flag: '{raw}'"),
-            }
-        }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME)
-        {
-            if let Ok(damping) = raw.trim().parse::<f32>() {
-                self.workspace.chrome_ui.camera_pan_inertia_damping = damping.clamp(0.70, 0.99);
-            } else {
-                warn!("Ignoring invalid persisted camera pan inertia damping: '{raw}'");
-            }
-        }
+        // Legacy `settings.camera_pan_inertia_*` layout-json keys used
+        // to load into `workspace.chrome_ui.camera_pan_inertia_*` here.
+        // Those fields were zombies — persisted and displayed but never
+        // consumed by the actual inertia tick — and were removed on
+        // 2026-04-20. Any old workspace JSON carrying those keys is
+        // silently ignored; pan inertia now lives on `NavigationPolicy`
+        // (per-view override + per-graph default).
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_BINDING_NAME) {
             if let Ok(binding) = raw.parse::<CanvasLassoBinding>() {
                 self.workspace.chrome_ui.lasso_binding_preference = binding;

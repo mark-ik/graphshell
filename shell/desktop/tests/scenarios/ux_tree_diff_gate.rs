@@ -9,7 +9,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphBrowserApp, GraphViewId, WorkbenchIntent};
 use crate::render::radial_menu::{
     RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
-    clear_semantic_snapshot, publish_semantic_snapshot,
+    clear_semantic_snapshot, lock_radial_palette_snapshot_tests, publish_semantic_snapshot,
 };
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
@@ -194,6 +194,7 @@ fn pane_lifecycle_open_node_tab_case() -> SnapshotBaselineCase {
 }
 
 fn command_surface_radial_palette_case() -> SnapshotBaselineCase {
+    let _guard = lock_radial_palette_snapshot_tests();
     publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
         sectors: vec![
             RadialSectorSemanticMetadata {

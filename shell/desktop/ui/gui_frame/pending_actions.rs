@@ -30,7 +30,8 @@ struct PendingPostRenderActionPipeline<'a> {
     graph_app: &'a mut GraphBrowserApp,
     window: &'a EmbedderWindow,
     tiles_tree: &'a mut Tree<TileKind>,
-    viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &'a mut Option<NodeKey>,

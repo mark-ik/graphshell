@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use egui_tiles::TileId;
 use uuid::Uuid;
 
-use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::GraphPhysicsState;
 use crate::graph::scene_runtime::{GraphViewSceneRuntime, SceneRegionDragState, SceneRegionId};
 use crate::graph::{FrameLayoutHint, Graph, NodeKey};
@@ -182,6 +181,21 @@ fn rect_area(rect: egui::Rect) -> f32 {
     rect.width().max(0.0) * rect.height().max(0.0)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SemanticNavigationNodeRuntime {
+    pub node_id: Uuid,
+    pub current_url: Option<String>,
+    pub last_visit_at_ms: u64,
+    pub visit_count: usize,
+    pub branch_points: usize,
+    pub alternate_targets: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SemanticNavigationRuntimeState {
+    pub recent_nodes: HashMap<NodeKey, SemanticNavigationNodeRuntime>,
+}
+
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
 pub struct GraphViewRuntimeState {
     /// Force-directed layout state owned by app/runtime UI controls.
@@ -249,8 +263,8 @@ pub struct GraphViewRuntimeState {
     /// Per-view graph-canvas interaction engine state (transient, not persisted).
     ///
     /// Created lazily when a view first renders through the graph-canvas path.
-    /// Replaces `egui_graphs`' internal hover/selection/drag tracking with
-    /// the portable `InteractionEngine` from the `graph-canvas` crate.
+    /// Owns the portable `InteractionEngine` that replaced the retired
+    /// `egui_graphs` hover/selection/drag tracking in M2.
     #[cfg(not(target_arch = "wasm32"))]
     pub canvas_interaction_engines:
         HashMap<GraphViewId, graph_canvas::engine::InteractionEngine<NodeKey>>,
@@ -301,8 +315,9 @@ pub struct GraphViewRuntimeState {
 
     /// Per-view graph-canvas camera state (transient, not persisted).
     ///
-    /// Parallel to the egui_graphs metadata camera. Once the graph-canvas path
-    /// is authoritative, this replaces the MetadataFrame camera round-trip.
+    /// Sole camera authority since M2 retired the `egui_graphs`
+    /// MetadataFrame round-trip. Owned by portable `CanvasCamera`,
+    /// written back per-frame by `canvas_bridge::run_graph_canvas_frame`.
     pub canvas_cameras: HashMap<GraphViewId, graph_canvas::camera::CanvasCamera>,
 
     /// Short-lived per-view release impulses used by `Simulate` mode so dragged
@@ -338,12 +353,6 @@ pub struct GraphViewRuntimeState {
 
     /// Cached hop-distance map from current primary selection for omnibar ranking/signifiers.
     pub(crate) hop_distance_cache: Option<(NodeKey, HashMap<NodeKey, usize>)>,
-
-    /// Cached egui_graphs state (persists across frames for drag/interaction).
-    pub egui_state: Option<EguiGraphState>,
-
-    /// Invariant: must only be set directly for non-structural visual changes.
-    pub egui_state_dirty: bool,
 
     /// Node keys excluded by viewport culling on the previous rebuild.
     pub last_culled_node_keys: Option<HashSet<NodeKey>>,
@@ -388,6 +397,9 @@ pub struct GraphViewRuntimeState {
 
     /// Last known return-to-present outcome summary.
     pub(crate) history_last_return_to_present_result: Option<String>,
+
+    /// Shared runtime projection of semantic navigation memory across graph nodes.
+    pub(crate) semantic_navigation: SemanticNavigationRuntimeState,
 
     /// Cached semantic codes for physics calculations.
     pub semantic_index: HashMap<NodeKey, SemanticClassVector>,
@@ -647,6 +659,12 @@ pub struct ChromeUiState {
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
 
+    /// Consolidated action-surface state. Source of truth for
+    /// palette/radial open-state; the four bool fields above are
+    /// maintained in sync for legacy readers during the 2026-04-20
+    /// action surfaces redesign migration.
+    pub surface_state: crate::app::action_surface::ActionSurfaceState,
+
     /// Whether the web clip inspector surface is open.
     pub show_clip_inspector: bool,
 
@@ -673,12 +691,6 @@ pub struct ChromeUiState {
 
     /// Keyboard pan input mode (WASD + arrows, or arrows-only).
     pub keyboard_pan_input_mode: KeyboardPanInputMode,
-
-    /// Whether camera panning keeps slight inertia after manual input ends.
-    pub camera_pan_inertia_enabled: bool,
-
-    /// Damping factor for camera pan inertia (lower settles faster).
-    pub camera_pan_inertia_damping: f32,
 
     /// Preferred lasso binding for canvas interactions.
     pub lasso_binding_preference: CanvasLassoBinding,

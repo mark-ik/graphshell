@@ -511,10 +511,16 @@ fn render_tab_ui_impl(
                         }
                     }
                     crate::app::ContextCommandSurfacePreference::ContextPalette => {
-                        behavior.graph_app.set_context_palette_anchor(
-                            ui.input(|i| i.pointer.latest_pos().map(|pos| [pos.x, pos.y])),
-                        );
-                        behavior.graph_app.open_context_palette();
+                        let pointer = ui.input(|i| i.pointer.latest_pos());
+                        behavior
+                            .graph_app
+                            .set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
+                        let anchor = pointer
+                            .map(|p| crate::app::Anchor::viewport_point([p.x, p.y]))
+                            .unwrap_or(crate::app::Anchor::ScreenCenter);
+                        behavior
+                            .graph_app
+                            .open_palette_contextual(crate::app::ActionScope::Workbench, anchor);
                     }
                 }
             }

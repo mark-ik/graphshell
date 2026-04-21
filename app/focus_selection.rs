@@ -88,7 +88,6 @@ impl GraphBrowserApp {
         }
         self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub(crate) fn reset_selection_state(&mut self) {
@@ -99,7 +98,6 @@ impl GraphBrowserApp {
             .selection_edge_projections
             .clear();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub(crate) fn prune_selection_to_existing_nodes(&mut self) {
@@ -113,7 +111,6 @@ impl GraphBrowserApp {
             .retain(|_, selection| !selection.is_empty());
         self.sync_all_selection_edge_projection_overrides();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub(crate) fn retain_selection_scopes_for_graph_views(
@@ -141,7 +138,6 @@ impl GraphBrowserApp {
                 }
             });
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn select_node(&mut self, key: NodeKey, multi_select: bool) {
@@ -158,7 +154,6 @@ impl GraphBrowserApp {
         self.current_selection_mut().select(key, multi_select);
         self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub(crate) fn update_focused_selection(
@@ -172,7 +167,6 @@ impl GraphBrowserApp {
         self.current_selection_mut().update_many(keys, mode);
         self.sync_selection_edge_projection_override_for_scope(scope);
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub(crate) fn restore_selection_snapshot(
@@ -185,7 +179,6 @@ impl GraphBrowserApp {
         self.set_unfocused_selection(active_selection);
         self.sync_all_selection_edge_projection_overrides();
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn selection_for_view(&self, view_id: GraphViewId) -> &SelectionState {
@@ -213,8 +206,21 @@ impl GraphBrowserApp {
         let previous_focused_view = self.workspace.graph_runtime.focused_view;
         self.workspace.graph_runtime.focused_view = focused_view;
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.graph_runtime.egui_state_dirty = true;
         if self.workspace.graph_runtime.focused_view != previous_focused_view {
+            // Close any action surface whose scope belonged to the
+            // old view. If the caller navigated to a new view (or
+            // cleared focus), a contextual palette or radial opened
+            // in the prior view is no longer meaningful.
+            if let Some(new_view) = focused_view {
+                self.close_action_surface_if_in_other_view(new_view);
+            } else if self
+                .workspace
+                .chrome_ui
+                .surface_state
+                .is_graph_scoped()
+            {
+                self.close_action_surface();
+            }
             self.emit_ux_navigation_transition();
         }
     }

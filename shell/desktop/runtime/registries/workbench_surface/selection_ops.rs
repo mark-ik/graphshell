@@ -30,9 +30,7 @@ pub(super) fn handle_group_selected_tiles_intent(
         .tiles
         .iter()
         .filter_map(|(tid, tile)| match tile {
-            Tile::Pane(kind) if selection.selected_pane_ids.contains(&kind.pane_id()) => {
-                Some(*tid)
-            }
+            Tile::Pane(kind) if selection.selected_pane_ids.contains(&kind.pane_id()) => Some(*tid),
             _ => None,
         })
         .collect();
@@ -57,8 +55,7 @@ pub(super) fn handle_group_selected_tiles_intent(
     for tile_id in &result_tile_ids {
         if *tile_id != primary_result_tile_id {
             if let Some(Tile::Pane(kind)) = tiles_tree.tiles.get(*tile_id) {
-                graph_app
-                    .update_workbench_pane_selection(kind.pane_id(), SelectionUpdateMode::Add);
+                graph_app.update_workbench_pane_selection(kind.pane_id(), SelectionUpdateMode::Add);
             }
         }
     }

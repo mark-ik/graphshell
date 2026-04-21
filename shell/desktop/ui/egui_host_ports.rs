@@ -253,16 +253,8 @@ impl<'a> HostToastPort for EguiHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
-    fn inject_tree_update(
-        &mut self,
-        webview_id: WebViewId,
-        update: servo::accesskit::TreeUpdate,
-    ) {
-        enqueue_pending_webview_a11y_update(
-            self.pending_webview_a11y_updates,
-            webview_id,
-            update,
-        );
+    fn inject_tree_update(&mut self, webview_id: WebViewId, update: servo::accesskit::TreeUpdate) {
+        enqueue_pending_webview_a11y_update(self.pending_webview_a11y_updates, webview_id, update);
     }
 
     fn request_focus(&mut self, node_id: accesskit::NodeId) {

@@ -204,7 +204,7 @@ fn open_settings_url_history_does_not_use_legacy_history_flag() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
-    let was_running = harness.app.workspace.graph_runtime.physics.base.is_running;
+    let was_running = harness.app.workspace.graph_runtime.physics.is_running;
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
@@ -217,7 +217,7 @@ fn open_settings_url_history_does_not_use_legacy_history_flag() {
         });
 
     assert_eq!(
-        harness.app.workspace.graph_runtime.physics.base.is_running,
+        harness.app.workspace.graph_runtime.physics.is_running,
         was_running
     );
 }
@@ -227,7 +227,7 @@ fn open_settings_url_physics_is_not_reducer_owned() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
-    let was_running = harness.app.workspace.graph_runtime.physics.base.is_running;
+    let was_running = harness.app.workspace.graph_runtime.physics.is_running;
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
@@ -240,7 +240,7 @@ fn open_settings_url_physics_is_not_reducer_owned() {
         });
 
     assert_eq!(
-        harness.app.workspace.graph_runtime.physics.base.is_running,
+        harness.app.workspace.graph_runtime.physics.is_running,
         was_running
     );
 }
@@ -250,7 +250,7 @@ fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
-    let was_running = harness.app.workspace.graph_runtime.physics.base.is_running;
+    let was_running = harness.app.workspace.graph_runtime.physics.is_running;
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
@@ -263,7 +263,7 @@ fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
         });
 
     assert_eq!(
-        harness.app.workspace.graph_runtime.physics.base.is_running,
+        harness.app.workspace.graph_runtime.physics.is_running,
         was_running
     );
 }

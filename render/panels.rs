@@ -13,7 +13,9 @@ use crate::app::{
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, SettingsToolPage, ToastAnchorPreference,
     ViewAction, WorkbenchIntent, clip_capture_matches_filter, clip_capture_matches_query,
 };
-use crate::graph::{ArrangementSubKind, NodeKey, format_imported_at_secs};
+use crate::graph::{
+    ArrangementSubKind, NodeHistoryTransitionKind, NodeKey, format_imported_at_secs,
+};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
@@ -748,7 +750,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Repulsion (c_repulse):");
     if ui
-        .add(egui::Slider::new(&mut config.base.c_repulse, 0.0..=10.0))
+        .add(egui::Slider::new(&mut config.c_repulse, 0.0..=10.0))
         .changed()
     {
         config_changed = true;
@@ -756,7 +758,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Attraction (c_attract):");
     if ui
-        .add(egui::Slider::new(&mut config.base.c_attract, 0.0..=10.0))
+        .add(egui::Slider::new(&mut config.c_attract, 0.0..=10.0))
         .changed()
     {
         config_changed = true;
@@ -764,7 +766,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Ideal Distance Scale (k_scale):");
     if ui
-        .add(egui::Slider::new(&mut config.base.k_scale, 0.1..=5.0))
+        .add(egui::Slider::new(&mut config.k_scale, 0.1..=5.0))
         .changed()
     {
         config_changed = true;
@@ -772,7 +774,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Center Gravity:");
     if ui
-        .add(egui::Slider::new(&mut config.extras.0.params.c, 0.0..=1.0))
+        .add(egui::Slider::new(&mut config.c_gravity, 0.0..=1.0))
         .changed()
     {
         config_changed = true;
@@ -780,7 +782,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Max Step:");
     if ui
-        .add(egui::Slider::new(&mut config.base.max_step, 0.1..=100.0))
+        .add(egui::Slider::new(&mut config.max_step, 0.1..=100.0))
         .changed()
     {
         config_changed = true;
@@ -790,7 +792,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
     ui.label("Damping & Convergence");
     ui.label("Damping:");
     if ui
-        .add(egui::Slider::new(&mut config.base.damping, 0.01..=1.0))
+        .add(egui::Slider::new(&mut config.damping, 0.01..=1.0))
         .changed()
     {
         config_changed = true;
@@ -798,7 +800,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Time Step (dt):");
     if ui
-        .add(egui::Slider::new(&mut config.base.dt, 0.001..=1.0).logarithmic(true))
+        .add(egui::Slider::new(&mut config.dt, 0.001..=1.0).logarithmic(true))
         .changed()
     {
         config_changed = true;
@@ -806,7 +808,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.label("Epsilon:");
     if ui
-        .add(egui::Slider::new(&mut config.base.epsilon, 1e-6..=0.1).logarithmic(true))
+        .add(egui::Slider::new(&mut config.epsilon, 1e-6..=0.1).logarithmic(true))
         .changed()
     {
         config_changed = true;
@@ -814,13 +816,13 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
 
     ui.horizontal(|ui| {
         if ui.button("Reset to Defaults").clicked() {
-            let running = config.base.is_running;
+            let running = config.is_running;
             config = GraphBrowserApp::default_physics_state();
-            config.base.is_running = running;
+            config.is_running = running;
             config_changed = true;
         }
 
-        ui.small(if app.workspace.graph_runtime.physics.base.is_running {
+        ui.small(if app.workspace.graph_runtime.physics.is_running {
             "Status: Running"
         } else {
             "Status: Paused"
@@ -831,14 +833,13 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
         .workspace
         .graph_runtime
         .physics
-        .base
         .last_avg_displacement
     {
         ui.small(format!("Last avg displacement: {:.4}", last_avg));
     }
     ui.small(format!(
         "Step count: {}",
-        app.workspace.graph_runtime.physics.base.step_count
+        app.workspace.graph_runtime.physics.step_count
     ));
 
     ui.separator();
@@ -912,28 +913,141 @@ fn render_camera_controls_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp)
     });
 
     ui.separator();
-    ui.label("Pan Inertia");
-    let mut inertia_enabled = app.camera_pan_inertia_enabled();
-    if ui
-        .checkbox(
-            &mut inertia_enabled,
-            "Enable slight camera inertia after pan input",
-        )
-        .changed()
-    {
-        app.set_camera_pan_inertia_enabled(inertia_enabled);
+    render_navigation_policy_settings_in_ui(ui, app);
+}
+
+/// Render the per-view canvas navigation-policy controls: zoom bounds,
+/// fit padding, pan inertia, scroll rate, drag threshold, lasso modifier.
+/// Writes through `set_graph_view_navigation_policy_override` so edits
+/// take effect immediately without a view rebuild; falls back to the
+/// per-graph default when no view is focused.
+fn render_navigation_policy_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
+    use graph_canvas::navigation::{LassoModifier, NavigationPolicy};
+
+    ui.label("Canvas Navigation");
+    ui.small(
+        "Per-view camera / input feel. Falls back to the per-graph default when no view-level override is set.",
+    );
+
+    let target_view = camera_settings_target_view_id(app);
+    let mut policy = match target_view {
+        Some(view_id) => app.resolve_navigation_policy(view_id),
+        None => app.workspace.domain.navigation_policy_default,
+    };
+    let initial = policy;
+
+    ui.horizontal(|ui| {
+        ui.label("Zoom range");
+        ui.add(
+            egui::Slider::new(&mut policy.zoom_min, 0.01..=1.0)
+                .fixed_decimals(2)
+                .prefix("min "),
+        );
+        ui.add(
+            egui::Slider::new(&mut policy.zoom_max, 1.0..=40.0)
+                .fixed_decimals(1)
+                .prefix("max "),
+        );
+    });
+    // Keep min <= max (clamp after edit; don't reorder silently across
+    // the UI and leave the user wondering what happened).
+    if policy.zoom_min > policy.zoom_max {
+        policy.zoom_min = policy.zoom_max;
     }
-    if inertia_enabled {
+
+    ui.horizontal(|ui| {
+        ui.label("Fit padding");
+        ui.add(
+            egui::Slider::new(&mut policy.fit_padding_ratio, 1.0..=1.50)
+                .fixed_decimals(2)
+                .suffix("×"),
+        )
+        .on_hover_text(
+            "Scale applied around the fit bounds. 1.0 = edges flush to the viewport; 1.1 = ~5 % margin per side.",
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Scroll pan rate");
+        ui.add(
+            egui::Slider::new(&mut policy.scroll_pan_pixels_per_unit, 5.0..=200.0)
+                .fixed_decimals(0)
+                .suffix(" px/unit"),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Drag threshold");
+        ui.add(
+            egui::Slider::new(&mut policy.drag_threshold_px, 1.0..=24.0)
+                .fixed_decimals(0)
+                .suffix(" px"),
+        )
+        .on_hover_text(
+            "Screen-pixel distance before a press-and-drag counts as a drag instead of a click.",
+        );
+    });
+
+    ui.checkbox(
+        &mut policy.pan_inertia_enabled,
+        "Enable pan inertia (coast after drag release)",
+    );
+    if policy.pan_inertia_enabled {
         ui.horizontal(|ui| {
             ui.label("Inertia damping");
-            let mut damping = app.camera_pan_inertia_damping();
-            if ui
-                .add(egui::Slider::new(&mut damping, 0.70..=0.99).fixed_decimals(2))
-                .changed()
-            {
-                app.set_camera_pan_inertia_damping(damping);
-            }
+            // `pan_damping_per_second` is the per-second multiplier
+            // applied via `damping^dt`; lower values settle faster.
+            ui.add(
+                egui::Slider::new(&mut policy.pan_damping_per_second, 0.0001..=0.05)
+                    .logarithmic(true)
+                    .fixed_decimals(4),
+            )
+            .on_hover_text("Lower values settle faster. Default 0.003 (~500 ms settle at 60 fps).");
         });
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Lasso modifier");
+        ui.radio_value(&mut policy.lasso_modifier, LassoModifier::Shift, "Shift");
+        ui.radio_value(&mut policy.lasso_modifier, LassoModifier::Ctrl, "Ctrl");
+        ui.radio_value(&mut policy.lasso_modifier, LassoModifier::Alt, "Alt");
+        ui.radio_value(&mut policy.lasso_modifier, LassoModifier::None, "None (always lasso)")
+            .on_hover_text("`None` flips to Figma convention: plain primary-drag always lassoes; pan only via middle-click / scroll.");
+    });
+
+    if policy != initial {
+        match target_view {
+            Some(view_id) => {
+                app.set_graph_view_navigation_policy_override(view_id, Some(policy));
+            }
+            None => {
+                app.set_navigation_policy_default(policy);
+            }
+        }
+    }
+
+    ui.horizontal(|ui| {
+        if target_view.is_some()
+            && ui
+                .button("Reset view override")
+                .on_hover_text("Drop the per-view override; inherit the per-graph default.")
+                .clicked()
+        {
+            if let Some(view_id) = target_view {
+                app.set_graph_view_navigation_policy_override(view_id, None);
+            }
+        }
+        if ui
+            .button("Reset per-graph default")
+            .on_hover_text("Reset the per-graph baseline to the portable NavigationPolicy default.")
+            .clicked()
+        {
+            app.set_navigation_policy_default(NavigationPolicy::default());
+        }
+    });
+
+    if target_view.is_none() {
+        ui.small("No graph view is currently focused — edits here write to the per-graph default.");
     }
 }
 
@@ -1605,6 +1719,10 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 ui.add_space(4.0);
             }
 
+            render_recent_semantic_navigation(ui, app, &mut intents);
+            render_semantic_navigation_hotspots(ui, app, &mut intents);
+            render_selected_node_semantic_branch(ui, app, &mut intents);
+
             // Stage M3: Track filter chips
             {
                 use crate::services::persistence::types::HistoryTrackKind;
@@ -1694,6 +1812,267 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     }
 
     intents
+}
+
+fn render_recent_semantic_navigation(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    intents: &mut Vec<GraphIntent>,
+) {
+    let recent = app.semantic_recent_navigation_nodes(6);
+    if recent.is_empty() {
+        return;
+    }
+
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Recent Semantic Navigation").strong());
+            ui.label(
+                egui::RichText::new("live owner-scoped visit recency across nodes")
+                    .weak()
+                    .small(),
+            );
+        });
+
+        for (node_key, runtime) in recent {
+            let Some(node) = app.domain_graph().get_node(node_key) else {
+                continue;
+            };
+            let destination = runtime
+                .current_url
+                .clone()
+                .unwrap_or_else(|| node.url().to_string());
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(semantic_runtime_badge_label(&runtime))
+                        .small()
+                        .weak(),
+                );
+                if semantic_runtime_is_hotspot(&runtime) {
+                    ui.label(egui::RichText::new("hot").small().strong());
+                }
+                let response = ui.selectable_label(
+                    false,
+                    format!(
+                        "{} · {}",
+                        navigator_node_title(app, node_key),
+                        history_branch_display_url(&destination, 32)
+                    ),
+                );
+                if response.clicked() {
+                    intents.push(GraphIntent::SelectNode {
+                        key: node_key,
+                        multi_select: false,
+                    });
+                    intents.push(GraphIntent::SetNodeUrl {
+                        key: node_key,
+                        new_url: destination.clone(),
+                    });
+                    intents.push(GraphIntent::RequestZoomToSelected);
+                }
+            });
+        }
+    });
+
+    ui.add_space(6.0);
+}
+
+fn render_semantic_navigation_hotspots(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    intents: &mut Vec<GraphIntent>,
+) {
+    let hotspots = app.semantic_navigation_hotspots(3);
+    if hotspots.is_empty() {
+        return;
+    }
+
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Semantic Hotspots").strong());
+            ui.label(
+                egui::RichText::new("branching and repeated attention from live semantic memory")
+                    .weak()
+                    .small(),
+            );
+        });
+
+        for (node_key, runtime, score) in hotspots {
+            let destination = runtime.current_url.clone().or_else(|| {
+                app.domain_graph()
+                    .get_node(node_key)
+                    .map(|node| node.url().to_string())
+            });
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("score {score}"))
+                        .small()
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new(semantic_runtime_badge_label(&runtime))
+                        .small()
+                        .weak(),
+                );
+                let response = ui.selectable_label(false, navigator_node_title(app, node_key));
+                if response.clicked() {
+                    intents.push(GraphIntent::SelectNode {
+                        key: node_key,
+                        multi_select: false,
+                    });
+                    if let Some(destination) = destination.clone() {
+                        intents.push(GraphIntent::SetNodeUrl {
+                            key: node_key,
+                            new_url: destination,
+                        });
+                    }
+                    intents.push(GraphIntent::RequestZoomToSelected);
+                }
+            });
+        }
+    });
+
+    ui.add_space(6.0);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HistoryManagerSelectedNodeBranch {
+    node_key: NodeKey,
+    node_id: Uuid,
+    title: String,
+    branch: crate::graph::NodeHistoryBranchProjection,
+}
+
+fn selected_history_manager_branch(
+    app: &GraphBrowserApp,
+) -> Option<HistoryManagerSelectedNodeBranch> {
+    let node_key = app.get_single_selected_node()?;
+    let node = app.domain_graph().get_node(node_key)?;
+    Some(HistoryManagerSelectedNodeBranch {
+        node_key,
+        node_id: node.id,
+        title: navigator_node_title(app, node_key),
+        branch: node.history_branch_projection(),
+    })
+}
+
+fn render_selected_node_semantic_branch(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    intents: &mut Vec<GraphIntent>,
+) {
+    let Some(selected) = selected_history_manager_branch(app) else {
+        return;
+    };
+
+    let node_id = selected.node_id.to_string();
+    let node_scoped = app
+        .workspace
+        .chrome_ui
+        .mixed_timeline_filter
+        .node_id
+        .as_deref()
+        == Some(node_id.as_str());
+
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Selected Node Branch").strong());
+            ui.label(egui::RichText::new(&selected.title).weak());
+            if node_scoped {
+                ui.label(egui::RichText::new("timeline scoped").small().italics());
+                if ui.small_button("Clear Scope").clicked() {
+                    app.workspace.chrome_ui.mixed_timeline_filter.node_id = None;
+                }
+            } else if ui.small_button("Scope Timeline to Node").clicked() {
+                app.workspace.chrome_ui.mixed_timeline_filter.node_id = Some(node_id.clone());
+            }
+        });
+
+        if selected.branch.visits.is_empty() {
+            ui.small("Selected node has no semantic branch history yet.");
+            return;
+        }
+
+        egui::ScrollArea::vertical()
+            .max_height(120.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for visit in &selected.branch.visits {
+                    ui.horizontal(|ui| {
+                        let marker = if visit.is_current { "●" } else { "○" };
+                        let response = ui.selectable_label(
+                            false,
+                            format!(
+                                "{} {} {}",
+                                marker,
+                                history_branch_transition_icon(visit.transition),
+                                history_branch_display_url(&visit.url, 42)
+                            ),
+                        );
+                        if response.clicked() {
+                            intents.push(GraphIntent::SetNodeUrl {
+                                key: selected.node_key,
+                                new_url: visit.url.clone(),
+                            });
+                        }
+                    });
+
+                    if !visit.alternate_children.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new("Alternates:").weak().small());
+                            for alternate in &visit.alternate_children {
+                                if ui
+                                    .small_button(format!(
+                                        "{} {}",
+                                        history_branch_transition_icon(alternate.transition),
+                                        history_branch_display_url(&alternate.url, 28)
+                                    ))
+                                    .clicked()
+                                {
+                                    intents.push(GraphIntent::SetNodeUrl {
+                                        key: selected.node_key,
+                                        new_url: alternate.url.clone(),
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            });
+    });
+
+    ui.add_space(6.0);
+}
+
+fn semantic_runtime_badge_label(runtime: &crate::app::SemanticNavigationNodeRuntime) -> String {
+    let mut parts = vec![format!(
+        "{} visit{}",
+        runtime.visit_count,
+        if runtime.visit_count == 1 { "" } else { "s" }
+    )];
+    if runtime.branch_points > 0 {
+        parts.push(format!(
+            "{} fork{}",
+            runtime.branch_points,
+            if runtime.branch_points == 1 { "" } else { "s" }
+        ));
+    }
+    if runtime.alternate_targets > 0 {
+        parts.push(format!(
+            "{} alt{}",
+            runtime.alternate_targets,
+            if runtime.alternate_targets == 1 {
+                ""
+            } else {
+                "s"
+            }
+        ));
+    }
+    parts.join(", ")
+}
+
+fn semantic_runtime_is_hotspot(runtime: &crate::app::SemanticNavigationNodeRuntime) -> bool {
+    GraphBrowserApp::semantic_navigation_attention_score(runtime) >= 6
 }
 
 fn history_manager_entry_limit() -> usize {
@@ -1855,6 +2234,32 @@ fn render_mixed_timeline_rows(
                 });
             }
         });
+}
+
+fn history_branch_display_url(url: &str, max_len: usize) -> String {
+    let display = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if display.len() <= max_len {
+        display.to_string()
+    } else {
+        format!("{}…", &display[..max_len.saturating_sub(1)])
+    }
+}
+
+fn history_branch_transition_icon(transition: Option<NodeHistoryTransitionKind>) -> &'static str {
+    match transition {
+        Some(NodeHistoryTransitionKind::LinkClick) => "↗",
+        Some(NodeHistoryTransitionKind::UrlTyped) => "⌨",
+        Some(NodeHistoryTransitionKind::Back) => "⬅",
+        Some(NodeHistoryTransitionKind::Forward) => "➡",
+        Some(NodeHistoryTransitionKind::Reload) => "⟳",
+        Some(NodeHistoryTransitionKind::Redirect) => "⇢",
+        Some(NodeHistoryTransitionKind::TabSpawn) => "⊕",
+        Some(NodeHistoryTransitionKind::Restore) => "↺",
+        Some(NodeHistoryTransitionKind::Imported) => "⇣",
+        Some(NodeHistoryTransitionKind::Unknown) | None => "•",
+    }
 }
 
 #[cfg(test)]
@@ -2144,6 +2549,38 @@ mod tests {
                 Some(crate::graph::NodeKey::new(2)),
             ),
             None
+        );
+    }
+
+    #[test]
+    fn selected_history_manager_branch_uses_selected_node_semantic_projection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://a.com".into(), euclid::point2(0.0, 0.0));
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(node_key) {
+            node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 1);
+            node.replace_history_state(vec!["https://a.com".into(), "https://b.com".into()], 0);
+            node.replace_history_state(vec!["https://a.com".into(), "https://c.com".into()], 1);
+        }
+
+        app.apply_reducer_intents([GraphIntent::SelectNode {
+            key: node_key,
+            multi_select: false,
+        }]);
+
+        let selected = selected_history_manager_branch(&app).expect("selected node branch");
+        assert_eq!(selected.node_key, node_key);
+        assert_eq!(selected.branch.visits.len(), 2);
+        assert_eq!(selected.branch.visits[0].url, "https://a.com");
+        assert_eq!(selected.branch.visits[1].url, "https://c.com");
+        assert!(selected.branch.visits[1].is_current);
+        assert_eq!(selected.branch.visits[0].alternate_children.len(), 1);
+        assert_eq!(
+            selected.branch.visits[0].alternate_children[0].url,
+            "https://b.com"
         );
     }
 
@@ -2915,15 +3352,21 @@ pub fn render_navigator_tool_pane_in_ui(
                     &mut intents,
                 ) {
                     if recent_nodes.is_empty() {
-                        ui.small("No traversal-derived recents.");
+                        ui.small("No semantic recents.");
                     } else {
                         ui.indent(&section_row_key, |ui| {
-                            for (node_key, timestamp_ms) in recent_nodes {
-                                let label = format!(
-                                    "{}  [{}]",
-                                    navigator_node_label(app, *node_key),
-                                    timestamp_ms
-                                );
+                            for (node_key, _timestamp_ms) in recent_nodes {
+                                let label = if let Some(runtime) =
+                                    app.semantic_navigation_runtime_for_node_key(*node_key)
+                                {
+                                    format!(
+                                        "{}  [{}]",
+                                        navigator_node_label(app, *node_key),
+                                        semantic_runtime_badge_label(runtime)
+                                    )
+                                } else {
+                                    navigator_node_label(app, *node_key)
+                                };
                                 render_navigator_node_row(
                                     ui,
                                     app,

@@ -111,7 +111,9 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        runtime_state.graph_app.map_webview_to_node(webview_id, node_key);
+        runtime_state
+            .graph_app
+            .map_webview_to_node(webview_id, node_key);
         runtime_state
             .graph_app
             .set_embedded_content_focus_webview(Some(webview_id));
@@ -136,7 +138,9 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        runtime_state.graph_app.map_webview_to_node(webview_id, node_key);
+        runtime_state
+            .graph_app
+            .map_webview_to_node(webview_id, node_key);
         runtime_state
             .graph_app
             .set_embedded_content_focus_webview(Some(webview_id));

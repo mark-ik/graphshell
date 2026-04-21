@@ -745,6 +745,136 @@ pub(crate) enum OverlayAffordanceStyle {
     ChromeOnly,
 }
 
+/// Host-agnostic sink for an overlay-affordance pass. Implementors
+/// turn one [`OverlayStrokePass`] descriptor into actual pixels using
+/// whatever host-specific painter they have.
+///
+/// The compositor generates the descriptor list in a host-neutral
+/// step; the trait is the single seam the iced host (and any future
+/// host) needs to implement to render overlay strokes. See
+/// [`CompositorAdapter::execute_overlay_affordance_pass_with_painter`].
+pub(crate) trait OverlayAffordancePainter {
+    fn paint(&mut self, overlay: &OverlayStrokePass);
+}
+
+/// Egui implementation of the overlay-affordance painter. Delegates
+/// to the existing `CompositorAdapter::draw_*` associated functions,
+/// which stay the implementation detail of the egui host. An iced
+/// implementation would mirror this shape with iced's painting APIs.
+pub(crate) struct EguiOverlayAffordancePainter<'a> {
+    pub(crate) ctx: &'a Context,
+}
+
+impl OverlayAffordancePainter for EguiOverlayAffordancePainter<'_> {
+    fn paint(&mut self, overlay: &OverlayStrokePass) {
+        match overlay.style {
+            OverlayAffordanceStyle::RectStroke => CompositorAdapter::draw_overlay_stroke(
+                self.ctx,
+                overlay.node_key,
+                overlay.tile_rect,
+                overlay.rounding,
+                overlay.stroke,
+            ),
+            OverlayAffordanceStyle::DashedRectStroke => {
+                CompositorAdapter::draw_dashed_overlay_stroke(
+                    self.ctx,
+                    overlay.node_key,
+                    overlay.tile_rect,
+                    overlay.stroke,
+                )
+            }
+            OverlayAffordanceStyle::AreaStroke => CompositorAdapter::draw_overlay_stroke_in_area(
+                self.ctx,
+                overlay.node_key,
+                overlay.tile_rect,
+                overlay.rounding,
+                overlay.stroke,
+            ),
+            OverlayAffordanceStyle::ChromeOnly => CompositorAdapter::draw_overlay_chrome_markers(
+                self.ctx,
+                overlay.node_key,
+                overlay.tile_rect,
+                overlay.stroke,
+            ),
+        }
+        CompositorAdapter::draw_overlay_glyphs(
+            self.ctx,
+            overlay.node_key,
+            overlay.tile_rect,
+            &overlay.glyph_overlays,
+            overlay.stroke.color,
+            overlay.style,
+        );
+    }
+}
+
+/// Host-agnostic sink for content-pass registration and native-texture
+/// painting. Implementors turn host-neutral content-pass operations
+/// (register a GL callback at a node's content layer, paint a native
+/// shared-wgpu-texture at a node's content layer) into whatever
+/// host-specific layer/painter API they have.
+///
+/// The compositor generates content-pass outcomes in a host-neutral
+/// step (`prepare_composited_target`, `paint_offscreen_content_pass`,
+/// bridge selection, native-texture upsert, callback registry); the
+/// trait is the single seam the iced host (and any future host) needs
+/// to implement for content-layer placement. See
+/// [`CompositorAdapter::compose_webview_content_pass_with_painter`] and
+/// [`CompositorAdapter::compose_registered_content_pass_with_painter`].
+pub(crate) trait ContentPassPainter {
+    /// Register a GL content-pass callback at the node's content layer.
+    /// Called when the active bridge uses `ParentRenderCallback`.
+    fn register_content_callback_on_layer(
+        &mut self,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        callback: BackendCustomPass,
+    );
+
+    /// Paint a native shared-wgpu content texture at the node's content
+    /// layer. Called when the active bridge uses `SharedWgpuTexture`.
+    fn paint_native_content_texture(
+        &mut self,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        texture_token: BackendTextureToken,
+    );
+}
+
+/// Egui implementation of the content-pass painter. Delegates to the
+/// existing `CompositorAdapter::register_content_pass` and
+/// `CompositorAdapter::paint_native_content_texture` associated
+/// functions, which remain the implementation detail of the egui host.
+/// An iced implementation mirrors this shape with iced's painting APIs.
+pub(crate) struct EguiContentPassPainter<'a> {
+    pub(crate) ctx: &'a Context,
+}
+
+impl ContentPassPainter for EguiContentPassPainter<'_> {
+    fn register_content_callback_on_layer(
+        &mut self,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        callback: BackendCustomPass,
+    ) {
+        CompositorAdapter::register_content_pass(self.ctx, node_key, tile_rect, callback);
+    }
+
+    fn paint_native_content_texture(
+        &mut self,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        texture_token: BackendTextureToken,
+    ) {
+        CompositorAdapter::paint_native_content_texture(
+            self.ctx,
+            node_key,
+            tile_rect,
+            texture_token,
+        );
+    }
+}
+
 fn overlay_style_channel(style: OverlayAffordanceStyle) -> &'static str {
     match style {
         OverlayAffordanceStyle::RectStroke
@@ -1589,15 +1719,28 @@ impl CompositorAdapter {
         );
     }
 
-    pub(crate) fn execute_overlay_affordance_pass(
-        ctx: &Context,
+    /// Host-agnostic overlay-pass executor. The compositor produces
+    /// `OverlayStrokePass` descriptors in a host-neutral generation
+    /// step (see `TileCompositor::schedule_overlay_affordance_pass`);
+    /// this function walks the descriptor list, emits per-overlay
+    /// diagnostics, and hands each descriptor to an
+    /// [`OverlayAffordancePainter`] implementation for actual
+    /// rendering. The egui host passes in an
+    /// [`EguiOverlayAffordancePainter`]; the future iced host will
+    /// pass its own impl without touching this function.
+    ///
+    /// This is the extraction seam for M3.5 (iced-host bring-up).
+    /// Descriptor generation is already host-neutral; painting is the
+    /// host-specific half.
+    pub(crate) fn execute_overlay_affordance_pass_with_painter(
+        painter: &mut dyn OverlayAffordancePainter,
         pass_tracker: &CompositorPassTracker,
         overlays: Vec<OverlayStrokePass>,
     ) {
         #[cfg(feature = "diagnostics")]
         let started = std::time::Instant::now();
 
-        for overlay in overlays {
+        for overlay in &overlays {
             pass_tracker.record_overlay_pass(overlay.node_key, overlay.render_mode);
             #[cfg(feature = "diagnostics")]
             {
@@ -1614,48 +1757,31 @@ impl CompositorAdapter {
                     },
                 );
             }
-            match overlay.style {
-                OverlayAffordanceStyle::RectStroke => Self::draw_overlay_stroke(
-                    ctx,
-                    overlay.node_key,
-                    overlay.tile_rect,
-                    overlay.rounding,
-                    overlay.stroke,
-                ),
-                OverlayAffordanceStyle::DashedRectStroke => Self::draw_dashed_overlay_stroke(
-                    ctx,
-                    overlay.node_key,
-                    overlay.tile_rect,
-                    overlay.stroke,
-                ),
-                OverlayAffordanceStyle::AreaStroke => Self::draw_overlay_stroke_in_area(
-                    ctx,
-                    overlay.node_key,
-                    overlay.tile_rect,
-                    overlay.rounding,
-                    overlay.stroke,
-                ),
-                OverlayAffordanceStyle::ChromeOnly => Self::draw_overlay_chrome_markers(
-                    ctx,
-                    overlay.node_key,
-                    overlay.tile_rect,
-                    overlay.stroke,
-                ),
-            }
-            Self::draw_overlay_glyphs(
-                ctx,
-                overlay.node_key,
-                overlay.tile_rect,
-                &overlay.glyph_overlays,
-                overlay.stroke.color,
-                overlay.style,
-            );
+            painter.paint(overlay);
         }
 
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "tile_compositor::overlay_affordance_pass",
             started.elapsed().as_micros() as u64,
+        );
+    }
+
+    /// Backwards-compatible egui entry point — constructs an
+    /// [`EguiOverlayAffordancePainter`] internally and delegates to
+    /// [`Self::execute_overlay_affordance_pass_with_painter`]. Kept so
+    /// existing call sites in `tile_render_pass.rs` / tests don't have
+    /// to change shape as the trait lands.
+    pub(crate) fn execute_overlay_affordance_pass(
+        ctx: &Context,
+        pass_tracker: &CompositorPassTracker,
+        overlays: Vec<OverlayStrokePass>,
+    ) {
+        let mut painter = EguiOverlayAffordancePainter { ctx };
+        Self::execute_overlay_affordance_pass_with_painter(
+            &mut painter,
+            pass_tracker,
+            overlays,
         );
     }
 
@@ -2018,7 +2144,74 @@ mod tests {
     }
 
     #[test]
+    fn overlay_affordance_pass_routes_through_painter_trait() {
+        // The trait-based executor is the M3.5 extraction seam for the
+        // iced host. Verify a non-egui painter receives every overlay
+        // descriptor in order, with each payload intact. This pins the
+        // contract that the future iced painter will rely on.
+        use super::{
+            OverlayAffordancePainter as PainterTrait, OverlayStrokePass as Pass,
+        };
+        use std::cell::RefCell;
+
+        struct RecordingPainter {
+            seen: RefCell<Vec<(NodeKey, OverlayAffordanceStyle, TileRenderMode)>>,
+        }
+
+        impl PainterTrait for RecordingPainter {
+            fn paint(&mut self, overlay: &Pass) {
+                self.seen
+                    .borrow_mut()
+                    .push((overlay.node_key, overlay.style, overlay.render_mode));
+            }
+        }
+
+        let pass_tracker = CompositorPassTracker::new();
+        let mut painter = RecordingPainter {
+            seen: RefCell::new(Vec::new()),
+        };
+        let overlays = vec![
+            Pass {
+                node_key: NodeKey::new(101),
+                tile_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(64.0, 32.0)),
+                rounding: 2.0,
+                stroke: Stroke::new(1.0, egui::Color32::WHITE),
+                glyph_overlays: Vec::new(),
+                style: OverlayAffordanceStyle::RectStroke,
+                render_mode: TileRenderMode::CompositedTexture,
+            },
+            Pass {
+                node_key: NodeKey::new(202),
+                tile_rect: egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(80.0, 40.0)),
+                rounding: 0.0,
+                stroke: Stroke::new(2.0, egui::Color32::BLACK),
+                glyph_overlays: Vec::new(),
+                style: OverlayAffordanceStyle::ChromeOnly,
+                render_mode: TileRenderMode::NativeOverlay,
+            },
+        ];
+
+        CompositorAdapter::execute_overlay_affordance_pass_with_painter(
+            &mut painter,
+            &pass_tracker,
+            overlays,
+        );
+
+        let seen = painter.seen.into_inner();
+        assert_eq!(seen.len(), 2, "painter must receive every overlay");
+        assert_eq!(seen[0].0, NodeKey::new(101));
+        assert!(matches!(seen[0].1, OverlayAffordanceStyle::RectStroke));
+        assert!(matches!(seen[0].2, TileRenderMode::CompositedTexture));
+        assert_eq!(seen[1].0, NodeKey::new(202));
+        assert!(matches!(seen[1].1, OverlayAffordanceStyle::ChromeOnly));
+        assert!(matches!(seen[1].2, TileRenderMode::NativeOverlay));
+    }
+
+    #[test]
     fn compose_registered_content_pass_requires_registered_callback() {
+        let _guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
         clear_content_callbacks_for_tests();
         clear_native_textures_for_tests();
 
@@ -2037,6 +2230,9 @@ mod tests {
 
     #[test]
     fn synthetic_viewer_can_register_generic_content_callback() {
+        let _guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
         clear_content_callbacks_for_tests();
         clear_native_textures_for_tests();
 
@@ -2172,7 +2368,13 @@ mod tests {
 
     #[test]
     fn selected_bridge_metadata_flows_through_registration_into_diagnostics() {
-        let _guard = backend_bridge_test_env_lock()
+        // Two disjoint test globals live on the same content-callback +
+        // native-texture registries, so acquire both locks for the whole
+        // of this test's publish / read / clear dance.
+        let _retirement_guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
+        let _env_guard = backend_bridge_test_env_lock()
             .lock()
             .expect("env lock poisoned");
         clear_backend_bridge_env_for_tests();

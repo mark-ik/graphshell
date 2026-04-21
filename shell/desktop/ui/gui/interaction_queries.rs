@@ -100,7 +100,9 @@ pub(super) fn egui_wants_pointer_input(gui: &EguiHost) -> bool {
     gui.context.egui_context().wants_pointer_input()
 }
 
-pub(super) fn pointer_hover_position(gui: &EguiHost) -> Option<Point2D<f32, DeviceIndependentPixel>> {
+pub(super) fn pointer_hover_position(
+    gui: &EguiHost,
+) -> Option<Point2D<f32, DeviceIndependentPixel>> {
     gui.context
         .egui_context()
         .input(|i| i.pointer.hover_pos())

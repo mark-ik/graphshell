@@ -20,9 +20,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use sysinfo::System;
 
-use crate::mods::native::verso::finger::{FingerRegistry, FingerServerHandle};
-use crate::mods::native::verso::gemini::{CapsuleRegistry, GeminiServerHandle};
-use crate::mods::native::verso::gopher::{GopherRegistry, GopherServerHandle};
+use crate::mods::native::web_runtime::finger::{FingerRegistry, FingerServerHandle};
+use crate::mods::native::web_runtime::gemini::{CapsuleRegistry, GeminiServerHandle};
+use crate::mods::native::web_runtime::gopher::{GopherRegistry, GopherServerHandle};
 
 static GEMINI_REGISTRY: OnceLock<CapsuleRegistry> = OnceLock::new();
 static GEMINI_SERVER_HANDLE: Mutex<Option<GeminiServerHandle>> = Mutex::new(None);
@@ -1005,6 +1005,43 @@ pub(crate) fn phase3_nostr_persisted_subscriptions() -> Vec<PersistedNostrSubscr
     runtime().nostr_core.persisted_subscriptions()
 }
 
+/// Serialization lock for tests that mutate `REGISTRY_RUNTIME.nostr_core`
+/// (subscription registrations, signer settings, NIP-07 permission
+/// grants). The registry runtime is a process-global singleton; any
+/// test that does publish → restore / assert against its nostr_core
+/// must bind this guard for the whole dance, otherwise parallel tests
+/// each carrying their own per-test `OnceLock<Mutex<()>>` race each
+/// other. Matches the pattern used elsewhere in the crate for other
+/// process-global state (`lock_command_surface_snapshot_tests`,
+/// `lock_radial_palette_snapshot_tests`, `lock_ux_tree_snapshot_tests`).
+pub(crate) fn lock_phase3_nostr_tests() -> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    match TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+    {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Serialization lock for tests that mutate `REGISTRY_RUNTIME`'s active
+/// profile state: workbench surface profile, canvas profile, physics
+/// profile, theme. Any test that calls `phase3_set_active_*` or reads
+/// the corresponding resolution expecting pristine defaults must bind
+/// this guard so parallel tests cannot clobber the active profile
+/// between the reset and the assertion.
+pub(crate) fn lock_phase3_profile_tests() -> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    match TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+    {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 pub(crate) fn phase3_restore_nostr_subscriptions(
     subscriptions: &[PersistedNostrSubscription],
 ) -> Result<usize, NostrCoreError> {
@@ -1347,7 +1384,7 @@ impl RegistryRuntime {
             }
             crate::registries::infrastructure::mod_loader::ModType::Native => {
                 match manifest.mod_id.as_str() {
-                    "mod:verso" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
+                    "mod:web-runtime" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
                     "mod:verse" | "verse" => {
                         register_verse_mod_extensions(dynamic).map_err(ModActivationError::failed)
                     }
@@ -3522,12 +3559,12 @@ pub(crate) fn start_gemini_capsule_server(port: u16) {
     stop_gemini_capsule_server();
 
     let registry = gemini_registry().clone();
-    let config = crate::mods::native::verso::gemini::GeminiServerConfig {
+    let config = crate::mods::native::web_runtime::gemini::GeminiServerConfig {
         port,
         hostname: System::host_name().unwrap_or_else(|| "localhost".to_string()),
     };
 
-    let server = crate::mods::native::verso::gemini::GeminiCapsuleServer::new_with_registry(
+    let server = crate::mods::native::web_runtime::gemini::GeminiCapsuleServer::new_with_registry(
         config, registry,
     );
 
@@ -3569,7 +3606,7 @@ pub(crate) fn register_gemini_node(
     privacy_class: crate::model::archive::ArchivePrivacyClass,
     gemini_content: String,
 ) {
-    gemini_registry().register(crate::mods::native::verso::gemini::ServedNode {
+    gemini_registry().register(crate::mods::native::web_runtime::gemini::ServedNode {
         node_id,
         title,
         privacy_class,
@@ -3590,11 +3627,11 @@ pub(crate) fn start_gopher_capsule_server(port: u16) {
     stop_gopher_capsule_server();
 
     let registry = gopher_registry().clone();
-    let config = crate::mods::native::verso::gopher::GopherServerConfig {
+    let config = crate::mods::native::web_runtime::gopher::GopherServerConfig {
         port,
         hostname: System::host_name().unwrap_or_else(|| "localhost".to_string()),
     };
-    let server = crate::mods::native::verso::gopher::GopherCapsuleServer::new_with_registry(
+    let server = crate::mods::native::web_runtime::gopher::GopherCapsuleServer::new_with_registry(
         config, registry,
     );
     match tokio::runtime::Handle::try_current() {
@@ -3625,7 +3662,7 @@ pub(crate) fn register_gopher_node(
     privacy_class: crate::model::archive::ArchivePrivacyClass,
     gophermap_content: String,
 ) {
-    gopher_registry().register(crate::mods::native::verso::gopher::GopherServedNode {
+    gopher_registry().register(crate::mods::native::web_runtime::gopher::GopherServedNode {
         node_id,
         title,
         privacy_class,
@@ -3645,12 +3682,12 @@ pub(crate) fn start_finger_server(port: u16) {
     stop_finger_server();
 
     let registry = finger_registry().clone();
-    let config = crate::mods::native::verso::finger::FingerServerConfig {
+    let config = crate::mods::native::web_runtime::finger::FingerServerConfig {
         port,
         default_query: "graphshell".to_string(),
     };
     let server =
-        crate::mods::native::verso::finger::FingerServer::new_with_registry(config, registry);
+        crate::mods::native::web_runtime::finger::FingerServer::new_with_registry(config, registry);
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.block_on(server.start()) {
             Ok(server_handle) => {
@@ -3675,7 +3712,7 @@ pub(crate) fn publish_finger_profile(
     privacy_class: crate::model::archive::ArchivePrivacyClass,
     finger_text: String,
 ) {
-    finger_registry().register(crate::mods::native::verso::finger::FingerProfile {
+    finger_registry().register(crate::mods::native::web_runtime::finger::FingerProfile {
         query_name,
         privacy_class,
         finger_text,
@@ -4253,13 +4290,13 @@ mod tests {
             .mod_registry
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .extension_records_for("mod:verso")
+            .extension_records_for("mod:web-runtime")
             .map(|records| records.len())
             .unwrap_or_default();
         assert!(extension_count > 0);
 
         runtime
-            .unload_mod("mod:verso")
+            .unload_mod("mod:web-runtime")
             .expect("verso should unload cleanly");
 
         let after = runtime
@@ -5359,6 +5396,7 @@ mod tests {
 
     #[test]
     fn phase3_workbench_surface_resolution_returns_default_profile() {
+        let _guard = lock_phase3_profile_tests();
         // Reset to default first to avoid contamination from tests that change the active profile.
         phase3_set_active_workbench_surface_profile(
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT,
@@ -5374,6 +5412,7 @@ mod tests {
 
     #[test]
     fn phase3_canvas_profile_switches_and_applies_workspace_preferences() {
+        let _guard = lock_phase3_profile_tests();
         let switched = phase3_set_active_canvas_profile(
             crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
         );
@@ -5395,6 +5434,7 @@ mod tests {
 
     #[test]
     fn phase3_physics_profile_switches_and_falls_back() {
+        let _guard = lock_phase3_profile_tests();
         let scatter = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SCATTER);
         assert!(scatter.matched);
         assert_eq!(
@@ -5412,6 +5452,7 @@ mod tests {
 
     #[test]
     fn phase3_presentation_profile_tracks_active_physics_and_theme() {
+        let _guard = lock_phase3_profile_tests();
         phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SETTLE);
 
         let dark = phase3_resolve_active_presentation_profile(Some(
@@ -5440,6 +5481,7 @@ mod tests {
 
     #[test]
     fn phase3_workbench_surface_switches_and_describes_profiles() {
+        let _guard = lock_phase3_profile_tests();
         let switched = phase3_set_active_workbench_surface_profile(
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE,
         );
@@ -5463,6 +5505,11 @@ mod tests {
 
     #[test]
     fn phase3_workflow_describes_stub_and_activates_runtime_defaults() {
+        // Workflow activation flips active_workbench_surface_profile and
+        // active_physics — share the profile lock so parallel tests
+        // can't steal the active profile between activation and the
+        // resolution read below.
+        let _guard = lock_phase3_profile_tests();
         let capability = phase3_describe_workflow(Some(workflow::WORKFLOW_HISTORY));
         assert_eq!(capability.display_name, "History");
         assert!(!capability.implemented);

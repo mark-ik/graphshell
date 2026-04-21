@@ -90,7 +90,7 @@ impl GraphBrowserApp {
 
     pub fn set_client_storage_manager(
         &mut self,
-        manager: Option<crate::mods::native::verso::client_storage::ClientStorageManagerHandle>,
+        manager: Option<crate::mods::native::web_runtime::client_storage::ClientStorageManagerHandle>,
     ) {
         self.services.client_storage_manager = manager;
     }
@@ -340,7 +340,6 @@ impl GraphBrowserApp {
         if self.pending_frame_context_target() == Some(name) {
             self.set_pending_frame_context_target(None);
         }
-        self.workspace.graph_runtime.egui_state_dirty = true;
         crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
             "frame_snapshot_deleted",
         );
@@ -621,8 +620,6 @@ impl GraphBrowserApp {
             .unsaved_workspace_prompt_warned = false;
         self.workspace.domain.next_placeholder_id =
             Self::scan_max_placeholder_id(&self.workspace.domain.graph);
-        self.workspace.graph_runtime.egui_state = None;
-        self.workspace.graph_runtime.egui_state_dirty = true;
         self.workspace.graph_runtime.semantic_index.clear();
         self.workspace.graph_runtime.semantic_index_dirty = true;
         self.workspace
@@ -689,8 +686,6 @@ impl GraphBrowserApp {
         self.workspace.graph_runtime.workbench_navigation_geometry = None;
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.domain.next_placeholder_id = next_placeholder_id;
-        self.workspace.graph_runtime.egui_state = None;
-        self.workspace.graph_runtime.egui_state_dirty = true;
         self.workspace.graph_runtime.semantic_index.clear();
         self.workspace.graph_runtime.semantic_index_dirty = true;
         self.workspace

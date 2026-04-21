@@ -106,6 +106,10 @@ pub enum GraphDelta {
         key: NodeKey,
         is_pinned: bool,
     },
+    SetNodeCompatMode {
+        key: NodeKey,
+        compat_mode: bool,
+    },
     AppendFrameLayoutHint {
         key: NodeKey,
         hint: FrameLayoutHint,
@@ -244,6 +248,9 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         ),
         GraphDelta::SetNodePinned { key, is_pinned } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_pinned(key, is_pinned))
+        }
+        GraphDelta::SetNodeCompatMode { key, compat_mode } => {
+            GraphDeltaResult::NodeMetadataUpdated(graph.set_node_compat_mode(key, compat_mode))
         }
         GraphDelta::AppendFrameLayoutHint { key, hint } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.append_frame_layout_hint(key, hint))

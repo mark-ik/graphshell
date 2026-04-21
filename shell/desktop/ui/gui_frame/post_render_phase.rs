@@ -148,7 +148,8 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) headed_window: &'a HeadedWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -311,12 +312,17 @@ pub(crate) fn run_post_render_phase<FActive>(
         WorkbenchLayerState::WorkbenchActive | WorkbenchLayerState::WorkbenchPinned
     ) {
         let available_rect = ctx.available_rect();
+        let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+            graph_app.default_registry_theme_id(),
+        )
+        .tokens
+        .workbench_panel_background;
         egui::SidePanel::right("workbench_area")
             .resizable(true)
             .default_width(workbench_area_default_width(available_rect))
             .min_width(WORKBENCH_AREA_MIN_WIDTH)
             .max_width(workbench_area_max_width(available_rect))
-            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
+            .frame(egui::Frame::new().fill(panel_bg))
             .show(ctx, |ui| {
                 post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
                     ui,
@@ -354,8 +360,13 @@ pub(crate) fn run_post_render_phase<FActive>(
             });
     }
 
+    let central_panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+        graph_app.default_registry_theme_id(),
+    )
+    .tokens
+    .workbench_panel_background;
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
+        .frame(egui::Frame::new().fill(central_panel_bg))
         .show(ctx, |ui| {
             if matches!(layer_state, WorkbenchLayerState::WorkbenchOnly) {
                 post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(

@@ -739,7 +739,7 @@ mod tests {
 
     use crate::render::radial_menu::{
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
-        clear_semantic_snapshot, publish_semantic_snapshot,
+        clear_semantic_snapshot, lock_radial_palette_snapshot_tests, publish_semantic_snapshot,
     };
     use crate::shell::desktop::lifecycle::webview_backpressure::NodePaneAttachAttemptMetadata;
     use crate::shell::desktop::tests::harness::TestRegistry;
@@ -1175,7 +1175,8 @@ mod tests {
 
     #[test]
     fn evaluate_registered_probes_surfaces_radial_sector_count_violation() {
-        let _guard = lock_probe_tests();
+        let _probe_guard = lock_probe_tests();
+        let _snapshot_guard = lock_radial_palette_snapshot_tests();
         reset_probe_runtime_for_tests();
         clear_semantic_snapshot();
 

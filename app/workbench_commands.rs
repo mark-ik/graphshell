@@ -395,11 +395,7 @@ impl GraphBrowserApp {
         self.update_workbench_pane_selection(pane_id, SelectionUpdateMode::Replace);
     }
 
-    pub fn update_workbench_pane_selection(
-        &mut self,
-        pane_id: PaneId,
-        mode: SelectionUpdateMode,
-    ) {
+    pub fn update_workbench_pane_selection(&mut self, pane_id: PaneId, mode: SelectionUpdateMode) {
         match mode {
             SelectionUpdateMode::Replace => {
                 self.workbench_tile_selection.selected_pane_ids.clear();

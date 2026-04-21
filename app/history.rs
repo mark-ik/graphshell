@@ -81,6 +81,171 @@ pub struct HistoryHealthSummary {
 use log::warn;
 
 impl super::GraphBrowserApp {
+    fn semantic_navigation_runtime_for_node(
+        &self,
+        key: super::NodeKey,
+    ) -> Option<super::workspace_state::SemanticNavigationNodeRuntime> {
+        let node = self.workspace.domain.graph.get_node(key)?;
+        let summary = node.history_semantic_summary();
+        let branch = node.history_branch_projection();
+        let last_visit_at_ms = summary.last_visit_at_ms?;
+        if summary.visit_count == 0 {
+            return None;
+        }
+        let branch_points = branch
+            .visits
+            .iter()
+            .filter(|visit| !visit.alternate_children.is_empty())
+            .count();
+        let alternate_targets = branch
+            .visits
+            .iter()
+            .map(|visit| visit.alternate_children.len())
+            .sum();
+        Some(super::workspace_state::SemanticNavigationNodeRuntime {
+            node_id: node.id,
+            current_url: summary.current_url,
+            last_visit_at_ms,
+            visit_count: summary.visit_count,
+            branch_points,
+            alternate_targets,
+        })
+    }
+
+    pub(crate) fn refresh_semantic_navigation_runtime_for_node(&mut self, key: super::NodeKey) {
+        let next = self.semantic_navigation_runtime_for_node(key);
+        match next {
+            Some(runtime) => {
+                self.workspace
+                    .graph_runtime
+                    .semantic_navigation
+                    .recent_nodes
+                    .insert(key, runtime);
+            }
+            None => {
+                self.workspace
+                    .graph_runtime
+                    .semantic_navigation
+                    .recent_nodes
+                    .remove(&key);
+            }
+        }
+    }
+
+    pub(crate) fn rebuild_semantic_navigation_runtime(&mut self) {
+        self.workspace
+            .graph_runtime
+            .semantic_navigation
+            .recent_nodes
+            .clear();
+        let node_keys = self
+            .workspace
+            .domain
+            .graph
+            .nodes()
+            .map(|(key, _)| key)
+            .collect::<Vec<_>>();
+        for key in node_keys {
+            self.refresh_semantic_navigation_runtime_for_node(key);
+        }
+    }
+
+    pub fn semantic_recent_navigation_nodes(
+        &self,
+        limit: usize,
+    ) -> Vec<(
+        super::NodeKey,
+        super::workspace_state::SemanticNavigationNodeRuntime,
+    )> {
+        let mut rows = self
+            .workspace
+            .graph_runtime
+            .semantic_navigation
+            .recent_nodes
+            .iter()
+            .filter_map(|(node_key, runtime)| {
+                let node = self.workspace.domain.graph.get_node(*node_key)?;
+                if node.id != runtime.node_id {
+                    return None;
+                }
+                Some((*node_key, runtime.clone()))
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|(left_key, left), (right_key, right)| {
+            right
+                .last_visit_at_ms
+                .cmp(&left.last_visit_at_ms)
+                .then_with(|| right.visit_count.cmp(&left.visit_count))
+                .then_with(|| {
+                    self.user_visible_node_title(*left_key)
+                        .cmp(&self.user_visible_node_title(*right_key))
+                })
+                .then_with(|| left_key.index().cmp(&right_key.index()))
+        });
+        if limit > 0 && rows.len() > limit {
+            rows.truncate(limit);
+        }
+        rows
+    }
+
+    pub fn semantic_navigation_runtime_for_node_key(
+        &self,
+        key: super::NodeKey,
+    ) -> Option<&super::workspace_state::SemanticNavigationNodeRuntime> {
+        self.workspace
+            .graph_runtime
+            .semantic_navigation
+            .recent_nodes
+            .get(&key)
+    }
+
+    pub fn semantic_navigation_attention_score(
+        runtime: &super::workspace_state::SemanticNavigationNodeRuntime,
+    ) -> usize {
+        runtime.visit_count
+            + runtime.branch_points.saturating_mul(2)
+            + runtime.alternate_targets.saturating_mul(3)
+    }
+
+    pub fn semantic_navigation_hotspots(
+        &self,
+        limit: usize,
+    ) -> Vec<(
+        super::NodeKey,
+        super::workspace_state::SemanticNavigationNodeRuntime,
+        usize,
+    )> {
+        let mut rows = self
+            .semantic_recent_navigation_nodes(usize::MAX)
+            .into_iter()
+            .map(|(node_key, runtime)| {
+                let score = Self::semantic_navigation_attention_score(&runtime);
+                (node_key, runtime, score)
+            })
+            .filter(|(_, _, score)| *score > 0)
+            .collect::<Vec<_>>();
+        rows.sort_by(
+            |(left_key, left_runtime, left_score), (right_key, right_runtime, right_score)| {
+                right_score
+                    .cmp(left_score)
+                    .then_with(|| {
+                        right_runtime
+                            .last_visit_at_ms
+                            .cmp(&left_runtime.last_visit_at_ms)
+                    })
+                    .then_with(|| {
+                        self.user_visible_node_title(*left_key)
+                            .cmp(&self.user_visible_node_title(*right_key))
+                    })
+                    .then_with(|| left_key.index().cmp(&right_key.index()))
+            },
+        );
+        if limit > 0 && rows.len() > limit {
+            rows.truncate(limit);
+        }
+        rows
+    }
+
     fn encode_undo_graph_bytes(graph: &super::Graph) -> Option<Vec<u8>> {
         rkyv::to_bytes::<rkyv::rancor::Error>(graph)
             .ok()

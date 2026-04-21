@@ -770,6 +770,7 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     #[test]
     fn ux_bridge_query_script_reports_missing_snapshot() {
+        let _guard = crate::shell::desktop::workbench::ux_tree::lock_ux_tree_snapshot_tests();
         crate::shell::desktop::workbench::ux_tree::clear_snapshot();
 
         let response = handle_ux_bridge_script_payload(r#"{"command":"GetUxSnapshot"}"#, |_| {
@@ -785,7 +786,9 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     #[test]
     fn ux_bridge_action_script_queues_open_command_palette() {
-        let _guard = lock_command_surface_snapshot_tests();
+        let _command_surface_guard = lock_command_surface_snapshot_tests();
+        let _ux_tree_guard =
+            crate::shell::desktop::workbench::ux_tree::lock_ux_tree_snapshot_tests();
         clear_command_surface_semantic_snapshot();
         publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -832,11 +835,13 @@ mod tests {
         ));
 
         clear_command_surface_semantic_snapshot();
+        crate::shell::desktop::workbench::ux_tree::clear_snapshot();
     }
 
     #[cfg(feature = "ux-bridge")]
     #[test]
     fn ux_bridge_action_script_queues_node_pane_dismiss() {
+        let _guard = crate::shell::desktop::workbench::ux_tree::lock_ux_tree_snapshot_tests();
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://webdriver-ux-bridge-node.example");
         harness.open_node_tab(node);
@@ -886,5 +891,6 @@ mod tests {
             queued.into_inner(),
             Some(crate::app::WorkbenchIntent::DismissTile { .. })
         ));
+        crate::shell::desktop::workbench::ux_tree::clear_snapshot();
     }
 }

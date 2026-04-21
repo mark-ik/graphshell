@@ -78,7 +78,6 @@ pub(crate) fn render_graph_search_window<F>(
                         graph_search_matches,
                         graph_search_active_match_index,
                     );
-                    graph_app.workspace.graph_runtime.egui_state_dirty = true;
                 }
                 let mut mode_changed = false;
                 ui.horizontal(|ui| {
@@ -102,7 +101,6 @@ pub(crate) fn render_graph_search_window<F>(
                     }
                 });
                 if mode_changed {
-                    graph_app.workspace.graph_runtime.egui_state_dirty = true;
                 }
                 if ui.button("Clear").clicked() {
                     graph_app.workspace.graph_runtime.active_graph_search_origin =
@@ -122,7 +120,6 @@ pub(crate) fn render_graph_search_window<F>(
                         graph_search_matches,
                         graph_search_active_match_index,
                     );
-                    graph_app.workspace.graph_runtime.egui_state_dirty = true;
                 }
             });
             let active_display = graph_search_active_match_index

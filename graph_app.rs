@@ -20,7 +20,6 @@ use crate::domain::DomainState;
 use crate::graph::apply::{
     GraphDelta, GraphDeltaResult, apply_graph_delta as apply_domain_graph_delta,
 };
-use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::physics::{GraphPhysicsState, default_graph_physics_state};
 use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
@@ -196,6 +195,10 @@ pub use graph_mutations::{NoteId, NoteRecord};
 #[path = "app/ux_navigation.rs"]
 mod ux_navigation;
 
+#[path = "app/action_surface.rs"]
+pub(crate) mod action_surface;
+pub use action_surface::{ActionScope, ActionSurfaceState, Anchor, ScopeTarget};
+
 #[path = "app/startup_persistence.rs"]
 mod startup_persistence;
 
@@ -223,8 +226,8 @@ mod storage_interop;
 mod workspace_state;
 pub use workspace_state::{
     ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphViewRuntimeState,
-    NavigatorSpecialtyView, VisibleNavigationRegionSet, WorkbenchNavigationGeometry,
-    WorkbenchSessionState,
+    NavigatorSpecialtyView, SemanticNavigationNodeRuntime, SemanticNavigationRuntimeState,
+    VisibleNavigationRegionSet, WorkbenchNavigationGeometry, WorkbenchSessionState,
 };
 
 #[path = "app/intent_phases.rs"]
@@ -239,7 +242,7 @@ pub struct AppServices {
     persistence: Option<GraphStore>,
     sync_command_tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
     client_storage_manager:
-        Option<crate::mods::native::verso::client_storage::ClientStorageManagerHandle>,
+        Option<crate::mods::native::web_runtime::client_storage::ClientStorageManagerHandle>,
     storage_interop_coordinator: Option<storage_interop::StorageInteropCoordinatorHandle>,
 }
 
@@ -307,10 +310,13 @@ impl GraphBrowserApp {
         "workspace:settings-keyboard-pan-step";
     pub const SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME: &'static str =
         "workspace:settings-keyboard-pan-input-mode";
-    pub const SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME: &'static str =
-        "workspace:settings-camera-pan-inertia-enabled";
-    pub const SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME: &'static str =
-        "workspace:settings-camera-pan-inertia-damping";
+    // SETTINGS_CAMERA_PAN_INERTIA_{ENABLED,DAMPING}_NAME removed 2026-04-20.
+    // Zombie workspace-global prefs — persisted and displayed but never
+    // drove behavior. Pan inertia now lives on `NavigationPolicy`
+    // (per-view override + per-graph default). Old layout-json keys
+    // `workspace:settings-camera-pan-inertia-*` in legacy workspace
+    // snapshots are silently ignored on load.
+
     pub const SETTINGS_LASSO_BINDING_NAME: &'static str = "workspace:settings-lasso-binding";
     pub const SETTINGS_INPUT_BINDING_REMAPS_NAME: &'static str =
         "workspace:settings-input-binding-remaps";
@@ -360,8 +366,10 @@ impl GraphBrowserApp {
     pub const DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS: u64 = 2;
     pub const DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS: u64 = 30;
     pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
-    pub const DEFAULT_CAMERA_PAN_INERTIA_ENABLED: bool = true;
-    pub const DEFAULT_CAMERA_PAN_INERTIA_DAMPING: f32 = 0.84;
+    // DEFAULT_CAMERA_PAN_INERTIA_{ENABLED,DAMPING} removed 2026-04-20 —
+    // the workspace-global inertia fields they initialized were zombie
+    // prefs. Pan inertia defaults now live on
+    // `graph_canvas::navigation::NavigationPolicy`.
     pub const TAG_PIN: &'static str = crate::graph::badge::TAG_PIN;
     pub const TAG_STARRED: &'static str = crate::graph::badge::TAG_STARRED;
     pub const TAG_ARCHIVE: &'static str = crate::graph::badge::TAG_ARCHIVE;
@@ -395,6 +403,10 @@ impl GraphBrowserApp {
                     graph,
                     next_placeholder_id,
                     notes: HashMap::new(),
+                    navigation_policy_default:
+                        graph_canvas::navigation::NavigationPolicy::default(),
+                    node_style_default: graph_canvas::node_style::NodeStyle::default(),
+                    simulate_motion_default: None,
                 },
                 graph_runtime: GraphViewRuntimeState {
                     physics: Self::default_physics_state(),
@@ -439,8 +451,6 @@ impl GraphBrowserApp {
                     undo_stack: Vec::new(),
                     redo_stack: Vec::new(),
                     hop_distance_cache: None,
-                    egui_state: None,
-                    egui_state_dirty: true,
                     last_culled_node_keys: None,
                     memory_pressure_level: MemoryPressureLevel::Unknown,
                     memory_available_mib: 0,
@@ -457,6 +467,7 @@ impl GraphBrowserApp {
                     history_last_error: None,
                     history_recent_failure_reason_bucket: None,
                     history_last_return_to_present_result: None,
+                    semantic_navigation: SemanticNavigationRuntimeState::default(),
                     semantic_index: HashMap::new(),
                     semantic_index_dirty: true,
                     semantic_depth_restore_dimensions: HashMap::new(),
@@ -520,6 +531,7 @@ impl GraphBrowserApp {
                     command_palette_contextual_mode: false,
                     context_palette_anchor: None,
                     show_radial_menu: false,
+                    surface_state: crate::app::action_surface::ActionSurfaceState::default(),
                     show_clip_inspector: false,
                     show_workbench_overlay: false,
                     toast_anchor_preference: ToastAnchorPreference::BottomRight,
@@ -530,8 +542,6 @@ impl GraphBrowserApp {
                         ContextCommandSurfacePreference::RadialPalette,
                     keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                     keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                    camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
-                    camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
                     lasso_binding_preference: CanvasLassoBinding::RightDrag,
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
@@ -566,6 +576,7 @@ impl GraphBrowserApp {
             file_access_policy: crate::prefs::FileAccessPolicy::default(),
         };
         app.load_persisted_ui_settings();
+        app.rebuild_semantic_navigation_runtime();
         app
     }
 
@@ -579,6 +590,10 @@ impl GraphBrowserApp {
                     graph: Graph::new(),
                     next_placeholder_id: 0,
                     notes: HashMap::new(),
+                    navigation_policy_default:
+                        graph_canvas::navigation::NavigationPolicy::default(),
+                    node_style_default: graph_canvas::node_style::NodeStyle::default(),
+                    simulate_motion_default: None,
                 },
                 graph_runtime: GraphViewRuntimeState {
                     physics: Self::default_physics_state(),
@@ -623,8 +638,6 @@ impl GraphBrowserApp {
                     undo_stack: Vec::new(),
                     redo_stack: Vec::new(),
                     hop_distance_cache: None,
-                    egui_state: None,
-                    egui_state_dirty: true,
                     last_culled_node_keys: None,
                     memory_pressure_level: MemoryPressureLevel::Unknown,
                     memory_available_mib: 0,
@@ -641,6 +654,7 @@ impl GraphBrowserApp {
                     history_last_error: None,
                     history_recent_failure_reason_bucket: None,
                     history_last_return_to_present_result: None,
+                    semantic_navigation: SemanticNavigationRuntimeState::default(),
                     semantic_index: HashMap::new(),
                     semantic_index_dirty: true,
                     semantic_depth_restore_dimensions: HashMap::new(),
@@ -704,6 +718,7 @@ impl GraphBrowserApp {
                     command_palette_contextual_mode: false,
                     context_palette_anchor: None,
                     show_radial_menu: false,
+                    surface_state: crate::app::action_surface::ActionSurfaceState::default(),
                     show_clip_inspector: false,
                     show_workbench_overlay: false,
                     toast_anchor_preference: ToastAnchorPreference::BottomRight,
@@ -714,8 +729,6 @@ impl GraphBrowserApp {
                         ContextCommandSurfacePreference::RadialPalette,
                     keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                     keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                    camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
-                    camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
                     lasso_binding_preference: CanvasLassoBinding::RightDrag,
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
@@ -1244,8 +1257,8 @@ impl GraphBrowserApp {
             self.workspace
                 .graph_runtime
                 .physics_running_before_interaction =
-                Some(self.workspace.graph_runtime.physics.base.is_running);
-            self.workspace.graph_runtime.physics.base.is_running = false;
+                Some(self.workspace.graph_runtime.physics.is_running);
+            self.workspace.graph_runtime.physics.is_running = false;
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         } else if let Some(was_running) = self
             .workspace
@@ -1254,13 +1267,13 @@ impl GraphBrowserApp {
             .take()
         {
             if was_running {
-                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.physics.is_running = true;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             } else if self.camera_position_fit_locked() {
-                self.workspace.graph_runtime.physics.base.is_running = false;
+                self.workspace.graph_runtime.physics.is_running = false;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             } else {
-                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.physics.is_running = true;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 10;
             }
         }
@@ -1275,7 +1288,7 @@ impl GraphBrowserApp {
             drag_release_frames_remaining =
                 self.workspace.graph_runtime.drag_release_frames_remaining,
             is_interacting = self.workspace.graph_runtime.is_interacting,
-            physics_running = self.workspace.graph_runtime.physics.base.is_running,
+            physics_running = self.workspace.graph_runtime.physics.is_running,
         )
         .entered();
 
@@ -1286,7 +1299,7 @@ impl GraphBrowserApp {
         }
         self.workspace.graph_runtime.drag_release_frames_remaining -= 1;
         if self.workspace.graph_runtime.drag_release_frames_remaining == 0 {
-            self.workspace.graph_runtime.physics.base.is_running = false;
+            self.workspace.graph_runtime.physics.is_running = false;
         }
     }
 
@@ -1439,7 +1452,7 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::ReheatPhysics => {
-                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.physics.is_running = true;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 0;
                 true
             }
@@ -1724,15 +1737,15 @@ impl GraphBrowserApp {
                 .workspace
                 .graph_runtime
                 .physics_running_before_interaction
-                .unwrap_or(self.workspace.graph_runtime.physics.base.is_running);
+                .unwrap_or(self.workspace.graph_runtime.physics.is_running);
             self.workspace
                 .graph_runtime
                 .physics_running_before_interaction = Some(next);
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             return;
         }
-        self.workspace.graph_runtime.physics.base.is_running =
-            !self.workspace.graph_runtime.physics.base.is_running;
+        self.workspace.graph_runtime.physics.is_running =
+            !self.workspace.graph_runtime.physics.is_running;
         self.workspace.graph_runtime.drag_release_frames_remaining = 0;
     }
 
@@ -1742,12 +1755,12 @@ impl GraphBrowserApp {
     }
 
     fn apply_physics_profile(&mut self, profile_id: &str, profile: &PhysicsProfile) {
-        let was_running = self.workspace.graph_runtime.physics.base.is_running;
+        let was_running = self.workspace.graph_runtime.physics.is_running;
         let mut config = Self::default_physics_state();
         profile.apply_to_state(&mut config);
-        config.base.is_running = was_running || !self.workspace.graph_runtime.is_interacting;
-        config.base.last_avg_displacement = None;
-        config.base.step_count = 0;
+        config.is_running = was_running || !self.workspace.graph_runtime.is_interacting;
+        config.last_avg_displacement = None;
+        config.step_count = 0;
         self.workspace.graph_runtime.physics = config;
         self.workspace.graph_runtime.drag_release_frames_remaining = 0;
 
@@ -1756,7 +1769,7 @@ impl GraphBrowserApp {
                 .graph_runtime
                 .physics_running_before_interaction = Some(true);
         } else {
-            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.is_running = true;
         }
 
         for view in self.workspace.graph_runtime.views.values_mut() {

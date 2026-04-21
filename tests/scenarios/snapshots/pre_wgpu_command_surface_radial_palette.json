@@ -166,7 +166,7 @@
       "z_pass": "workbench.content",
       "style_flags": [
         "surface:graph",
-        "backend:egui_graphs",
+        "backend:graph-canvas",
         "presentation:tiled"
       ],
       "transient_flags": [],
@@ -259,7 +259,7 @@
     {
       "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
       "event_route": "graph.input_route",
-      "backend_path": "egui_graphs",
+      "backend_path": "graph-canvas",
       "diagnostics_counter": 0
     },
     {

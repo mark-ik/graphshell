@@ -32,7 +32,6 @@ impl GraphBrowserApp {
                 .as_ref()
             {
                 self.workspace.graph_runtime.history_preview_graph = Some(snapshot.clone());
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 self.workspace.graph_runtime.last_culled_node_keys = None;
                 return Ok(());
             }
@@ -63,7 +62,6 @@ impl GraphBrowserApp {
             .replay_to_timestamp(target.timestamp_ms)
             .ok_or_else(|| "replay_to_timestamp returned no graph".to_string())?;
         self.workspace.graph_runtime.history_preview_graph = Some(replay_graph);
-        self.workspace.graph_runtime.egui_state_dirty = true;
         self.workspace.graph_runtime.last_culled_node_keys = None;
         Ok(())
     }
@@ -189,7 +187,6 @@ impl GraphBrowserApp {
                     Some(self.workspace.domain.graph.clone());
                 self.workspace.graph_runtime.history_preview_graph =
                     Some(self.workspace.domain.graph.clone());
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 self.workspace.graph_runtime.last_culled_node_keys = None;
                 self.workspace.graph_runtime.history_last_event_unix_ms =
                     Some(Self::unix_timestamp_ms_now());
@@ -213,7 +210,6 @@ impl GraphBrowserApp {
                 self.workspace.graph_runtime.history_preview_mode_active = false;
                 self.workspace.graph_runtime.history_replay_in_progress = false;
                 self.workspace.graph_runtime.history_preview_graph = None;
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 self.workspace.graph_runtime.last_culled_node_keys = None;
                 self.workspace.graph_runtime.history_last_event_unix_ms =
                     Some(Self::unix_timestamp_ms_now());
@@ -344,7 +340,6 @@ impl GraphBrowserApp {
                 {
                     self.workspace.graph_runtime.history_preview_graph = Some(snapshot.clone());
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 self.workspace.graph_runtime.last_culled_node_keys = None;
                 self.workspace.graph_runtime.history_last_event_unix_ms =
                     Some(Self::unix_timestamp_ms_now());

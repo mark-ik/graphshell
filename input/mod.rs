@@ -4,8 +4,9 @@
 
 //! Input handling for the graph browser.
 //!
-//! Keyboard shortcuts are handled here. Mouse interaction (drag, pan, zoom,
-//! selection) is handled by egui_graphs via the GraphView widget.
+//! Keyboard shortcuts are handled here. Pointer interaction on the graph
+//! surface (drag, pan, zoom, selection) is routed through `graph-canvas`
+//! via `canvas_bridge::collect_canvas_events`, not through this module.
 
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
@@ -497,7 +498,7 @@ mod tests {
     #[test]
     fn test_toggle_physics_action() {
         let mut app = test_app();
-        let was_running = app.workspace.graph_runtime.physics.base.is_running;
+        let was_running = app.workspace.graph_runtime.physics.is_running;
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_physics: true,
@@ -506,7 +507,7 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         assert_ne!(
-            app.workspace.graph_runtime.physics.base.is_running,
+            app.workspace.graph_runtime.physics.is_running,
             was_running
         );
     }
@@ -912,14 +913,14 @@ mod tests {
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
         let before_count = app.workspace.domain.graph.node_count();
-        let before_physics = app.workspace.graph_runtime.physics.base.is_running;
+        let before_physics = app.workspace.graph_runtime.physics.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.domain.graph.node_count(), before_count);
         assert_eq!(
-            app.workspace.graph_runtime.physics.base.is_running,
+            app.workspace.graph_runtime.physics.is_running,
             before_physics
         );
     }

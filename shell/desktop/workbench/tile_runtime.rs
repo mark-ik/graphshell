@@ -10,12 +10,13 @@ use servo::WebViewId;
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 #[cfg(feature = "wry")]
-use crate::mods::native::verso;
+use crate::mods::native::web_runtime;
 use crate::registries::atomic::viewer::ViewerRenderMode;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use ::verso::{HostCapabilities as VersoHostCapabilities, WebEnginePreference};
 
 pub(crate) struct TileCoordinator;
 
@@ -47,7 +48,7 @@ impl TileCoordinator {
                 crate::app::WryRenderModePreference::ForceTexture
                     if crate::registries::infrastructure::mod_loader::runtime_has_capability(
                         "viewer:wry",
-                    ) && crate::mods::native::verso::wry_composited_texture_support()
+                    ) && crate::mods::native::web_runtime::wry_composited_texture_support()
                         .supported =>
                 {
                     TileRenderMode::CompositedTexture
@@ -82,31 +83,22 @@ impl TileCoordinator {
         url: &str,
         mime_hint: Option<&str>,
     ) -> String {
-        let selected = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-            url, mime_hint,
-        );
-        if selected.viewer_id != "viewer:webview" {
-            return selected.viewer_id.to_string();
+        let web_engine_preference = graph_app
+            .default_web_viewer_backend()
+            .web_engine_preference();
+
+        if let Some(decision) = ::verso::select_viewer_for_content(
+            url,
+            mime_hint,
+            &verso_host_capabilities_for_graphshell(graph_app),
+            web_engine_preference,
+        ) {
+            return decision.viewer_id().to_string();
         }
 
-        let is_http_content = url.starts_with("http://") || url.starts_with("https://");
-        if !is_http_content {
-            return selected.viewer_id.to_string();
-        }
-
-        match graph_app.default_web_viewer_backend() {
-            crate::app::DefaultWebViewerBackend::Servo => selected.viewer_id.to_string(),
-            crate::app::DefaultWebViewerBackend::Wry
-                if graph_app.wry_enabled()
-                    && cfg!(feature = "wry")
-                    && crate::registries::infrastructure::mod_loader::runtime_has_capability(
-                        "viewer:wry",
-                    ) =>
-            {
-                "viewer:wry".to_string()
-            }
-            crate::app::DefaultWebViewerBackend::Wry => selected.viewer_id.to_string(),
-        }
+        crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(url, mime_hint)
+            .viewer_id
+            .to_string()
     }
 
     fn node_pane_effective_viewer_id(
@@ -118,11 +110,29 @@ impl TileCoordinator {
         }
 
         let node = graph_app.domain_graph().get_node(state.node)?;
-        Some(Self::preferred_viewer_id_for_content(
-            graph_app,
+        let web_engine_preference = if node.compat_mode {
+            WebEnginePreference::Wry
+        } else {
+            graph_app
+                .default_web_viewer_backend()
+                .web_engine_preference()
+        };
+        if let Some(decision) = ::verso::select_viewer_for_content(
             node.url(),
             node.mime_hint.as_deref(),
-        ))
+            &verso_host_capabilities_for_graphshell(graph_app),
+            web_engine_preference,
+        ) {
+            return Some(decision.viewer_id().to_string());
+        }
+        Some(
+            crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+                node.url(),
+                node.mime_hint.as_deref(),
+            )
+            .viewer_id
+            .to_string(),
+        )
     }
 
     fn resolve_node_pane_render_mode(
@@ -250,6 +260,7 @@ impl TileCoordinator {
                     .map(|vid| Self::render_mode_for_effective_viewer_id(graph_app, vid))
                     .unwrap_or(TileRenderMode::Placeholder);
                 state.resolved_viewer_id = viewer_id;
+                state.resolved_route = resolve_route_for_node_pane(state, graph_app);
             }
         }
     }
@@ -335,9 +346,9 @@ impl TileCoordinator {
                 // NativeOverlay backends do not use mapped Servo webviews; if this
                 // node is currently managed by Wry, hide/detach it on pane release.
                 let handled_by_wry = if node_exists {
-                    verso::hide_wry_overlay_for_node(node_key)
+                    web_runtime::hide_wry_overlay_for_node(node_key)
                 } else {
-                    verso::destroy_wry_overlay_for_node(node_key)
+                    web_runtime::destroy_wry_overlay_for_node(node_key)
                 };
 
                 if handled_by_wry {
@@ -404,6 +415,70 @@ impl TileCoordinator {
             lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::NodeRemoval).into(),
         );
     }
+}
+
+pub(crate) fn verso_host_capabilities_for_graphshell(
+    graph_app: &GraphBrowserApp,
+) -> VersoHostCapabilities {
+    let supports_middlenet = crate::shell::desktop::runtime::registries::phase0_describe_viewer(
+        "viewer:middlenet",
+    )
+    .is_some();
+    let supports_servo = crate::shell::desktop::runtime::registries::phase0_describe_viewer(
+        "viewer:webview",
+    )
+    .is_some();
+    let supports_wry = cfg!(feature = "wry")
+        && graph_app.wry_enabled()
+        && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry");
+
+    VersoHostCapabilities {
+        supports_middlenet_direct: supports_middlenet,
+        supports_middlenet_html: false,
+        supports_middlenet_faithful_source: supports_middlenet,
+        supports_servo,
+        supports_wry,
+    }
+}
+
+/// Resolve the verso route for a node pane. Returns `None` when
+/// verso does not route this content (specialized non-web viewers:
+/// images, PDFs, plaintext, directory listings) — in that case the
+/// registry-selected viewer at `state.resolved_viewer_id` is
+/// authoritative.
+///
+/// Called during `refresh_node_pane_render_modes` so the resulting
+/// route can be cached on `NodePaneState.resolved_route` and
+/// consumed by downstream surfaces (workbench chrome, debug UI)
+/// without re-dispatching verso every frame.
+pub(crate) fn resolve_route_for_node_pane(
+    state: &NodePaneState,
+    graph_app: &GraphBrowserApp,
+) -> Option<::verso::VersoResolvedRoute> {
+    let node = graph_app.domain_graph().get_node(state.node)?;
+    let owner = if state.viewer_id_override.is_some() {
+        ::verso::VersoPaneOwner::UserPin
+    } else {
+        ::verso::VersoPaneOwner::Policy
+    };
+    // Per-node compat mode biases the web-engine preference toward Wry
+    // for this node only; the app-level default still drives every
+    // other node. Middlenet lane selection is unaffected because compat
+    // mode only shifts the web-engine preference.
+    let web_engine_preference = if node.compat_mode {
+        ::verso::WebEnginePreference::Wry
+    } else {
+        graph_app
+            .default_web_viewer_backend()
+            .web_engine_preference()
+    };
+    ::verso::resolve_route_for_content(
+        node.url(),
+        node.mime_hint.as_deref(),
+        &verso_host_capabilities_for_graphshell(graph_app),
+        web_engine_preference,
+        owner,
+    )
 }
 
 pub(crate) fn effective_viewer_id_for_pane_in_tree(
@@ -502,22 +577,36 @@ pub(crate) fn candidate_viewer_ids_for_node_pane(
         push_candidate(&effective_viewer_id);
     }
 
+    // Ask verso to enumerate web/Middlenet candidates. Verso's
+    // `select_viewer_for_content` is decision-oriented (returns one
+    // best choice per preference), so we query both preferences to
+    // surface both web-engine candidates when the host supports
+    // them. Middlenet content returns the same decision regardless
+    // of preference; `push_candidate` dedups the duplicate.
+    //
+    // TODO (Phase 4/PR 4): replace the two-call pattern with a
+    // proper `list_candidate_routes` API on `crates/verso` once
+    // the resolved-route types land.
+    let host_caps = verso_host_capabilities_for_graphshell(graph_app);
+    for preference in [WebEnginePreference::Servo, WebEnginePreference::Wry] {
+        if let Some(decision) = ::verso::select_viewer_for_content(
+            node.url(),
+            node.mime_hint.as_deref(),
+            &host_caps,
+            preference,
+        ) {
+            push_candidate(decision.viewer_id());
+        }
+    }
+
+    // For specialized non-web content (images, PDFs, local files),
+    // the registry still owns viewer selection. Verso returned
+    // nothing for this URL, so consult the registry.
     let selected = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
         node.url(),
         node.mime_hint.as_deref(),
     );
     push_candidate(selected.viewer_id);
-
-    let is_http_content = node.url().starts_with("http://") || node.url().starts_with("https://");
-    if is_http_content {
-        push_candidate("viewer:webview");
-        if cfg!(feature = "wry")
-            && graph_app.wry_enabled()
-            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry")
-        {
-            push_candidate("viewer:wry");
-        }
-    }
 
     candidates.sort_by(|left, right| {
         viewer_candidate_sort_key(left).cmp(&viewer_candidate_sort_key(right))
@@ -925,7 +1014,7 @@ mod tests {
 
         #[cfg(feature = "wry")]
         if crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry")
-            && crate::mods::native::verso::wry_composited_texture_support().supported
+            && crate::mods::native::web_runtime::wry_composited_texture_support().supported
         {
             assert_eq!(mode, TileRenderMode::CompositedTexture);
         } else {

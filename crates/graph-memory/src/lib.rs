@@ -174,6 +174,32 @@ pub struct GcReport {
     pub deleted_visits: Vec<VisitId>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnerBranchAlternative<E: MemoryPayload> {
+    pub visit_id: VisitId,
+    pub entry_id: EntryId,
+    pub payload: E,
+    pub transition: Option<TransitionKind>,
+    pub at_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnerBranchVisit<E: MemoryPayload> {
+    pub visit_id: VisitId,
+    pub entry_id: EntryId,
+    pub payload: E,
+    pub transition: Option<TransitionKind>,
+    pub at_ms: u64,
+    pub is_current: bool,
+    pub alternate_children: Vec<OwnerBranchAlternative<E>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnerBranchProjection<E: MemoryPayload> {
+    pub visits: Vec<OwnerBranchVisit<E>>,
+    pub current_index: Option<usize>,
+}
+
 #[derive(
     Clone,
     Debug,
@@ -624,6 +650,65 @@ where
         Ok(linear.iter().position(|visit_id| *visit_id == current))
     }
 
+    pub fn owner_branch_projection(
+        &self,
+        owner_id: OwnerId,
+    ) -> Result<OwnerBranchProjection<E>, GraphMemoryError> {
+        let current = self.current_visit_of_owner(owner_id);
+        let linear = self.linear_history_visits_of_owner(owner_id)?;
+        let current_index =
+            current.and_then(|visit_id| linear.iter().position(|candidate| *candidate == visit_id));
+
+        let visits = linear
+            .iter()
+            .enumerate()
+            .map(|(idx, visit_id)| {
+                let visit = self
+                    .visits
+                    .get(*visit_id)
+                    .ok_or(GraphMemoryError::MissingVisit(*visit_id))?;
+                let entry = self
+                    .entries
+                    .get(visit.entry)
+                    .ok_or(GraphMemoryError::MissingEntry(visit.entry))?;
+                let next_in_path = linear.get(idx + 1).copied();
+
+                let alternate_children = visit
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|child_id| Some(*child_id) != next_in_path)
+                    .filter_map(|child_id| {
+                        let child = self.visits.get(child_id)?;
+                        let child_entry = self.entries.get(child.entry)?;
+                        Some(OwnerBranchAlternative {
+                            visit_id: child_id,
+                            entry_id: child.entry,
+                            payload: child_entry.payload.clone(),
+                            transition: child.inbound.map(|record| record.kind),
+                            at_ms: child.created_at_ms,
+                        })
+                    })
+                    .collect();
+
+                Ok(OwnerBranchVisit {
+                    visit_id: *visit_id,
+                    entry_id: visit.entry,
+                    payload: entry.payload.clone(),
+                    transition: visit.inbound.map(|record| record.kind),
+                    at_ms: visit.created_at_ms,
+                    is_current: current == Some(*visit_id),
+                    alternate_children,
+                })
+            })
+            .collect::<Result<Vec<_>, GraphMemoryError>>()?;
+
+        Ok(OwnerBranchProjection {
+            visits,
+            current_index,
+        })
+    }
+
     pub fn entry_id_by_key(&self, key: &K) -> Option<EntryId> {
         self.entry_index.get(key).copied()
     }
@@ -922,6 +1007,59 @@ where
             visit.inbound = None;
         }
         Ok(Some(reset_visit))
+    }
+
+    pub fn rebind_owner_to_path(
+        &mut self,
+        owner_id: OwnerId,
+        path: &[VisitId],
+        current_index: usize,
+        at_ms: u64,
+    ) -> Result<(), GraphMemoryError> {
+        if !self.owners.contains_key(owner_id) {
+            return Err(GraphMemoryError::MissingOwner(owner_id));
+        }
+        for visit_id in path {
+            if !self.visits.contains_key(*visit_id) {
+                return Err(GraphMemoryError::MissingVisit(*visit_id));
+            }
+        }
+
+        let previous_owned = self
+            .owners
+            .get(owner_id)
+            .ok_or(GraphMemoryError::MissingOwner(owner_id))?
+            .owned_visits
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for visit_id in previous_owned {
+            if let Some(visit) = self.visits.get_mut(visit_id) {
+                visit.bindings.remove(&owner_id);
+            }
+        }
+
+        for (idx, visit_id) in path.iter().enumerate() {
+            let binding = self
+                .ensure_binding(*visit_id, owner_id, at_ms)
+                .ok_or(GraphMemoryError::MissingVisit(*visit_id))?;
+            binding.forward_child = path.get(idx + 1).copied();
+        }
+
+        let owner = self
+            .owners
+            .get_mut(owner_id)
+            .ok_or(GraphMemoryError::MissingOwner(owner_id))?;
+        owner.origin = path.first().copied();
+        owner.current = if path.is_empty() {
+            None
+        } else {
+            Some(path[current_index.min(path.len().saturating_sub(1))])
+        };
+        owner.pending_origin_parent = None;
+        owner.owned_visits = path.iter().copied().collect();
+
+        Ok(())
     }
 
     pub fn edge_views(&self) -> Vec<EdgeView> {
@@ -1302,6 +1440,56 @@ mod tests {
         assert_eq!(
             edge.transition_counts.get(&TransitionKind::Reload),
             Some(&1)
+        );
+    }
+
+    #[test]
+    fn owner_branch_projection_reports_alternate_children() {
+        let mut memory = Memory::new();
+
+        let a = memory.resolve_or_create_entry(
+            ("https://a.example".to_string(), None),
+            entry("https://a.example", "A"),
+            1,
+            EntryPrivacy::LocalOnly,
+        );
+        let b = memory.resolve_or_create_entry(
+            ("https://b.example".to_string(), None),
+            entry("https://b.example", "B"),
+            2,
+            EntryPrivacy::LocalOnly,
+        );
+        let c = memory.resolve_or_create_entry(
+            ("https://c.example".to_string(), None),
+            entry("https://c.example", "C"),
+            3,
+            EntryPrivacy::LocalOnly,
+        );
+
+        let owner_id = memory.ensure_owner(owner("x"), None);
+        let a_visit = memory
+            .visit_entry(owner_id, a, ctx("a"), TransitionKind::UrlTyped, 10)
+            .unwrap();
+        let b_visit = memory
+            .visit_entry(owner_id, b, ctx("b"), TransitionKind::LinkClick, 20)
+            .unwrap();
+
+        memory.back(owner_id, 1, 30).unwrap();
+        let c_visit = memory
+            .visit_entry(owner_id, c, ctx("c"), TransitionKind::Reload, 40)
+            .unwrap();
+
+        let projection = memory.owner_branch_projection(owner_id).unwrap();
+        assert_eq!(projection.current_index, Some(1));
+        assert_eq!(projection.visits.len(), 2);
+        assert_eq!(projection.visits[0].visit_id, a_visit);
+        assert_eq!(projection.visits[1].visit_id, c_visit);
+        assert!(projection.visits[1].is_current);
+        assert_eq!(projection.visits[0].alternate_children.len(), 1);
+        assert_eq!(projection.visits[0].alternate_children[0].visit_id, b_visit);
+        assert_eq!(
+            projection.visits[0].alternate_children[0].payload.url,
+            "https://b.example"
         );
     }
 

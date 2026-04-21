@@ -177,11 +177,14 @@ impl GraphBrowserApp {
             &entries,
             new_index,
         );
-        let _ = self
+        let changed = self
             .workspace
             .domain
             .graph
             .set_node_history_state(node_key, entries, new_index);
+        if changed {
+            self.refresh_semantic_navigation_runtime_for_node(node_key);
+        }
     }
 
     pub(crate) fn handle_webview_scroll_changed(

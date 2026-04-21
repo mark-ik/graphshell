@@ -379,6 +379,33 @@ pub(crate) fn clear_snapshot() {
     }
 }
 
+/// Serialization lock for tests that publish/clear the UX-tree
+/// snapshot process-global.
+///
+/// `LATEST_UX_TREE_SNAPSHOT` is a `OnceLock<Mutex<Option<…>>>` — every
+/// test that walks `publish_snapshot → build / read / clear` against it
+/// must bind the returned guard so parallel tests do not stomp each
+/// other's state. Matches the `lock_command_surface_snapshot_tests`
+/// and `lock_radial_palette_snapshot_tests` patterns elsewhere in the
+/// crate. Lives outside `cfg(test)` so integration tests and
+/// `webdriver_runtime` tests can reach it; the mutex is never acquired
+/// in production.
+///
+/// ```ignore
+/// let _guard = lock_ux_tree_snapshot_tests();
+/// ux_tree::publish_snapshot(&snapshot);
+/// // ... read / assert ...
+/// ux_tree::clear_snapshot();
+/// ```
+pub(crate) fn lock_ux_tree_snapshot_tests()
+-> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 /// Host-neutral snapshot builder — takes a `PaneTreeWalker`. Iced and
 /// any future host call this variant directly; the tiles-backed
 /// compatibility wrapper below keeps existing egui-side callers
@@ -910,7 +937,7 @@ fn append_workbench_semantics_nodes(
         trace_nodes.push(UxTraceNode {
             ux_node_id: lens_scope_id,
             event_route: "graph.lens_scope_route",
-            backend_path: "egui_graphs",
+            backend_path: "graph-canvas",
             diagnostics_counter: selection_count as u64,
         });
     }
@@ -1347,7 +1374,7 @@ fn append_graph_point_lod_status_indicator(
     trace_nodes.push(UxTraceNode {
         ux_node_id: status_id,
         event_route: "graph.status_route",
-        backend_path: "egui_graphs",
+        backend_path: "graph-canvas",
         diagnostics_counter: 1,
     });
 }
@@ -1394,7 +1421,7 @@ fn append_graph_surface_semantics(
     trace_nodes.push(UxTraceNode {
         ux_node_id: ux_node_id.to_string(),
         event_route: "graph.input_route",
-        backend_path: "egui_graphs",
+        backend_path: "graph-canvas",
         diagnostics_counter: graph_app.domain_graph().node_count() as u64,
     });
 
@@ -1450,13 +1477,13 @@ fn append_graph_surface_semantics(
             bounds: None,
             render_mode: Some(TileRenderMode::EmbeddedEgui),
             z_pass: "graph.layer.node",
-            style_flags: vec!["surface:graph-node", "backend:egui_graphs"],
+            style_flags: vec!["surface:graph-node", "backend:graph-canvas"],
             transient_flags: Vec::new(),
         });
         trace_nodes.push(UxTraceNode {
             ux_node_id: graph_node_ux_id,
             event_route: "graph.node_route",
-            backend_path: "egui_graphs",
+            backend_path: "graph-canvas",
             diagnostics_counter: u64::from(selected),
         });
     }
@@ -1482,7 +1509,10 @@ fn push_nodes(
     let focused = walker.is_active(handle);
 
     match resolved {
-        ResolvedPane::Pane { ux_node_id, payload } => push_pane_nodes(
+        ResolvedPane::Pane {
+            ux_node_id,
+            payload,
+        } => push_pane_nodes(
             graph_app,
             &ux_node_id,
             parent_ux_node_id,
@@ -1536,9 +1566,9 @@ fn push_pane_nodes(
         .contains(&payload.pane_id());
 
     match payload {
-        TileKind::Pane(
-            crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(view_ref),
-        ) => {
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
+            view_ref,
+        )) => {
             append_graph_surface_semantics(
                 graph_app,
                 ux_node_id,
@@ -1547,15 +1577,15 @@ fn push_pane_nodes(
                 Some(view_ref.pane_id),
                 focused,
                 tile_selected,
-                vec!["surface:graph", "backend:egui_graphs"],
+                vec!["surface:graph", "backend:graph-canvas"],
                 semantic_nodes,
                 presentation_nodes,
                 trace_nodes,
             );
         }
-        TileKind::Pane(
-            crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state),
-        ) => push_node_pane_entries(
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
+            state,
+        )) => push_node_pane_entries(
             graph_app,
             ux_node_id,
             parent_ux_node_id,
@@ -1569,9 +1599,7 @@ fn push_pane_nodes(
             trace_nodes,
         ),
         #[cfg(feature = "diagnostics")]
-        TileKind::Pane(
-            crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
-        ) => {
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool)) => {
             let tool_kind = tool.title();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.to_string(),
@@ -1601,7 +1629,7 @@ fn push_pane_nodes(
                 focused,
                 tile_selected,
                 presentation_style_flags_for_mode(
-                    &["surface:graph", "backend:egui_graphs"],
+                    &["surface:graph", "backend:graph-canvas"],
                     view_ref.presentation_mode,
                 ),
                 semantic_nodes,
@@ -1716,10 +1744,7 @@ fn push_node_pane_entries(
         bounds,
         render_mode: Some(state.render_mode),
         z_pass: "workbench.content",
-        style_flags: presentation_style_flags_for_mode(
-            &["surface:node"],
-            state.presentation_mode,
-        ),
+        style_flags: presentation_style_flags_for_mode(&["surface:node"], state.presentation_mode),
         transient_flags: Vec::new(),
     });
     trace_nodes.push(UxTraceNode {
@@ -2428,7 +2453,7 @@ mod tests {
     };
     use crate::render::radial_menu::{
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
-        clear_semantic_snapshot, publish_semantic_snapshot,
+        clear_semantic_snapshot, lock_radial_palette_snapshot_tests, publish_semantic_snapshot,
     };
     use crate::shell::desktop::tests::harness::TestRegistry;
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
@@ -2445,6 +2470,12 @@ mod tests {
         // and the host-neutral builder must produce identical
         // snapshots — pinning the invariant that all non-pane content
         // flows through the host-neutral path.
+        let _radial_guard =
+            crate::render::radial_menu::lock_radial_palette_snapshot_tests();
+        let _command_guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_semantic_snapshot();
+        clear_command_surface_semantic_snapshot();
         let mut harness = TestRegistry::new();
         harness.tiles_tree = Tree::new(
             "test_empty_tiles_tree",
@@ -2455,7 +2486,11 @@ mod tests {
         // `root()` resolves to `None`, matching the "no panes" case.
         assert!(
             harness.tiles_tree.root().is_none()
-                || harness.tiles_tree.tiles.get(harness.tiles_tree.root().unwrap()).is_none()
+                || harness
+                    .tiles_tree
+                    .tiles
+                    .get(harness.tiles_tree.root().unwrap())
+                    .is_none()
         );
 
         let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
@@ -2470,6 +2505,12 @@ mod tests {
         // should still contain every non-pane entry from the
         // tiles-based snapshot in the same order. The tiles snapshot
         // adds extra pane entries that the host-neutral builder skips.
+        let _radial_guard =
+            crate::render::radial_menu::lock_radial_palette_snapshot_tests();
+        let _command_guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        clear_semantic_snapshot();
+        clear_command_surface_semantic_snapshot();
         let harness = TestRegistry::new();
         let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
         let host_neutral = build_snapshot_host_neutral(&harness.app, 42);
@@ -2737,6 +2778,7 @@ mod tests {
 
     #[test]
     fn radial_sector_count_violation_flags_overfull_radial_palette() {
+        let _guard = lock_radial_palette_snapshot_tests();
         publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
             sectors: (0..9)
                 .map(|index| RadialSectorSemanticMetadata {
@@ -3094,6 +3136,7 @@ mod tests {
 
     #[test]
     fn snapshot_projects_radial_sector_metadata_when_available() {
+        let _guard = lock_radial_palette_snapshot_tests();
         clear_semantic_snapshot();
         publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
             sectors: vec![RadialSectorSemanticMetadata {

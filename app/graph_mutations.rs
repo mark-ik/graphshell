@@ -736,7 +736,7 @@ impl GraphBrowserApp {
                 timestamp_ms: Self::unix_timestamp_ms_now(),
             });
         }
-        self.workspace.graph_runtime.physics.base.is_running = true;
+        self.workspace.graph_runtime.physics.is_running = true;
         self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         self.refresh_protocol_probe_for_node(key, &url, false);
         key
@@ -813,7 +813,7 @@ impl GraphBrowserApp {
         };
         if edge_key.is_some() {
             self.log_edge_mutation(from_key, to_key, edge_type, edge_label);
-            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.is_running = true;
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         edge_key
@@ -1175,7 +1175,6 @@ impl GraphBrowserApp {
         }
 
         if updated {
-            self.workspace.graph_runtime.egui_state_dirty = true;
         }
     }
 
@@ -1760,7 +1759,7 @@ impl GraphBrowserApp {
         };
         if edge_key.is_some() {
             self.log_relation_assertion(from_key, to_key, assertion);
-            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.is_running = true;
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         edge_key
@@ -1813,8 +1812,7 @@ impl GraphBrowserApp {
 
             if removed > 0 {
                 self.log_edge_removal_mutation(from_key, to_key, edge_type);
-                self.workspace.graph_runtime.egui_state_dirty = true;
-                self.workspace.graph_runtime.physics.base.is_running = true;
+                self.workspace.graph_runtime.physics.is_running = true;
                 self.workspace.graph_runtime.drag_release_frames_remaining = 0;
             }
             return removed;
@@ -1861,8 +1859,7 @@ impl GraphBrowserApp {
 
         if removed > 0 {
             self.log_edge_removal_mutation(from_key, to_key, edge_type);
-            self.workspace.graph_runtime.egui_state_dirty = true;
-            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.is_running = true;
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         removed
@@ -1885,8 +1882,7 @@ impl GraphBrowserApp {
         };
         if removed > 0 {
             self.log_relation_retraction(from_key, to_key, selector);
-            self.workspace.graph_runtime.egui_state_dirty = true;
-            self.workspace.graph_runtime.physics.base.is_running = true;
+            self.workspace.graph_runtime.physics.is_running = true;
             self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         }
         removed
@@ -2131,7 +2127,7 @@ impl GraphBrowserApp {
             self.log_edge_mutation(from_key, to_key, EdgeType::History, None);
         }
         self.log_traversal_mutation(from_key, to_key, traversal);
-        self.workspace.graph_runtime.physics.base.is_running = true;
+        self.workspace.graph_runtime.physics.is_running = true;
         self.workspace.graph_runtime.drag_release_frames_remaining = 0;
         true
     }
@@ -2226,7 +2222,6 @@ impl GraphBrowserApp {
 
     pub(crate) fn delete_import_record(&mut self, record_id: String) {
         if self.workspace.domain.graph.delete_import_record(&record_id) {
-            self.workspace.graph_runtime.egui_state_dirty = true;
         }
     }
 
@@ -2237,7 +2232,6 @@ impl GraphBrowserApp {
             .graph
             .set_import_record_membership_suppressed(&record_id, key, true)
         {
-            self.workspace.graph_runtime.egui_state_dirty = true;
         }
     }
 
@@ -2595,6 +2589,38 @@ impl GraphBrowserApp {
         }
     }
 
+    /// Toggle this node's per-node Compat mode.
+    ///
+    /// When enabled, verso routes web-managed content for this node through
+    /// `WebEnginePreference::Wry` regardless of the app-level default web
+    /// backend. Middlenet-routed content is unaffected. Refreshes pane
+    /// render modes so any open pane showing this node picks up the new
+    /// route on the next frame.
+    pub fn set_node_compat_mode(&mut self, key: NodeKey, compat_mode: bool) -> bool {
+        let Some(current) = self
+            .workspace
+            .domain
+            .graph
+            .node_compat_mode(key)
+        else {
+            return false;
+        };
+        if current == compat_mode {
+            return false;
+        }
+        let _ = self
+            .apply_graph_delta_and_sync(GraphDelta::SetNodeCompatMode { key, compat_mode });
+        true
+    }
+
+    pub fn node_compat_mode(&self, key: NodeKey) -> bool {
+        self.workspace
+            .domain
+            .graph
+            .node_compat_mode(key)
+            .unwrap_or(false)
+    }
+
     pub fn create_new_node_near_center(&mut self) -> NodeKey {
         let position = self.suggested_new_node_position(None);
         let placeholder_url = self.next_placeholder_url();
@@ -2650,6 +2676,7 @@ impl GraphBrowserApp {
             if let Some(node_id) = node_id {
                 self.workspace.workbench_session.on_node_deleted(node_id);
             }
+            self.close_action_surface_if_targets_node(node_key);
 
             if let Some(store) = &mut self.services.persistence {
                 let dissolved_before = store.dissolved_archive_len();
@@ -2712,7 +2739,6 @@ impl GraphBrowserApp {
                 .set_node_lifecycle(key, NodeLifecycle::Tombstone);
         }
         self.clear_selection();
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     /// Restore a single Ghost Node from `NodeLifecycle::Tombstone → Cold`.
@@ -2732,7 +2758,6 @@ impl GraphBrowserApp {
             .domain
             .graph
             .set_node_lifecycle(key, NodeLifecycle::Cold);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn get_single_selected_node(&self) -> Option<NodeKey> {
@@ -2758,6 +2783,7 @@ impl GraphBrowserApp {
             store.log_mutation(&LogEntry::ClearGraph);
         }
         self.workspace.domain.graph = Graph::new();
+        self.close_action_surface_if_graph_scoped();
         self.reset_selection_state();
         self.workspace.graph_runtime.highlighted_graph_edge = None;
         self.workspace.graph_runtime.navigator_projection_state =
@@ -2808,7 +2834,6 @@ impl GraphBrowserApp {
         self.workspace
             .workbench_session
             .unsaved_workspace_prompt_warned = false;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn clear_graph_and_persistence(&mut self) {
@@ -2860,9 +2885,13 @@ impl GraphBrowserApp {
             .unsaved_workspace_prompt_warned = false;
         self.workspace.graph_runtime.active_webview_nodes.clear();
         self.workspace.domain.next_placeholder_id = 0;
-        self.workspace.graph_runtime.egui_state_dirty = true;
         self.workspace.graph_runtime.semantic_index.clear();
         self.workspace.graph_runtime.semantic_index_dirty = true;
+        self.workspace
+            .graph_runtime
+            .semantic_navigation
+            .recent_nodes
+            .clear();
     }
 
     pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
@@ -2911,7 +2940,6 @@ impl GraphBrowserApp {
                 });
             }
         }
-        self.workspace.graph_runtime.egui_state_dirty = true;
         self.refresh_protocol_probe_for_node(key, &new_url, true);
         Some(old_url)
     }
@@ -3320,11 +3348,6 @@ impl GraphBrowserApp {
                 .domain
                 .graph
                 .rebuild_derived_containment_relations();
-        }
-        if let Some(egui_state) = self.workspace.graph_runtime.egui_state.as_mut()
-            && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
-        {
-            self.workspace.graph_runtime.egui_state_dirty = true;
         }
         result
     }

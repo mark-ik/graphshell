@@ -159,8 +159,13 @@ pub(crate) trait HostTexturePort {
     /// Load or reuse a texture for `key` from raw pixel data. Returns a
     /// handle valid until `drop_texture(key)` is called or the host is
     /// destroyed.
-    fn load_texture(&mut self, key: &str, width: u32, height: u32, rgba: &[u8])
-        -> Self::TextureHandle;
+    fn load_texture(
+        &mut self,
+        key: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Self::TextureHandle;
 
     /// Look up a previously-loaded texture by key.
     fn texture(&self, key: &str) -> Option<Self::TextureHandle>;
@@ -223,11 +228,7 @@ pub(crate) trait HostToastPort {
 pub(crate) trait HostAccessibilityPort {
     /// Inject an accessibility tree update received from a runtime viewer
     /// (e.g., Servo's accesskit stream).
-    fn inject_tree_update(
-        &mut self,
-        webview_id: WebViewId,
-        update: servo::accesskit::TreeUpdate,
-    );
+    fn inject_tree_update(&mut self, webview_id: WebViewId, update: servo::accesskit::TreeUpdate);
 
     /// Request the host transfer programmatic focus to a particular node
     /// (e.g., when keyboard navigation lands somewhere chrome-owned).

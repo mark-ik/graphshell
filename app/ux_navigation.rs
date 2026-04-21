@@ -241,11 +241,82 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.context_palette_anchor = None;
         self.set_pending_node_context_target(None);
         self.set_pending_frame_context_target(None);
+        self.workspace.chrome_ui.surface_state = ActionSurfaceState::PaletteGlobal;
         self.set_command_surface_visibility(true, false);
     }
 
     pub fn open_context_palette(&mut self) {
+        let scope = self.derive_scope_from_pending_targets();
+        let anchor = self
+            .workspace
+            .chrome_ui
+            .context_palette_anchor
+            .map(Anchor::viewport_point)
+            .unwrap_or(Anchor::ScreenCenter);
+        self.workspace.chrome_ui.surface_state =
+            ActionSurfaceState::PaletteContextual { scope, anchor };
         self.set_command_surface_visibility(false, true);
+    }
+
+    /// Open the contextual palette with an explicit scope and anchor.
+    /// Preferred entry point for right-click handlers post-redesign;
+    /// legacy `open_context_palette()` remains as a delegator.
+    ///
+    /// When `anchor` is a target variant, the legacy `[f32; 2]`
+    /// anchor is left untouched so callers can supply a cursor
+    /// fallback via `set_context_palette_anchor` for the render-site
+    /// read that has not yet been migrated.
+    pub fn open_palette_contextual(&mut self, scope: ActionScope, anchor: Anchor) {
+        if let Some(point) = anchor.resolved_screen_point() {
+            self.workspace.chrome_ui.context_palette_anchor = Some(point);
+        }
+        self.workspace.chrome_ui.surface_state =
+            ActionSurfaceState::PaletteContextual { scope, anchor };
+        self.set_command_surface_visibility(false, true);
+    }
+
+    /// Open the radial menu with an explicit scope and anchor. Preferred
+    /// entry point for right-click/radial-trigger handlers.
+    pub fn open_radial(&mut self, scope: ActionScope, anchor: Anchor) {
+        self.workspace.chrome_ui.surface_state =
+            ActionSurfaceState::Radial { scope, anchor };
+        self.open_radial_menu();
+    }
+
+    /// Open the global palette (Ctrl+K). Preferred entry point.
+    pub fn open_palette_global(&mut self) {
+        self.open_command_palette();
+    }
+
+    /// Close whichever action surface is open. Idempotent.
+    pub fn close_action_surface(&mut self) {
+        match self.workspace.chrome_ui.surface_state.clone() {
+            ActionSurfaceState::Closed => {}
+            ActionSurfaceState::PaletteGlobal | ActionSurfaceState::PaletteContextual { .. } => {
+                self.close_command_palette();
+            }
+            ActionSurfaceState::Radial { .. } => {
+                self.close_radial_menu();
+            }
+        }
+    }
+
+    /// Derive `ActionScope` from the currently set
+    /// `pending_*_context_target` values. Used by the legacy
+    /// `open_context_palette` entry to populate `surface_state`
+    /// without changing call-site signatures.
+    fn derive_scope_from_pending_targets(&self) -> ActionScope {
+        let target = if let Some(node) = self.pending_node_context_target() {
+            ScopeTarget::Node(node)
+        } else if let Some(frame) = self.pending_frame_context_target() {
+            ScopeTarget::Frame(frame.to_string())
+        } else {
+            ScopeTarget::None
+        };
+        match self.workspace.graph_runtime.focused_view {
+            Some(view_id) => ActionScope::Graph { view_id, target },
+            None => ActionScope::Global,
+        }
     }
 
     pub fn set_context_palette_anchor(&mut self, anchor: Option<[f32; 2]>) {
@@ -254,17 +325,20 @@ impl GraphBrowserApp {
 
     pub fn close_command_palette(&mut self) {
         self.workspace.chrome_ui.context_palette_anchor = None;
+        self.workspace.chrome_ui.surface_state = ActionSurfaceState::Closed;
         self.set_command_surface_visibility(false, false);
     }
 
     pub fn toggle_command_palette(&mut self) {
         if self.workspace.chrome_ui.show_command_palette {
             self.workspace.chrome_ui.context_palette_anchor = None;
+            self.workspace.chrome_ui.surface_state = ActionSurfaceState::Closed;
             self.set_command_surface_visibility(false, false);
         } else {
             self.workspace.chrome_ui.context_palette_anchor = None;
             self.set_pending_node_context_target(None);
             self.set_pending_frame_context_target(None);
+            self.workspace.chrome_ui.surface_state = ActionSurfaceState::PaletteGlobal;
             self.set_command_surface_visibility(true, false);
         }
     }
@@ -287,6 +361,18 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.command_palette_contextual_mode = false;
         self.workspace.chrome_ui.context_palette_anchor = None;
         self.workspace.chrome_ui.show_radial_menu = true;
+        // If `open_radial(scope, anchor)` already populated the
+        // enum, preserve it; otherwise fall back to a scopeless
+        // radial (legacy F3 toggle with no explicit target).
+        if !matches!(
+            self.workspace.chrome_ui.surface_state,
+            ActionSurfaceState::Radial { .. }
+        ) {
+            self.workspace.chrome_ui.surface_state = ActionSurfaceState::Radial {
+                scope: self.derive_scope_from_pending_targets(),
+                anchor: Anchor::ScreenCenter,
+            };
+        }
         self.close_clip_inspector();
         if !was_open {
             self.emit_focus_capture_enter();
@@ -299,6 +385,7 @@ impl GraphBrowserApp {
             return;
         }
         self.workspace.chrome_ui.show_radial_menu = false;
+        self.workspace.chrome_ui.surface_state = ActionSurfaceState::Closed;
         self.set_pending_node_context_target(None);
         self.set_pending_frame_context_target(None);
         if !self.workspace.chrome_ui.show_command_palette
@@ -311,6 +398,35 @@ impl GraphBrowserApp {
         }
         self.emit_focus_capture_exit();
         self.emit_ux_navigation_transition();
+    }
+
+    /// Close an action surface whose stored scope targets `removed`.
+    /// Called from node-deletion hooks so a palette/radial opened on
+    /// a now-gone node doesn't linger.
+    pub fn close_action_surface_if_targets_node(&mut self, removed: NodeKey) {
+        if self.workspace.chrome_ui.surface_state.targets_node(removed) {
+            self.close_action_surface();
+        }
+    }
+
+    /// Close any graph-scoped action surface. Called from `clear_graph`.
+    pub fn close_action_surface_if_graph_scoped(&mut self) {
+        if self.workspace.chrome_ui.surface_state.is_graph_scoped() {
+            self.close_action_surface();
+        }
+    }
+
+    /// Close an action surface whose scope belongs to a different
+    /// graph view than `current`. Called from focus-change hooks.
+    pub fn close_action_surface_if_in_other_view(&mut self, current: GraphViewId) {
+        if self
+            .workspace
+            .chrome_ui
+            .surface_state
+            .is_in_other_view(current)
+        {
+            self.close_action_surface();
+        }
     }
 
     fn set_command_surface_visibility(

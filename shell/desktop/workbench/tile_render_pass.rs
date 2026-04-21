@@ -152,7 +152,6 @@ pub(crate) fn render_specialty_graph_in_ui(
             tiles_tree, graph_tree, graph_app, node_key, source, mode,
         );
     }
-    render::sync_graph_positions_from_layout(graph_app);
     render::render_graph_info_in_ui(ui, graph_app, view_id);
     post_render_intents
 }
@@ -222,7 +221,6 @@ pub(crate) fn render_primary_graph_in_ui(
             tiles_tree, graph_tree, graph_app, node_key, source, mode,
         );
     }
-    render::sync_graph_positions_from_layout(graph_app);
     render::render_graph_info_in_ui(ui, graph_app, view_id);
     post_render_intents
 }
@@ -1389,9 +1387,14 @@ fn render_split_handles(
 
 pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphIntent> {
     let ctx = args.ctx;
+    let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+        args.graph_app.default_registry_theme_id(),
+    )
+    .tokens
+    .workbench_panel_background;
     let mut post_render_intents = Vec::new();
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(20, 20, 25)))
+        .frame(egui::Frame::new().fill(panel_bg))
         .show(ctx, |ui| {
             post_render_intents = run_tile_render_pass_in_ui(ui, args);
         });

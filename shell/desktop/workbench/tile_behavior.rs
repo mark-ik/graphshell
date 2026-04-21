@@ -1332,6 +1332,13 @@ mod tests {
     #[test]
     fn accessibility_inspector_snapshot_reports_selected_node_profile() {
         use euclid::default::Point2D;
+        // `command_surface_semantic_node_count` reads a process-global
+        // snapshot; hold the snapshot lock and clear it so a parallel
+        // test's published surface can't pollute this test's
+        // "expected 0" assertion.
+        let _command_guard =
+            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
+        crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot();
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);

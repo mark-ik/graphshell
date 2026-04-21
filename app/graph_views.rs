@@ -214,7 +214,6 @@ impl GraphBrowserApp {
             return;
         }
         view.scene_mode = mode;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn graph_view_scene_reveal_nodes(&self, view_id: GraphViewId) -> bool {
@@ -243,7 +242,6 @@ impl GraphBrowserApp {
             return;
         }
         view.scene_reveal_nodes = enabled;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn graph_view_scene_relation_xray(&self, view_id: GraphViewId) -> bool {
@@ -272,7 +270,6 @@ impl GraphBrowserApp {
             return;
         }
         view.scene_relation_xray = enabled;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn graph_view_simulate_behavior_preset(
@@ -309,11 +306,151 @@ impl GraphBrowserApp {
             return;
         }
         view.simulate_behavior_preset = preset;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn graph_view_scene_runtime(&self, view_id: GraphViewId) -> Option<&GraphViewSceneRuntime> {
         self.workspace.graph_runtime.scene_runtimes.get(&view_id)
+    }
+
+    /// Resolve the effective navigation policy for a view. Order of
+    /// precedence: view-level `navigation_policy_override` → the
+    /// per-graph `DomainState::navigation_policy_default` → the
+    /// portable `NavigationPolicy::default()` baseline.
+    ///
+    /// Hosts (egui today, iced once it comes up) call this per frame
+    /// to read camera / input / inertia knobs in one place rather than
+    /// threading individual fields through the render bridge.
+    pub fn resolve_navigation_policy(
+        &self,
+        view_id: GraphViewId,
+    ) -> graph_canvas::navigation::NavigationPolicy {
+        if let Some(view) = self.workspace.graph_runtime.views.get(&view_id)
+            && let Some(policy) = view.navigation_policy_override
+        {
+            return policy;
+        }
+        self.workspace.domain.navigation_policy_default
+    }
+
+    /// Set a per-view navigation policy override. Pass `None` to
+    /// revert the view to the per-graph default.
+    pub fn set_graph_view_navigation_policy_override(
+        &mut self,
+        view_id: GraphViewId,
+        policy: Option<graph_canvas::navigation::NavigationPolicy>,
+    ) {
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+            view.navigation_policy_override = policy;
+        }
+    }
+
+    /// Set the per-graph default navigation policy. All views without
+    /// their own override inherit this.
+    pub fn set_navigation_policy_default(
+        &mut self,
+        policy: graph_canvas::navigation::NavigationPolicy,
+    ) {
+        self.workspace.domain.navigation_policy_default = policy;
+    }
+
+    /// Resolve the effective node style for a view. Precedence order:
+    /// view-level `node_style_override` → per-graph `node_style_default`
+    /// on `DomainState` → `NodeStyle::default()` baseline.
+    ///
+    /// Called once per frame from the render bridge to pick up node
+    /// radius, selection fills, and search-hit highlight colors.
+    pub fn resolve_node_style(&self, view_id: GraphViewId) -> graph_canvas::node_style::NodeStyle {
+        if let Some(view) = self.workspace.graph_runtime.views.get(&view_id)
+            && let Some(style) = view.node_style_override
+        {
+            return style;
+        }
+        self.workspace.domain.node_style_default
+    }
+
+    /// Set a per-view node-style override. `None` reverts to the
+    /// per-graph default.
+    pub fn set_graph_view_node_style_override(
+        &mut self,
+        view_id: GraphViewId,
+        style: Option<graph_canvas::node_style::NodeStyle>,
+    ) {
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+            view.node_style_override = style;
+        }
+    }
+
+    /// Set the per-graph default node style. All views without their
+    /// own override inherit this.
+    pub fn set_node_style_default(
+        &mut self,
+        style: graph_canvas::node_style::NodeStyle,
+    ) {
+        self.workspace.domain.node_style_default = style;
+    }
+
+    /// Resolve the effective simulate-motion profile for a view.
+    /// Precedence:
+    /// 1. view-level `simulate_motion_override`
+    /// 2. per-graph `DomainState::simulate_motion_default`
+    /// 3. `SimulateMotionProfile::for_preset(view.simulate_behavior_preset)`
+    ///    — preserves the preset-driven fallback that predates this policy.
+    pub fn resolve_simulate_motion_profile(
+        &self,
+        view_id: GraphViewId,
+    ) -> graph_canvas::scene_physics::SimulateMotionProfile {
+        if let Some(view) = self.workspace.graph_runtime.views.get(&view_id) {
+            if let Some(profile) = view.simulate_motion_override {
+                return profile;
+            }
+            if let Some(profile) = self.workspace.domain.simulate_motion_default {
+                return profile;
+            }
+            // The app-side `SimulateBehaviorPreset` duplicates the
+            // portable one in graph-canvas pre-dating this policy;
+            // map across for `for_preset`. Follow-on: dedupe the
+            // enums once a settings UI surfaces the preset picker.
+            let portable_preset = match view.simulate_behavior_preset {
+                SimulateBehaviorPreset::Float => {
+                    graph_canvas::scene_physics::SimulateBehaviorPreset::Float
+                }
+                SimulateBehaviorPreset::Packed => {
+                    graph_canvas::scene_physics::SimulateBehaviorPreset::Packed
+                }
+                SimulateBehaviorPreset::Magnetic => {
+                    graph_canvas::scene_physics::SimulateBehaviorPreset::Magnetic
+                }
+            };
+            return graph_canvas::scene_physics::SimulateMotionProfile::for_preset(
+                portable_preset,
+            );
+        }
+        // No such view — return the app-wide graph default or baseline.
+        self.workspace
+            .domain
+            .simulate_motion_default
+            .unwrap_or_default()
+    }
+
+    /// Set a per-view simulate-motion override. `None` reverts to the
+    /// per-graph default (or the preset-driven fallback).
+    pub fn set_graph_view_simulate_motion_override(
+        &mut self,
+        view_id: GraphViewId,
+        profile: Option<graph_canvas::scene_physics::SimulateMotionProfile>,
+    ) {
+        if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
+            view.simulate_motion_override = profile;
+        }
+    }
+
+    /// Set the per-graph default simulate-motion profile. `None` drops
+    /// the per-graph override so views fall back to preset-driven.
+    pub fn set_simulate_motion_default(
+        &mut self,
+        profile: Option<graph_canvas::scene_physics::SimulateMotionProfile>,
+    ) {
+        self.workspace.domain.simulate_motion_default = profile;
     }
 
     pub fn graph_view_selected_scene_region(&self, view_id: GraphViewId) -> Option<SceneRegionId> {
@@ -407,7 +544,6 @@ impl GraphBrowserApp {
                 self.workspace.graph_runtime.scene_runtimes.remove(&view_id);
             }
         }
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn set_graph_view_scene_regions(
@@ -437,7 +573,6 @@ impl GraphBrowserApp {
                 .selected_scene_regions
                 .remove(&view_id);
         }
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn add_graph_view_scene_region(
@@ -449,7 +584,6 @@ impl GraphBrowserApp {
         self.ensure_graph_view_scene_runtime_entry(view_id)
             .regions
             .push(region);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn translate_graph_view_scene_region(
@@ -616,7 +750,6 @@ impl GraphBrowserApp {
             .graph_runtime
             .active_scene_region_drag
             .filter(|drag| drag.view_id != view_id);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn workbench_edge_projection(&self) -> &EdgeProjectionState {
@@ -703,7 +836,6 @@ impl GraphBrowserApp {
 
     pub fn set_workbench_edge_projection(&mut self, selectors: Vec<RelationSelector>) {
         self.workspace.workbench_session.edge_projection = EdgeProjectionState::new(selectors);
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn set_graph_view_edge_projection_override(
@@ -715,7 +847,6 @@ impl GraphBrowserApp {
             return;
         };
         view.apply_edge_projection_policy_override(selectors.map(EdgeProjectionState::new));
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn set_selection_edge_projection_override(
@@ -740,7 +871,6 @@ impl GraphBrowserApp {
                 self.clear_selection_edge_projection_override_for_scope(scope);
             }
         }
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     pub fn resolved_edge_projection_for_nodes(
@@ -855,7 +985,7 @@ impl GraphBrowserApp {
             locked,
             self.pending_camera_command(),
             self.pending_camera_command_target_raw(),
-            self.workspace.graph_runtime.physics.base.is_running,
+            self.workspace.graph_runtime.physics.is_running,
             self.workspace.graph_runtime.is_interacting,
         );
     }
@@ -886,7 +1016,7 @@ impl GraphBrowserApp {
             locked,
             self.pending_camera_command(),
             self.pending_camera_command_target_raw(),
-            self.workspace.graph_runtime.physics.base.is_running,
+            self.workspace.graph_runtime.physics.is_running,
             self.workspace.graph_runtime.is_interacting,
         );
     }
@@ -1217,7 +1347,6 @@ impl GraphBrowserApp {
         self.sync_selection_edge_projection_override_for_scope(source_scope);
         self.sync_selection_edge_projection_override_for_scope(destination_scope);
         self.set_workspace_focused_view_with_transition(Some(destination_view));
-        self.workspace.graph_runtime.egui_state_dirty = true;
         emit_graph_view_transfer_succeeded_diagnostic(selected_set.len());
     }
 
@@ -1985,6 +2114,24 @@ pub struct GraphViewState {
     pub presentation_policy: ViewPresentationPolicy,
     #[serde(default)]
     pub relation_policy: ViewRelationPolicy,
+    /// Per-view navigation-policy override. `None` falls back to the
+    /// per-graph default resolved via `DomainState::navigation_policy_default`.
+    /// See `resolve_navigation_policy(app, view_id)`.
+    #[serde(default)]
+    pub navigation_policy_override: Option<graph_canvas::navigation::NavigationPolicy>,
+    /// Per-view node-style override (node radius, selection / search-hit
+    /// appearance). `None` falls back to the per-graph default resolved
+    /// via `DomainState::node_style_default`. See
+    /// `resolve_node_style(app, view_id)`.
+    #[serde(default)]
+    pub node_style_override: Option<graph_canvas::node_style::NodeStyle>,
+    /// Per-view simulate-motion-profile override. `None` falls back
+    /// first to the per-graph `DomainState::simulate_motion_default`,
+    /// then to `SimulateMotionProfile::for_preset(simulate_behavior_preset)`
+    /// so existing preset pickers keep working untouched. See
+    /// `resolve_simulate_motion_profile(app, view_id)`.
+    #[serde(default)]
+    pub simulate_motion_override: Option<graph_canvas::scene_physics::SimulateMotionProfile>,
     pub local_simulation: Option<LocalSimulation>,
     /// The rendering dimension for this view (2D or 3D sub-mode).
     ///
@@ -2007,8 +2154,6 @@ pub struct GraphViewState {
     pub simulate_behavior_preset: SimulateBehaviorPreset,
     #[serde(skip)]
     pub last_layout_algorithm_id: Option<String>,
-    #[serde(skip)]
-    pub egui_state: Option<EguiGraphState>,
     /// Active PMEST facet filter expression for this view.
     ///
     /// When `Some`, the graph render pass filters visible nodes to those whose
@@ -2065,6 +2210,9 @@ impl std::fmt::Debug for GraphViewState {
             .field("scene_relation_xray", &self.scene_relation_xray)
             .field("simulate_behavior_preset", &self.simulate_behavior_preset)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
+            .field("navigation_policy_override", &self.navigation_policy_override)
+            .field("node_style_override", &self.node_style_override)
+            .field("simulate_motion_override", &self.simulate_motion_override)
             .field("active_filter", &self.active_filter)
             .field("edge_projection_override", &self.edge_projection_override)
             .field(
@@ -2093,6 +2241,9 @@ impl Clone for GraphViewState {
             overlay_policy: self.overlay_policy.clone(),
             presentation_policy: self.presentation_policy.clone(),
             relation_policy: self.relation_policy.clone(),
+            navigation_policy_override: self.navigation_policy_override,
+            node_style_override: self.node_style_override,
+            simulate_motion_override: self.simulate_motion_override,
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
             scene_mode: self.scene_mode,
@@ -2100,7 +2251,6 @@ impl Clone for GraphViewState {
             scene_relation_xray: self.scene_relation_xray,
             simulate_behavior_preset: self.simulate_behavior_preset,
             last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
-            egui_state: None,
             active_filter: self.active_filter.clone(),
             edge_projection_override: self.edge_projection_override.clone(),
             tombstones_visible: self.tombstones_visible,
@@ -2134,6 +2284,12 @@ struct GraphViewStateSerde {
     presentation_policy: ViewPresentationPolicy,
     #[serde(default)]
     relation_policy: ViewRelationPolicy,
+    #[serde(default)]
+    navigation_policy_override: Option<graph_canvas::navigation::NavigationPolicy>,
+    #[serde(default)]
+    node_style_override: Option<graph_canvas::node_style::NodeStyle>,
+    #[serde(default)]
+    simulate_motion_override: Option<graph_canvas::scene_physics::SimulateMotionProfile>,
     local_simulation: Option<LocalSimulation>,
     #[serde(default)]
     dimension: ViewDimension,
@@ -2148,7 +2304,6 @@ struct GraphViewStateSerde {
     #[serde(skip)]
     last_layout_algorithm_id: Option<String>,
     #[serde(skip)]
-    egui_state: Option<EguiGraphState>,
     #[serde(default)]
     active_filter: Option<crate::model::graph::filter::FacetExpr>,
     #[serde(default)]
@@ -2182,6 +2337,9 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             overlay_policy: helper.overlay_policy,
             presentation_policy: helper.presentation_policy,
             relation_policy: helper.relation_policy,
+            navigation_policy_override: helper.navigation_policy_override,
+            node_style_override: helper.node_style_override,
+            simulate_motion_override: helper.simulate_motion_override,
             local_simulation: helper.local_simulation,
             dimension: helper.dimension,
             scene_mode: helper.scene_mode,
@@ -2189,7 +2347,6 @@ impl<'de> serde::Deserialize<'de> for GraphViewState {
             scene_relation_xray: helper.scene_relation_xray,
             simulate_behavior_preset: helper.simulate_behavior_preset,
             last_layout_algorithm_id: helper.last_layout_algorithm_id,
-            egui_state: helper.egui_state,
             active_filter: helper.active_filter,
             edge_projection_override: helper.edge_projection_override,
             tombstones_visible: helper.tombstones_visible,
@@ -2453,6 +2610,9 @@ impl GraphViewState {
             overlay_policy: ViewOverlayPolicy::default(),
             presentation_policy: ViewPresentationPolicy::default(),
             relation_policy: ViewRelationPolicy::default(),
+            navigation_policy_override: None,
+            node_style_override: None,
+            simulate_motion_override: None,
             local_simulation: None,
             dimension: ViewDimension::default(),
             scene_mode: SceneMode::Browse,
@@ -2460,7 +2620,6 @@ impl GraphViewState {
             scene_relation_xray: false,
             simulate_behavior_preset: SimulateBehaviorPreset::default(),
             last_layout_algorithm_id: None,
-            egui_state: None,
             active_filter: None,
             edge_projection_override: None,
             tombstones_visible: false,
@@ -2864,7 +3023,6 @@ mod tests {
 
         assert_eq!(app.graph_view_scene_mode(view_id), SceneMode::Arrange);
         assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
-        assert!(app.workspace.graph_runtime.egui_state_dirty);
     }
 
     #[test]
@@ -2891,7 +3049,6 @@ mod tests {
             SimulateBehaviorPreset::Packed
         );
         assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
-        assert!(app.workspace.graph_runtime.egui_state_dirty);
     }
 
     #[test]
@@ -2935,7 +3092,6 @@ mod tests {
             .expect("scene runtime should exist");
         assert_eq!(runtime.regions, vec![region]);
         assert!(app.workspace.graph_runtime.views.contains_key(&view_id));
-        assert!(app.workspace.graph_runtime.egui_state_dirty);
     }
 
     #[test]

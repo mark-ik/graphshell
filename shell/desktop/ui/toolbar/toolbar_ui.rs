@@ -720,9 +720,18 @@ fn render_fullscreen_origin_strip(
                 .map(|node| node.url().to_string())
         })
         .unwrap_or_else(|| "about:blank".to_string());
-    let frame = egui::Frame::default()
-        .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 25, 220))
-        .inner_margin(4.0);
+    let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+        graph_app.default_registry_theme_id(),
+    )
+    .tokens
+    .workbench_panel_background;
+    let frame_fill = egui::Color32::from_rgba_unmultiplied(
+        panel_bg.r(),
+        panel_bg.g(),
+        panel_bg.b(),
+        220,
+    );
+    let frame = egui::Frame::default().fill(frame_fill).inner_margin(4.0);
     TopBottomPanel::top("fullscreen_origin_strip")
         .frame(frame)
         .show(ctx, |ui| {

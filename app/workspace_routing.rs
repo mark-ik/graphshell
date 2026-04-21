@@ -1,6 +1,6 @@
 use super::*;
 use crate::graph::graphlet;
-use crate::graph::{ArrangementSubKind, EdgeFamily, NodeKey, RelationSelector};
+use crate::graph::{ArrangementSubKind, NodeKey, RelationSelector};
 use crate::util::VersoAddress;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{BTreeMap, HashSet};
@@ -716,7 +716,6 @@ impl GraphBrowserApp {
         self.workspace
             .workbench_session
             .unsaved_workspace_prompt_warned = false;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     /// Mark a named frame snapshot as activated, updating per-node recency.
@@ -753,7 +752,6 @@ impl GraphBrowserApp {
     /// Initialize membership index from desktop-layer workspace scan.
     pub fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>) {
         self.workspace.workbench_session.node_workspace_membership = index;
-        self.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     /// Initialize UUID-keyed workspace activation recency from desktop-layer manifest scan.
@@ -1374,30 +1372,15 @@ fn containment_folder_from_row_key(row_key: &str) -> Option<&str> {
 }
 
 fn navigator_recent_traversal_node_timestamps(app: &GraphBrowserApp) -> HashMap<NodeKey, u64> {
-    let mut by_node: HashMap<NodeKey, u64> = HashMap::new();
-    for edge in app.domain_graph().inner.edge_references() {
-        if !edge
-            .weight()
-            .has_relation(RelationSelector::Family(EdgeFamily::Traversal))
-        {
-            continue;
-        }
-        let timestamp = edge.weight().metrics().last_navigated_at.unwrap_or(0);
-        if timestamp == 0 {
-            continue;
-        }
-        by_node
-            .entry(edge.target())
-            .and_modify(|current| *current = (*current).max(timestamp))
-            .or_insert(timestamp);
-    }
-    by_node
+    app.semantic_recent_navigation_nodes(usize::MAX)
+        .into_iter()
+        .map(|(node_key, runtime)| (node_key, runtime.last_visit_at_ms))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::NavigationTrigger;
 
     #[test]
     fn open_node_frame_routed_queues_restore_request_for_preferred_frame() {
@@ -1615,7 +1598,15 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent,
+            vec![
+                "https://source.example".to_string(),
+                "https://recent.example".to_string()
+            ],
+            1,
+        ));
+        app.rebuild_semantic_navigation_runtime();
 
         let projection = app.navigator_section_projection();
         assert_eq!(projection.workbench_groups.len(), 1);
@@ -1690,7 +1681,7 @@ mod tests {
             "https://arranged.example".to_string(),
             Point2D::new(1.0, 0.0),
         );
-        let source =
+        let _source =
             app.add_node_and_sync("https://source.example".to_string(), Point2D::new(2.0, 0.0));
         let recent =
             app.add_node_and_sync("https://recent.example".to_string(), Point2D::new(3.0, 0.0));
@@ -1704,7 +1695,15 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent,
+            vec![
+                "https://source.example".to_string(),
+                "https://recent.example".to_string()
+            ],
+            1,
+        ));
+        app.rebuild_semantic_navigation_runtime();
         app.set_navigator_projection_seed_source(
             NavigatorProjectionSeedSource::ContainmentRelations,
         );
@@ -1775,7 +1774,15 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.push_history_traversal_and_sync(source, recent, NavigationTrigger::Unknown));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent,
+            vec![
+                "https://source.example".to_string(),
+                "https://recent.example".to_string()
+            ],
+            1,
+        ));
+        app.rebuild_semantic_navigation_runtime();
         app.set_navigator_projection_seed_source(
             NavigatorProjectionSeedSource::ContainmentRelations,
         );

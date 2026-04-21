@@ -18,7 +18,6 @@ use crate::app::{
 use crate::graph::{
     ArrangementSubKind, DominantEdge, FrameLayoutHint, GraphletKind, NodeKey, SplitOrientation,
 };
-use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_STARTED,
@@ -288,6 +287,12 @@ pub(crate) struct WorkbenchNodeViewerSummary {
     pub(crate) runtime_crashed: bool,
     pub(crate) fallback_reason: Option<String>,
     pub(crate) available_viewer_ids: Vec<String>,
+    /// Verso's resolved route for the node, including engine,
+    /// reason, and owner. `None` means verso does not route this
+    /// content (specialized non-web viewers: images, PDFs, local
+    /// files) — the registry's viewer selection at
+    /// `effective_viewer_id` is authoritative in that case.
+    pub(crate) verso_route: Option<::verso::VersoResolvedRoute>,
 }
 
 /// A single entry in the active tile group's graphlet roster shown by the omnibar.
@@ -497,7 +502,7 @@ fn active_graph_scope_control_summary(
             .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT)
             .to_string(),
         physics_profile_label: view.resolved_physics_profile().name.clone(),
-        physics_running: graph_app.workspace.graph_runtime.physics.base.is_running,
+        physics_running: graph_app.workspace.graph_runtime.physics.is_running,
     })
 }
 
@@ -702,10 +707,18 @@ fn render_graph_scope_filter_chips(
 }
 
 fn graph_scope_sync_status() -> (String, egui::Color32, String) {
+    // Resolve the active theme's status palette once so all three
+    // sync-status branches read the same theme surface. This replaces
+    // the hardcoded (140,145,150) / (210,175,70) / (110,190,130) triple
+    // that used to live inline — users who swap themes now see their
+    // theme's status colors applied here too.
+    let theme = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(None)
+        .tokens;
+
     if !crate::mods::verse::is_initialized() {
         return (
             "Sync off".to_string(),
-            egui::Color32::from_rgb(140, 145, 150),
+            theme.status_neutral,
             "Sync is unavailable in this runtime.".to_string(),
         );
     }
@@ -714,13 +727,13 @@ fn graph_scope_sync_status() -> (String, egui::Color32, String) {
     if peers.is_empty() {
         (
             "Sync ready".to_string(),
-            egui::Color32::from_rgb(210, 175, 70),
+            theme.status_warning,
             "Sync is ready but there are no trusted peers connected.".to_string(),
         )
     } else {
         (
             format!("Sync {}", peers.len()),
-            egui::Color32::from_rgb(110, 190, 130),
+            theme.status_success,
             format!(
                 "Sync connected with {} trusted peer{}.",
                 peers.len(),
@@ -1169,6 +1182,7 @@ pub(crate) struct WorkbenchNavigatorMember {
     pub(crate) title: String,
     pub(crate) is_selected: bool,
     pub(crate) row_key: Option<String>,
+    pub(crate) target_url: Option<String>,
     /// True when the node's lifecycle is `Cold` — has graph edges but no live tile.
     /// Rendered with a ○ badge in the Navigator; double-click activates.
     pub(crate) is_cold: bool,
@@ -1658,57 +1672,65 @@ fn recent_navigator_members(
     arrangement_memberships: &HashMap<NodeKey, Vec<String>>,
     excluded_keys: &HashSet<NodeKey>,
 ) -> Vec<WorkbenchNavigatorMember> {
-    let mut recent: HashMap<NodeKey, (u64, usize)> = HashMap::new();
-    for entry in graph_app.history_manager_timeline_entries(NAVIGATOR_RECENT_LIMIT * 4) {
-        let LogEntry::AppendTraversal {
-            to_node_id,
-            timestamp_ms,
-            ..
-        } = entry
-        else {
-            continue;
-        };
-        let Ok(node_id) = Uuid::parse_str(&to_node_id) else {
-            continue;
-        };
-        let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
-            continue;
-        };
-        let Some(node) = graph_app.domain_graph().get_node(node_key) else {
-            continue;
-        };
-        if arrangement_memberships.contains_key(&node_key)
-            || excluded_keys.contains(&node_key)
-            || is_internal_surface_node(node)
-        {
-            continue;
-        }
-        let stats = recent.entry(node_key).or_insert((timestamp_ms, 0));
-        stats.0 = stats.0.max(timestamp_ms);
-        stats.1 += 1;
-    }
-
-    let mut rows = recent.into_iter().collect::<Vec<_>>();
+    let mut rows = graph_app
+        .semantic_recent_navigation_nodes(NAVIGATOR_RECENT_LIMIT * 4)
+        .into_iter()
+        .filter(|(node_key, runtime)| {
+            let Some(node) = graph_app.domain_graph().get_node(*node_key) else {
+                return false;
+            };
+            runtime.visit_count > 0
+                && !arrangement_memberships.contains_key(node_key)
+                && !excluded_keys.contains(node_key)
+                && !is_internal_surface_node(node)
+        })
+        .collect::<Vec<_>>();
     rows.sort_by(|(left_key, left_stats), (right_key, right_stats)| {
         right_stats
-            .0
-            .cmp(&left_stats.0)
-            .then_with(|| right_stats.1.cmp(&left_stats.1))
+            .last_visit_at_ms
+            .cmp(&left_stats.last_visit_at_ms)
+            .then_with(|| right_stats.visit_count.cmp(&left_stats.visit_count))
             .then_with(|| {
                 navigator_member_sort_key(graph_app, *left_key)
                     .cmp(&navigator_member_sort_key(graph_app, *right_key))
             })
     });
     rows.truncate(NAVIGATOR_RECENT_LIMIT);
-    rows.into_iter()
-        .filter_map(|(node_key, (_timestamp_ms, visit_count))| {
-            let suffix = format!(
-                "({visit_count} visit{})",
-                if visit_count == 1 { "" } else { "s" }
-            );
+    let mut members = Vec::new();
+    for (node_key, runtime) in rows {
+        let Some(parent) = ({
+            let mut parts = vec![format!(
+                "{} visit{}",
+                runtime.visit_count,
+                if runtime.visit_count == 1 { "" } else { "s" }
+            )];
+            if runtime.branch_points > 0 {
+                parts.push(format!(
+                    "{} fork{}",
+                    runtime.branch_points,
+                    if runtime.branch_points == 1 { "" } else { "s" }
+                ));
+            }
+            if runtime.alternate_targets > 0 {
+                parts.push(format!(
+                    "{} alt{}",
+                    runtime.alternate_targets,
+                    if runtime.alternate_targets == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ));
+            }
+            let suffix = format!("({})", parts.join(", "));
             navigator_member_for_node(graph_app, node_key, Some(suffix))
-        })
-        .collect()
+        }) else {
+            continue;
+        };
+        members.push(parent);
+        members.extend(semantic_branch_target_members(graph_app, node_key));
+    }
+    members
 }
 
 fn unrelated_navigator_group(
@@ -1763,11 +1785,88 @@ fn navigator_member_for_node(
         title,
         is_selected: graph_app.focused_selection().contains(&node_key),
         row_key: navigator_row_key_for_node(graph_app, node_key),
+        target_url: None,
         is_cold,
         depth: 0,
         is_expanded: false,
         has_children: false,
     })
+}
+
+fn semantic_branch_target_members(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) -> Vec<WorkbenchNavigatorMember> {
+    let Some(node) = graph_app.domain_graph().get_node(node_key) else {
+        return Vec::new();
+    };
+    let branch = node.history_branch_projection();
+    if branch.visits.is_empty() {
+        return Vec::new();
+    }
+
+    let row_key = navigator_row_key_for_node(graph_app, node_key);
+    let mut members = Vec::new();
+    let current_url = branch
+        .visits
+        .iter()
+        .find(|visit| visit.is_current)
+        .map(|visit| visit.url.clone());
+
+    if let Some(current_url) = current_url.clone() {
+        members.push(WorkbenchNavigatorMember {
+            node_key,
+            title: format!("Now: {}", navigator_semantic_target_label(&current_url)),
+            is_selected: graph_app.focused_selection().contains(&node_key),
+            row_key: row_key.clone(),
+            target_url: Some(current_url),
+            is_cold: false,
+            depth: 1,
+            is_expanded: false,
+            has_children: false,
+        });
+    }
+
+    let mut seen_urls = HashSet::new();
+    if let Some(current_url) = current_url {
+        seen_urls.insert(current_url);
+    }
+
+    'outer: for visit in branch.visits.iter().rev() {
+        for alternate in visit.alternate_children.iter().rev() {
+            if !seen_urls.insert(alternate.url.clone()) {
+                continue;
+            }
+            members.push(WorkbenchNavigatorMember {
+                node_key,
+                title: format!("Alt: {}", navigator_semantic_target_label(&alternate.url)),
+                is_selected: graph_app.focused_selection().contains(&node_key),
+                row_key: row_key.clone(),
+                target_url: Some(alternate.url.clone()),
+                is_cold: false,
+                depth: 1,
+                is_expanded: false,
+                has_children: false,
+            });
+            if members.len() >= 3 {
+                break 'outer;
+            }
+        }
+    }
+
+    members
+}
+
+fn navigator_semantic_target_label(url: &str) -> String {
+    let display = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if display.chars().count() <= 32 {
+        display.to_string()
+    } else {
+        let shortened: String = display.chars().take(31).collect();
+        format!("{shortened}…")
+    }
 }
 
 fn navigator_row_key_for_node(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Option<String> {
@@ -2057,6 +2156,10 @@ fn build_node_viewer_summary(
     graph_app: &GraphBrowserApp,
     state: &NodePaneState,
 ) -> WorkbenchNodeViewerSummary {
+    let verso_route = state
+        .resolved_route
+        .clone()
+        .or_else(|| tile_runtime::resolve_route_for_node_pane(state, graph_app));
     WorkbenchNodeViewerSummary {
         effective_viewer_id: tile_runtime::effective_viewer_id_for_node_pane(state, graph_app),
         viewer_override: state
@@ -2069,6 +2172,7 @@ fn build_node_viewer_summary(
         runtime_crashed: graph_app.runtime_crash_state_for_node(state.node).is_some(),
         fallback_reason: tile_runtime::fallback_reason_for_node_pane(state, graph_app),
         available_viewer_ids: tile_runtime::candidate_viewer_ids_for_node_pane(state, graph_app),
+        verso_route,
     }
 }
 
@@ -3152,15 +3256,35 @@ pub(crate) fn render_workbench_host(
                                         RichText::new(label).small(),
                                     );
                                     if response.double_clicked() {
-                                        post_host_actions.push(WorkbenchHostAction::ActivateNode {
-                                            node_key: member.node_key,
-                                            row_key: member.row_key.clone(),
-                                        });
+                                        if let Some(target_url) = member.target_url.clone() {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::ActivateNodeSemanticTarget {
+                                                    node_key: member.node_key,
+                                                    row_key: member.row_key.clone(),
+                                                    target_url,
+                                                },
+                                            );
+                                        } else {
+                                            post_host_actions.push(WorkbenchHostAction::ActivateNode {
+                                                node_key: member.node_key,
+                                                row_key: member.row_key.clone(),
+                                            });
+                                        }
                                     } else if response.clicked() {
-                                        post_host_actions.push(WorkbenchHostAction::SelectNode {
-                                            node_key: member.node_key,
-                                            row_key: member.row_key.clone(),
-                                        });
+                                        if let Some(target_url) = member.target_url.clone() {
+                                            post_host_actions.push(
+                                                WorkbenchHostAction::SelectNodeSemanticTarget {
+                                                    node_key: member.node_key,
+                                                    row_key: member.row_key.clone(),
+                                                    target_url,
+                                                },
+                                            );
+                                        } else {
+                                            post_host_actions.push(WorkbenchHostAction::SelectNode {
+                                                node_key: member.node_key,
+                                                row_key: member.row_key.clone(),
+                                            });
+                                        }
                                     }
                                 });
                             }
@@ -3474,9 +3598,19 @@ enum WorkbenchHostAction {
         node_key: NodeKey,
         row_key: Option<String>,
     },
+    SelectNodeSemanticTarget {
+        node_key: NodeKey,
+        row_key: Option<String>,
+        target_url: String,
+    },
     ActivateNode {
         node_key: NodeKey,
         row_key: Option<String>,
+    },
+    ActivateNodeSemanticTarget {
+        node_key: NodeKey,
+        row_key: Option<String>,
+        target_url: String,
     },
     SplitPane(PaneId, SplitDirection),
     RestoreSemanticTabGroup {
@@ -3615,6 +3749,8 @@ fn workbench_host_action_diagnostic_code(action: &WorkbenchHostAction) -> usize 
         WorkbenchHostAction::FocusPane(_) => 1,
         WorkbenchHostAction::SelectNode { .. } => 2,
         WorkbenchHostAction::ActivateNode { .. } => 3,
+        WorkbenchHostAction::SelectNodeSemanticTarget { .. } => 51,
+        WorkbenchHostAction::ActivateNodeSemanticTarget { .. } => 52,
         WorkbenchHostAction::SplitPane(_, _) => 4,
         WorkbenchHostAction::RestoreSemanticTabGroup { .. } => 5,
         WorkbenchHostAction::CollapseSemanticTabGroup { .. } => 6,
@@ -3929,6 +4065,54 @@ fn viewer_override_badge(
     }
 }
 
+/// Short human-legible label plus expanded hover text for a verso
+/// route reason. Surfaced in the workbench debug surface so users
+/// can tell at a glance *why* a given engine was chosen.
+fn verso_route_reason_badge(
+    route: &::verso::VersoResolvedRoute,
+) -> (&'static str, String) {
+    use ::verso::{EngineChoice, VersoRouteReason, WebEnginePreference};
+    let preference_label = |preference: WebEnginePreference| match preference {
+        WebEnginePreference::Servo => "Servo",
+        WebEnginePreference::Wry => "Wry",
+    };
+    let engine_label = |engine: EngineChoice| match engine {
+        EngineChoice::Middlenet => "Middlenet",
+        EngineChoice::Servo => "Servo",
+        EngineChoice::Wry => "Wry",
+        EngineChoice::Unsupported => "Unsupported",
+    };
+    match route.reason() {
+        VersoRouteReason::MiddlenetLane(lane) => (
+            "Lane",
+            format!("Middlenet routed this content to the {:?} lane.", lane),
+        ),
+        VersoRouteReason::WebEnginePreferred(preference) => (
+            "Preferred",
+            format!(
+                "Routed to {} because it matches the current web engine preference.",
+                preference_label(*preference)
+            ),
+        ),
+        VersoRouteReason::WebEngineFallback { preferred, used } => (
+            "Fallback",
+            format!(
+                "Preferred {} is unavailable on this host; fell back to {}.",
+                preference_label(*preferred),
+                engine_label(*used)
+            ),
+        ),
+        VersoRouteReason::UserOverride => (
+            "Override",
+            "Engine chosen by an explicit user override.".to_string(),
+        ),
+        VersoRouteReason::Unsupported => (
+            "Unsupported",
+            "No engine on this host can render this content.".to_string(),
+        ),
+    }
+}
+
 fn render_node_viewer_status_badges(ui: &mut egui::Ui, entry: &WorkbenchPaneEntry) {
     let Some(summary) = entry.node_viewer_summary.as_ref() else {
         return;
@@ -3957,6 +4141,16 @@ fn render_node_viewer_status_badges(ui: &mut egui::Ui, entry: &WorkbenchPaneEntr
             RichText::new(badge)
                 .small()
                 .color(egui::Color32::from_rgb(220, 180, 60)),
+        )
+        .on_hover_text(hover_text);
+    }
+
+    if let Some(route) = summary.verso_route.as_ref() {
+        let (badge, hover_text) = verso_route_reason_badge(route);
+        ui.label(
+            RichText::new(badge)
+                .small()
+                .color(egui::Color32::from_rgb(150, 170, 200)),
         )
         .on_hover_text(hover_text);
     }
@@ -4287,6 +4481,30 @@ fn apply_workbench_host_action(
             }
             WorkbenchHostActionDispatchOutcome::Consumed
         }
+        WorkbenchHostAction::SelectNodeSemanticTarget {
+            node_key,
+            row_key,
+            target_url,
+        } => {
+            if let Some(row_key) = row_key {
+                graph_app.set_navigator_selected_rows([row_key]);
+            }
+            graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+                key: node_key,
+                multi_select: false,
+            }]);
+            graph_app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+                key: node_key,
+                new_url: target_url,
+            }]);
+            if let Some(view_id) =
+                offscreen_visible_graph_view_for_node(graph_app, tiles_tree, node_key)
+            {
+                graph_app
+                    .request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
+            }
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
         WorkbenchHostAction::ActivateNode { node_key, row_key } => {
             if let Some(row_key) = row_key {
                 graph_app.set_navigator_selected_rows([row_key]);
@@ -4313,6 +4531,51 @@ fn apply_workbench_host_action(
                 } else {
                     // Pre-warmed node (lifecycle Active/Warm but no tile present):
                     // focus the graph canvas and fit the selection rather than opening a tile.
+                    let graph_view_id = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+                        Tile::Pane(TileKind::Graph(r)) => Some(r.graph_view_id),
+                        _ => None,
+                    });
+                    if let Some(view_id) = graph_view_id {
+                        tiles_tree.make_active(|_, tile| {
+                            matches!(tile, Tile::Pane(TileKind::Graph(r)) if r.graph_view_id == view_id)
+                        });
+                        graph_app.request_camera_command_for_view(
+                            Some(view_id),
+                            CameraCommand::FitSelection,
+                        );
+                    }
+                }
+            }
+            WorkbenchHostActionDispatchOutcome::Consumed
+        }
+        WorkbenchHostAction::ActivateNodeSemanticTarget {
+            node_key,
+            row_key,
+            target_url,
+        } => {
+            if let Some(row_key) = row_key {
+                graph_app.set_navigator_selected_rows([row_key]);
+            }
+            if !graph_app.focused_selection().contains(&node_key) {
+                graph_app.apply_reducer_intents([GraphIntent::SelectNode {
+                    key: node_key,
+                    multi_select: false,
+                }]);
+            }
+            graph_app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+                key: node_key,
+                new_url: target_url,
+            }]);
+            if node_has_workbench_presentation(tiles_tree, node_key) {
+                let _ = focus_node_presentation(tiles_tree, node_key);
+            } else {
+                let lifecycle = graph_app
+                    .domain_graph()
+                    .get_node(node_key)
+                    .map(|n| n.lifecycle);
+                if lifecycle == Some(crate::graph::NodeLifecycle::Cold) {
+                    tile_view_ops::open_node_with_graphlet_routing(tiles_tree, graph_app, node_key);
+                } else {
                     let graph_view_id = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
                         Tile::Pane(TileKind::Graph(r)) => Some(r.graph_view_id),
                         _ => None,
@@ -4741,13 +5004,11 @@ mod tests {
     use std::collections::BTreeSet;
 
     use crate::app::workbench_layout_policy::NavigatorHostId;
-    use crate::services::persistence::types::LogEntry;
     #[cfg(feature = "diagnostics")]
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, ToolPaneRef};
     use egui_tiles::Tiles;
     use tempfile::TempDir;
-    use uuid::Uuid;
 
     /// Test-only dispatch wrapper that creates a throwaway GraphTree.
     /// Production code passes the real GraphTree; tests that don't exercise
@@ -7196,18 +7457,26 @@ mod tests {
 
     #[test]
     fn navigator_specialty_corridor_uses_selected_pair_and_tree_layout() {
+        // Node URLs deliberately use three distinct hosts. Nodes sharing
+        // a host get automatic `ContainmentRelation::Domain` derived
+        // edges toward a per-host anchor chosen by (depth, UUID), and
+        // the UUID tiebreak is non-deterministic. That derivation adds
+        // a direct edge between the corridor's two endpoints, yielding
+        // a 1-hop shortest path that bypasses `middle` and makes this
+        // test flake ~60 % of the time. Distinct hosts sidestep the
+        // derivation entirely.
         let host = SurfaceHostId::Navigator(NavigatorHostId::Right);
         let mut app = GraphBrowserApp::new_for_testing();
         let left = app.add_node_and_sync(
-            "https://example.com/graphlet-corridor-left".to_string(),
+            "https://left.test/graphlet-corridor".to_string(),
             euclid::default::Point2D::new(-20.0, 0.0),
         );
         let middle = app.add_node_and_sync(
-            "https://example.com/graphlet-corridor-middle".to_string(),
+            "https://middle.test/graphlet-corridor".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let right = app.add_node_and_sync(
-            "https://example.com/graphlet-corridor-right".to_string(),
+            "https://right.test/graphlet-corridor".to_string(),
             euclid::default::Point2D::new(20.0, 0.0),
         );
         app.add_edge_and_sync(left, middle, crate::graph::EdgeType::Hyperlink, None);
@@ -7668,92 +7937,90 @@ mod tests {
             "https://example.com/arranged".to_string(),
             euclid::default::Point2D::new(1.0, 0.0),
         );
-        let recent_id = app
-            .domain_graph()
-            .get_node(recent_key)
-            .expect("recent node")
-            .id;
-        let arranged_id = app
-            .domain_graph()
-            .get_node(arranged_key)
-            .expect("arranged node")
-            .id;
 
         let arrangement_memberships =
             HashMap::from([(arranged_key, vec!["Frame: alpha".to_string()])]);
-        let entries = vec![
-            LogEntry::AppendTraversal {
-                from_node_id: Uuid::new_v4().to_string(),
-                to_node_id: recent_id.to_string(),
-                timestamp_ms: 20,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
-            },
-            LogEntry::AppendTraversal {
-                from_node_id: Uuid::new_v4().to_string(),
-                to_node_id: recent_id.to_string(),
-                timestamp_ms: 10,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
-            },
-            LogEntry::AppendTraversal {
-                from_node_id: Uuid::new_v4().to_string(),
-                to_node_id: arranged_id.to_string(),
-                timestamp_ms: 30,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::LinkClick,
-            },
-        ];
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent_key,
+            vec![
+                "https://example.com/source".to_string(),
+                "https://example.com/recent".to_string(),
+                "https://example.com/recent".to_string(),
+            ],
+            2,
+        ));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            arranged_key,
+            vec![
+                "https://example.com/source".to_string(),
+                "https://example.com/arranged".to_string(),
+            ],
+            1,
+        ));
+        app.rebuild_semantic_navigation_runtime();
 
-        let mut recent: HashMap<NodeKey, (u64, usize)> = HashMap::new();
-        for entry in entries {
-            let LogEntry::AppendTraversal {
-                to_node_id,
-                timestamp_ms,
-                ..
-            } = entry
-            else {
-                continue;
-            };
-            let node_id = Uuid::parse_str(&to_node_id).expect("valid node uuid");
-            let node_key = app
-                .domain_graph()
-                .get_node_key_by_id(node_id)
-                .expect("node key");
-            let node = app.domain_graph().get_node(node_key).expect("node");
-            if arrangement_memberships.contains_key(&node_key) || is_internal_surface_node(node) {
-                continue;
-            }
-            let stats = recent.entry(node_key).or_insert((timestamp_ms, 0));
-            stats.0 = stats.0.max(timestamp_ms);
-            stats.1 += 1;
-        }
+        let members = recent_navigator_members(&app, &arrangement_memberships, &HashSet::new());
 
-        let mut rows = recent.into_iter().collect::<Vec<_>>();
-        rows.sort_by(|(left_key, left_stats), (right_key, right_stats)| {
-            right_stats
-                .0
-                .cmp(&left_stats.0)
-                .then_with(|| right_stats.1.cmp(&left_stats.1))
-                .then_with(|| {
-                    navigator_member_sort_key(&app, *left_key)
-                        .cmp(&navigator_member_sort_key(&app, *right_key))
-                })
-        });
-        let members = rows
-            .into_iter()
-            .filter_map(|(node_key, (_timestamp_ms, visit_count))| {
-                navigator_member_for_node(
-                    &app,
-                    node_key,
-                    Some(format!(
-                        "({visit_count} visit{})",
-                        if visit_count == 1 { "" } else { "s" }
-                    )),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(members.len(), 1);
+        assert_eq!(members.len(), 2);
         assert_eq!(members[0].node_key, recent_key);
-        assert!(members[0].title.contains("2 visits"));
+        assert!(members[0].title.contains("3 visits"));
+        assert_eq!(members[1].node_key, recent_key);
+        assert_eq!(
+            members[1].target_url.as_deref(),
+            Some("https://example.com/recent")
+        );
+        assert!(members[1].title.contains("Now:"));
+    }
+
+    #[test]
+    fn recent_navigator_members_include_semantic_alternate_targets() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let recent_key = app.add_node_and_sync(
+            "https://example.com/a".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent_key,
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/b".to_string(),
+            ],
+            1,
+        ));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent_key,
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/b".to_string(),
+            ],
+            0,
+        ));
+        assert!(app.workspace.domain.graph.set_node_history_state(
+            recent_key,
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/c".to_string(),
+            ],
+            1,
+        ));
+        app.rebuild_semantic_navigation_runtime();
+
+        let members = recent_navigator_members(&app, &HashMap::new(), &HashSet::new());
+
+        assert_eq!(members.len(), 3);
+        assert_eq!(members[0].node_key, recent_key);
+        assert!(members[0].title.contains("1 fork"));
+        assert_eq!(
+            members[1].target_url.as_deref(),
+            Some("https://example.com/c")
+        );
+        assert!(members[1].title.contains("Now:"));
+        assert_eq!(
+            members[2].target_url.as_deref(),
+            Some("https://example.com/b")
+        );
+        assert!(members[2].title.contains("Alt:"));
     }
 
     /// `build_active_graphlet_roster` includes cold durable peers with `is_cold = true`

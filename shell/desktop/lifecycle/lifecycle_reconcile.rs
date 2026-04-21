@@ -14,7 +14,7 @@ use crate::app::RuntimeEvent;
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::{NodeKey, NodeLifecycle};
 #[cfg(feature = "wry")]
-use crate::mods::native::verso;
+use crate::mods::native::web_runtime;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
@@ -32,7 +32,8 @@ pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) window: &'a EmbedderWindow,
-    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -135,7 +136,8 @@ pub(crate) struct ActivePrewarmArgs<'a> {
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(crate) viewer_surfaces: &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surfaces:
+        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -278,7 +280,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
 
     #[cfg(feature = "wry")]
     for node_key in tile_nodes.difference(&wry_nodes).copied() {
-        let _ = verso::destroy_wry_overlay_for_node(node_key);
+        let _ = web_runtime::destroy_wry_overlay_for_node(node_key);
     }
 
     // Ensure wry child WebViews exist for all active NativeOverlay panes.
@@ -292,8 +294,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .graph_app
                 .runtime_display_url_for_node(node_key)
                 .unwrap_or_else(|| "about:blank".to_string());
-            verso::ensure_wry_overlay_for_node(node_key, &url, parent_handle);
-            verso::navigate_wry_overlay_for_node(node_key, &url);
+            web_runtime::ensure_wry_overlay_for_node(node_key, &url, parent_handle);
+            web_runtime::navigate_wry_overlay_for_node(node_key, &url);
         }
     }
 

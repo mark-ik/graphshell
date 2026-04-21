@@ -30,6 +30,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+pub use graph_memory::TransitionKind as NodeHistoryTransitionKind;
+
 use crate::address::{Address, AddressKind, address_from_url, cached_host_from_url, detect_mime};
 use crate::persistence::{
     GraphSnapshot, PersistedAddress, PersistedArrangementEdgeData, PersistedArrangementSubKind,
@@ -281,6 +283,35 @@ pub struct NodeHistoryProjection {
     pub current_index: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeHistoryBranchAlternative {
+    pub url: String,
+    pub transition: Option<MemoryTransitionKind>,
+    pub at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeHistoryBranchVisit {
+    pub url: String,
+    pub transition: Option<MemoryTransitionKind>,
+    pub at_ms: u64,
+    pub is_current: bool,
+    pub alternate_children: Vec<NodeHistoryBranchAlternative>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeHistoryBranchProjection {
+    pub visits: Vec<NodeHistoryBranchVisit>,
+    pub current_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeHistorySemanticSummary {
+    pub current_url: Option<String>,
+    pub last_visit_at_ms: Option<u64>,
+    pub visit_count: usize,
+}
+
 #[derive(
     Debug,
     Clone,
@@ -378,13 +409,153 @@ impl NodeNavigationMemory {
         }
     }
 
+    pub fn branch_projection(&self) -> NodeHistoryBranchProjection {
+        let memory = OwnerScopedMemory::<String, String, NodeHistoryOwner, ()>::from_snapshot(
+            self.snapshot.clone(),
+        );
+        let Some(owner) = memory.owner_id_by_identity(&NodeHistoryOwner::Primary) else {
+            return NodeHistoryBranchProjection::default();
+        };
+
+        let Ok(branch) = memory.owner_branch_projection(owner) else {
+            return NodeHistoryBranchProjection::default();
+        };
+
+        NodeHistoryBranchProjection {
+            visits: branch
+                .visits
+                .into_iter()
+                .map(|visit| NodeHistoryBranchVisit {
+                    url: visit.payload,
+                    transition: visit.transition,
+                    at_ms: visit.at_ms,
+                    is_current: visit.is_current,
+                    alternate_children: visit
+                        .alternate_children
+                        .into_iter()
+                        .map(|child| NodeHistoryBranchAlternative {
+                            url: child.payload,
+                            transition: child.transition,
+                            at_ms: child.at_ms,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            current_index: branch.current_index,
+        }
+    }
+
     pub fn current_url(&self) -> Option<String> {
         let projection = self.projection();
         projection.entries.get(projection.current_index).cloned()
     }
 
+    pub fn semantic_summary(&self) -> NodeHistorySemanticSummary {
+        let memory = OwnerScopedMemory::<String, String, NodeHistoryOwner, ()>::from_snapshot(
+            self.snapshot.clone(),
+        );
+        let Some(owner) = memory.owner_id_by_identity(&NodeHistoryOwner::Primary) else {
+            return NodeHistorySemanticSummary::default();
+        };
+
+        let current_url = memory
+            .current_entry_of_owner(owner)
+            .and_then(|entry_id| memory.entry(entry_id).map(|entry| entry.payload.clone()));
+        let last_visit_at_ms = memory
+            .visits()
+            .map(|(_, visit)| visit.created_at_ms)
+            .max()
+            .filter(|timestamp| *timestamp > 0);
+
+        NodeHistorySemanticSummary {
+            current_url,
+            last_visit_at_ms,
+            visit_count: memory.visit_count(),
+        }
+    }
+
     pub fn replace_linear_history(&mut self, entries: Vec<String>, current_index: usize) {
-        *self = Self::from_linear_history(entries, current_index);
+        if entries.is_empty() {
+            *self = Self::empty();
+            return;
+        }
+
+        let mut memory = OwnerScopedMemory::<String, String, NodeHistoryOwner, ()>::from_snapshot(
+            self.snapshot.clone(),
+        );
+        let owner = memory.ensure_owner(NodeHistoryOwner::Primary, None);
+        let existing_visits = memory
+            .linear_history_visits_of_owner(owner)
+            .unwrap_or_default();
+        let existing_entries = existing_visits
+            .iter()
+            .filter_map(|visit_id| {
+                let visit = memory.visit(*visit_id)?;
+                let entry = memory.entry(visit.entry)?;
+                Some(entry.payload.clone())
+            })
+            .collect::<Vec<_>>();
+
+        if existing_entries.first() != entries.first() {
+            *self = Self::from_linear_history(entries, current_index);
+            return;
+        }
+
+        let mut path = vec![existing_visits[0]];
+        let mut parent = existing_visits[0];
+
+        for (idx, url) in entries.iter().enumerate().skip(1) {
+            let entry_id = memory.resolve_or_create_entry(
+                url.clone(),
+                url.clone(),
+                idx as u64,
+                MemoryEntryPrivacy::LocalOnly,
+            );
+            let reusable_child = memory.visit(parent).and_then(|visit| {
+                visit.children.iter().copied().find(|child_id| {
+                    memory
+                        .visit(*child_id)
+                        .is_some_and(|child| child.entry == entry_id)
+                })
+            });
+
+            let child_id = if let Some(child_id) = reusable_child {
+                child_id
+            } else {
+                let parent_index = path.len().saturating_sub(1);
+                if memory
+                    .rebind_owner_to_path(owner, &path, parent_index, idx as u64)
+                    .is_err()
+                {
+                    *self = Self::from_linear_history(entries, current_index);
+                    return;
+                }
+                let transition = if idx == 0 {
+                    MemoryTransitionKind::UrlTyped
+                } else {
+                    MemoryTransitionKind::Unknown
+                };
+                let Ok(child_id) = memory.visit_entry(owner, entry_id, (), transition, idx as u64)
+                else {
+                    *self = Self::from_linear_history(entries, current_index);
+                    return;
+                };
+                child_id
+            };
+
+            path.push(child_id);
+            parent = child_id;
+        }
+
+        if memory
+            .rebind_owner_to_path(owner, &path, current_index, entries.len() as u64)
+            .is_err()
+        {
+            *self = Self::from_linear_history(entries, current_index);
+            return;
+        }
+
+        self.snapshot = memory.to_snapshot();
     }
 
     pub fn snapshot(&self) -> &GraphMemorySnapshot<String, String, NodeHistoryOwner, ()> {
@@ -481,6 +652,18 @@ pub struct Node {
     /// `None` means "use automatic viewer selection".
     pub viewer_override: Option<String>,
 
+    /// Per-node "compatibility mode" toggle. When `true`, verso routes
+    /// web-managed content for this node through `WebEnginePreference::Wry`
+    /// (platform WebView) regardless of the app-level default web backend.
+    /// Middlenet-routed content (feeds, gemini, etc.) is unaffected because
+    /// compat mode only shifts the web-engine preference, not the lane
+    /// decision.
+    ///
+    /// Distinct from `viewer_override`: `viewer_override` pins a specific
+    /// viewer id; `compat_mode` only biases the web-engine preference and
+    /// lets verso's routing policy still apply.
+    pub compat_mode: bool,
+
     /// Typed address — carries both the URL scheme classification and the raw
     /// URL string (or clip id for clip routes). Use `address.address_kind()` to
     /// get the scheme classification and `address.as_url_str()` to get the URL.
@@ -542,6 +725,14 @@ impl Node {
         self.navigation_memory.current_url()
     }
 
+    pub fn history_branch_projection(&self) -> NodeHistoryBranchProjection {
+        self.navigation_memory.branch_projection()
+    }
+
+    pub fn history_semantic_summary(&self) -> NodeHistorySemanticSummary {
+        self.navigation_memory.semantic_summary()
+    }
+
     pub fn replace_history_state(&mut self, entries: Vec<String>, current_index: usize) {
         self.navigation_memory
             .replace_linear_history(entries, current_index);
@@ -573,6 +764,7 @@ impl Node {
             session_form_draft: None,
             mime_hint: None,
             viewer_override: None,
+            compat_mode: false,
             address: address_from_url(url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
@@ -1651,6 +1843,7 @@ impl Graph {
             session_form_draft: None,
             mime_hint: detect_mime(&url, None),
             viewer_override: None,
+            compat_mode: false,
             address: address_from_url(&url),
             frame_layout_hints: Vec::new(),
             frame_split_offer_suppressed: false,
@@ -1789,6 +1982,21 @@ impl Graph {
         }
         node.is_pinned = is_pinned;
         true
+    }
+
+    pub fn set_node_compat_mode(&mut self, key: NodeKey, compat_mode: bool) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.compat_mode == compat_mode {
+            return false;
+        }
+        node.compat_mode = compat_mode;
+        true
+    }
+
+    pub fn node_compat_mode(&self, key: NodeKey) -> Option<bool> {
+        self.get_node(key).map(|node| node.compat_mode)
     }
 
     pub fn append_frame_layout_hint(&mut self, key: NodeKey, hint: FrameLayoutHint) -> bool {
@@ -4535,6 +4743,38 @@ mod tests {
         let history = node.history_projection();
         assert_eq!(history.entries.len(), 3);
         assert_eq!(history.current_index, 2);
+    }
+
+    #[test]
+    fn test_navigation_memory_preserves_alternate_branch_when_history_diverges() {
+        let mut memory = NodeNavigationMemory::from_linear_history(
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/b".to_string(),
+            ],
+            1,
+        );
+
+        memory.replace_linear_history(vec!["https://example.com/a".to_string()], 0);
+        memory.replace_linear_history(
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/c".to_string(),
+            ],
+            1,
+        );
+
+        let branch = memory.branch_projection();
+        assert_eq!(branch.current_index, Some(1));
+        assert_eq!(branch.visits.len(), 2);
+        assert_eq!(branch.visits[0].url, "https://example.com/a");
+        assert_eq!(branch.visits[1].url, "https://example.com/c");
+        assert!(branch.visits[1].is_current);
+        assert_eq!(branch.visits[0].alternate_children.len(), 1);
+        assert_eq!(
+            branch.visits[0].alternate_children[0].url,
+            "https://example.com/b"
+        );
     }
 
     #[test]

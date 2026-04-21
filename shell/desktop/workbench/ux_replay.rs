@@ -144,10 +144,7 @@ impl HostEvent {
     pub(crate) fn from_egui_event(event: &egui::Event) -> Option<Self> {
         Some(match event {
             egui::Event::Text(text) => HostEvent::Text(text.clone()),
-            egui::Event::PointerMoved(pos) => HostEvent::PointerMoved {
-                x: pos.x,
-                y: pos.y,
-            },
+            egui::Event::PointerMoved(pos) => HostEvent::PointerMoved { x: pos.x, y: pos.y },
             egui::Event::PointerButton {
                 pos,
                 button,

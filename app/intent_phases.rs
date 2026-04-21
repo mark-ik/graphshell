@@ -110,7 +110,6 @@ impl GraphBrowserApp {
                 if let Some(view_id) = self.workspace.graph_runtime.focused_view {
                     if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                         view.tombstones_visible = !view.tombstones_visible;
-                        self.workspace.graph_runtime.egui_state_dirty = true;
                     }
                 }
                 true
@@ -212,7 +211,6 @@ impl GraphBrowserApp {
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     view.apply_resolved_lens_identity(resolved);
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewLayoutAlgorithm {
@@ -226,7 +224,6 @@ impl GraphBrowserApp {
                         crate::app::graph_views::PolicyValueSource::ViewOverride,
                     );
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewPhysicsProfile {
@@ -242,7 +239,6 @@ impl GraphBrowserApp {
                         crate::app::graph_views::PolicyValueSource::ViewOverride,
                     );
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewFilter { view_id, expr } => {
@@ -288,7 +284,6 @@ impl GraphBrowserApp {
                         }
                     }
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::ClearViewFilter { view_id } => {
@@ -301,7 +296,6 @@ impl GraphBrowserApp {
                         },
                     );
                 }
-                self.workspace.graph_runtime.egui_state_dirty = true;
                 true
             }
             GraphIntent::SetViewDimension { view_id, dimension } => {

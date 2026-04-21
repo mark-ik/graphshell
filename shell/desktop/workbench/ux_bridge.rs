@@ -590,13 +590,14 @@ mod tests {
         publish_command_surface_semantic_snapshot,
     };
 
+    /// Defer to the shared `ux_tree` snapshot test lock. The bridge tests
+    /// all publish / read / clear `LATEST_UX_TREE_SNAPSHOT`; sibling
+    /// `webdriver_runtime` tests do the same against the same global.
+    /// Having one lock for the whole publish-read-clear dance (rather
+    /// than a bridge-local one) is what actually keeps those tests from
+    /// stomping on each other in parallel.
     fn lock_bridge_tests() -> std::sync::MutexGuard<'static, ()> {
-        static UX_BRIDGE_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
-            std::sync::OnceLock::new();
-        UX_BRIDGE_TEST_LOCK
-            .get_or_init(|| std::sync::Mutex::new(()))
-            .lock()
-            .expect("ux bridge test lock should not be poisoned")
+        ux_tree::lock_ux_tree_snapshot_tests()
     }
 
     #[test]

@@ -491,6 +491,13 @@ pub fn render_command_palette_panel(
         }
 
         let action_context = ActionContext {
+            scope: app
+                .workspace
+                .chrome_ui
+                .surface_state
+                .scope()
+                .cloned()
+                .unwrap_or_default(),
             target_node: source_context,
             target_frame_member: frame_context
                 .as_deref()
@@ -1527,6 +1534,7 @@ mod tests {
 
     fn default_action_context() -> ActionContext {
         ActionContext {
+            scope: crate::app::ActionScope::default(),
             target_node: None,
             target_frame_name: None,
             target_frame_member: None,

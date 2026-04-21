@@ -1,13 +1,49 @@
 use std::collections::HashMap;
 
+use egui::Color32;
+
 use crate::graph::edge_style_registry::{
     EdgeAccessibilityMode, ThemeAccessibilitySupport, ThemeContract, ThemeEdgeTokens,
     validate_theme_edge_tokens,
 };
-use crate::graph::egui_adapter::GraphNodeChromeTheme;
 use crate::registries::atomic::lens::{
     THEME_ID_DARK as LEGACY_THEME_ID_DARK, THEME_ID_DEFAULT as LEGACY_THEME_ID_DEFAULT, ThemeData,
 };
+
+/// Color tokens for graph-node chrome (badges, pinned fill, rings, default stroke).
+///
+/// Moved inline here from the retired `graph::egui_adapter` module; themes are
+/// the sole consumer.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct GraphNodeChromeTheme {
+    pub workspace_badge_background: Color32,
+    pub workspace_badge_text: Color32,
+    pub semantic_badge_background: Color32,
+    pub semantic_badge_text: Color32,
+    pub semantic_badge_overflow_background: Color32,
+    pub semantic_badge_orbit_background: Color32,
+    pub pinned_fill: Color32,
+    pub pinned_stroke: Color32,
+    pub clip_ring: Color32,
+    pub default_stroke: Color32,
+}
+
+impl Default for GraphNodeChromeTheme {
+    fn default() -> Self {
+        Self {
+            workspace_badge_background: Color32::from_rgba_unmultiplied(20, 30, 46, 224),
+            workspace_badge_text: Color32::from_gray(245),
+            semantic_badge_background: Color32::from_rgba_unmultiplied(34, 44, 64, 224),
+            semantic_badge_text: Color32::from_gray(245),
+            semantic_badge_overflow_background: Color32::from_rgba_unmultiplied(24, 24, 24, 216),
+            semantic_badge_orbit_background: Color32::from_rgba_unmultiplied(20, 28, 42, 230),
+            pinned_fill: Color32::WHITE,
+            pinned_stroke: Color32::from_gray(40),
+            clip_ring: Color32::from_rgb(170, 210, 255),
+            default_stroke: Color32::from_gray(90),
+        }
+    }
+}
 
 pub(crate) const THEME_ID_DEFAULT: &str = LEGACY_THEME_ID_DEFAULT;
 pub(crate) const THEME_ID_LIGHT: &str = "theme:light";
@@ -46,7 +82,17 @@ pub(crate) struct ThemeTokenSet {
     pub(crate) graph_node_hover_ring: egui::Color32,
     pub(crate) graph_node_chrome: GraphNodeChromeTheme,
     pub(crate) status_success: egui::Color32,
+    pub(crate) status_warning: egui::Color32,
     pub(crate) status_error: egui::Color32,
+    pub(crate) status_neutral: egui::Color32,
+    pub(crate) workbench_panel_background: egui::Color32,
+    /// Highlight background for selection chrome over dense panels
+    /// (dropdowns, toast strips). Paired with `selection_highlight_text`
+    /// + `selection_highlight_stroke` to form a three-token trio that
+    /// maintains contrast on any theme.
+    pub(crate) selection_highlight_background: egui::Color32,
+    pub(crate) selection_highlight_text: egui::Color32,
+    pub(crate) selection_highlight_stroke: egui::Color32,
     pub(crate) semantic_origin_manual: egui::Color32,
     pub(crate) semantic_origin_semantic: egui::Color32,
     pub(crate) semantic_origin_anchor: egui::Color32,
@@ -303,7 +349,13 @@ fn default_theme_tokens() -> ThemeTokenSet {
             default_stroke: egui::Color32::from_gray(90),
         },
         status_success: egui::Color32::from_rgb(90, 200, 120),
+        status_warning: egui::Color32::from_rgb(210, 175, 70),
         status_error: egui::Color32::from_rgb(180, 60, 60),
+        status_neutral: egui::Color32::from_rgb(140, 145, 150),
+        workbench_panel_background: egui::Color32::from_rgb(20, 20, 25),
+        selection_highlight_background: egui::Color32::from_rgb(255, 230, 0),
+        selection_highlight_text: egui::Color32::WHITE,
+        selection_highlight_stroke: egui::Color32::BLACK,
         semantic_origin_manual: egui::Color32::from_rgb(120, 170, 255),
         semantic_origin_semantic: egui::Color32::from_rgb(76, 175, 80),
         semantic_origin_anchor: egui::Color32::from_rgb(255, 167, 38),
@@ -362,7 +414,13 @@ fn light_theme_tokens() -> ThemeTokenSet {
             default_stroke: egui::Color32::from_rgb(132, 144, 158),
         },
         status_success: egui::Color32::from_rgb(46, 140, 86),
+        status_warning: egui::Color32::from_rgb(160, 120, 32),
         status_error: egui::Color32::from_rgb(170, 62, 62),
+        status_neutral: egui::Color32::from_rgb(120, 124, 130),
+        workbench_panel_background: egui::Color32::from_rgb(245, 246, 250),
+        selection_highlight_background: egui::Color32::from_rgb(255, 216, 48),
+        selection_highlight_text: egui::Color32::from_rgb(24, 28, 34),
+        selection_highlight_stroke: egui::Color32::from_rgb(48, 52, 60),
         semantic_origin_manual: egui::Color32::from_rgb(90, 150, 220),
         semantic_origin_semantic: egui::Color32::from_rgb(50, 150, 86),
         semantic_origin_anchor: egui::Color32::from_rgb(214, 130, 36),
@@ -419,7 +477,13 @@ fn dark_theme_tokens() -> ThemeTokenSet {
             default_stroke: egui::Color32::from_rgb(104, 116, 132),
         },
         status_success: egui::Color32::from_rgb(110, 216, 146),
+        status_warning: egui::Color32::from_rgb(232, 188, 84),
         status_error: egui::Color32::from_rgb(220, 102, 102),
+        status_neutral: egui::Color32::from_rgb(150, 156, 168),
+        workbench_panel_background: egui::Color32::from_rgb(20, 20, 25),
+        selection_highlight_background: egui::Color32::from_rgb(255, 230, 64),
+        selection_highlight_text: egui::Color32::WHITE,
+        selection_highlight_stroke: egui::Color32::BLACK,
         semantic_origin_manual: egui::Color32::from_rgb(138, 186, 255),
         semantic_origin_semantic: egui::Color32::from_rgb(98, 198, 112),
         semantic_origin_anchor: egui::Color32::from_rgb(255, 182, 84),
@@ -484,7 +548,13 @@ fn high_contrast_theme_tokens() -> ThemeTokenSet {
             default_stroke: egui::Color32::from_rgb(255, 255, 255),
         },
         status_success: egui::Color32::from_rgb(0, 255, 170),
+        status_warning: egui::Color32::from_rgb(255, 230, 0),
         status_error: egui::Color32::from_rgb(255, 64, 64),
+        status_neutral: egui::Color32::from_rgb(220, 220, 230),
+        workbench_panel_background: egui::Color32::BLACK,
+        selection_highlight_background: egui::Color32::from_rgb(255, 230, 0),
+        selection_highlight_text: egui::Color32::BLACK,
+        selection_highlight_stroke: egui::Color32::WHITE,
         semantic_origin_manual: egui::Color32::from_rgb(0, 255, 255),
         semantic_origin_semantic: egui::Color32::from_rgb(0, 255, 170),
         semantic_origin_anchor: egui::Color32::from_rgb(255, 230, 0),

@@ -95,7 +95,6 @@ impl<'a> GraphshellTileBehavior<'a> {
         }
 
         self.extend_post_render_intents(render::intents_from_graph_actions(passthrough_actions));
-        render::sync_graph_positions_from_layout(self.graph_app);
         render::render_graph_info_in_ui(ui, self.graph_app, view_id);
         render_graph_pane_overlay(
             ui.ctx(),
@@ -753,8 +752,8 @@ fn render_node_history_panel(
     use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let node_id = match behavior.graph_app.domain_graph().get_node(node_key) {
-        Some(node) => node.id,
+    let (node_id, branch) = match behavior.graph_app.domain_graph().get_node(node_key) {
+        Some(node) => (node.id, node.history_branch_projection()),
         None => return,
     };
 
@@ -776,72 +775,128 @@ fn render_node_history_panel(
         .graph_app
         .node_navigation_history_entries(node_id, LIMIT);
 
-    if entries.is_empty() {
-        ui.small("No navigation history for this node.");
-        return;
-    }
-
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    egui::ScrollArea::vertical()
-        .max_height(200.0)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            for entry in &entries {
-                let LogEntry::NavigateNode {
-                    to_url,
-                    from_url,
-                    trigger,
-                    timestamp_ms,
-                    ..
-                } = entry
-                else {
-                    continue;
-                };
+    if branch.visits.is_empty() && entries.is_empty() {
+        ui.small("No navigation history for this node.");
+        return;
+    }
 
-                let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
-                let time_label = if elapsed_ms < 1_000 {
-                    "just now".to_string()
-                } else if elapsed_ms < 60_000 {
-                    format!("{}s ago", elapsed_ms / 1_000)
-                } else if elapsed_ms < 3_600_000 {
-                    format!("{}m ago", elapsed_ms / 60_000)
-                } else if elapsed_ms < 86_400_000 {
-                    format!("{}h ago", elapsed_ms / 3_600_000)
-                } else {
-                    format!("{}d ago", elapsed_ms / 86_400_000)
-                };
+    if !branch.visits.is_empty() {
+        ui.label(egui::RichText::new("Current branch").small().strong());
+        egui::ScrollArea::vertical()
+            .max_height(120.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for visit in &branch.visits {
+                    ui.horizontal(|ui| {
+                        let marker = if visit.is_current { "●" } else { "○" };
+                        let response = ui.selectable_label(
+                            false,
+                            format!(
+                                "{} {} {}",
+                                marker,
+                                branch_transition_icon(visit.transition),
+                                truncate_host_or_path(&visit.url, 36)
+                            ),
+                        );
+                        if response.clicked() {
+                            behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                                key: node_key,
+                                new_url: visit.url.clone(),
+                            });
+                        }
+                    });
 
-                let trigger_icon = match trigger {
-                    PersistedNavigationTrigger::LinkClick => "🔗",
-                    PersistedNavigationTrigger::Back => "⬅",
-                    PersistedNavigationTrigger::Forward => "➡",
-                    PersistedNavigationTrigger::AddressBarEntry => "⌨",
-                    PersistedNavigationTrigger::PanePromotion => "⬆",
-                    PersistedNavigationTrigger::Programmatic => "⚙",
-                    PersistedNavigationTrigger::Unknown => "↔",
-                };
-
-                let from_short = truncate_host_or_path(from_url, 28);
-                let to_short = truncate_host_or_path(to_url, 28);
-
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(&time_label).weak().small());
-                    ui.label(trigger_icon);
-                    let response =
-                        ui.selectable_label(false, format!("{} → {}", from_short, to_short));
-                    if response.clicked() {
-                        behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
-                            key: node_key,
-                            new_url: to_url.clone(),
+                    if !visit.alternate_children.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new("Alternates:").weak().small());
+                            for alternate in &visit.alternate_children {
+                                if ui
+                                    .small_button(format!(
+                                        "{} {}",
+                                        branch_transition_icon(alternate.transition),
+                                        truncate_host_or_path(&alternate.url, 24)
+                                    ))
+                                    .clicked()
+                                {
+                                    behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                                        key: node_key,
+                                        new_url: alternate.url.clone(),
+                                    });
+                                }
+                            }
                         });
                     }
-                });
-            }
-        });
+                }
+            });
+    }
+
+    if !entries.is_empty() {
+        if !branch.visits.is_empty() {
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Event log").small().strong());
+        }
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for entry in &entries {
+                    let LogEntry::NavigateNode {
+                        to_url,
+                        from_url,
+                        trigger,
+                        timestamp_ms,
+                        ..
+                    } = entry
+                    else {
+                        continue;
+                    };
+
+                    let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
+                    let time_label = if elapsed_ms < 1_000 {
+                        "just now".to_string()
+                    } else if elapsed_ms < 60_000 {
+                        format!("{}s ago", elapsed_ms / 1_000)
+                    } else if elapsed_ms < 3_600_000 {
+                        format!("{}m ago", elapsed_ms / 60_000)
+                    } else if elapsed_ms < 86_400_000 {
+                        format!("{}h ago", elapsed_ms / 3_600_000)
+                    } else {
+                        format!("{}d ago", elapsed_ms / 86_400_000)
+                    };
+
+                    let trigger_icon = match trigger {
+                        PersistedNavigationTrigger::LinkClick => "🔗",
+                        PersistedNavigationTrigger::Back => "⬅",
+                        PersistedNavigationTrigger::Forward => "➡",
+                        PersistedNavigationTrigger::AddressBarEntry => "⌨",
+                        PersistedNavigationTrigger::PanePromotion => "⬆",
+                        PersistedNavigationTrigger::Programmatic => "⚙",
+                        PersistedNavigationTrigger::Unknown => "↔",
+                    };
+
+                    let from_short = truncate_host_or_path(from_url, 28);
+                    let to_short = truncate_host_or_path(to_url, 28);
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&time_label).weak().small());
+                        ui.label(trigger_icon);
+                        let response =
+                            ui.selectable_label(false, format!("{} → {}", from_short, to_short));
+                        if response.clicked() {
+                            behavior.queue_post_render_intent(GraphIntent::SetNodeUrl {
+                                key: node_key,
+                                new_url: to_url.clone(),
+                            });
+                        }
+                    });
+                }
+            });
+    }
 }
 
 fn render_node_audit_panel(
@@ -979,6 +1034,23 @@ fn truncate_host_or_path(url: &str, max_len: usize) -> String {
         display.to_string()
     } else {
         format!("{}…", &display[..max_len.saturating_sub(1)])
+    }
+}
+
+fn branch_transition_icon(
+    transition: Option<crate::graph::NodeHistoryTransitionKind>,
+) -> &'static str {
+    match transition {
+        Some(crate::graph::NodeHistoryTransitionKind::LinkClick) => "↗",
+        Some(crate::graph::NodeHistoryTransitionKind::UrlTyped) => "⌨",
+        Some(crate::graph::NodeHistoryTransitionKind::Back) => "⬅",
+        Some(crate::graph::NodeHistoryTransitionKind::Forward) => "➡",
+        Some(crate::graph::NodeHistoryTransitionKind::Reload) => "⟳",
+        Some(crate::graph::NodeHistoryTransitionKind::Redirect) => "⇢",
+        Some(crate::graph::NodeHistoryTransitionKind::TabSpawn) => "⊕",
+        Some(crate::graph::NodeHistoryTransitionKind::Restore) => "↺",
+        Some(crate::graph::NodeHistoryTransitionKind::Imported) => "⇣",
+        Some(crate::graph::NodeHistoryTransitionKind::Unknown) | None => "•",
     }
 }
 

@@ -43,7 +43,7 @@ pub(super) fn draw_graph_info(
         "Nodes: {} | Edges: {} | Physics: {} | Zoom: {:.1}x",
         app.domain_graph().node_count(),
         app.domain_graph().edge_count(),
-        if app.workspace.graph_runtime.physics.base.is_running {
+        if app.workspace.graph_runtime.physics.is_running {
             "Running"
         } else {
             "Paused"
@@ -139,7 +139,6 @@ pub(super) fn draw_graph_info(
                                     app.workspace.graph_runtime.pinned_graph_search =
                                         Some(current_entry.clone());
                                 }
-                                app.workspace.graph_runtime.egui_state_dirty = true;
                             }
                             if ui.selectable_label(!filter_mode, "Highlight").clicked() {
                                 app.request_graph_search_with_options(
@@ -278,7 +277,6 @@ pub(super) fn draw_graph_info(
                             }
                             if ui.small_button("X").clicked() {
                                 app.workspace.graph_runtime.pinned_graph_search = None;
-                                app.workspace.graph_runtime.egui_state_dirty = true;
                             }
                         });
                     });
@@ -1302,13 +1300,7 @@ pub(crate) fn gather_node_keys_into_scene_region(
         let _ = app
             .domain_graph_mut()
             .set_node_projected_position(key, next);
-        if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut()
-            && let Some(node) = state_mut.graph.node_mut(key)
-        {
-            node.set_location(position);
-        }
     }
-    app.workspace.graph_runtime.egui_state_dirty = true;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1687,45 +1679,6 @@ fn registrable_domain_key(url: &str) -> Option<String> {
     };
 
     Some(labels[labels.len() - tail_len..].join("."))
-}
-
-// ── Layout algorithm helpers ───────────────────────────────────────────────────
-
-pub(super) fn requested_layout_algorithm_id(
-    app: &GraphBrowserApp,
-    view_id: crate::app::GraphViewId,
-    canvas_profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
-) -> String {
-    use crate::app::graph_layout::layout_algorithm_id_for_mode;
-    app.workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .map(|view| match view.resolved_layout_mode() {
-            crate::registries::atomic::lens::LayoutMode::Free => {
-                view.resolved_layout_algorithm_id().to_string()
-            }
-            other => layout_algorithm_id_for_mode(other).to_string(),
-        })
-        .unwrap_or_else(|| canvas_profile.layout_algorithm.algorithm_id.clone())
-}
-
-pub(super) fn should_apply_layout_algorithm(
-    app: &GraphBrowserApp,
-    view_id: crate::app::GraphViewId,
-    resolved_layout_id: &str,
-) -> bool {
-    let layout_changed = app
-        .workspace
-        .graph_runtime
-        .views
-        .get(&view_id)
-        .and_then(|view| view.last_layout_algorithm_id.as_deref())
-        != Some(resolved_layout_id);
-
-    app.workspace.graph_runtime.egui_state.is_none()
-        || app.workspace.graph_runtime.egui_state_dirty
-        || layout_changed
 }
 
 // ── Semantic depth badge ──────────────────────────────────────────────────────

@@ -290,12 +290,16 @@ impl GraphBrowserApp {
         let _ =
             graph.set_node_form_draft(clip_key, Some(serialize_clip_content_facet(&clip_facet)));
         let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
-        let _ = graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
+        let history_changed =
+            graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
         for inherited in &inherited_classifications {
             graph.add_node_classification(clip_key, inherited.clone());
         }
 
         self.workspace.graph_runtime.semantic_index_dirty = true;
+        if history_changed {
+            self.refresh_semantic_navigation_runtime_for_node(clip_key);
+        }
 
         // Journal inherited classifications to WAL
         if let Some(store) = &mut self.services.persistence {

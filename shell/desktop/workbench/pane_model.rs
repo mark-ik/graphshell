@@ -232,6 +232,13 @@ pub(crate) struct NodePaneState {
     /// When `Some`, skips per-frame `preferred_viewer_id_for_content` resolution.
     #[serde(skip)]
     pub resolved_viewer_id: Option<String>,
+    /// Cached verso-resolved route for this pane's node, carrying the
+    /// chosen engine, middlenet lane, reason, and ownership. Populated
+    /// alongside `resolved_viewer_id` on pane attach / refresh.
+    /// `None` when verso does not route this content (specialized
+    /// non-web viewers: images, PDFs, plaintext, directory listings).
+    #[serde(skip)]
+    pub resolved_route: Option<::verso::VersoResolvedRoute>,
 }
 
 impl NodePaneState {
@@ -246,6 +253,7 @@ impl NodePaneState {
             show_node_history: false,
             show_node_audit: false,
             resolved_viewer_id: None,
+            resolved_route: None,
         }
     }
 
@@ -260,6 +268,7 @@ impl NodePaneState {
             show_node_history: false,
             show_node_audit: false,
             resolved_viewer_id: None,
+            resolved_route: None,
         }
     }
 }
@@ -305,6 +314,7 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 show_node_history: false,
                 show_node_audit: false,
                 resolved_viewer_id: None,
+                resolved_route: None,
             },
             NodePaneStateCompat::Current {
                 pane_id,
@@ -331,6 +341,7 @@ impl From<NodePaneStateCompat> for NodePaneState {
                     show_node_history: false,
                     show_node_audit: false,
                     resolved_viewer_id: None,
+                    resolved_route: None,
                 }
             }
         }

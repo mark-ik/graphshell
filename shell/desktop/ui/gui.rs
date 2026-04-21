@@ -661,10 +661,12 @@ impl EguiHost {
                 egui::Visuals::light()
             }
             crate::shell::desktop::runtime::registries::theme::THEME_ID_HIGH_CONTRAST => {
+                let tokens = &resolution.tokens;
                 let mut visuals = egui::Visuals::dark();
-                visuals.override_text_color = Some(egui::Color32::WHITE);
-                visuals.selection.bg_fill = egui::Color32::from_rgb(255, 230, 0);
-                visuals.selection.stroke = egui::Stroke::new(1.5, egui::Color32::BLACK);
+                visuals.override_text_color = Some(tokens.selection_highlight_text);
+                visuals.selection.bg_fill = tokens.selection_highlight_background;
+                visuals.selection.stroke =
+                    egui::Stroke::new(1.5, tokens.selection_highlight_stroke);
                 visuals
             }
             _ => egui::Visuals::dark(),

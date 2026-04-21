@@ -4786,6 +4786,22 @@ Object {
 
     #[test]
     fn security_health_snapshot_reports_trust_and_nostr_runtime_state() {
+        let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
+        // Defensive reset at the start, not only at end: if a prior
+        // run of this same test panicked before its cleanup, leftover
+        // peers / subscriptions / permissions pollute `REGISTRY_RUNTIME`
+        // and every subsequent run here sees `trusted_peer_count > 1`.
+        // Clearing state up front makes the test idempotent against its
+        // own past panics.
+        for existing in crate::shell::desktop::runtime::registries::phase3_trusted_peers() {
+            crate::shell::desktop::runtime::registries::phase3_revoke_peer(existing.node_id);
+        }
+        let _ = crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[]);
+        let _ =
+            crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_nip07_permissions(
+                &[],
+            );
+
         let mut state = DiagnosticsState::new();
         let peer_id = crate::mods::native::verse::generate_p2p_secret_key().public();
         crate::shell::desktop::runtime::registries::phase3_trust_peer(

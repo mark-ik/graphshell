@@ -684,6 +684,14 @@ fn warn_on_nonconforming_action_keys() {
 /// state and scope filtering.
 #[derive(Clone, Debug, Default)]
 pub struct ActionContext {
+    /// Originating scope of the action invocation (global palette,
+    /// a graph view with/without a target, or a workbench pane).
+    /// Added by the 2026-04-20 action-surfaces redesign to make
+    /// scope a first-class input to future filtering logic. Legacy
+    /// per-field proxies (`target_node`, `target_frame_name`, etc.)
+    /// remain for backward compatibility with existing enable/disable
+    /// predicates.
+    pub scope: crate::app::ActionScope,
     /// Primary target node, if any (right-click target, hovered node, etc.).
     /// `None` means global scope — the full action list is returned.
     pub target_node: Option<NodeKey>,
@@ -910,6 +918,7 @@ mod tests {
 
     fn default_context() -> ActionContext {
         ActionContext {
+            scope: crate::app::ActionScope::default(),
             target_node: None,
             target_frame_name: None,
             target_frame_member: None,

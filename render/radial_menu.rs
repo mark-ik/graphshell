@@ -133,6 +133,35 @@ pub(crate) fn clear_semantic_snapshot() {
     }
 }
 
+/// Serialization lock for tests that publish/clear the radial-palette
+/// semantic snapshot process-global.
+///
+/// The snapshot is a `OnceLock<Mutex<Option<...>>>`; parallel tests that
+/// run `publish → build/read → clear` against it race each other when
+/// run under the default `cargo test --lib` parallelism. Any test that
+/// walks that sequence must bind the returned guard to a local for the
+/// whole dance:
+///
+/// ```ignore
+/// let _guard = lock_radial_palette_snapshot_tests();
+/// publish_semantic_snapshot(...);
+/// // ... read / build_snapshot ...
+/// clear_semantic_snapshot();
+/// ```
+///
+/// Matches the existing `lock_command_surface_snapshot_tests` pattern
+/// for the sibling command-surface snapshot global. The lock lives
+/// in release builds too but is never acquired outside tests, so
+/// there is no runtime cost in production.
+pub(crate) fn lock_radial_palette_snapshot_tests()
+-> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn radial_category_label(category: ActionCategory) -> &'static str {
     match category {
         ActionCategory::Persistence => "Persist",
@@ -274,6 +303,13 @@ fn build_radial_action_context(
 ) -> ActionContext {
     let frame_context = app.pending_frame_context_target().map(str::to_string);
     ActionContext {
+        scope: app
+            .workspace
+            .chrome_ui
+            .surface_state
+            .scope()
+            .cloned()
+            .unwrap_or_default(),
         target_node: source_context,
         target_frame_member: frame_context.as_deref().and_then(|frame_name| {
             app.arrangement_projection_groups()
@@ -2118,6 +2154,7 @@ mod tests {
     #[test]
     fn scenario_tier1_selection_drives_tier2_option_ring() {
         let ctx = ActionContext {
+            scope: crate::app::ActionScope::default(),
             target_node: None,
             target_frame_name: None,
             target_frame_member: None,

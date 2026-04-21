@@ -134,7 +134,7 @@
       "z_pass": "workbench.content",
       "style_flags": [
         "surface:graph",
-        "backend:egui_graphs",
+        "backend:graph-canvas",
         "presentation:tiled"
       ],
       "transient_flags": [],
@@ -145,7 +145,7 @@
       "z_pass": "graph.layer.node",
       "style_flags": [
         "surface:graph-node",
-        "backend:egui_graphs"
+        "backend:graph-canvas"
       ],
       "transient_flags": [],
       "render_mode": "EmbeddedEgui"
@@ -195,13 +195,13 @@
     {
       "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
       "event_route": "graph.input_route",
-      "backend_path": "egui_graphs",
+      "backend_path": "graph-canvas",
       "diagnostics_counter": 1
     },
     {
       "ux_node_id": "uxnode://workbench/graph/GraphViewId(<uuid:01>)/node/<uuid:03>",
       "event_route": "graph.node_route",
-      "backend_path": "egui_graphs",
+      "backend_path": "graph-canvas",
       "diagnostics_counter": 0
     },
     {

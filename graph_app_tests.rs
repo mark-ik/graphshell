@@ -588,7 +588,7 @@ fn test_zoom_fit_lock_does_not_block_manual_pan_reheat_path() {
         .views
         .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
     app.workspace.graph_runtime.focused_view = Some(view_id);
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
 
     app.set_camera_position_fit_locked(false);
     app.set_camera_zoom_fit_locked(true);
@@ -596,7 +596,7 @@ fn test_zoom_fit_lock_does_not_block_manual_pan_reheat_path() {
     app.set_interacting(true);
     app.set_interacting(false);
 
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
     assert_eq!(
         app.workspace.graph_runtime.drag_release_frames_remaining,
         10
@@ -2139,6 +2139,84 @@ fn test_intent_webview_history_changed_clamps_index() {
 }
 
 #[test]
+fn test_intent_webview_history_changed_preserves_alternate_branch_projection() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app
+        .workspace
+        .domain
+        .graph
+        .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+    let wv = test_webview_id();
+    app.map_webview_to_node(wv, key);
+
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://b.com".into()],
+        current: 1,
+    }]);
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://b.com".into()],
+        current: 0,
+    }]);
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://c.com".into()],
+        current: 1,
+    }]);
+
+    let branch = app
+        .workspace
+        .domain
+        .graph
+        .get_node(key)
+        .expect("node should remain present")
+        .history_branch_projection();
+    assert_eq!(branch.visits.len(), 2);
+    assert_eq!(branch.visits[0].url, "https://a.com");
+    assert_eq!(branch.visits[1].url, "https://c.com");
+    assert!(branch.visits[1].is_current);
+    assert_eq!(branch.visits[0].alternate_children.len(), 1);
+    assert_eq!(branch.visits[0].alternate_children[0].url, "https://b.com");
+}
+
+#[test]
+fn test_semantic_navigation_runtime_tracks_branching_signal() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let key = app
+        .workspace
+        .domain
+        .graph
+        .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+    let wv = test_webview_id();
+    app.map_webview_to_node(wv, key);
+
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://b.com".into()],
+        current: 1,
+    }]);
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://b.com".into()],
+        current: 0,
+    }]);
+    app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+        webview_id: wv,
+        entries: vec!["https://a.com".into(), "https://c.com".into()],
+        current: 1,
+    }]);
+
+    let runtime = app
+        .semantic_navigation_runtime_for_node_key(key)
+        .expect("semantic runtime should exist");
+    assert_eq!(runtime.visit_count, 3);
+    assert_eq!(runtime.branch_points, 1);
+    assert_eq!(runtime.alternate_targets, 1);
+    assert_eq!(runtime.current_url.as_deref(), Some("https://c.com"));
+}
+
+#[test]
 fn test_intent_webview_scroll_changed_updates_node_session_scroll() {
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
@@ -3074,7 +3152,7 @@ fn test_execute_edge_command_connect_selected_pair() {
 
     app.select_node(from, false);
     app.select_node(to, true);
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
 
     app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
         command: EdgeCommand::ConnectSelectedPair,
@@ -3085,7 +3163,7 @@ fn test_execute_edge_command_connect_selected_pair() {
         to,
         crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped),
     ));
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
 }
 
 #[test]
@@ -3129,7 +3207,7 @@ fn test_execute_edge_command_remove_user_edge_removes_both_directions() {
     app.add_user_grouped_edge_if_missing(to, from, None);
     app.select_node(from, false);
     app.select_node(to, true);
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
 
     app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
         command: EdgeCommand::RemoveUserEdge,
@@ -3139,7 +3217,7 @@ fn test_execute_edge_command_remove_user_edge_removes_both_directions() {
         crate::graph::RelationSelector::Semantic(crate::graph::SemanticSubKind::UserGrouped);
     assert!(!app.has_relation(from, to, grouped));
     assert!(!app.has_relation(to, from, grouped));
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
 }
 
 #[test]
@@ -3178,24 +3256,24 @@ fn test_execute_edge_command_pin_and_unpin_selected() {
 #[test]
 fn test_add_node_and_sync_reheats_physics() {
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
     app.workspace.graph_runtime.drag_release_frames_remaining = 5;
 
     app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
     assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
 }
 
 #[test]
 fn test_reheat_physics_intent_enables_simulation() {
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
     app.workspace.graph_runtime.drag_release_frames_remaining = 5;
 
     app.apply_reducer_intents([GraphIntent::ReheatPhysics]);
 
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
     assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
 }
 
@@ -3225,13 +3303,13 @@ fn test_drag_release_keeps_physics_paused_when_camera_fit_lock_enabled() {
         .views
         .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
     app.workspace.graph_runtime.focused_view = Some(view_id);
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
     app.set_camera_fit_locked(true);
 
     app.set_interacting(true);
     app.set_interacting(false);
 
-    assert!(!app.workspace.graph_runtime.physics.base.is_running);
+    assert!(!app.workspace.graph_runtime.physics.is_running);
     assert_eq!(app.workspace.graph_runtime.drag_release_frames_remaining, 0);
 }
 
@@ -5537,20 +5615,12 @@ fn test_keyboard_pan_input_mode_persists_across_restart() {
     );
 }
 
-#[test]
-fn test_camera_pan_inertia_settings_persist_across_restart() {
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().to_path_buf();
-
-    let mut app = GraphBrowserApp::new_from_dir(path.clone());
-    app.set_camera_pan_inertia_enabled(false);
-    app.set_camera_pan_inertia_damping(0.92);
-    drop(app);
-
-    let reopened = GraphBrowserApp::new_from_dir(path);
-    assert!(!reopened.camera_pan_inertia_enabled());
-    assert!((reopened.camera_pan_inertia_damping() - 0.92).abs() < 0.001);
-}
+// `test_camera_pan_inertia_settings_persist_across_restart` removed
+// 2026-04-20. The workspace-global `camera_pan_inertia_*` fields it
+// tested were zombie prefs — persisted and displayed but never consumed
+// by the actual inertia tick. Pan inertia settings now live on
+// `NavigationPolicy` (per-view override + per-graph default); see
+// `design_docs/archive_docs/checkpoint_2026-04-20/graphshell_docs/implementation_strategy/shell/2026-04-20_navigation_policy_plan.md` (archived 2026-04-20).
 
 #[test]
 fn test_camera_starts_manual_without_pending_fit_command() {
@@ -5617,11 +5687,7 @@ fn test_set_snapshot_interval_secs_without_persistence_fails() {
 
 #[test]
 fn test_nostr_subscriptions_persist_across_restart() {
-    static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    let _guard = LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .expect("nostr persistence test lock poisoned");
+    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
 
     crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[])
         .expect("nostr subscriptions should clear before test");
@@ -5659,11 +5725,7 @@ fn test_nostr_subscriptions_persist_across_restart() {
 
 #[test]
 fn test_nostr_signer_settings_persist_across_restart_without_secret() {
-    static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    let _guard = LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .expect("nostr signer persistence test lock poisoned");
+    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
@@ -5702,11 +5764,7 @@ fn test_nostr_signer_settings_persist_across_restart_without_secret() {
 
 #[test]
 fn test_nostr_nip07_permissions_persist_across_restart() {
-    static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    let _guard = LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .expect("nostr nip07 persistence test lock poisoned");
+    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
@@ -5843,7 +5901,7 @@ fn test_navigator_sidebar_side_preference_persists_across_restart() {
 #[test]
 fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
     let mut app = GraphBrowserApp::new_for_testing();
-    app.workspace.graph_runtime.physics.base.is_running = false;
+    app.workspace.graph_runtime.physics.is_running = false;
 
     let view_id = GraphViewId::new();
     app.workspace.graph_runtime.views.insert(
@@ -5859,7 +5917,7 @@ fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
         app.default_registry_physics_id(),
         Some(crate::registries::atomic::lens::PHYSICS_ID_SCATTER)
     );
-    assert!(app.workspace.graph_runtime.physics.base.is_running);
+    assert!(app.workspace.graph_runtime.physics.is_running);
     assert_eq!(
         app.workspace
             .graph_runtime

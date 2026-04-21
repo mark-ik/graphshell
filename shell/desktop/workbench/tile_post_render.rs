@@ -449,7 +449,10 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
                 }
                 let pointer = ui.ctx().input(|i| i.pointer.latest_pos());
                 graph_app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
-                graph_app.open_context_palette();
+                let anchor = pointer
+                    .map(|p| crate::app::Anchor::viewport_point([p.x, p.y]))
+                    .unwrap_or(crate::app::Anchor::ScreenCenter);
+                graph_app.open_palette_contextual(crate::app::ActionScope::Workbench, anchor);
             }
         }
     }

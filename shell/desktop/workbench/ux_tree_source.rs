@@ -150,7 +150,12 @@ impl<'a> PaneTreeWalker for TilesTreeWalker<'a> {
                 Container::Tabs(tabs) => Some(ResolvedPane::Container {
                     ux_node_id,
                     kind: ContainerKind::Tabs,
-                    children: tabs.children.iter().copied().map(Self::handle_for).collect(),
+                    children: tabs
+                        .children
+                        .iter()
+                        .copied()
+                        .map(Self::handle_for)
+                        .collect(),
                     label: tabs_root_label(self.tree, graph_app, tile_id, tabs.children.len()),
                 }),
                 Container::Linear(linear) => Some(ResolvedPane::Container {
@@ -336,8 +341,8 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use crate::app::GraphViewId;
+    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use egui_tiles::Tiles;
 
     #[test]
@@ -419,7 +424,10 @@ mod tests {
         let mut topology = TreeTopology::<NodeKey>::new();
         topology.attach_root(node);
         let tree = graph_tree::GraphTree::<NodeKey>::from_members(
-            vec![(node, MemberEntry::new(Lifecycle::Active, Provenance::Anchor))],
+            vec![(
+                node,
+                MemberEntry::new(Lifecycle::Active, Provenance::Anchor),
+            )],
             topology,
             Vec::new(),
             graph_tree::LayoutMode::TreeStyleTabs,
@@ -435,7 +443,10 @@ mod tests {
                 assert_eq!(kind, ContainerKind::Linear);
                 assert_eq!(children.len(), 1);
             }
-            other => panic!("expected synthetic root Container, got {}", discriminant(&other)),
+            other => panic!(
+                "expected synthetic root Container, got {}",
+                discriminant(&other)
+            ),
         }
     }
 

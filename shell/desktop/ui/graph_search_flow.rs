@@ -68,7 +68,6 @@ where
         *graph_search_active_match_index = None;
         *graph_search_filter_mode = false;
         graph_app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
-        graph_app.workspace.graph_runtime.egui_state_dirty = true;
         emit_navigation_transition_graph_search();
     }
 
@@ -152,7 +151,6 @@ where
                 graph_search_matches,
                 graph_search_active_match_index,
             );
-            graph_app.workspace.graph_runtime.egui_state_dirty = true;
             if closed_search_surface {
                 emit_navigation_transition_graph_search();
             }

@@ -75,7 +75,6 @@ pub(crate) fn run_graph_search_phase(
         if let Some(message) = request.toast_message {
             toasts.success(message);
         }
-        graph_app.workspace.graph_runtime.egui_state_dirty = true;
     }
 
     graph_app.workspace.graph_runtime.active_graph_search_query =
