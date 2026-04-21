@@ -343,7 +343,12 @@ pub enum SimulateBehaviorPreset {
 /// When a node is released after dragging in Simulate mode, its drag velocity
 /// is captured as a release impulse that decays over subsequent frames. This
 /// profile controls the feel of that coasting behavior.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// The host typically resolves this via a preset ([`SimulateBehaviorPreset`]
+/// → [`SimulateMotionProfile::for_preset`]) but may also user-tune the
+/// individual fields by setting a per-view or per-graph override; see
+/// `GraphBrowserApp::resolve_simulate_motion_profile`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SimulateMotionProfile {
     /// Scale factor applied to the captured drag impulse.
     pub release_impulse_scale: f32,
@@ -351,6 +356,12 @@ pub struct SimulateMotionProfile {
     pub release_decay: f32,
     /// Minimum impulse magnitude; below this the impulse is zeroed.
     pub min_impulse: f32,
+}
+
+impl Default for SimulateMotionProfile {
+    fn default() -> Self {
+        Self::for_preset(SimulateBehaviorPreset::default())
+    }
 }
 
 impl SimulateMotionProfile {

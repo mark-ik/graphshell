@@ -4,7 +4,11 @@
 
 # Layout Variant Follow-On Plan (2026-04-03)
 
-**Status**: Active follow-on plan
+**Status**: Active follow-on plan. Updated 2026-04-19 — the `Layout<N>` trait
+home moved from `graph::layouts/` to `graph_canvas::layout`; Radial,
+Phyllotaxis, and rapier2d have landed; Timeline and Kanban are the active
+next-wave targets. Penrose and L-system move to a Step-5 design pass (see
+[2026-02-24_physics_engine_extensibility_plan.md](2026-02-24_physics_engine_extensibility_plan.md)).
 **Scope**: Extracts the built-in layout-variant lane from `2026-02-24_physics_engine_extensibility_plan.md` into an execution plan focused on new native layout families beyond FR/Barnes-Hut.
 **Related**:
 
@@ -71,28 +75,52 @@ rather than inventing a second persistence model.
 
 ---
 
-## Feature Target 2: Land the First Analytic Variant Wave
+## Feature Target 2: First Analytic Variant Wave — partly landed
 
 ### Target 2 Context
 
 The first new variants should maximize conceptual difference from FR while minimizing dependency
 surface.
 
-### Candidate First Wave
+### First Wave — 2026-04-19 status
 
-1. `graph_layout:radial`
-2. `graph_layout:timeline`
-3. `graph_layout:phyllotaxis`
+1. `graph_layout:radial` — **landed** as `graph_canvas::layout::Radial` with
+   `RadialConfig` (focus, center, ring_spacing) and BFS-based ring assignment.
+2. `graph_layout:phyllotaxis` — **landed** as `graph_canvas::layout::Phyllotaxis`
+   with inward/outward `SpiralOrientation`.
+3. `graph_layout:timeline` — **pending** (needs metadata slot on
+   `LayoutExtras`; see Target 2.1 below).
 
-### Target 2 Tasks
+### Target 2 Tasks (revised)
 
-1. Add one module per variant under `graph/layouts/`.
+1. ~~Add one module per variant under `graph/layouts/`.~~ Variants live in
+   `crates/graph-canvas/src/layout/static_layouts.rs` under the portable
+   `Layout<N>` trait; they implement delta-to-target semantics with a
+   `StaticLayoutState.damping` for instant-or-eased application.
 2. Define deterministic input ordering rules for each variant.
 3. Add stable variant IDs and compatibility declarations consistent with
    `layout_algorithm_portfolio_spec.md`.
-4. Route those variants through `ActiveLayout` rather than through helper accumulation.
+4. Route those variants through the `LayoutAlgorithm` registry at
+   `app::graph_layout`, which is what graphshell's host already uses for
+   one-shot apply (`Grid` and `Tree` already live there; Radial, Timeline,
+   Phyllotaxis need registry entries that delegate to the graph-canvas impls).
 5. Define how transitions between variants use `2026-04-03_layout_transition_and_history_plan.md`
    instead of ad hoc one-off animation behavior.
+
+### Target 2.1 — Timeline metadata slot
+
+Timeline needs a per-node time coordinate that isn't in the current
+`CanvasSceneInput` / `LayoutExtras`. Design question:
+
+- **Option A**: add `time_by_node: HashMap<N, f64>` to `LayoutExtras`.
+  Narrow, explicit, matches Kanban's analog.
+- **Option B**: generalize to `axis_value_by_node: HashMap<N, AxisValue>`
+  where `AxisValue` is `enum { Numeric(f64), Categorical(String) }`.
+  Shared slot for Timeline's x-axis time + Kanban's column bucket tag +
+  future axial layouts (UDC-depth, topic-frequency, etc.).
+
+Option B is marginally more work but aligns the Timeline/Kanban/future
+analog into one slot and one mental model. Recommended.
 
 ### Target 2 Validation Tests
 
@@ -125,19 +153,50 @@ diagnostics rather than living as hidden one-off modules.
 
 ---
 
-## Feature Target 4: Set the Admission Bar for Later Variants
+## Feature Target 4: Second Wave and Admission Bar
 
 ### Target 4 Context
 
 Once the first wave lands, Graphshell can admit more specialized variants without turning the
 portfolio into an uncurated idea dump.
 
-### Candidate Second Wave
+### Second Wave — 2026-04-19 status
 
-- Penrose / aperiodic tiling
-- L-system path layouts
-- Kanban / column projection
-- rapier-backed scene layout
+- **Kanban / column projection** — **pending** as Target 4.1 below. Reads
+  per-node categorical tags, buckets into columns. Blocks on the same
+  `LayoutExtras` slot decision as Timeline (see Target 2.1). Small
+  implementation (~80 LOC) once the slot exists.
+- **rapier-backed scene layout** — **landed** as
+  `graph_canvas::layout::RapierLayout` (feature-gated behind `simulate`).
+  Current revision rebuilds the world per step; a persistent variant that
+  carries momentum across frames is tracked in
+  [../../../archive_docs/checkpoint_2026-04-20/graphshell_docs/implementation_strategy/graph/2026-04-19_persistent_rapier_adapter_plan.md](../../../archive_docs/checkpoint_2026-04-20/graphshell_docs/implementation_strategy/graph/2026-04-19_persistent_rapier_adapter_plan.md) (archived 2026-04-20; momentum-preserving drag-release landed).
+- **Penrose / aperiodic tiling** — **pending design pass** as part of
+  Step 5 in [2026-02-24_physics_engine_extensibility_plan.md](2026-02-24_physics_engine_extensibility_plan.md).
+  Open questions: P2 kite-dart vs P3 rhombus, handling of node counts that
+  don't fit a subdivision level cleanly.
+- **L-system path layouts** — **pending design pass** as part of Step 5.
+  Open questions: built-in grammars only (Hilbert / Koch / dragon) or a
+  runtime grammar registry; if registry, grammar syntax and sandboxing.
+
+### Target 4.1 — Kanban
+
+Column bucket by categorical node value. Depends on the `LayoutExtras`
+metadata slot decision in Target 2.1.
+
+```rust
+pub struct KanbanConfig {
+    pub origin: Point2D<f32>,
+    pub column_gap: f32,
+    pub row_gap: f32,
+    /// Canonical order of columns left-to-right. Nodes whose tag is absent
+    /// go in an "other" column at the end.
+    pub column_order: Vec<String>,
+}
+```
+
+Within each column, nodes are stacked top-down in stable index order.
+Columns with no members are omitted.
 
 ### Target 4 Tasks
 

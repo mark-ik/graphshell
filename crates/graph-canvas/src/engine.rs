@@ -16,19 +16,36 @@ use crate::camera::{CanvasCamera, CanvasViewport};
 use crate::hit_test::{HitTestResult, hit_test_point, nodes_in_screen_rect};
 use crate::input::{CanvasInputEvent, Modifiers, PointerButton};
 use crate::interaction::{CanvasAction, EdgeRef, InteractionState, LassoState};
+use crate::navigation::LassoModifier;
 use crate::packet::HitProxy;
 
 /// Configuration for the interaction engine.
+///
+/// Mirror of the input-relevant subset of
+/// [`crate::navigation::NavigationPolicy`] — hosts that want to stay
+/// in sync with a user-tunable policy should resolve the policy and
+/// call `policy.to_interaction_config()` rather than building an
+/// `InteractionConfig` directly.
 #[derive(Debug, Clone)]
 pub struct InteractionConfig {
     /// Minimum drag distance in screen pixels before a drag gesture starts.
     pub drag_threshold_px: f32,
-    /// Zoom factor per scroll unit.
+    /// Zoom factor per scroll unit (applied when `Ctrl`/`Cmd` is held).
     pub scroll_zoom_factor: f32,
+    /// Screen pixels of pan per unit of scroll delta (applied when no
+    /// modifier is held). Matches typical infinite-canvas feel (Figma /
+    /// Miro): one mousewheel notch pans roughly `50 px`.
+    pub scroll_pan_pixels_per_unit: f32,
     /// Whether node dragging is enabled (disabled in Browse mode).
     pub node_drag_enabled: bool,
     /// Whether lasso selection is enabled.
     pub lasso_enabled: bool,
+    /// Whether to capture pan velocity on drag release so the host can
+    /// coast the camera via [`CanvasCamera::tick_inertia`].
+    pub pan_inertia_enabled: bool,
+    /// Which modifier routes primary-drag on empty background into a
+    /// lasso marquee. Defaults to `Shift` (Miro convention).
+    pub lasso_modifier: LassoModifier,
 }
 
 impl Default for InteractionConfig {
@@ -36,8 +53,29 @@ impl Default for InteractionConfig {
         Self {
             drag_threshold_px: 6.0,
             scroll_zoom_factor: 0.1,
+            scroll_pan_pixels_per_unit: 50.0,
             node_drag_enabled: true,
             lasso_enabled: true,
+            pan_inertia_enabled: true,
+            lasso_modifier: LassoModifier::default(),
+        }
+    }
+}
+
+impl InteractionConfig {
+    /// True when a press with these modifiers should start a lasso
+    /// marquee instead of a pan, given the engine's configured
+    /// lasso modifier. Keeps the gate in one place so engine and tests
+    /// don't drift.
+    fn press_should_lasso(&self, modifiers: Modifiers) -> bool {
+        if !self.lasso_enabled {
+            return false;
+        }
+        match self.lasso_modifier {
+            LassoModifier::Shift => modifiers.shift,
+            LassoModifier::Ctrl => modifiers.ctrl,
+            LassoModifier::Alt => modifiers.alt,
+            LassoModifier::None => true,
         }
     }
 }
@@ -51,14 +89,23 @@ enum DragState<N> {
     Pending {
         origin: Point2D<f32>,
         button: PointerButton,
+        /// Modifiers captured at press time. Shift routes
+        /// primary-drag on empty background to a lasso marquee instead
+        /// of the default pan.
+        modifiers: Modifiers,
         target: HitTestResult<N>,
     },
     /// Actively dragging a node.
     DraggingNode { node: N, last_pos: Point2D<f32> },
     /// Actively dragging a lasso rectangle.
     Lasso { origin: Point2D<f32> },
-    /// Panning the camera.
-    Panning { last_pos: Point2D<f32> },
+    /// Panning the camera. `last_world_delta` is the world-space delta
+    /// applied by the most recent pointer move; on release the engine
+    /// converts it to a per-second pan velocity for inertial coast.
+    Panning {
+        last_pos: Point2D<f32>,
+        last_world_delta: Vector2D<f32>,
+    },
 }
 
 /// The interaction engine. Maintains state between frames and emits actions.
@@ -125,13 +172,32 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                 );
             }
             CanvasInputEvent::Scroll {
-                delta, position, ..
+                delta,
+                position,
+                modifiers,
             } => {
-                let factor = 1.0 + delta * self.config.scroll_zoom_factor;
-                actions.push(CanvasAction::ZoomCamera {
-                    factor,
-                    focus: *position,
-                });
+                // Browser-style default: plain wheel pans, `Ctrl`/`Cmd`
+                // + wheel zooms. Matches Firefox/Chrome infinite-canvas
+                // convention and most trackpad pinch gestures (which
+                // synthesize `ctrlKey = true`).
+                if modifiers.ctrl {
+                    let factor = 1.0 + delta * self.config.scroll_zoom_factor;
+                    actions.push(CanvasAction::ZoomCamera {
+                        factor,
+                        focus: *position,
+                    });
+                } else {
+                    // Treat scroll delta as vertical pan amount in screen
+                    // pixels. Convert to world units via current camera
+                    // zoom. Positive delta (wheel-up) scrolls content up —
+                    // i.e. the viewport reveals content above, which in
+                    // our pan convention means `pan.y` increases.
+                    let pan_pixels = *delta * self.config.scroll_pan_pixels_per_unit;
+                    actions.push(CanvasAction::PanCamera(Vector2D::new(
+                        0.0,
+                        pan_pixels,
+                    )));
+                }
             }
             CanvasInputEvent::PointerLeft => {
                 self.last_pointer_pos = None;
@@ -179,14 +245,22 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
             DragState::Pending {
                 origin,
                 button,
+                modifiers,
                 target,
             } => {
                 let dist = (position - *origin).length();
                 if dist >= self.config.drag_threshold_px {
                     let origin = *origin;
                     let button = *button;
+                    let modifiers = *modifiers;
                     let target = target.clone();
                     // Threshold crossed — start the appropriate drag.
+                    //
+                    // Miro-style default on the background layer:
+                    // primary-drag pans, `Shift`+primary-drag starts a
+                    // lasso marquee. Middle-drag and secondary-drag on
+                    // background also pan (redundant entry points that
+                    // users reach for by habit).
                     match (&target, button) {
                         (HitTestResult::Node(id), PointerButton::Primary)
                             if self.config.node_drag_enabled =>
@@ -204,8 +278,11 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                             });
                         }
                         (HitTestResult::None, PointerButton::Primary)
-                            if self.config.lasso_enabled =>
+                            if self.config.press_should_lasso(modifiers) =>
                         {
+                            // Primary-drag on empty background that
+                            // matches the configured lasso modifier
+                            // (default `Shift`).
                             let world_origin = camera.screen_to_world(origin, viewport);
                             self.state.lasso = Some(LassoState {
                                 origin: world_origin,
@@ -217,16 +294,20 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                             });
                         }
                         // Scene objects are not draggable — scripts control
-                        // their position. Fall through to panning.
-                        (HitTestResult::SceneObject(_), PointerButton::Primary)
+                        // their position. Fall through to panning alongside
+                        // plain-primary-background, middle, and secondary.
+                        (HitTestResult::None, PointerButton::Primary)
+                        | (HitTestResult::SceneObject(_), PointerButton::Primary)
                         | (_, PointerButton::Middle)
                         | (HitTestResult::None, PointerButton::Secondary) => {
-                            self.drag = DragState::Panning { last_pos: position };
                             let delta = position - origin;
-                            actions.push(CanvasAction::PanCamera(Vector2D::new(
-                                delta.x / camera.zoom,
-                                delta.y / camera.zoom,
-                            )));
+                            let world_delta =
+                                Vector2D::new(delta.x / camera.zoom, delta.y / camera.zoom);
+                            self.drag = DragState::Panning {
+                                last_pos: position,
+                                last_world_delta: world_delta,
+                            };
+                            actions.push(CanvasAction::PanCamera(world_delta));
                         }
                         _ => {
                             // Not a recognized drag gesture — cancel.
@@ -259,13 +340,14 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                     current: world_current,
                 });
             }
-            DragState::Panning { last_pos } => {
+            DragState::Panning { last_pos, .. } => {
                 let delta = position - *last_pos;
-                self.drag = DragState::Panning { last_pos: position };
-                actions.push(CanvasAction::PanCamera(Vector2D::new(
-                    delta.x / camera.zoom,
-                    delta.y / camera.zoom,
-                )));
+                let world_delta = Vector2D::new(delta.x / camera.zoom, delta.y / camera.zoom);
+                self.drag = DragState::Panning {
+                    last_pos: position,
+                    last_world_delta: world_delta,
+                };
+                actions.push(CanvasAction::PanCamera(world_delta));
             }
         }
     }
@@ -274,7 +356,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
         &mut self,
         position: Point2D<f32>,
         button: PointerButton,
-        _modifiers: Modifiers,
+        modifiers: Modifiers,
         hit_proxies: &[HitProxy<N>],
         actions: &mut Vec<CanvasAction<N>>,
     ) {
@@ -282,6 +364,7 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
         self.drag = DragState::Pending {
             origin: position,
             button,
+            modifiers,
             target: target.clone(),
         };
         // Don't emit select actions on press — wait for release (click)
@@ -326,8 +409,27 @@ impl<N: Clone + Eq + Hash> InteractionEngine<N> {
                 self.state.lasso = None;
                 actions.push(CanvasAction::LassoComplete { nodes: lasso_nodes });
             }
-            DragState::DraggingNode { .. } | DragState::Panning { .. } => {
-                // Drag ended. No additional action needed.
+            DragState::Panning {
+                last_world_delta, ..
+            } => {
+                // Drag ended. If inertia is enabled and the terminal
+                // delta is above the engine's drag threshold (scaled
+                // against the assumed 60fps tick), seed the camera's
+                // inertial velocity so the host can coast the view.
+                if self.config.pan_inertia_enabled {
+                    // Convert last per-frame world delta to per-second
+                    // velocity. Engine has no real frame clock, so assume
+                    // a 60hz tick — good enough for "feel".
+                    let velocity_per_second = last_world_delta * 60.0;
+                    if velocity_per_second.length()
+                        >= crate::camera::PAN_VELOCITY_EPSILON
+                    {
+                        actions.push(CanvasAction::SetPanInertia(velocity_per_second));
+                    }
+                }
+            }
+            DragState::DraggingNode { .. } => {
+                // Node drag ended. No additional action needed.
             }
             DragState::None => {}
         }
@@ -600,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_emits_zoom() {
+    fn scroll_without_modifier_emits_pan() {
         let mut engine = default_engine();
         let proxies = sample_proxies();
         let cam = default_camera();
@@ -618,17 +720,151 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|a| matches!(a, CanvasAction::ZoomCamera { .. }))
+                .any(|a| matches!(a, CanvasAction::PanCamera(..))),
+            "plain wheel must pan, got: {actions:?}",
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::ZoomCamera { .. })),
+            "plain wheel must not zoom, got: {actions:?}",
         );
     }
 
     #[test]
-    fn lasso_on_background_drag() {
+    fn scroll_with_ctrl_emits_zoom() {
         let mut engine = default_engine();
         let proxies = sample_proxies();
         let cam = default_camera();
         let vp = default_viewport();
-        // Press on empty space.
+        let mods = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        let actions = engine.process_event(
+            &CanvasInputEvent::Scroll {
+                delta: 1.0,
+                position: Point2D::new(400.0, 300.0),
+                modifiers: mods,
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::ZoomCamera { .. })),
+            "ctrl+wheel must zoom, got: {actions:?}",
+        );
+    }
+
+    #[test]
+    fn pan_release_emits_inertia_when_drag_has_momentum() {
+        let mut engine = default_engine();
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        // Middle-drag across background to pan.
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(100.0, 100.0),
+                button: PointerButton::Middle,
+                modifiers: no_mods(),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(200.0, 100.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        // Second move keeps the drag active and seeds a non-zero
+        // last_world_delta so release can emit inertia.
+        engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(260.0, 100.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        let release_actions = engine.process_event(
+            &CanvasInputEvent::PointerReleased {
+                position: Point2D::new(260.0, 100.0),
+                button: PointerButton::Middle,
+                modifiers: no_mods(),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            release_actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::SetPanInertia(..))),
+            "pan release must seed inertia, got: {release_actions:?}",
+        );
+    }
+
+    #[test]
+    fn pan_release_skips_inertia_when_disabled() {
+        let mut engine = InteractionEngine::<u32>::new(InteractionConfig {
+            pan_inertia_enabled: false,
+            ..InteractionConfig::default()
+        });
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(100.0, 100.0),
+                button: PointerButton::Middle,
+                modifiers: no_mods(),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(260.0, 100.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        let release_actions = engine.process_event(
+            &CanvasInputEvent::PointerReleased {
+                position: Point2D::new(260.0, 100.0),
+                button: PointerButton::Middle,
+                modifiers: no_mods(),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            !release_actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::SetPanInertia(..))),
+            "inertia must not fire when the feature is disabled, got: {release_actions:?}",
+        );
+    }
+
+    #[test]
+    fn plain_primary_drag_on_background_pans() {
+        // Miro-style default: plain primary-drag on empty background
+        // pans the camera; no lasso is started.
+        let mut engine = default_engine();
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
         engine.process_event(
             &CanvasInputEvent::PointerPressed {
                 position: Point2D::new(50.0, 50.0),
@@ -639,7 +875,54 @@ mod tests {
             &cam,
             &vp,
         );
-        // Move past threshold.
+        let actions = engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(80.0, 80.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::PanCamera(..))),
+            "plain primary-drag on background must pan, got: {actions:?}",
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
+            "plain primary-drag on background must NOT start a lasso, got: {actions:?}",
+        );
+        assert!(engine.state.lasso.is_none());
+    }
+
+    #[test]
+    fn ctrl_primary_drag_lassos_when_policy_selects_ctrl() {
+        // Swapping the modifier in config re-routes plain-Shift drags
+        // back to a pan, and Ctrl drags become the lasso gesture.
+        let mut engine = InteractionEngine::<u32>::new(InteractionConfig {
+            lasso_modifier: LassoModifier::Ctrl,
+            ..InteractionConfig::default()
+        });
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(50.0, 50.0),
+                button: PointerButton::Primary,
+                modifiers: ctrl,
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
         let actions = engine.process_event(
             &CanvasInputEvent::PointerMoved {
                 position: Point2D::new(80.0, 80.0),
@@ -652,8 +935,130 @@ mod tests {
             actions
                 .iter()
                 .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
-            "expected LassoBegin, got: {:?}",
+            "Ctrl+primary-drag must lasso when policy is Ctrl, got: {actions:?}",
+        );
+    }
+
+    #[test]
+    fn shift_primary_drag_pans_when_policy_selects_ctrl() {
+        // Shift is no longer the lasso modifier — plain-Shift drag on
+        // background falls through to pan like any other "no gate matched" press.
+        let mut engine = InteractionEngine::<u32>::new(InteractionConfig {
+            lasso_modifier: LassoModifier::Ctrl,
+            ..InteractionConfig::default()
+        });
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        let shift = Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(50.0, 50.0),
+                button: PointerButton::Primary,
+                modifiers: shift,
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        let actions = engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(80.0, 80.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
             actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::PanCamera(..))),
+            "Shift-drag must pan when policy is Ctrl, got: {actions:?}",
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
+            "Shift-drag must NOT lasso when policy is Ctrl, got: {actions:?}",
+        );
+    }
+
+    #[test]
+    fn modifier_none_routes_plain_primary_drag_to_lasso() {
+        // Figma-style config: no modifier gating. Plain-primary drag
+        // on empty background always starts a lasso.
+        let mut engine = InteractionEngine::<u32>::new(InteractionConfig {
+            lasso_modifier: LassoModifier::None,
+            ..InteractionConfig::default()
+        });
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(50.0, 50.0),
+                button: PointerButton::Primary,
+                modifiers: no_mods(),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        let actions = engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(80.0, 80.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
+            "plain primary-drag must lasso when policy is None, got: {actions:?}",
+        );
+    }
+
+    #[test]
+    fn shift_primary_drag_on_background_lassos() {
+        // `Shift`+primary-drag on empty background starts a marquee
+        // select. The modifier is captured at press time and checked
+        // when the threshold is crossed.
+        let mut engine = default_engine();
+        let proxies = sample_proxies();
+        let cam = default_camera();
+        let vp = default_viewport();
+        let shift = Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        engine.process_event(
+            &CanvasInputEvent::PointerPressed {
+                position: Point2D::new(50.0, 50.0),
+                button: PointerButton::Primary,
+                modifiers: shift,
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        let actions = engine.process_event(
+            &CanvasInputEvent::PointerMoved {
+                position: Point2D::new(80.0, 80.0),
+            },
+            &proxies,
+            &cam,
+            &vp,
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, CanvasAction::LassoBegin { .. })),
+            "Shift+primary-drag must start a lasso, got: {actions:?}",
         );
         assert!(engine.state.lasso.is_some());
 
@@ -662,7 +1067,7 @@ mod tests {
             &CanvasInputEvent::PointerReleased {
                 position: Point2D::new(80.0, 80.0),
                 button: PointerButton::Primary,
-                modifiers: no_mods(),
+                modifiers: shift,
             },
             &proxies,
             &cam,

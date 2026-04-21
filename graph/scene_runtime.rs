@@ -17,34 +17,14 @@ const MAX_REGION_DELTA_PER_PASS: f32 = 18.0;
 const NODE_SEPARATION_PASSES: usize = 3;
 const MIN_SCENE_REGION_RADIUS: f32 = 24.0;
 const MIN_SCENE_RECT_SIDE: f32 = 48.0;
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct SimulateMotionProfile {
-    release_impulse_scale: f32,
-    release_decay: f32,
-    min_impulse: f32,
-}
 
-impl SimulateMotionProfile {
-    fn for_preset(preset: SimulateBehaviorPreset) -> Self {
-        match preset {
-            SimulateBehaviorPreset::Float => Self {
-                release_impulse_scale: 1.15,
-                release_decay: 0.84,
-                min_impulse: 0.03,
-            },
-            SimulateBehaviorPreset::Packed => Self {
-                release_impulse_scale: 0.45,
-                release_decay: 0.45,
-                min_impulse: 0.05,
-            },
-            SimulateBehaviorPreset::Magnetic => Self {
-                release_impulse_scale: 0.7,
-                release_decay: 0.62,
-                min_impulse: 0.04,
-            },
-        }
-    }
-}
+// `SimulateMotionProfile` + the preset → profile mapping used to live
+// here as a private app-side duplicate of the portable type in
+// `graph_canvas::scene_physics`. Removed 2026-04-20 in favor of
+// `GraphBrowserApp::resolve_simulate_motion_profile(view_id)`, which
+// threads per-view overrides and per-graph defaults through the same
+// resolver shape as `NavigationPolicy` and `NodeStyle`.
+use graph_canvas::scene_physics::SimulateMotionProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SceneRegionId(uuid::Uuid);
@@ -52,6 +32,15 @@ pub(crate) struct SceneRegionId(uuid::Uuid);
 impl SceneRegionId {
     pub(crate) fn new() -> Self {
         Self(uuid::Uuid::new_v4())
+    }
+
+    /// Stable lower-64-bit projection of the underlying UUID. Used when
+    /// bridging to crates that key scene regions by `u64` (graph-canvas
+    /// overlay emission), so the portable id round-trips deterministically
+    /// even though it collapses 128 → 64 bits. Collision risk is
+    /// negligible at the scale of per-view region sets.
+    pub(crate) fn as_u64_low(self) -> u64 {
+        self.0.as_u128() as u64
     }
 }
 
@@ -223,8 +212,7 @@ fn apply_simulate_release_impulses(app: &mut GraphBrowserApp, view_id: GraphView
         return;
     }
 
-    let motion_profile =
-        SimulateMotionProfile::for_preset(app.graph_view_simulate_behavior_preset(view_id));
+    let motion_profile: SimulateMotionProfile = app.resolve_simulate_motion_profile(view_id);
 
     let remaining_frames = app.workspace.graph_runtime.drag_release_frames_remaining;
     if remaining_frames == 0 || app.workspace.graph_runtime.is_interacting {
@@ -604,12 +592,6 @@ fn movable_node_snapshots(app: &GraphBrowserApp) -> Vec<NodeSnapshot> {
 }
 
 fn resolve_node_radius(app: &GraphBrowserApp, key: NodeKey) -> f32 {
-    if let Some(state) = app.workspace.graph_runtime.egui_state.as_ref()
-        && let Some(node) = state.graph.node(key)
-    {
-        return node.display().radius();
-    }
-
     app.domain_graph()
         .get_node(key)
         .map(|node| match node.lifecycle {

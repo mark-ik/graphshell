@@ -4,12 +4,17 @@
 
 # Physics Engine Extensibility Plan (2026-02-24)
 
-**Status**: Active research note / partial implementation (updated 2026-04-03 — current code uses
-Graphshell-owned post-physics extension helpers plus an `ActiveLayout` dispatcher; helper-era
-seeded physics profiles are landed in the atomic lens registry and active profile resolution is
-wired through the registry runtime; the `egui_graphs` `Layout<S>` / `LayoutState` trait seam is
-still imported behind `graph::physics`; later sections retain exploratory follow-ons including
-WASM layouts, rapier2d, and 2D↔3D hotswitch architecture)
+**Status**: Active research note / partial implementation. Updated 2026-04-19 to re-home physics
+authority in `graph-canvas` following the egui_graphs retirement decision; this is a structural
+move, not a restart. Earlier update (2026-04-03): current code uses Graphshell-owned post-physics
+extension helpers plus an `ActiveLayout` dispatcher; helper-era seeded physics profiles are
+landed in the atomic lens registry and active profile resolution is wired through the registry
+runtime. The `egui_graphs` `Layout<S>` / `LayoutState` trait seam is still imported behind
+`graph::physics` and is the target of the in-flight retirement work tracked in
+[../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md](../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md) (archived 2026-04-19).
+Later sections retain exploratory follow-ons including WASM layouts, 2D↔3D hotswitch
+architecture, and the rapier2d Canvas Editor UI — note that the rapier2d runtime itself has
+since partly landed in `crates/graph-canvas/src/simulate.rs` behind the `simulate` feature.
 **Relates to**:
 
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
@@ -31,6 +36,25 @@ WASM layouts, rapier2d, and 2D↔3D hotswitch architecture)
 ---
 
 ## Context: What We Have Today
+
+**Updated 2026-04-19 (home re-framing)**: the physics authority home is now
+`graph-canvas`, not `graph::physics` (app-local). This is not a restart of the plan — the
+policy/registry/extension architecture below stays intact. The change is where the `Layout`
+trait, the built-in force-directed algorithms, and the dispatch enum live. Routing physics
+through graph-canvas:
+
+- inherits mobile/WASM portability automatically (the crate is pure-math and framework-
+  agnostic by construction; `scene_physics.rs` is already this shape),
+- gives the iced host physics "for free" once it lands (same `Layout::step()` call, same
+  delta application; no second port required),
+- aligns with the crate's existing `scene_physics` and `simulate` modules which already
+  compute position deltas from snapshots and (feature-gated) wrap rapier2d.
+
+Earlier sections below reference `graph/physics.rs` and `graph/layouts/` as the home. Read
+those as **current production location** (to be retired) and treat references to
+`graph-canvas::layout::*` in the next-session retirement plan as **the post-retirement
+location**. The trait shape, `ActiveLayout` dispatcher, `PhysicsProfile` presets, and extension
+composition rules all move to graph-canvas roughly structure-preservingly.
 
 **Updated 2026-04-02**: this document needed a reality pass. The core direction is still good,
 but the codebase landed a narrower seam than this file previously claimed. Graphshell owns the
@@ -307,6 +331,19 @@ used.
 
 ## Canvas Editor Layer: rapier2d
 
+**Updated 2026-04-19**: the rapier2d runtime described below is partly landed as
+[crates/graph-canvas/src/simulate.rs](../../../../crates/graph-canvas/src/simulate.rs)
+behind the `simulate` feature, alongside [crates/graph-canvas/src/scene_physics.rs](../../../../crates/graph-canvas/src/scene_physics.rs)
+and [crates/graph-canvas/src/scene_region.rs](../../../../crates/graph-canvas/src/scene_region.rs).
+`RapierSceneWorld`, `NodeAvatarBinding`, `EdgeJointSpec`, `SceneRegion`,
+`SceneEvent`, and `SimulateMotionProfile` all exist. The still-missing pieces are (a) the
+`Layout` trait adapter that drives graph-canvas scene positions from rapier body translations
+each frame, (b) the user-facing Canvas Editor panel
+(`desktop/panels/canvas_editor.rs`), and (c) the Verse-layout persistence of a
+`PhysicsWorldSnapshot`. Earlier sections below retain the original design; read
+`scene_physics`/`scene_region`/`simulate` as the landed implementation surface rather than the
+`graph/physics_world.rs` file named in the original draft.
+
 The `ExtraForce` system handles forces on graph nodes as abstract 2D points. For richer simulation
 — regions with rules, surfaces with friction, inter-node collisions, spring constraints, fluid
 simulation — a separate **Canvas Editor layer** makes sense. The right crate is **rapier2d**.
@@ -571,17 +608,33 @@ work is no longer registry bootstrapping; it is future layout/runtime expansion.
 
 ### What Is Still Actually Left
 
-The meaningful unfinished work after the 2026-04-03 reality check is:
+The meaningful unfinished work after the 2026-04-03 reality check, reframed 2026-04-19:
 
-- **Full seam ownership**: `Layout<S>` / `LayoutState` still come from `egui_graphs` via
-  `graph::physics`; Graphshell does not yet own a native trait boundary for layouts.
-- **WASM layout runtime**: no `WasmLayoutAdapter` or stable guest ABI is landed yet.
-- **rapier scene-physics branch**: no `graph/physics_world.rs`, no rapier-backed layout adapter,
-  and no canvas-editor UI are present in production code.
-- **Broader built-in layout portfolio**: the dispatcher currently ships force-directed and
-  Barnes-Hut variants; radial/timeline/phyllotaxis/other layouts remain future additions.
+- **Full seam ownership in `graph-canvas`**: `Layout<S>` / `LayoutState` still come from
+  `egui_graphs` via `graph::physics`. The retirement target is not Graphshell-app-local — it
+  is `graph-canvas::layout`. This gets mobile/WASM portability and iced-host inheritance for
+  free, and consolidates with the crate's existing `scene_physics` (post-physics helpers) and
+  `simulate` (rapier2d world) modules.
+- **WASM layout runtime**: no `WasmLayoutAdapter` or stable guest ABI is landed yet. After
+  re-homing in graph-canvas, this becomes a `WasmLayoutAdapter` parallel to `simulate.rs`.
+- **rapier scene-physics branch — partly landed.** `crates/graph-canvas/src/simulate.rs`
+  (feature-gated) already provides `RapierSceneWorld`, `NodeAvatarBinding`, `EdgeJointSpec`,
+  `SceneEvent`, and the `scene_region` module already owns attractor/repulsor/dampener/wall
+  effects. The remaining gap is the Canvas Editor UI (`desktop/panels/canvas_editor.rs`) and
+  the `Layout` adapter that bridges rapier bodies ↔ graph-canvas scene.
+- **Broader built-in layout portfolio**: once the `graph-canvas::layout` trait lands, the
+  plan's catalogue (Radial, Timeline, Kanban, Grid, Phyllotaxis, Penrose, L-system, Semantic
+  Embedding) are mostly ~50–200 LOC each of pure math; they are trait implementers, not
+  architectural features. See the retirement subplan for the staged landing order.
+- **Physics extras move with the layout trait**: degree repulsion, domain clustering, semantic
+  clustering, hub pull, frame-affinity all become `graph-canvas`-owned composition passes
+  (or separate `Layout` impls that compose with FR). The current app-local
+  `apply_graph_physics_extensions` wrapper thins to a pass-through that feeds out-of-band
+  inputs (domain strings, semantic vectors) into the layout.
 - **2D↔3D implementation**: the position-parity / render-backend sections below remain
-  architecture notes rather than landed code.
+  architecture notes rather than landed code. The `graph-canvas::projection::ProjectionMode`
+  type already anticipates this; `ZSource` stays in Graphshell-app view state and is applied
+  at render time.
 
 As of 2026-04-03, nine of these future lanes now have their own follow-on execution plans or
 specs so the remaining work is not trapped inside this umbrella research note:
@@ -1502,3 +1555,70 @@ These are not yet specified in the plan and should be resolved before shipping e
   `PhysicsProfile::apply_to_state()` plus `PhysicsProfile::graph_physics_extensions(...)`.
 - Marked the later WASM / rapier / richer force-surface sections as exploratory follow-on
   architecture, not landed implementation.
+
+### 2026-04-19
+
+- Re-homed physics authority from `graph::physics` (app-local) to `graph-canvas::layout`. This
+  is a structural re-framing, not a restart: the policy layer, `ActiveLayout` dispatcher,
+  `PhysicsProfile` presets, and extension composition rules all move to graph-canvas roughly
+  structure-preservingly. Drivers: mobile/WASM portability is automatic in the crate; iced
+  host inherits physics without a second port; aligns with the crate's existing
+  `scene_physics`/`simulate` modules which already compute position deltas from snapshots
+  and (feature-gated) wrap rapier2d.
+- Recorded that `crates/graph-canvas/src/simulate.rs` + `scene_physics.rs` + `scene_region.rs`
+  are landed implementation of the "Canvas Editor Layer: rapier2d" section's runtime. The
+  Canvas Editor UI and `Layout` adapter remain future work.
+- `What Is Still Actually Left` section rewritten to name the graph-canvas target explicitly,
+  and to note that the broader algorithm portfolio (Radial, Timeline, Kanban, Grid,
+  Phyllotaxis, Penrose, L-system, Semantic Embedding) becomes trait-implementer work once
+  the `Layout` trait lands rather than per-algorithm architectural work.
+- See the egui_graphs retirement subplan at
+  [../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md](../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md) (archived 2026-04-19)
+  for the staged landing order (Layout trait → vendor FR → Barnes-Hut → static positional
+  layouts → extras → extras-consumer trait → WASM adapter).
+
+### 2026-04-19 — Steps 1–4 and 6 landed in graph-canvas
+
+Following the retirement-subplan execution order:
+
+- **Step 1** (Layout trait + vendored FR + carrier deletion + dep drop): landed earlier in the
+  session. Records in [../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md](../../../archive_docs/checkpoint_2026-04-19/graphshell_docs/implementation_strategy/shell/2026-04-18_egui_graphs_retirement_plan.md) (archived 2026-04-19).
+- **Step 2 — Barnes-Hut**: `crates/graph-canvas/src/layout/barnes_hut.rs`. O(n log n)
+  quadtree-based repulsion with center gravity and attraction identical to FR; default
+  `θ = 0.5`. Shares `ForceDirectedState` with `ForceDirected` so the two are drop-in
+  swappable.
+- **Step 3 — Extras as `Layout` impls**: `crates/graph-canvas/src/layout/extras.rs` adds
+  `DegreeRepulsion`, `DomainClustering`, `SemanticClustering`, `HubPull`, `FrameAffinity`,
+  each a `Layout<N>` that consumes `LayoutExtras` slots (`domain_by_node`,
+  `semantic_similarity`, `frame_regions`). `graph::physics::apply_*_forces` and
+  `graph::frame_affinity::apply_frame_affinity_forces` now delegate to these impls;
+  behavior preserved, call sites unchanged.
+- **Step 4 — Static positional layouts**: `crates/graph-canvas/src/layout/static_layouts.rs`
+  adds `Grid` (row-major, `ceil(sqrt(n))` columns), `Radial` (BFS rings from a focal node),
+  `Phyllotaxis` (golden-angle Fibonacci spiral, inward/outward orientations). Shared
+  `StaticLayoutState` carries a damping factor so the same layouts can snap instantly or
+  ease in. Timeline and Kanban deferred — they require host-specific metadata plumbing
+  (time coordinates, status-tag buckets) that fits a future `LayoutExtras` extension.
+- **Step 6 — rapier2d Layout adapter**: `crates/graph-canvas/src/layout/rapier_adapter.rs`
+  (feature-gated behind `simulate`). Bridges the already-landed `RapierSceneWorld` to the
+  `Layout<N>` trait by building bodies from scene + edges each step. Minimal first
+  revision: rebuilds the world per step (no cross-frame momentum accumulation). A
+  persistent variant that reuses one world and syncs positions in/out is a follow-on.
+
+Tests: graph-canvas runs clean at 154/154 without `simulate` and 178/178 with `simulate`
+enabled; graphshell runs clean at 2144/2144 with `--test-threads=1`. Two tests flake under
+parallel execution in ways unrelated to this session's changes
+(`navigator_specialty_corridor_uses_selected_pair_and_tree_layout`,
+`radial_sector_count_violation_flags_overfull_radial_palette`); flagged for a separate
+test-hygiene pass.
+
+**Still deferred as follow-ons**:
+
+- **Step 5** — Penrose aperiodic tiling, L-system fractal path, UMAP-style semantic
+  embedding. These need real design input on grammar choice and similarity-space handling;
+  trait-implementer work once design lands.
+- **Step 7** — WASM layout adapter. Needs versioned guest ABI and fallback design; covered
+  by [2026-04-03_wasm_layout_runtime_plan.md](2026-04-03_wasm_layout_runtime_plan.md).
+- **Timeline/Kanban** static layouts — need a `LayoutExtras` slot for time/tag metadata.
+- **Persistent rapier adapter** — reuse one `RapierSceneWorld` across frames for real
+  momentum; keep positions synced. Current adapter rebuilds per step.

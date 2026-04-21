@@ -21,10 +21,12 @@ use euclid::default::{Point2D, Rect, Size2D};
 use std::hash::Hash;
 
 use crate::camera::{CanvasCamera, CanvasViewport};
+use crate::layout::extras::FrameRegion;
 use crate::lod::{LodLevel, LodPolicy};
 use crate::packet::{Color, HitProxy, ProjectedScene, SceneDrawItem, Stroke};
 use crate::projection::{ProjectionConfig, ProjectionMode, project_position};
 use crate::scene::{CanvasEdge, CanvasNode, CanvasSceneInput, CanvasSceneObject};
+use crate::scene_region::{SceneRegion, SceneRegionEffect, SceneRegionShape};
 use crate::scripting::SceneObjectHitShape;
 
 /// Configuration for the derivation pipeline.
@@ -79,20 +81,98 @@ impl Default for NodeVisualOverride {
     }
 }
 
+/// Per-frame overlay inputs consumed by [`derive_scene_with_overlays`].
+///
+/// These are scene-dependent draw hints that the host computes once per
+/// frame (from its own registries, arrangement relations, and focus
+/// state) and passes to the derivation pipeline. They land in the
+/// projected scene's `background` / `overlays` layers — distinct from
+/// `world` items so hosts can paint them before / after the primary
+/// nodes and edges without re-sorting.
+pub struct OverlayInputs<'a, N: Clone + Eq + Hash> {
+    /// Frame-affinity regions: each rendered as a translucent disc
+    /// enclosing its members plus an optional anchor label. Emitted to
+    /// `scene.background` so frame backdrops appear behind edges /
+    /// nodes.
+    pub frame_regions: &'a [FrameRegion<N>],
+    /// Scene-authoring regions (Arrange / Simulate mode): each
+    /// rendered by shape (`Circle` / `Rect`) and effect-kind color to
+    /// `scene.background`, again so the region fill sits behind
+    /// primary geometry.
+    pub scene_regions: &'a [SceneRegion],
+    /// A single highlighted edge drawn with a thicker, accent stroke
+    /// on top of regular edges. `source` and `target` must match
+    /// existing node ids in the scene; otherwise nothing is emitted.
+    pub highlighted_edge: Option<(N, N)>,
+}
+
+impl<'a, N: Clone + Eq + Hash> Default for OverlayInputs<'a, N> {
+    fn default() -> Self {
+        Self {
+            frame_regions: &[],
+            scene_regions: &[],
+            highlighted_edge: None,
+        }
+    }
+}
+
+/// Visual tuning for the overlay layer. Exposed so hosts can theme the
+/// backdrop palette without reimplementing the emitter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverlayStyle {
+    pub frame_region_fill: Color,
+    pub frame_region_stroke: Stroke,
+    /// Extra padding around the convex-hull bounds of frame members,
+    /// in world units, before wrapping in a circle / rect.
+    pub frame_region_padding: f32,
+    pub scene_region_attractor: Color,
+    pub scene_region_repulsor: Color,
+    pub scene_region_dampener: Color,
+    pub scene_region_wall: Color,
+    pub scene_region_stroke: Stroke,
+    /// Color for the highlighted-edge overlay.
+    pub highlighted_edge_color: Color,
+    /// Width of the highlighted-edge overlay. Should exceed the
+    /// default edge width so the highlight is visible over the
+    /// underlying stroke.
+    pub highlighted_edge_width: f32,
+    /// Font size for optional region labels. `0.0` disables labels.
+    pub region_label_font_size: f32,
+    pub region_label_color: Color,
+}
+
+impl Default for OverlayStyle {
+    fn default() -> Self {
+        Self {
+            frame_region_fill: Color::new(0.25, 0.55, 0.85, 0.12),
+            frame_region_stroke: Stroke {
+                color: Color::new(0.25, 0.55, 0.85, 0.45),
+                width: 1.0,
+            },
+            frame_region_padding: 16.0,
+            scene_region_attractor: Color::new(0.30, 0.75, 0.45, 0.12),
+            scene_region_repulsor: Color::new(0.90, 0.35, 0.35, 0.12),
+            scene_region_dampener: Color::new(0.55, 0.55, 0.60, 0.12),
+            scene_region_wall: Color::new(0.15, 0.15, 0.18, 0.20),
+            scene_region_stroke: Stroke {
+                color: Color::new(0.25, 0.25, 0.30, 0.55),
+                width: 1.0,
+            },
+            highlighted_edge_color: Color::new(1.0, 0.85, 0.25, 0.95),
+            highlighted_edge_width: 3.5,
+            region_label_font_size: 12.0,
+            region_label_color: Color::new(0.15, 0.18, 0.25, 0.85),
+        }
+    }
+}
+
 /// Derive a `ProjectedScene` from a `CanvasSceneInput`.
 ///
-/// This is the primary entry point for the derivation pipeline.
-///
-/// - `input`: the scene input for one graph view
-/// - `camera`: current camera state (pan, zoom)
-/// - `viewport`: the pane rectangle and scale factor
-/// - `z_values`: per-node z values derived by the host from `ZSource`. Nodes
-///   not present in this map get z=0. The host is responsible for z derivation
-///   because it requires graph metadata (BFS depth, recency, UDC class) that
-///   graph-canvas doesn't own.
-/// - `node_overrides`: per-node visual overrides (colors, strokes). Indexed
-///   by position in `input.nodes` for simplicity.
-/// - `config`: derivation configuration
+/// Backwards-compatible shorthand: delegates to
+/// [`derive_scene_with_overlays`] with empty overlay inputs and the
+/// default [`OverlayStyle`]. New callers that want frame-region,
+/// scene-region, or highlighted-edge overlays should call
+/// `derive_scene_with_overlays` directly.
 pub fn derive_scene<N: Clone + Eq + Hash>(
     input: &CanvasSceneInput<N>,
     camera: &CanvasCamera,
@@ -101,13 +181,76 @@ pub fn derive_scene<N: Clone + Eq + Hash>(
     node_overrides: &dyn Fn(usize, &N) -> NodeVisualOverride,
     config: &DeriveConfig,
 ) -> ProjectedScene<N> {
+    derive_scene_with_overlays(
+        input,
+        camera,
+        viewport,
+        z_values,
+        node_overrides,
+        &OverlayInputs::default(),
+        &OverlayStyle::default(),
+        config,
+    )
+}
+
+/// Derive a `ProjectedScene`, emitting overlay backdrops and a
+/// highlighted edge alongside the primary nodes / edges.
+///
+/// - `input`: the scene input for one graph view
+/// - `camera`: current camera state (pan, zoom)
+/// - `viewport`: the pane rectangle and scale factor
+/// - `z_values`: per-node z values derived by the host from `ZSource`.
+///   Nodes not present in this map get z=0.
+/// - `node_overrides`: per-node visual overrides (colors, strokes).
+///   Indexed by position in `input.nodes`.
+/// - `overlay_inputs`: per-frame overlay hints (frame regions, scene
+///   regions, highlighted edge).
+/// - `overlay_style`: visual tuning for the overlay layer.
+/// - `config`: derivation configuration.
+///
+/// Emission layering:
+/// - Frame-region backdrops → `ProjectedScene.background` (behind edges/nodes).
+/// - Scene-region backdrops → `ProjectedScene.background` (behind edges/nodes).
+/// - Scripted scene-object overlays → `ProjectedScene.overlays`
+///   (unchanged; matches the old `derive_scene` behavior).
+/// - Highlighted edge → `ProjectedScene.overlays` (on top of regular edges).
+pub fn derive_scene_with_overlays<N: Clone + Eq + Hash>(
+    input: &CanvasSceneInput<N>,
+    camera: &CanvasCamera,
+    viewport: &CanvasViewport,
+    z_values: &dyn Fn(&N) -> f32,
+    node_overrides: &dyn Fn(usize, &N) -> NodeVisualOverride,
+    overlay_inputs: &OverlayInputs<'_, N>,
+    overlay_style: &OverlayStyle,
+    config: &DeriveConfig,
+) -> ProjectedScene<N> {
     let projection = input.projection.degrade_if_needed();
 
     // Compute the world-space viewport rect for culling.
     let world_viewport = world_viewport_rect(camera, viewport);
 
+    let mut background_items = Vec::new();
     let mut world_items = Vec::new();
     let mut hit_proxies = Vec::new();
+
+    // ── Frame-affinity backdrops (behind world layer) ────────────────────
+    derive_frame_region_backdrops(
+        overlay_inputs.frame_regions,
+        &input.nodes,
+        camera,
+        viewport,
+        overlay_style,
+        &mut background_items,
+    );
+
+    // ── Scene-region backdrops (behind world layer) ──────────────────────
+    derive_scene_region_backdrops(
+        overlay_inputs.scene_regions,
+        camera,
+        viewport,
+        overlay_style,
+        &mut background_items,
+    );
 
     // ── Edges (drawn first, behind nodes) ────────────────────────────────
     derive_edges(
@@ -149,8 +292,18 @@ pub fn derive_scene<N: Clone + Eq + Hash>(
         &mut hit_proxies,
     );
 
+    // ── Highlighted edge (on top of regular edges) ───────────────────────
+    derive_highlighted_edge(
+        overlay_inputs.highlighted_edge.as_ref(),
+        &input.nodes,
+        camera,
+        viewport,
+        overlay_style,
+        &mut overlay_items,
+    );
+
     ProjectedScene {
-        background: Vec::new(),
+        background: background_items,
         world: world_items,
         overlays: overlay_items,
         hit_proxies,
@@ -358,6 +511,161 @@ fn offset_draw_item(item: &SceneDrawItem, offset: Point2D<f32>) -> SceneDrawItem
             handle: handle.clone(),
         },
     }
+}
+
+/// Emit one enclosing disc per frame region in screen space, sized to
+/// enclose every member plus `style.frame_region_padding` (interpreted
+/// in world units, then scaled by `camera.zoom`). Regions with no
+/// members present in the current node set are skipped — they would
+/// draw an empty backdrop otherwise.
+fn derive_frame_region_backdrops<N: Clone + Eq + Hash>(
+    regions: &[FrameRegion<N>],
+    nodes: &[CanvasNode<N>],
+    camera: &CanvasCamera,
+    viewport: &CanvasViewport,
+    style: &OverlayStyle,
+    background: &mut Vec<SceneDrawItem>,
+) {
+    if regions.is_empty() {
+        return;
+    }
+    let node_position: std::collections::HashMap<&N, Point2D<f32>> = nodes
+        .iter()
+        .map(|n| (&n.id, n.position))
+        .collect();
+
+    for region in regions {
+        let mut positions = Vec::with_capacity(region.members.len());
+        for member in &region.members {
+            if let Some(pos) = node_position.get(member) {
+                positions.push(*pos);
+            }
+        }
+        if positions.is_empty() {
+            continue;
+        }
+
+        // Enclosing disc in world space: centroid + max-distance radius +
+        // padding. Simple, cheap, visually stable under layout updates
+        // (no convex-hull jitter).
+        let mut centroid = Point2D::new(0.0, 0.0);
+        for pos in &positions {
+            centroid.x += pos.x;
+            centroid.y += pos.y;
+        }
+        centroid.x /= positions.len() as f32;
+        centroid.y /= positions.len() as f32;
+
+        let mut max_dist: f32 = 0.0;
+        for pos in &positions {
+            let dx = pos.x - centroid.x;
+            let dy = pos.y - centroid.y;
+            max_dist = max_dist.max((dx * dx + dy * dy).sqrt());
+        }
+        let world_radius = max_dist + style.frame_region_padding.max(0.0);
+
+        background.push(SceneDrawItem::Circle {
+            center: camera.world_to_screen(centroid, viewport),
+            radius: world_radius * camera.zoom,
+            fill: style.frame_region_fill,
+            stroke: Some(style.frame_region_stroke),
+        });
+    }
+}
+
+/// Emit one backdrop per visible scene region, colored by effect kind.
+/// Shapes are projected from world → screen so they pan and zoom with
+/// the rest of the scene. Regions with `visible: false` are skipped so
+/// the host can hide authoring regions from the final view without
+/// removing them.
+fn derive_scene_region_backdrops(
+    regions: &[SceneRegion],
+    camera: &CanvasCamera,
+    viewport: &CanvasViewport,
+    style: &OverlayStyle,
+    background: &mut Vec<SceneDrawItem>,
+) {
+    for region in regions {
+        if !region.visible {
+            continue;
+        }
+        let fill = match region.effect {
+            SceneRegionEffect::Attractor { .. } => style.scene_region_attractor,
+            SceneRegionEffect::Repulsor { .. } => style.scene_region_repulsor,
+            SceneRegionEffect::Dampener { .. } => style.scene_region_dampener,
+            SceneRegionEffect::Wall => style.scene_region_wall,
+        };
+        match region.shape {
+            SceneRegionShape::Circle { center, radius } => {
+                background.push(SceneDrawItem::Circle {
+                    center: camera.world_to_screen(center, viewport),
+                    radius: radius * camera.zoom,
+                    fill,
+                    stroke: Some(style.scene_region_stroke),
+                });
+            }
+            SceneRegionShape::Rect { rect } => {
+                let tl = camera.world_to_screen(
+                    Point2D::new(rect.min_x(), rect.min_y()),
+                    viewport,
+                );
+                let screen_rect = Rect::new(
+                    tl,
+                    Size2D::new(
+                        rect.size.width * camera.zoom,
+                        rect.size.height * camera.zoom,
+                    ),
+                );
+                background.push(SceneDrawItem::RoundedRect {
+                    rect: screen_rect,
+                    corner_radius: 6.0 * camera.zoom.max(0.25),
+                    fill,
+                    stroke: Some(style.scene_region_stroke),
+                });
+            }
+        }
+        if style.region_label_font_size > 0.0 {
+            if let Some(label) = region.label.as_ref() {
+                background.push(SceneDrawItem::Label {
+                    position: camera.world_to_screen(region.shape.center(), viewport),
+                    text: label.clone(),
+                    font_size: style.region_label_font_size,
+                    color: style.region_label_color,
+                });
+            }
+        }
+    }
+}
+
+/// Emit one highlighted-edge stroke in the overlay layer if both
+/// endpoints exist in the scene. No-op when either endpoint is missing
+/// (stale highlight for a removed node).
+fn derive_highlighted_edge<N: Clone + Eq + Hash>(
+    highlighted_edge: Option<&(N, N)>,
+    nodes: &[CanvasNode<N>],
+    camera: &CanvasCamera,
+    viewport: &CanvasViewport,
+    style: &OverlayStyle,
+    overlays: &mut Vec<SceneDrawItem>,
+) {
+    let Some((source, target)) = highlighted_edge else {
+        return;
+    };
+    let node_position: std::collections::HashMap<&N, Point2D<f32>> = nodes
+        .iter()
+        .map(|n| (&n.id, n.position))
+        .collect();
+    let (Some(&src), Some(&tgt)) = (node_position.get(source), node_position.get(target)) else {
+        return;
+    };
+    overlays.push(SceneDrawItem::Line {
+        from: camera.world_to_screen(src, viewport),
+        to: camera.world_to_screen(tgt, viewport),
+        stroke: Stroke {
+            color: style.highlighted_edge_color,
+            width: style.highlighted_edge_width,
+        },
+    });
 }
 
 fn derive_edges<N: Clone + Eq + Hash>(
@@ -881,5 +1189,306 @@ mod tests {
             .filter(|item| matches!(item, SceneDrawItem::Circle { .. }))
             .collect();
         assert_eq!(circles.len(), 4); // 3 nodes + 1 scene object
+    }
+
+    // ── Overlay emission (§4) ────────────────────────────────────────
+
+    fn overlay_test_scene(
+        nodes: &[(u32, f32, f32)],
+    ) -> (
+        CanvasSceneInput<u32>,
+        CanvasCamera,
+        CanvasViewport,
+        DeriveConfig,
+    ) {
+        let scene = CanvasSceneInput::<u32> {
+            view_id: crate::scene::ViewId(0),
+            nodes: nodes
+                .iter()
+                .map(|(id, x, y)| CanvasNode {
+                    id: *id,
+                    position: Point2D::new(*x, *y),
+                    radius: 10.0,
+                    label: None,
+                })
+                .collect(),
+            edges: Vec::new(),
+            scene_objects: Vec::new(),
+            overlays: Vec::new(),
+            scene_mode: crate::scene::SceneMode::Browse,
+            projection: ProjectionMode::TwoD,
+        };
+        let viewport = CanvasViewport::new(
+            Point2D::origin(),
+            Size2D::new(1000.0, 800.0),
+            1.0,
+        );
+        (
+            scene,
+            CanvasCamera::default(),
+            viewport,
+            DeriveConfig::default(),
+        )
+    }
+
+    #[test]
+    fn derive_scene_with_overlays_empty_matches_derive_scene() {
+        let (input, cam, vp, cfg) = overlay_test_scene(&[(0, 0.0, 0.0), (1, 50.0, 0.0)]);
+        let zero_z = |_: &u32| 0.0;
+        let no_overrides = |_: usize, _: &u32| NodeVisualOverride::default();
+        let base = derive_scene(&input, &cam, &vp, &zero_z, &no_overrides, &cfg);
+        let with_empty = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &zero_z,
+            &no_overrides,
+            &OverlayInputs::default(),
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        // Draw-item counts match — empty overlay inputs must emit
+        // nothing beyond the baseline.
+        assert_eq!(base.background.len(), with_empty.background.len());
+        assert_eq!(base.world.len(), with_empty.world.len());
+        assert_eq!(base.overlays.len(), with_empty.overlays.len());
+    }
+
+    #[test]
+    fn derive_scene_emits_frame_region_backdrop_in_background_layer() {
+        let (input, cam, vp, cfg) =
+            overlay_test_scene(&[(0, 10.0, 10.0), (1, 50.0, 10.0), (2, 90.0, 10.0)]);
+        let region = FrameRegion {
+            anchor: 0,
+            members: vec![0, 1, 2],
+            strength: 1.0,
+        };
+        let overlays = OverlayInputs {
+            frame_regions: std::slice::from_ref(&region),
+            scene_regions: &[],
+            highlighted_edge: None,
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        let circles: Vec<_> = scene
+            .background
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::Circle { .. }))
+            .collect();
+        assert_eq!(
+            circles.len(),
+            1,
+            "one frame region → one enclosing disc in background"
+        );
+    }
+
+    #[test]
+    fn derive_scene_skips_frame_region_with_no_members_in_scene() {
+        let (input, cam, vp, cfg) = overlay_test_scene(&[(0, 0.0, 0.0)]);
+        // Members reference ids that aren't in the scene.
+        let region = FrameRegion {
+            anchor: 99,
+            members: vec![99, 100],
+            strength: 1.0,
+        };
+        let overlays = OverlayInputs {
+            frame_regions: std::slice::from_ref(&region),
+            scene_regions: &[],
+            highlighted_edge: None,
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        assert!(
+            scene.background.is_empty(),
+            "no members present → no backdrop"
+        );
+    }
+
+    #[test]
+    fn derive_scene_emits_scene_region_backdrop_circle_and_rect() {
+        let (input, cam, vp, cfg) = overlay_test_scene(&[]);
+        use crate::scene_region::SceneRegionId;
+        let circle_region = SceneRegion {
+            id: SceneRegionId(1),
+            label: Some("Attractor".into()),
+            shape: SceneRegionShape::Circle {
+                center: Point2D::new(0.0, 0.0),
+                radius: 50.0,
+            },
+            effect: SceneRegionEffect::Attractor { strength: 1.0 },
+            visible: true,
+        };
+        let rect_region = SceneRegion {
+            id: SceneRegionId(2),
+            label: None,
+            shape: SceneRegionShape::Rect {
+                rect: Rect::new(Point2D::new(-25.0, -25.0), Size2D::new(50.0, 30.0)),
+            },
+            effect: SceneRegionEffect::Wall,
+            visible: true,
+        };
+        let hidden_region = SceneRegion {
+            id: SceneRegionId(3),
+            label: None,
+            shape: SceneRegionShape::Circle {
+                center: Point2D::new(500.0, 500.0),
+                radius: 10.0,
+            },
+            effect: SceneRegionEffect::Dampener { factor: 0.5 },
+            visible: false, // must be skipped
+        };
+        let regions = vec![circle_region, rect_region, hidden_region];
+        let overlays = OverlayInputs {
+            frame_regions: &[],
+            scene_regions: &regions,
+            highlighted_edge: None,
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        let circle_count = scene
+            .background
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::Circle { .. }))
+            .count();
+        let rect_count = scene
+            .background
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::RoundedRect { .. }))
+            .count();
+        let label_count = scene
+            .background
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::Label { .. }))
+            .count();
+        assert_eq!(circle_count, 1, "one visible circle region");
+        assert_eq!(rect_count, 1, "one visible rect region");
+        assert_eq!(label_count, 1, "only the circle region carried a label");
+    }
+
+    #[test]
+    fn derive_scene_emits_highlighted_edge_on_overlay_layer() {
+        let (input, cam, vp, cfg) = overlay_test_scene(&[(7, -10.0, 0.0), (8, 10.0, 0.0)]);
+        let overlays = OverlayInputs {
+            frame_regions: &[],
+            scene_regions: &[],
+            highlighted_edge: Some((7, 8)),
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        let highlight_lines: Vec<_> = scene
+            .overlays
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::Line { .. }))
+            .collect();
+        assert_eq!(highlight_lines.len(), 1, "one highlighted edge → one line");
+    }
+
+    #[test]
+    fn derive_scene_skips_highlighted_edge_when_endpoints_missing() {
+        let (input, cam, vp, cfg) = overlay_test_scene(&[(7, -10.0, 0.0)]);
+        let overlays = OverlayInputs {
+            frame_regions: &[],
+            scene_regions: &[],
+            // 999 isn't a node in the scene.
+            highlighted_edge: Some((7, 999)),
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        let highlight_lines: Vec<_> = scene
+            .overlays
+            .iter()
+            .filter(|item| matches!(item, SceneDrawItem::Line { .. }))
+            .collect();
+        assert!(
+            highlight_lines.is_empty(),
+            "stale highlight with missing endpoint must be dropped silently"
+        );
+    }
+
+    #[test]
+    fn derive_scene_projects_backdrops_through_camera() {
+        // At zoom 2.0, a world-space radius of 50 should map to a
+        // screen radius of 100 — verifying the emitters apply the
+        // camera projection instead of leaking world units.
+        let (input, _, vp, cfg) = overlay_test_scene(&[]);
+        use crate::scene_region::SceneRegionId;
+        let region = SceneRegion {
+            id: SceneRegionId(1),
+            label: None,
+            shape: SceneRegionShape::Circle {
+                center: Point2D::new(0.0, 0.0),
+                radius: 50.0,
+            },
+            effect: SceneRegionEffect::Attractor { strength: 1.0 },
+            visible: true,
+        };
+        let cam = CanvasCamera::new(euclid::default::Vector2D::zero(), 2.0);
+        let overlays = OverlayInputs {
+            frame_regions: &[],
+            scene_regions: std::slice::from_ref(&region),
+            highlighted_edge: None,
+        };
+        let scene = derive_scene_with_overlays(
+            &input,
+            &cam,
+            &vp,
+            &|_| 0.0,
+            &|_, _| NodeVisualOverride::default(),
+            &overlays,
+            &OverlayStyle::default(),
+            &cfg,
+        );
+        let circle = scene
+            .background
+            .iter()
+            .find_map(|item| match item {
+                SceneDrawItem::Circle { radius, .. } => Some(*radius),
+                _ => None,
+            })
+            .expect("scene region emitted a circle");
+        assert!(
+            (circle - 100.0).abs() < 1e-3,
+            "expected screen radius 100 (world 50 * zoom 2.0), got {circle}"
+        );
     }
 }

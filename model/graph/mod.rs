@@ -5,7 +5,7 @@
 //! Graph data structures for the spatial browser — host shim.
 //!
 //! Canonical implementations live in `graphshell_core::graph`. This module
-//! re-exports them and provides host-only sub-modules (badge, egui_adapter,
+//! re-exports them and provides host-only sub-modules (badge,
 //! edge_style_registry) that depend on egui or platform I/O.
 
 // Re-export everything from core's graph module.
@@ -31,4 +31,3 @@ pub use graphshell_core::address::{
 // Host-only sub-modules (depend on egui, platform I/O, etc.).
 pub mod badge;
 pub mod edge_style_registry;
-pub mod egui_adapter;

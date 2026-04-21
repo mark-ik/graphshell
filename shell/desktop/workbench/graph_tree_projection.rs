@@ -160,6 +160,7 @@ pub(crate) fn navigator_groups_from_graph_tree(
             title: label_fn(row.member.clone()),
             is_selected: active.as_ref() == Some(&row.member),
             row_key: None,
+            target_url: None,
             is_cold: lifecycle == Lifecycle::Cold,
             depth: row.depth,
             is_expanded: row.is_expanded,

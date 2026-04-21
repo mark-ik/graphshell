@@ -2,17 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Graph rendering module using egui_graphs.
+//! Graph rendering module routed through the portable `graph-canvas` seam.
 //!
-//! Delegates graph visualization and interaction to the egui_graphs crate,
-//! which provides built-in navigation (zoom/pan), node dragging, and selection.
+//! `render_graph_canvas_in_ui` is the live graph-pane entry point: it
+//! delegates scene derivation, hit testing, and interaction to
+//! `graph-canvas` via `canvas_bridge::run_graph_canvas_frame`, and uses
+//! `canvas_egui_painter` / `canvas_bridge::collect_canvas_events` as the
+//! host-local paint + input adapters. The retired `egui_graphs` path is
+//! preserved only in historical references.
 
 use crate::app::{
     ChooseFramePickerMode, GraphBrowserApp, GraphIntent, SearchDisplayMode, SelectionUpdateMode,
     SimulateBehaviorPreset, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
 };
 use crate::graph::NodeKey;
-use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::scene_runtime::{SceneCollisionPolicy, SceneRegionDragMode, SceneRegionDragState};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -26,7 +29,6 @@ use crate::shell::desktop::ui::toolbar_routing;
 use crate::util::CoordBridge;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Ui, Window};
-use egui_graphs::{MetadataFrame, SettingsInteraction, SettingsNavigation, SettingsStyle};
 use euclid::default::Point2D;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -34,35 +36,20 @@ use std::rc::Rc;
 use uuid::Uuid;
 
 pub(crate) mod canvas_bridge;
-mod canvas_camera;
 pub(crate) mod canvas_egui_painter;
-mod canvas_input;
-mod canvas_overlays;
 mod canvas_visuals;
 mod graph_info;
 mod panels;
 mod reducer_bridge;
 pub(crate) mod semantic_tags;
 mod spatial_index;
-use canvas_camera::handle_custom_navigation;
-use canvas_input::{
-    collect_graph_actions, collect_graph_keyboard_traversal_action, collect_lasso_action,
-    graph_canvas_accessibility_label,
-};
-use canvas_overlays::{
-    draw_frame_affinity_backdrops, draw_highlighted_edge_overlay, draw_hovered_edge_tooltip,
-    draw_hovered_node_tooltip, draw_scene_region_action_overlay, draw_scene_runtime_backdrops,
-    draw_scene_simulate_overlays, edge_endpoints_at_pointer, frame_anchor_at_pointer,
-    scene_region_at_pointer, scene_region_resize_handle_at_pointer,
-};
 #[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
 use canvas_visuals::{
-    apply_search_node_visuals, canvas_rect_from_view_frame, effective_graph_screen_rect,
-    filtered_graph_for_visible_nodes, graph_visible_screen_rects, viewport_culled_graph,
-    visible_nodes_for_view_filters,
+    canvas_rect_from_view_frame, effective_graph_screen_rect, filtered_graph_for_visible_nodes,
+    graph_visible_screen_rects, viewport_culled_graph, visible_nodes_for_view_filters,
 };
-use graph_info::{draw_graph_info, requested_layout_algorithm_id, should_apply_layout_algorithm};
+use graph_info::draw_graph_info;
 #[cfg(test)]
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
@@ -75,39 +62,16 @@ use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with
 use semantic_tags::semantic_badges_by_key;
 
 #[cfg(test)]
-use crate::app::{CameraCommand, KeyboardPanInputMode, ThreeDMode, ViewDimension, ZSource};
+use crate::app::{ThreeDMode, ViewDimension, ZSource};
 #[cfg(test)]
 use crate::graph::NodeLifecycle;
-#[cfg(test)]
-use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
-    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
-};
-#[cfg(test)]
-use canvas_camera::{
-    KeyboardPanInputState, KeyboardPanKeys, apply_background_pan, apply_background_pan_inertia,
-    apply_pending_camera_command, emit_keyboard_pan_blocked_if_needed,
-    keyboard_pan_delta_from_keys, keyboard_pan_delta_from_state, pan_inertia_velocity_id,
-    should_auto_fit_locked_camera,
-};
-#[cfg(test)]
-use canvas_input::{
-    lasso_state_ids, next_keyboard_traversal_node, normalize_lasso_keys,
-    resolve_lasso_selection_mode,
-};
-#[cfg(test)]
-use canvas_overlays::{format_elapsed_ago, format_last_visited_with_now};
 #[cfg(test)]
 use canvas_visuals::{
     hovered_adjacency_set, lifecycle_color, viewport_culled_graph_for_canvas_rect,
     viewport_culling_metrics_for_canvas_rect, viewport_culling_selection_for_canvas_rect,
 };
 #[cfg(test)]
-use egui::Vec2;
-#[cfg(test)]
 use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
-#[cfg(test)]
-use petgraph::stable_graph::NodeIndex;
 #[cfg(test)]
 use semantic_tags::{ranked_tag_suggestions, reserved_tag_warning};
 #[cfg(test)]
@@ -142,11 +106,12 @@ pub(crate) fn dispatch_action_id(
 pub use command_palette::render_command_palette_panel;
 pub use radial_menu::render_radial_command_menu;
 
-/// Graph interaction action (resolved from egui_graphs events).
+/// Graph interaction action (resolved from graph-canvas engine actions).
 ///
-/// Decouples event conversion (needs `egui_state` for NodeIndexâ†’NodeKey
-/// lookups) from action application (pure state mutation), making
-/// graph interactions testable without an egui rendering context.
+/// Decouples action production (graph-canvas `CanvasAction` emission inside
+/// `canvas_bridge::run_graph_canvas_frame`) from action application (pure
+/// state mutation here), keeping graph interactions testable without an
+/// egui rendering context.
 pub enum GraphAction {
     FocusNode(NodeKey),
     FocusFrame {
@@ -179,14 +144,9 @@ fn set_focused_view_with_transition(
     app: &mut GraphBrowserApp,
     focused_view: Option<crate::app::GraphViewId>,
 ) {
-    let previous_focused_view = app.workspace.graph_runtime.focused_view;
-    app.workspace.graph_runtime.focused_view = focused_view;
-    if app.workspace.graph_runtime.focused_view != previous_focused_view {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
+    // Delegate to the canonical setter so the scope-close invariant
+    // (action_surface closes on view change) runs consistently.
+    app.set_workspace_focused_view_with_transition(focused_view);
 }
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
@@ -219,50 +179,6 @@ fn should_clear_selection_on_background_click(
         && !graph_handled_primary_click
         && !radial_open
         && !lasso_active
-}
-
-fn pointer_canvas_pos(ui: &Ui, metadata_id: egui::Id, screen_pos: egui::Pos2) -> egui::Pos2 {
-    ui.ctx()
-        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
-        .map(|meta| meta.screen_to_canvas_pos(screen_pos))
-        .unwrap_or(screen_pos)
-}
-
-fn apply_active_scene_region_drag(
-    ui: &Ui,
-    app: &mut GraphBrowserApp,
-    metadata_id: egui::Id,
-) -> bool {
-    let Some(drag) = app.workspace.graph_runtime.active_scene_region_drag else {
-        return false;
-    };
-    let primary_down = ui.input(|i| i.pointer.primary_down());
-    if !primary_down {
-        app.workspace.graph_runtime.active_scene_region_drag = None;
-        app.set_interacting(false);
-        return false;
-    }
-
-    let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) else {
-        return false;
-    };
-    let pointer_canvas = pointer_canvas_pos(ui, metadata_id, pointer);
-    app.workspace.graph_runtime.active_scene_region_drag = Some(SceneRegionDragState {
-        last_pointer_canvas_pos: pointer_canvas,
-        ..drag
-    });
-    match drag.mode {
-        SceneRegionDragMode::Move => {
-            let delta = pointer_canvas - drag.last_pointer_canvas_pos;
-            app.translate_graph_view_scene_region(drag.view_id, drag.region_id, delta)
-        }
-        SceneRegionDragMode::Resize(handle) => app.resize_graph_view_scene_region_to_pointer(
-            drag.view_id,
-            drag.region_id,
-            handle,
-            pointer_canvas,
-        ),
-    }
 }
 
 fn scene_arrange_mode_active(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> bool {
@@ -330,6 +246,13 @@ fn handle_hovered_node_secondary_click(
                 ));
             }
             if !app.workspace.chrome_ui.show_radial_menu {
+                app.workspace.chrome_ui.surface_state = crate::app::ActionSurfaceState::Radial {
+                    scope: crate::app::ActionScope::Graph {
+                        view_id,
+                        target: crate::app::ScopeTarget::Node(target),
+                    },
+                    anchor: crate::app::Anchor::TargetNode(target),
+                };
                 let _ = toolbar_routing::request_radial_menu_toggle(
                     app,
                     CommandBarFocusTarget::new(None, Some(target)),
@@ -350,7 +273,13 @@ fn handle_hovered_node_secondary_click(
                 ));
             }
             app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
-            app.open_context_palette();
+            app.open_palette_contextual(
+                crate::app::ActionScope::Graph {
+                    view_id,
+                    target: crate::app::ScopeTarget::Node(target),
+                },
+                crate::app::Anchor::TargetNode(target),
+            );
         }
     }
 }
@@ -365,13 +294,20 @@ fn handle_frame_backdrop_secondary_click(
     match app.context_command_surface_preference() {
         crate::app::ContextCommandSurfacePreference::RadialPalette => {
             app.set_pending_node_context_target(None);
-            app.set_pending_frame_context_target(Some(frame_name));
+            app.set_pending_frame_context_target(Some(frame_name.clone()));
             if app.pending_transient_surface_return_target().is_none() {
                 app.set_pending_transient_surface_return_target(Some(
                     crate::app::ToolSurfaceReturnTarget::Graph(view_id),
                 ));
             }
             if !app.workspace.chrome_ui.show_radial_menu {
+                app.workspace.chrome_ui.surface_state = crate::app::ActionSurfaceState::Radial {
+                    scope: crate::app::ActionScope::Graph {
+                        view_id,
+                        target: crate::app::ScopeTarget::Frame(frame_name.clone()),
+                    },
+                    anchor: crate::app::Anchor::TargetFrame(frame_name.clone()),
+                };
                 let _ = toolbar_routing::request_radial_menu_toggle(
                     app,
                     CommandBarFocusTarget::default(),
@@ -385,14 +321,20 @@ fn handle_frame_backdrop_secondary_click(
         }
         crate::app::ContextCommandSurfacePreference::ContextPalette => {
             app.set_pending_node_context_target(None);
-            app.set_pending_frame_context_target(Some(frame_name));
+            app.set_pending_frame_context_target(Some(frame_name.clone()));
             if app.pending_command_surface_return_target().is_none() {
                 app.set_pending_command_surface_return_target(Some(
                     crate::app::ToolSurfaceReturnTarget::Graph(view_id),
                 ));
             }
             app.set_context_palette_anchor(pointer.map(|pos| [pos.x, pos.y]));
-            app.open_context_palette();
+            app.open_palette_contextual(
+                crate::app::ActionScope::Graph {
+                    view_id,
+                    target: crate::app::ScopeTarget::Frame(frame_name.clone()),
+                },
+                crate::app::Anchor::TargetFrame(frame_name),
+            );
         }
     }
 }
@@ -406,71 +348,19 @@ pub fn render_graph_info_in_ui(
     draw_graph_info(ui, app, view_id);
 }
 
-/// Navigation contract for graph rendering.
-///
-/// Graphshell owns graph camera/navigation as application state. We use
-/// `egui_graphs` for retained graph rendering and interaction hit-testing, but
-/// not for camera authority. Its built-in fit/pan/zoom paths stay disabled and
-/// Graphshell drives `MetadataFrame` directly through the custom camera
-/// pipeline.
-fn graphshell_owned_navigation_settings() -> SettingsNavigation {
-    SettingsNavigation::new()
-        // Graphshell, not egui_graphs, is the fit authority.
-        .with_fit_to_screen_enabled(false)
-        // Graphshell, not egui_graphs, is the pan/zoom authority.
-        .with_zoom_and_pan_enabled(false)
-}
-
-fn canvas_interaction_settings(
-    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
-    radial_open: bool,
-    right_button_down: bool,
-    multi_select_modifier: bool,
-) -> SettingsInteraction {
-    let is_tree_topology = profile.topology.policy_id == "topology:tree";
-    let selection_enabled =
-        profile.interaction.node_selection_enabled && !radial_open && !right_button_down;
-
-    SettingsInteraction::new()
-        .with_dragging_enabled(
-            profile.interaction.dragging_enabled
-                && !radial_open
-                && !right_button_down
-                && !is_tree_topology,
-        )
-        .with_node_selection_enabled(selection_enabled)
-        .with_node_selection_multi_enabled(selection_enabled && multi_select_modifier)
-        .with_node_clicking_enabled(profile.interaction.node_clicking_enabled && !radial_open)
-}
-
-fn canvas_style_settings(
-    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
-) -> SettingsStyle {
-    SettingsStyle::new().with_labels_always(profile.style.labels_always)
-}
-
-fn canvas_lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
+pub(crate) fn canvas_lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
     match binding {
         CanvasLassoBinding::RightDrag => "Right-Drag Lasso",
         CanvasLassoBinding::ShiftLeftDrag => "Shift+Left-Drag Lasso",
     }
 }
 
-fn graph_view_metadata_id(custom_id: Option<String>) -> egui::Id {
-    // egui_graphs persists metadata as Id::new(frame.get_id()), so callers must
-    // use the double-hashed key to target the same persisted frame.
-    egui::Id::new(MetadataFrame::new(custom_id).get_id())
-}
-
 /// Render graph content via the portable `graph-canvas` pipeline.
 ///
-/// This is the M2 replacement for `render_graph_in_ui_collect_actions`. It
-/// uses `graph-canvas` for scene derivation, hit testing, and interaction
-/// instead of `egui_graphs`. The egui host only handles painting (via
-/// `canvas_egui_painter`) and input translation (via `canvas_bridge`).
-///
-/// Returns `GraphAction`s in the same vocabulary as the egui_graphs path
-/// so callers can be swapped without changes upstream.
+/// Live graph-pane entry point since M2 retired `egui_graphs`. Uses
+/// `graph-canvas` for scene derivation, hit testing, and interaction;
+/// the egui host only handles painting (via `canvas_egui_painter`) and
+/// input translation (via `canvas_bridge`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn render_graph_canvas_in_ui(
     ui: &mut Ui,
@@ -583,128 +473,6 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
         }
     }
     intents
-}
-
-/// Sync projected node positions from egui_graphs layout state back into app graph state.
-///
-/// Pinned nodes keep their app-authored projected positions; their visual positions are
-/// restored after layout so FR simulation does not move them.
-///
-/// **Group drag**: when the user is actively dragging (`is_interacting`) with
-/// 2+ nodes selected, the dragged node's per-frame delta is detected by comparing
-/// its egui_graphs position to its last-known `app.workspace.domain.graph` position.  That same
-/// delta is then applied to every other selected (non-pinned) node in both
-/// `egui_state` and the graph's projected-position lane, keeping the group moving
-/// together without committing durable node positions every frame.
-pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
-    let Some(state) = app.workspace.graph_runtime.egui_state.as_ref() else {
-        if app.workspace.graph_runtime.is_interacting {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE,
-                latency_us: 0,
-            });
-        }
-        return;
-    };
-
-    let layout_positions: Vec<(NodeKey, Point2D<f32>)> = app
-        .workspace
-        .domain
-        .graph
-        .nodes()
-        .filter_map(|(key, _)| {
-            state
-                .graph
-                .node(key)
-                .map(|n| (key, Point2D::new(n.location().x, n.location().y)))
-        })
-        .collect();
-
-    // Detect group drag: during active interaction with 2+ selected nodes, find
-    // the node whose egui_graphs position diverged from app.workspace.domain.graph this frame.
-    // This is the node the user is physically dragging.
-    let focused_selection = app.focused_selection().clone();
-    let selection_drag_deltas: HashMap<NodeKey, egui::Vec2> =
-        if app.workspace.graph_runtime.is_interacting && !focused_selection.is_empty() {
-            layout_positions
-                .iter()
-                .filter_map(|(key, egui_pos)| {
-                    if !focused_selection.contains(key) {
-                        return None;
-                    }
-                    let app_pos = app.domain_graph().node_projected_position(*key)?;
-                    let delta = egui::Vec2::new(egui_pos.x - app_pos.x, egui_pos.y - app_pos.y);
-                    (delta.length() > 0.01).then_some((*key, delta))
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
-    let group_drag_delta: Option<(NodeKey, egui::Vec2)> =
-        if app.workspace.graph_runtime.is_interacting && focused_selection.len() > 1 {
-            selection_drag_deltas
-                .iter()
-                .next()
-                .map(|(key, delta)| (*key, *delta))
-        } else {
-            None
-        };
-
-    let mut pinned_positions = Vec::new();
-    for (key, pos) in layout_positions {
-        if let Some(node) = app.domain_graph().get_node(key) {
-            if node.is_pinned {
-                if let Some(position) = app.domain_graph().node_projected_position(key) {
-                    pinned_positions.push((key, position));
-                }
-            } else {
-                let _ = app.domain_graph_mut().set_node_projected_position(key, pos);
-            }
-        }
-    }
-
-    // Propagate the drag delta to secondary selected nodes.
-    let mut simulate_release_impulses = selection_drag_deltas;
-    if let Some((dragged_key, delta)) = group_drag_delta {
-        let secondary_keys: Vec<NodeKey> = focused_selection
-            .iter()
-            .filter(|&&k| k != dragged_key)
-            .copied()
-            .collect();
-
-        let mut secondary_updates: Vec<(NodeKey, egui::Pos2)> = Vec::new();
-        for other_key in secondary_keys {
-            if let Some(node) = app.domain_graph().get_node(other_key)
-                && !node.is_pinned
-                && let Some(position) = app.domain_graph().node_projected_position(other_key)
-            {
-                let next_pos =
-                    euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
-                let _ = app
-                    .domain_graph_mut()
-                    .set_node_projected_position(other_key, next_pos);
-                secondary_updates.push((other_key, next_pos.to_pos2()));
-                simulate_release_impulses.insert(other_key, delta);
-            }
-        }
-        if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
-            for (key, pos) in secondary_updates {
-                if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                    egui_node.set_location(pos);
-                }
-            }
-        }
-    }
-
-    record_simulate_release_impulses(app, simulate_release_impulses);
-
-    if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
-        for (key, pos) in pinned_positions {
-            if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(pos.to_pos2());
-            }
-        }
-    }
 }
 
 fn record_simulate_release_impulses(
@@ -1000,72 +768,6 @@ mod tests {
     }
 
     #[test]
-    fn requested_layout_algorithm_prefers_lens_override_when_present() {
-        let mut app = test_app();
-        let view_id = crate::app::GraphViewId::new();
-        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.lens_state.base_lens_id = Some("lens:default".to_string());
-        view.layout_policy.mode = LayoutMode::Grid { gap: 24.0 };
-        app.workspace.graph_runtime.views.insert(view_id, view);
-
-        let canvas_profile = crate::registries::domain::layout::canvas::CanvasRegistry::default()
-            .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
-            .profile;
-
-        let requested = requested_layout_algorithm_id(&app, view_id, &canvas_profile);
-
-        assert_eq!(requested, crate::app::graph_layout::GRAPH_LAYOUT_GRID);
-    }
-
-    #[test]
-    fn requested_layout_algorithm_prefers_free_layout_algorithm_override() {
-        let mut app = test_app();
-        let view_id = crate::app::GraphViewId::new();
-        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.layout_policy.mode = LayoutMode::Free;
-        view.layout_policy.algorithm_id =
-            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string();
-        app.workspace.graph_runtime.views.insert(view_id, view);
-
-        let canvas_profile = crate::registries::domain::layout::canvas::CanvasRegistry::default()
-            .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
-            .profile;
-
-        let requested = requested_layout_algorithm_id(&app, view_id, &canvas_profile);
-
-        assert_eq!(
-            requested,
-            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
-        );
-    }
-
-    #[test]
-    fn should_apply_layout_algorithm_detects_view_layout_change() {
-        let mut app = test_app();
-        let view_id = crate::app::GraphViewId::new();
-        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.last_layout_algorithm_id =
-            Some(crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string());
-        app.workspace.graph_runtime.views.insert(view_id, view);
-        app.workspace.graph_runtime.egui_state = Some(EguiGraphState::from_graph(
-            app.domain_graph(),
-            &HashSet::new(),
-        ));
-        app.workspace.graph_runtime.egui_state_dirty = false;
-
-        assert!(should_apply_layout_algorithm(
-            &app,
-            view_id,
-            crate::app::graph_layout::GRAPH_LAYOUT_GRID
-        ));
-        assert!(!should_apply_layout_algorithm(
-            &app,
-            view_id,
-            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED
-        ));
-    }
-
-    #[test]
     fn test_focus_node_action() {
         let mut app = test_app();
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
@@ -1116,143 +818,6 @@ mod tests {
         assert!(!app.workspace.graph_runtime.is_interacting);
         let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.projected_position(), Point2D::new(150.0, 250.0));
-    }
-
-    #[test]
-    fn locked_camera_autofit_requires_physics_running_and_not_dragging() {
-        let mut app = test_app();
-        let view_id = crate::app::GraphViewId::new();
-        app.workspace.graph_runtime.views.insert(
-            view_id,
-            crate::app::GraphViewState::new("AutoFit Lock Test"),
-        );
-        app.workspace.graph_runtime.focused_view = Some(view_id);
-        app.set_camera_fit_locked(true);
-
-        app.workspace.graph_runtime.physics.base.is_running = false;
-        app.workspace.graph_runtime.is_interacting = false;
-        assert!(
-            !should_auto_fit_locked_camera(&app),
-            "fit-lock should not auto-fit when physics is idle"
-        );
-
-        app.workspace.graph_runtime.physics.base.is_running = true;
-        app.workspace.graph_runtime.is_interacting = true;
-        assert!(
-            !should_auto_fit_locked_camera(&app),
-            "fit-lock should not auto-fit during active drag interaction"
-        );
-
-        app.workspace.graph_runtime.physics.base.is_running = true;
-        app.workspace.graph_runtime.is_interacting = false;
-        assert!(
-            should_auto_fit_locked_camera(&app),
-            "fit-lock should auto-fit while physics is running and interaction is idle"
-        );
-    }
-
-    #[test]
-    fn unlocked_camera_never_autofits() {
-        let mut app = test_app();
-        app.set_camera_fit_locked(false);
-        app.workspace.graph_runtime.physics.base.is_running = true;
-        app.workspace.graph_runtime.is_interacting = false;
-
-        assert!(
-            !should_auto_fit_locked_camera(&app),
-            "unlocked camera should never auto-fit from lock-mode path"
-        );
-    }
-
-    #[test]
-    fn camera_fit_lock_recenter_requires_explicit_fit_command() {
-        let ctx = egui::Context::default();
-        let view_id = crate::app::GraphViewId::default();
-        let metadata_id = graph_view_metadata_id(None);
-        let mut app = test_app();
-        app.workspace
-            .graph_runtime
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Fit Guardrail"));
-        app.workspace.graph_runtime.focused_view = Some(view_id);
-
-        app.add_node_and_sync("https://a.example".into(), Point2D::new(-120.0, -80.0));
-        app.add_node_and_sync("https://b.example".into(), Point2D::new(180.0, 140.0));
-        app.workspace.graph_runtime.egui_state =
-            Some(EguiGraphState::from_graph_with_visual_state(
-                &app.workspace.domain.graph,
-                app.focused_selection(),
-                app.focused_selection().primary(),
-                &HashSet::new(),
-            ));
-
-        let mut zoom_without_fit = None;
-        let mut zoom_with_fit = None;
-        let mut pan_after_manual = Vec2::ZERO;
-        let mut pan_after_fit = Vec2::ZERO;
-
-        let mut raw = egui::RawInput::default();
-        raw.screen_rect = Some(egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(1024.0, 768.0),
-        ));
-        let _ = ctx.run(raw, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                let active_canvas = phase3_resolve_active_canvas_profile();
-                let canvas_profile = &active_canvas.profile;
-
-                ctx.data_mut(|data| {
-                    let mut frame = MetadataFrame::default();
-                    frame.zoom = 1.0;
-                    frame.pan = egui::vec2(30.0, -20.0);
-                    data.insert_persisted(metadata_id, frame);
-                });
-
-                assert!(apply_background_pan(
-                    ctx,
-                    metadata_id,
-                    &mut app,
-                    view_id,
-                    egui::vec2(15.0, -5.0)
-                ));
-
-                zoom_without_fit = apply_pending_camera_command(
-                    ui,
-                    &mut app,
-                    metadata_id,
-                    view_id,
-                    canvas_profile,
-                );
-
-                ctx.data_mut(|data| {
-                    pan_after_manual = data
-                        .get_persisted::<MetadataFrame>(metadata_id)
-                        .expect("metadata should stay persisted after manual pan")
-                        .pan;
-                });
-
-                app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
-                zoom_with_fit = apply_pending_camera_command(
-                    ui,
-                    &mut app,
-                    metadata_id,
-                    view_id,
-                    canvas_profile,
-                );
-
-                ctx.data_mut(|data| {
-                    pan_after_fit = data
-                        .get_persisted::<MetadataFrame>(metadata_id)
-                        .expect("metadata should stay persisted after explicit fit")
-                        .pan;
-                });
-            });
-        });
-
-        assert!(zoom_without_fit.is_none());
-        assert!(zoom_with_fit.is_some());
-        assert_ne!(pan_after_manual, pan_after_fit);
-        assert!(app.pending_camera_command().is_none());
     }
 
     #[test]
@@ -1387,102 +952,6 @@ mod tests {
     }
 
     #[test]
-    fn lasso_mode_resolution_right_drag_is_deterministic() {
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, false, false),
-            SelectionUpdateMode::Replace
-        );
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, true, false, false),
-            SelectionUpdateMode::Add
-        );
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, true, false),
-            SelectionUpdateMode::Add
-        );
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, false, true),
-            SelectionUpdateMode::Toggle
-        );
-    }
-
-    #[test]
-    fn lasso_mode_resolution_shift_left_drag_is_deterministic() {
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, false, true, false),
-            SelectionUpdateMode::Replace
-        );
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, true, true, false),
-            SelectionUpdateMode::Add
-        );
-        assert_eq!(
-            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, false, true, true),
-            SelectionUpdateMode::Toggle
-        );
-    }
-
-    #[test]
-    fn normalize_lasso_keys_sorts_and_deduplicates() {
-        let k0 = NodeKey::new(0);
-        let k1 = NodeKey::new(1);
-        let k2 = NodeKey::new(2);
-        let normalized = normalize_lasso_keys(vec![k2, k0, k1, k0, k2]);
-        assert_eq!(normalized, vec![k0, k1, k2]);
-    }
-
-    #[test]
-    fn keyboard_traversal_advances_and_wraps_in_deterministic_order() {
-        let mut app = test_app();
-        let k0 = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
-        let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
-        let k2 = app.add_node_and_sync("c".into(), Point2D::new(20.0, 0.0));
-
-        assert_eq!(
-            next_keyboard_traversal_node(&app, app.focused_selection(), false),
-            Some(k0)
-        );
-
-        app.select_node(k0, false);
-        assert_eq!(
-            next_keyboard_traversal_node(&app, app.focused_selection(), false),
-            Some(k1)
-        );
-
-        app.select_node(k2, false);
-        assert_eq!(
-            next_keyboard_traversal_node(&app, app.focused_selection(), false),
-            Some(k0)
-        );
-    }
-
-    #[test]
-    fn keyboard_traversal_reverse_wraps_to_last_when_unfocused() {
-        let mut app = test_app();
-        app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
-        let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
-
-        assert_eq!(
-            next_keyboard_traversal_node(&app, app.focused_selection(), true),
-            Some(k1)
-        );
-    }
-
-    #[test]
-    fn graph_canvas_accessibility_label_includes_focused_node_name() {
-        let mut app = test_app();
-        let key = app.add_node_and_sync("https://example.com/path".into(), Point2D::new(0.0, 0.0));
-        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
-            node.title = "Example title".to_string();
-        }
-        app.select_node(key, false);
-
-        let label = graph_canvas_accessibility_label(&app, app.focused_selection());
-        assert!(label.contains("Focused node: Example title"));
-        assert!(label.contains("Tab"));
-    }
-
-    #[test]
     fn test_clear_selection_action_maps_to_intent() {
         let mut app = test_app();
         let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
@@ -1577,7 +1046,7 @@ mod tests {
     #[test]
     fn test_primary_click_handler_detects_selection_action() {
         let actions = vec![GraphAction::SelectNode {
-            key: NodeIndex::new(0),
+            key: NodeKey::new(0),
             multi_select: false,
         }];
 
@@ -1730,142 +1199,6 @@ mod tests {
             app.workspace.graph_runtime.camera.current_zoom
                 >= app.workspace.graph_runtime.camera.zoom_min
         );
-    }
-
-    #[test]
-    fn test_keyboard_pan_delta_from_keys_basic_directions() {
-        let left = keyboard_pan_delta_from_keys(
-            KeyboardPanKeys {
-                left: true,
-                ..Default::default()
-            },
-            10.0,
-        );
-        assert_eq!(left, Vec2::new(10.0, 0.0));
-
-        let right = keyboard_pan_delta_from_keys(
-            KeyboardPanKeys {
-                right: true,
-                ..Default::default()
-            },
-            10.0,
-        );
-        assert_eq!(right, Vec2::new(-10.0, 0.0));
-
-        let up = keyboard_pan_delta_from_keys(
-            KeyboardPanKeys {
-                up: true,
-                ..Default::default()
-            },
-            10.0,
-        );
-        assert_eq!(up, Vec2::new(0.0, 10.0));
-
-        let down = keyboard_pan_delta_from_keys(
-            KeyboardPanKeys {
-                down: true,
-                ..Default::default()
-            },
-            10.0,
-        );
-        assert_eq!(down, Vec2::new(0.0, -10.0));
-    }
-
-    #[test]
-    fn test_keyboard_pan_delta_from_keys_opposite_cancel_out() {
-        let delta = keyboard_pan_delta_from_keys(
-            KeyboardPanKeys {
-                left: true,
-                right: true,
-                up: true,
-                down: true,
-            },
-            10.0,
-        );
-        assert_eq!(delta, Vec2::ZERO);
-    }
-
-    #[test]
-    fn test_keyboard_pan_delta_from_state_respects_input_mode() {
-        let state = KeyboardPanInputState {
-            wasd: KeyboardPanKeys {
-                left: true,
-                ..Default::default()
-            },
-            arrows: KeyboardPanKeys::default(),
-        };
-
-        let arrows_only =
-            keyboard_pan_delta_from_state(state, 10.0, KeyboardPanInputMode::ArrowsOnly);
-        assert_eq!(arrows_only, Vec2::ZERO);
-
-        let both = keyboard_pan_delta_from_state(state, 10.0, KeyboardPanInputMode::WasdAndArrows);
-        assert_eq!(both, Vec2::new(10.0, 0.0));
-    }
-
-    #[test]
-    fn test_keyboard_pan_blocked_emits_fit_lock_diagnostic() {
-        let mut diagnostics = DiagnosticsState::new();
-
-        let blocked = emit_keyboard_pan_blocked_if_needed(Vec2::new(12.0, 0.0), false, true, true);
-
-        assert!(blocked);
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests();
-        let channel_count = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        assert_eq!(channel_count, 1);
-    }
-
-    #[test]
-    fn test_keyboard_pan_blocked_emits_inactive_view_diagnostic() {
-        let mut diagnostics = DiagnosticsState::new();
-
-        let blocked = emit_keyboard_pan_blocked_if_needed(Vec2::new(0.0, 8.0), false, false, false);
-
-        assert!(blocked);
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests();
-        let channel_count = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        assert_eq!(channel_count, 1);
-    }
-
-    #[test]
-    fn test_keyboard_pan_blocked_ignores_zero_delta_or_text_input_capture() {
-        let mut diagnostics = DiagnosticsState::new();
-
-        let zero_delta_blocked =
-            emit_keyboard_pan_blocked_if_needed(Vec2::ZERO, false, true, false);
-        let text_capture_blocked =
-            emit_keyboard_pan_blocked_if_needed(Vec2::new(5.0, 0.0), true, true, false);
-
-        assert!(!zero_delta_blocked);
-        assert!(!text_capture_blocked);
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests();
-        let fit_lock_count = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let inactive_view_count = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        assert_eq!(fit_lock_count, 0);
-        assert_eq!(inactive_view_count, 0);
     }
 
     #[test]
@@ -2121,28 +1454,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_elapsed_ago_units() {
-        assert_eq!(format_elapsed_ago(Duration::from_secs(2)), "just now");
-        assert_eq!(format_elapsed_ago(Duration::from_secs(12)), "12s ago");
-        assert_eq!(format_elapsed_ago(Duration::from_secs(120)), "2m ago");
-        assert_eq!(
-            format_elapsed_ago(Duration::from_secs(60 * 60 * 3)),
-            "3h ago"
-        );
-        assert_eq!(
-            format_elapsed_ago(Duration::from_secs(60 * 60 * 24 * 2)),
-            "2d ago"
-        );
-    }
-
-    #[test]
-    fn test_format_last_visited_with_future_timestamp_is_just_now() {
-        let now = SystemTime::now();
-        let future = now + Duration::from_secs(10);
-        assert_eq!(format_last_visited_with_now(future, now), "just now");
-    }
-
-    #[test]
     fn test_neighbor_set_computation() {
         let mut app = test_app();
         let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
@@ -2171,34 +1482,6 @@ mod tests {
         assert!(set.contains(&a));
         assert!(set.contains(&b));
         assert!(set.contains(&c));
-    }
-
-    #[test]
-    fn test_search_highlight_mode_dims_not_hides() {
-        let mut app = test_app();
-        let a = app.add_node_and_sync("alpha".into(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
-        app.workspace.graph_runtime.search_display_mode = SearchDisplayMode::Highlight;
-        app.workspace.graph_runtime.egui_state =
-            Some(EguiGraphState::from_graph_with_visual_state(
-                &app.workspace.domain.graph,
-                app.focused_selection(),
-                app.focused_selection().primary(),
-                &HashSet::new(),
-            ));
-        let matches = HashSet::from([a]);
-        let selection = app.focused_selection().clone();
-        apply_search_node_visuals(&mut app, &selection, &matches, Some(a), true);
-
-        let state = app.workspace.graph_runtime.egui_state.as_ref().unwrap();
-        assert!(state.graph.node(a).is_some());
-        assert!(state.graph.node(b).is_some());
-        let b_color = state.graph.node(b).unwrap().color().unwrap();
-        let presentation =
-            crate::registries::domain::presentation::PresentationDomainRegistry::default()
-                .resolve_profile("physics:default", "theme:default")
-                .profile;
-        assert!(b_color != lifecycle_color(&presentation, NodeLifecycle::Cold));
     }
 
     #[test]
@@ -2359,102 +1642,6 @@ mod tests {
         assert_eq!(reserved_tag_warning("research"), None);
     }
 
-    /// Simulate the sync conditions for group drag:
-    /// Build egui_state from the graph, move the dragged node in egui_state,
-    /// then run sync and assert secondary selected nodes follow.
-    fn setup_group_drag_sync(app: &mut GraphBrowserApp, dragged_key: NodeKey, delta: egui::Vec2) {
-        use crate::graph::egui_adapter::EguiGraphState;
-        // Build egui_state seeded from current app.workspace.domain.graph positions.
-        app.workspace.graph_runtime.egui_state = Some(EguiGraphState::from_graph(
-            &app.workspace.domain.graph,
-            &std::collections::HashSet::new(),
-        ));
-        // Simulate egui_graphs moving the dragged node by delta.
-        if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
-            if let Some(node) = state_mut.graph.node_mut(dragged_key) {
-                let old = node.location();
-                node.set_location(
-                    euclid::default::Point2D::new(old.x + delta.x, old.y + delta.y).to_pos2(),
-                );
-            }
-        }
-        app.workspace.graph_runtime.is_interacting = true;
-    }
-
-    #[test]
-    fn test_group_drag_moves_secondary_selected_nodes() {
-        let mut app = test_app();
-        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
-        let c = app.add_node_and_sync("c".into(), Point2D::new(200.0, 0.0));
-
-        // Select A (primary) and B (secondary); C is unselected.
-        app.select_node(a, false);
-        app.select_node(b, true);
-
-        let delta = egui::Vec2::new(10.0, 20.0);
-        setup_group_drag_sync(&mut app, a, delta);
-        sync_graph_positions_from_layout(&mut app);
-
-        // A moved to its dragged position.
-        let a_pos = app
-            .workspace
-            .domain
-            .graph
-            .get_node(a)
-            .unwrap()
-            .projected_position();
-        assert!((a_pos.x - 10.0).abs() < 0.1, "a.x={}", a_pos.x);
-        assert!((a_pos.y - 20.0).abs() < 0.1, "a.y={}", a_pos.y);
-
-        // B followed by the same delta.
-        let b_pos = app
-            .workspace
-            .domain
-            .graph
-            .get_node(b)
-            .unwrap()
-            .projected_position();
-        assert!((b_pos.x - 110.0).abs() < 0.1, "b.x={}", b_pos.x);
-        assert!((b_pos.y - 20.0).abs() < 0.1, "b.y={}", b_pos.y);
-
-        // C was not selected — stays put.
-        let c_pos = app
-            .workspace
-            .domain
-            .graph
-            .get_node(c)
-            .unwrap()
-            .projected_position();
-        assert!((c_pos.x - 200.0).abs() < 0.1, "c.x={}", c_pos.x);
-        assert!((c_pos.y - 0.0).abs() < 0.1, "c.y={}", c_pos.y);
-    }
-
-    #[test]
-    fn test_group_drag_no_propagation_when_single_selection() {
-        let mut app = test_app();
-        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
-        let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
-
-        // Only A selected.
-        app.select_node(a, false);
-
-        let delta = egui::Vec2::new(10.0, 20.0);
-        setup_group_drag_sync(&mut app, a, delta);
-        sync_graph_positions_from_layout(&mut app);
-
-        // B must not move (single selection — no group drag).
-        let b_pos = app
-            .workspace
-            .domain
-            .graph
-            .get_node(b)
-            .unwrap()
-            .projected_position();
-        assert!((b_pos.x - 100.0).abs() < 0.1, "b.x={}", b_pos.x);
-        assert!((b_pos.y - 0.0).abs() < 0.1, "b.y={}", b_pos.y);
-    }
-
     #[test]
     fn viewport_culling_metrics_reduce_visible_set_and_submission_units() {
         let mut app = test_app();
@@ -2492,68 +1679,6 @@ mod tests {
         assert!(metrics.culled_submission_units < metrics.full_submission_units);
     }
 
-    #[test]
-    fn viewport_culling_benchmark_reports_lower_prep_time_than_full_rebuild() {
-        let mut app = test_app();
-        let mut keys = Vec::new();
-        for row in 0..30 {
-            for col in 0..30 {
-                let key = app.add_node_and_sync(
-                    format!("https://bench.example/{row}/{col}"),
-                    Point2D::new(col as f32 * 30.0, row as f32 * 30.0),
-                );
-                keys.push(key);
-            }
-        }
-
-        for pair in keys.windows(2) {
-            let _ = app.assert_relation_and_sync(
-                pair[0],
-                pair[1],
-                crate::graph::EdgeAssertion::Semantic {
-                    sub_kind: crate::graph::SemanticSubKind::Hyperlink,
-                    label: None,
-                    decay_progress: None,
-                },
-            );
-        }
-
-        let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));
-        let culled_graph =
-            viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
-                .expect("expected culled graph for benchmark viewport");
-
-        let full_start = Instant::now();
-        for _ in 0..12 {
-            let state = EguiGraphState::from_graph_with_visual_state(
-                &app.workspace.domain.graph,
-                app.focused_selection(),
-                app.focused_selection().primary(),
-                &HashSet::new(),
-            );
-            black_box(state.graph.node_count());
-        }
-        let full_elapsed = full_start.elapsed();
-
-        let culled_start = Instant::now();
-        for _ in 0..12 {
-            let state = EguiGraphState::from_graph_with_visual_state(
-                &culled_graph,
-                app.focused_selection(),
-                app.focused_selection().primary(),
-                &HashSet::new(),
-            );
-            black_box(state.graph.node_count());
-        }
-        let culled_elapsed = culled_start.elapsed();
-
-        assert!(
-            culled_elapsed < full_elapsed,
-            "expected culled prep to be faster; full={:?}, culled={:?}",
-            full_elapsed,
-            culled_elapsed
-        );
-    }
 
     #[test]
     fn canvas_rect_from_view_frame_respects_pan_and_zoom() {
@@ -2571,164 +1696,6 @@ mod tests {
         assert!((canvas.min.y + 10.0).abs() < 0.001);
         assert!((canvas.max.x - 75.0).abs() < 0.001);
         assert!((canvas.max.y - 90.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn background_pan_updates_metadata_and_focus_for_non_zero_delta() {
-        let ctx = egui::Context::default();
-        let metadata_id = egui::Id::new("test-background-pan");
-        let view_id = crate::app::GraphViewId::default();
-        let mut app = test_app();
-        app.workspace
-            .graph_runtime
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Pan Test"));
-
-        ctx.data_mut(|data| {
-            let mut frame = MetadataFrame::default();
-            frame.zoom = 1.0;
-            frame.pan = egui::vec2(10.0, 20.0);
-            data.insert_persisted(metadata_id, frame);
-        });
-
-        let changed =
-            apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(15.0, -5.0));
-
-        assert!(changed);
-        assert_eq!(app.workspace.graph_runtime.focused_view, Some(view_id));
-        ctx.data_mut(|data| {
-            let meta = data
-                .get_persisted::<MetadataFrame>(metadata_id)
-                .expect("background pan should keep metadata persisted");
-            assert!((meta.pan.x - 25.0).abs() < 0.001);
-            assert!((meta.pan.y - 15.0).abs() < 0.001);
-        });
-    }
-
-    #[test]
-    fn background_pan_is_noop_for_zero_delta() {
-        let ctx = egui::Context::default();
-        let metadata_id = egui::Id::new("test-background-pan-zero");
-        let view_id = crate::app::GraphViewId::default();
-        let mut app = test_app();
-        app.workspace
-            .graph_runtime
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Zero Pan Test"));
-
-        ctx.data_mut(|data| {
-            let mut frame = MetadataFrame::default();
-            frame.zoom = 1.0;
-            frame.pan = egui::vec2(10.0, 20.0);
-            data.insert_persisted(metadata_id, frame);
-        });
-
-        let changed = apply_background_pan(&ctx, metadata_id, &mut app, view_id, Vec2::ZERO);
-
-        assert!(!changed);
-        assert_eq!(app.workspace.graph_runtime.focused_view, None);
-        ctx.data_mut(|data| {
-            let meta = data
-                .get_persisted::<MetadataFrame>(metadata_id)
-                .expect("zero-delta pan should leave metadata intact");
-            assert!((meta.pan.x - 10.0).abs() < 0.001);
-            assert!((meta.pan.y - 20.0).abs() < 0.001);
-        });
-    }
-
-    #[test]
-    fn background_pan_seeds_metadata_when_missing() {
-        let ctx = egui::Context::default();
-        let metadata_id = egui::Id::new("test-background-pan-missing-meta");
-        let view_id = crate::app::GraphViewId::default();
-        let mut app = test_app();
-        app.workspace
-            .graph_runtime
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Seed Pan Test"));
-        app.workspace.graph_runtime.graph_view_frames.insert(
-            view_id,
-            crate::app::GraphViewFrame {
-                zoom: 1.0,
-                pan_x: 5.0,
-                pan_y: 7.0,
-            },
-        );
-
-        let changed =
-            apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(3.0, -2.0));
-
-        assert!(changed);
-        ctx.data_mut(|data| {
-            let meta = data
-                .get_persisted::<MetadataFrame>(metadata_id)
-                .expect("missing metadata should be seeded on pan");
-            assert!((meta.pan.x - 8.0).abs() < 0.001);
-            assert!((meta.pan.y - 5.0).abs() < 0.001);
-        });
-    }
-
-    #[test]
-    fn background_pan_records_inertia_velocity_when_enabled() {
-        let ctx = egui::Context::default();
-        let metadata_id = egui::Id::new("test-background-pan-inertia-enabled");
-        let view_id = crate::app::GraphViewId::default();
-        let mut app = test_app();
-        app.workspace
-            .graph_runtime
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Inertia Pan Test"));
-
-        let changed =
-            apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(6.0, -4.0));
-        assert!(changed);
-
-        ctx.data_mut(|data| {
-            let velocity = data
-                .get_persisted::<Vec2>(pan_inertia_velocity_id(metadata_id))
-                .expect("pan inertia velocity should be recorded when enabled");
-            assert!((velocity.x - 6.0).abs() < 0.001);
-            assert!((velocity.y + 4.0).abs() < 0.001);
-        });
-    }
-
-    #[test]
-    fn pan_inertia_decay_moves_camera_when_manual_pan_is_idle() {
-        let ctx = egui::Context::default();
-        let metadata_id = egui::Id::new("test-pan-inertia-decay");
-        let view_id = crate::app::GraphViewId::default();
-        let mut app = test_app();
-        app.workspace.graph_runtime.views.insert(
-            view_id,
-            crate::app::GraphViewState::new("Inertia Decay Test"),
-        );
-        app.set_camera_pan_inertia_enabled(true);
-        app.set_camera_pan_inertia_damping(0.80);
-
-        ctx.data_mut(|data| {
-            let mut frame = MetadataFrame::default();
-            frame.zoom = 1.0;
-            frame.pan = egui::vec2(0.0, 0.0);
-            data.insert_persisted(metadata_id, frame);
-            data.insert_persisted(pan_inertia_velocity_id(metadata_id), egui::vec2(10.0, 0.0));
-        });
-
-        let applied = apply_background_pan_inertia(&ctx, metadata_id, &app, view_id);
-        assert!(applied);
-
-        ctx.data_mut(|data| {
-            let meta = data
-                .get_persisted::<MetadataFrame>(metadata_id)
-                .expect("metadata frame should remain persisted after inertia");
-            assert!((meta.pan.x - 10.0).abs() < 0.001);
-            assert!((meta.pan.y - 0.0).abs() < 0.001);
-
-            let velocity = data
-                .get_persisted::<Vec2>(pan_inertia_velocity_id(metadata_id))
-                .expect("damped velocity should remain for subsequent inertia frames");
-            assert!(velocity.x < 10.0);
-            assert!(velocity.x > 0.0);
-        });
     }
 
     #[test]
@@ -2777,35 +1744,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn lasso_state_ids_are_scoped_per_metadata_id() {
-        let metadata_a = egui::Id::new("view-a").with("metadata");
-        let metadata_b = egui::Id::new("view-b").with("metadata");
-
-        let (start_a, moved_a) = lasso_state_ids(metadata_a);
-        let (start_a_repeat, moved_a_repeat) = lasso_state_ids(metadata_a);
-        let (start_b, moved_b) = lasso_state_ids(metadata_b);
-
-        assert_eq!(start_a, start_a_repeat);
-        assert_eq!(moved_a, moved_a_repeat);
-        assert_ne!(start_a, start_b);
-        assert_ne!(moved_a, moved_b);
-    }
-
-    #[test]
-    fn camera_fit_lock_uses_egui_graphs_double_hashed_metadata_id() {
-        let raw_metadata_id = MetadataFrame::new(None).get_id();
-        let metadata_id = graph_view_metadata_id(None);
-
-        assert_eq!(metadata_id, egui::Id::new(raw_metadata_id));
-        assert_ne!(metadata_id, raw_metadata_id);
-    }
-
-    #[test]
-    fn camera_fit_lock_metadata_id_scopes_with_custom_graph_view_id() {
-        let left = graph_view_metadata_id(Some("left-view".to_string()));
-        let right = graph_view_metadata_id(Some("right-view".to_string()));
-
-        assert_ne!(left, right);
-    }
 }

@@ -544,10 +544,10 @@ mod tests {
 
         profile.apply_to_state(&mut state);
 
-        assert_eq!(state.base.c_repulse, 0.61);
-        assert_eq!(state.base.c_attract, 0.19);
-        assert_eq!(state.base.damping, 0.48);
-        assert_eq!(state.extras.0.params.c, 0.27);
+        assert_eq!(state.c_repulse, 0.61);
+        assert_eq!(state.c_attract, 0.19);
+        assert_eq!(state.damping, 0.48);
+        assert_eq!(state.c_gravity, 0.27);
     }
 
     #[test]

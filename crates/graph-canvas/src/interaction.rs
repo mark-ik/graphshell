@@ -75,6 +75,10 @@ pub enum CanvasAction<N> {
     LassoCancel,
     PanCamera(Vector2D<f32>),
     ZoomCamera { factor: f32, focus: Point2D<f32> },
+    /// Seed the camera's inertial pan velocity (world units per second).
+    /// Emitted on drag release when the terminal drag delta is non-trivial,
+    /// so the host can `tick_inertia` each frame and coast the view.
+    SetPanInertia(Vector2D<f32>),
     HoverSceneObject(Option<SceneObjectId>),
     ClickSceneObject(SceneObjectId),
 }

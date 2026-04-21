@@ -118,68 +118,43 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
 
 /// Apply soft centroid-attraction forces for all frame-affinity regions.
 ///
-/// For each member node, adds a displacement toward its frame centroid,
-/// scaled by `region.strength × distance`.  Pinned nodes are skipped.
-/// The force is applied to both the domain graph's projected positions and
-/// the egui_graphs node locations (via `app.workspace.graph_runtime.egui_state`).
+/// Delegates to [`graph_canvas::layout::FrameAffinity`]: each region's
+/// members are pulled toward the centroid of the member set, scaled by
+/// `region.strength × strength_override`. Pinned nodes are skipped.
 pub(crate) fn apply_frame_affinity_forces(
     app: &mut crate::app::GraphBrowserApp,
     regions: &[FrameAffinityRegion],
     strength_override: Option<f32>,
 ) {
-    if !app.workspace.graph_runtime.physics.base.is_running {
+    use graph_canvas::layout::{self as gclayout, Layout as _};
+
+    if !app.workspace.graph_runtime.physics.is_running || regions.is_empty() {
         return;
     }
 
-    let strength_factor = strength_override.unwrap_or(1.0);
-    let mut position_deltas: HashMap<NodeKey, Vec2> = HashMap::new();
-
-    for region in regions {
-        for &member in &region.members {
-            if app
-                .domain_graph()
-                .get_node(member)
-                .is_some_and(|n| n.is_pinned)
-            {
-                continue;
-            }
-            if let Some(pos) = app.domain_graph().node_projected_position(member) {
-                let member_pos = Vec2::new(pos.x, pos.y);
-                let centroid_vec = Vec2::new(region.centroid.x, region.centroid.y);
-                let delta = centroid_vec - member_pos;
-                let force = delta * region.strength * strength_factor;
-                *position_deltas.entry(member).or_insert(Vec2::ZERO) += force;
-            }
-        }
+    let scene = crate::graph::physics::scene_input_for_physics_pub(app);
+    if scene.nodes.is_empty() {
+        return;
     }
-
-    // Apply to domain graph projected positions
-    let projected_positions: Vec<(NodeKey, euclid::default::Point2D<f32>)> = position_deltas
+    let viewport = crate::graph::physics::scene_bounds_viewport_pub(&scene);
+    let mut extras = graph_canvas::layout::LayoutExtras::<NodeKey>::default();
+    extras.pinned = crate::graph::physics::pinned_set_pub(app);
+    extras.frame_regions = regions
         .iter()
-        .filter_map(|(&key, &delta)| {
-            app.domain_graph().node_projected_position(key).map(|pos| {
-                (
-                    key,
-                    euclid::default::Point2D::new(pos.x + delta.x, pos.y + delta.y),
-                )
-            })
+        .map(|region| gclayout::FrameRegion {
+            anchor: region.frame_anchor,
+            members: region.members.clone(),
+            strength: region.strength,
         })
         .collect();
 
-    for (key, next_pos) in &projected_positions {
-        let _ = app
-            .domain_graph_mut()
-            .set_node_projected_position(*key, *next_pos);
-    }
-
-    // Sync egui_graphs node locations to match
-    if let Some(state_mut) = app.workspace.graph_runtime.egui_state.as_mut() {
-        for (key, next_pos) in projected_positions {
-            if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(egui::Pos2::new(next_pos.x, next_pos.y));
-            }
-        }
-    }
+    let mut layout = gclayout::FrameAffinity::new(gclayout::FrameAffinityConfig {
+        global_strength: strength_override.unwrap_or(1.0),
+        ..Default::default()
+    });
+    let mut state = gclayout::StatelessPassState::default();
+    let deltas = layout.step(&scene, &mut state, 0.0, &viewport, &extras);
+    crate::graph::physics::apply_canvas_deltas_pub(app, deltas);
 }
 
 /// Stable per-frame color derived from the ordinal index of the anchor.

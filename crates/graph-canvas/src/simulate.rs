@@ -335,6 +335,80 @@ impl<N: Clone + Eq + Hash> RapierSceneWorld<N> {
         }
     }
 
+    /// Reset the stored "initial position" for a node to a new anchor,
+    /// without moving the body. Persistent-world adapters use this to
+    /// re-anchor between frames so `read_positions()` returns per-step
+    /// deltas rather than cumulative deltas since world construction.
+    pub fn rebase_initial_position(&mut self, node_id: &N, position: Point2D<f32>) {
+        if let Some(initial) = self.initial_positions.get_mut(node_id) {
+            *initial = position;
+        }
+    }
+
+    /// Directly teleport a dynamic body to a new translation, resetting its
+    /// velocity. Used by persistent-world adapters when the host moves a
+    /// non-dragged node by external means (e.g., layout swap, snap, undo).
+    /// For per-frame drag the caller should use `set_kinematic_position`
+    /// instead and mark the body kinematic.
+    pub fn set_dynamic_position(&mut self, node_id: &N, position: Point2D<f32>) {
+        if let Some(&handle) = self.body_map.get(node_id) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_translation(to_vec2(position), true);
+                body.set_linvel(vec2d_to_vec2(Vector2D::zero()), true);
+                body.set_angvel(0.0, true);
+            }
+        }
+    }
+
+    /// Switch a node's rigid body to `KinematicPositionBased`. Used by
+    /// persistent-world adapters when a node starts being dragged so
+    /// the host can drive its position each frame via
+    /// [`Self::set_kinematic_position`] without waking up the solver.
+    ///
+    /// No-op if the body is already kinematic. Does not modify
+    /// translation or velocity.
+    pub fn mark_body_kinematic(&mut self, node_id: &N) {
+        if let Some(&handle) = self.body_map.get(node_id) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                if body.body_type() != RigidBodyType::KinematicPositionBased {
+                    body.set_body_type(RigidBodyType::KinematicPositionBased, true);
+                }
+            }
+        }
+    }
+
+    /// Switch a node's rigid body from `KinematicPositionBased` (or
+    /// `Static`) to `Dynamic` and seed its linear velocity. Persistent-
+    /// world adapters use this on drag release so the body carries the
+    /// drag-motion velocity into free flight instead of coming to rest
+    /// the frame the drag ends.
+    ///
+    /// The velocity is set explicitly rather than relying on rapier's
+    /// internal kinematic-derived linvel, because kinematic bodies
+    /// expose that linvel only during the step and hosts computing it
+    /// from the visible drag delta produce a more predictable handoff.
+    /// No-op on nodes that have no body.
+    pub fn hand_off_kinematic_to_dynamic(
+        &mut self,
+        node_id: &N,
+        handoff_velocity: Vector2D<f32>,
+    ) {
+        if let Some(&handle) = self.body_map.get(node_id) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                if body.body_type() != RigidBodyType::Dynamic {
+                    body.set_body_type(RigidBodyType::Dynamic, true);
+                }
+                body.set_linvel(vec2d_to_vec2(handoff_velocity), true);
+            }
+        }
+    }
+
+    /// Current rapier body type for a node, if any.
+    pub fn body_type(&self, node_id: &N) -> Option<RigidBodyType> {
+        let &handle = self.body_map.get(node_id)?;
+        self.rigid_body_set.get(handle).map(|b| b.body_type())
+    }
+
     /// Get the current simulated position of a node.
     pub fn get_position(&self, node_id: &N) -> Option<Point2D<f32>> {
         let &handle = self.body_map.get(node_id)?;
