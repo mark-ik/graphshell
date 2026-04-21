@@ -324,6 +324,7 @@ History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
 ## 11. Linked Docs
 
 - `2026-02-20_edge_traversal_impl_plan.md` (Stage F temporal navigation/replay planning)
+- `2026-04-17_graph_memory_architecture_note.md` (current code-backed substrate note for the Rust `graph-memory` port from `history-tree` and its Graphshell wrapper boundary)
 - `PLANNING_REGISTER.md` (cross-subsystem sequencing and preserved Stage F backlog notes)
 - `SUBSYSTEM_STORAGE.md` (archive durability and WAL integrity dependencies)
 - `SUBSYSTEM_DIAGNOSTICS.md` (history diagnostics channels/health summary infrastructure)

@@ -10,8 +10,25 @@
 * **Graphshell**: The product name. A local-first, spatial browser. Shell is the unconditional application host; Graph is the canonical truth domain; Navigator projects graph truth into navigable local worlds; Workbench is the invoked arrangement system; Viewer realizes requested content. See `design_docs/graphshell_docs/implementation_strategy/graph/2026-03-14_graph_relation_families.md` for the relation family model that supersedes the legacy "file-tree" metaphor.
 * **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
 * **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
-* **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
+* **Verso**: The shell's routing authority for viewer/engine choice, pane ownership, and backend escalation — plus the `verso://` internal namespace. As of 2026-04-21, `crates/verso` owns the routing decisions (`select_viewer_for_content`, `resolve_route_for_content`, `VersoResolvedRoute`, `VersoPaneOwner`, `VersoRouteReason`) and consults `middlenet-engine` for Middlenet lane selection. The legacy "Verso mod" — Servo/Wry integration and local Gemini/Gopher/Finger helpers — was renamed to the `web_runtime` provider bundle (`mods/native/web_runtime/`) and is now an input *into* Verso, not the authority itself.
 * **Verse**: The optional public community network for federated knowledge sharing. Long-horizon research. The public, community, federated layer. Distinct from Verso's local collaboration.
+
+## Projection Concepts
+
+Projection is the cross-cutting pattern for deriving a representation in one domain from truth/substrate in another. Most architectural layers in Graphshell are connected by named projections; this section defines the umbrella concept, a word-form convention that resolves ambient ambiguity, and the canonical mechanisms that implement projections.
+
+* **Projection** (umbrella): A pure function across a domain boundary — taking truth or substrate in one domain and producing a representation in another. Every named "projection" in Graphshell (Navigator projection, Cartography projection, contribution projection, branch projection, `AggregatedEntryEdgeView`, the Projection Rule's "nodes project as tiles," Viewer resolution) is an instance. A projection has a **source domain**, a **target representation shape**, a **specification** (config), and **refresh rules**. Projections are derivations, never owned truth — the source domain remains authoritative.
+* **Three-form convention** (linguistic discipline):
+    * **projection** (noun) — the *pattern* / rule / named function. "Navigator projection," "Cartography projection" are pattern names.
+    * **projected X** (adjective+noun) — the *outcome* produced by applying the pattern. "Projected tree," "projected aggregate," "projected view."
+    * **projecting** / **to project** (gerund/verb) — the *process* of applying the pattern. "Nodes project as tiles," "projecting runs on refresh."
+    Never use **projection** bare in specs when the domain is not obvious — always prefer `X projection` or `projection of Y into Z`. Mechanism names (projection pipeline, projection spec, `ProjectionLens`) are compound nouns and sit alongside the three-form split.
+* **Projection family** — the set of projections sharing a source domain or target representation. Navigator projections, Graph projections, Cartography projections, memory-substrate projections are each a family.
+* **Domain projection matrix** — the catalog of named projections across domain pairs. Canonical doc: `graphshell_docs/technical_architecture/domain_projection_matrix.md`.
+* **Projection Rule** (specific instance) — the Graph→Workbench correspondence projection (nodes→tiles, graphlets→tile groups, frames→frames). See Tile Tree Architecture §Projection Rule. One named instance of the umbrella concept.
+* **Projection pipeline** (mechanism) — the Navigator's five-stage pipeline (Scope → Shape → Annotation → Presentation → Portal) that produces any projected Navigator view. Spec in development per `implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md` (produces the canonical `navigator_projection_spec.md`).
+* **Projection spec** (mechanism) — a config struct parameterizing one pipeline instance. Declares scope strategy, shape mode, annotation stack, cost class, layout inheritance.
+* **ProjectionLens** (mechanism) — a Rust enum in the `graph-tree` crate that parameterizes the Shape stage for tree-family projections. Variants select which edge family drives parent-child (Traversal, Arrangement, Containment, Recency, etc.). Not a separate projection pattern — a concrete Shape-stage implementation for tree-shaped outputs. Non-tree shapes (graphlet-as-graph, time-axis, summary/minimap) require their own Shape-stage mechanisms.
 
 ## Tile Tree Architecture
 

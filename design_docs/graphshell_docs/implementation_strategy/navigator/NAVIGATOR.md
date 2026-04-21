@@ -13,7 +13,7 @@ projection rules, and interaction contract.
 
 - [navigator_backlog_pack.md](navigator_backlog_pack.md) — dependency-ordered implementation backlog
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — click grammar, selection, reveal, dismiss
-- [navigator_projection_spec.md](navigator_projection_spec.md) — section model, projection sources, refresh triggers
+- [navigator_projection_spec.md](navigator_projection_spec.md) — canonical five-stage projection pipeline, composition, annotation, portal, and refresh contract
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — workbench domain (arrangement and activation authority)
 - [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain spec; the canvas is a graph-rendering surface for truth and context authority
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — canonical term definitions

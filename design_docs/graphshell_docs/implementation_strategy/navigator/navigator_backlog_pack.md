@@ -13,6 +13,8 @@ graph truth and workbench arrangement state.
 
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — canonical Navigator click grammar and graph/workbench resolution rules
+- [navigator_projection_spec.md](navigator_projection_spec.md) — canonical projection pipeline, composition, annotation, and diff contract
+- [2026-04-21_navigator_projection_pipeline_plan.md](2026-04-21_navigator_projection_pipeline_plan.md) — producing plan and projection-pipeline findings
 - [../../technical_architecture/graphlet_model.md](../../technical_architecture/graphlet_model.md) — canonical graphlet semantics consumed by Navigator projection
 - [../../technical_architecture/domain_interaction_scenarios.md](../../technical_architecture/domain_interaction_scenarios.md) — canonical cross-domain scenario IDs (`DI01`-`DI06`)
 - [../domain_interaction_acceptance_matrix.md](../domain_interaction_acceptance_matrix.md) — compact review matrix for cross-domain scenario evidence
@@ -84,7 +86,24 @@ full milestone closure receipt (`NV25`).
 5. `NV24A` Graph Overview Host-Form Contract. Depends: `NV15`, `NV20`, `NV24`. Done gate: the first graph-overview Navigator host is explicitly list-first in sidebars, optional-swatch gating is defined by host geometry, and toolbar hosts degrade to compact strips/counters rather than minimap semantics.
 6. `NV24B` Graph Overview Projection Density + Filters. Depends: `NV18`, `NV24A`. Done gate: archived graph views are hidden by default behind an explicit filter toggle, dense inter-view relationships degrade to aggregated hints, and overview-projection state remains distinct from graph truth.
 7. `NV24C` Graph Overview Routing Parity. Depends: `NV17`, `NV24A`, graph backlog equivalents. Done gate: focus/reveal actions route identically across toolbar and sidebar hosts, while structural editing hands off to the graph-owned Overview Plane rather than mutating Navigator-local state.
-8. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`, `NV24A`-`NV24C`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
+8. `NV24D` Navigator Annotation Registry Contract. Depends: `NV18`, `NV20`, `NV24`. Done gate: `NodeAnnotation` registry contributions, density classes, and cost/budget rules are canonical and row rendering no longer hard-codes every badge family.
+9. `NV24E` Navigator Portal Gesture Contract. Depends: `NV11`, `NV17`, `NV24`. Done gate: `Locate`, `Reveal-in-place`, and `Lift` are named, routed through graph/workbench intents, and do not contradict reducer-only mutation rules.
+10. `NV24F` Navigator Projection Diff Contract. Depends: `NV10`, `NV20`, `NV24`. Done gate: projection switches and refresh-trigger reruns animate via canonical diff identity and timing rules instead of teleporting rows.
+11. `NV24G` Navigator Time-Axis Projection Contract. Depends: `NV10`, `NV14`, `NV24`. Done gate: time-axis is specified as a specialty projection consuming `mixed_timeline_entries`, with host-local cursor semantics and composition rules.
+12. `NV24H` Navigator Layout Inheritance Contract. Depends: `NV15`, `NV24A`, `NV24C`. Done gate: every projection declares `own`, `canvas`, or `canvas-compressed` layout inheritance so host rendering and canvas-derived updates do not guess.
+13. `NV24I` Navigator Projection Cost Classification. Depends: `NV10`, `NV24D`, `NV24H`. Done gate: every projection and annotation contributor declares `live`, `debounced`, or `on-demand` behavior plus any incremental-update requirement.
+14. `NV25` Navigator Milestone Closure Receipt. Depends: `NV01`-`NV24`, `NV24A`-`NV24I`. Done gate: one closure doc states what another agent can now safely build on for sections, click grammar, routing, and projection behavior.
+
+## Projection Pipeline Mapping (2026-04-21)
+
+- `NV01` maps to the pipeline boundary and the rule that Navigator is projection-and-routing only.
+- `NV04` maps to stage 1 Scope and section/source alignment.
+- `NV10` maps to refresh-trigger routing for projection reruns.
+- `NV14` maps to recency-scored projections and declared cost class.
+- `NV15` maps to arrangement-backed scopes, graphlets, and layout inheritance.
+- `NV18` maps to relation surfacing through annotation, not silent suppression.
+- `NV24A`-`NV24C` map to host-specific presentation and overview-swatch behavior.
+- `NV24D`-`NV24I` cover the missing pipeline-wide primitives introduced by `navigator_projection_spec.md`.
 
 ---
 
