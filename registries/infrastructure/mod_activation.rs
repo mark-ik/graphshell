@@ -33,12 +33,12 @@ impl NativeModActivations {
             crate::mods::native::nostrcore::activate as ModActivationFn,
         );
         hooks.insert(
-            "mod:verso".to_string(),
-            crate::mods::native::verso::activate as ModActivationFn,
+            "mod:web-runtime".to_string(),
+            crate::mods::native::web_runtime::activate as ModActivationFn,
         );
         hooks.insert(
             "verso".to_string(),
-            crate::mods::native::verso::activate as ModActivationFn,
+            crate::mods::native::web_runtime::activate as ModActivationFn,
         );
         hooks.insert(
             "mod:verse".to_string(),

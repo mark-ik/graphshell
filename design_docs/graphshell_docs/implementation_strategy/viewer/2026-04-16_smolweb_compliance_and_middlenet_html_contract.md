@@ -5,7 +5,7 @@
 # Smolweb Compliance and the Middlenet HTML Contract
 
 **Date**: 2026-04-16
-**Status**: Proposed architectural spec
+**Status**: Proposed HTML-lane contract; Direct feed/article lane already landed
 **Scope**: Adopt smolweb.org's HTML subset, CSS grading rubric, and `w`
 subdomain convention as the authoritative content-support contract for
 Middlenet's HTML lane. Define validator integration, rendering-guarantee
@@ -39,6 +39,21 @@ tiers, discovery signals, and consequences for Verse indexing.
 - Validator source: https://codeberg.org/smolweb/smolweb-validator
 - Modern Font Stacks: https://modernfontstacks.com/
 - XHTML Basic (ancestor): https://www.w3.org/TR/xhtml-basic/
+
+---
+
+## Implementation Note (2026-04-20)
+
+The Direct Lane feed/article surface is now implemented in the repository via
+the `middlenet-core` / `middlenet-adapters` / `middlenet-render` /
+`middlenet-engine` split and the native `viewer:middlenet` integration.
+
+That means this document should be read narrowly:
+
+- it remains the contract for the future `middlenet-html` lane,
+- it does not describe the already-landed feed/article Direct Lane,
+- and it should not be used to justify forcing current Middlenet work back
+  through HTML before the HTML lane itself exists.
 
 ---
 

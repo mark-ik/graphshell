@@ -220,20 +220,27 @@ Done gate:
 
 ### M2. Make `graph-canvas` the Live Graph Surface
 
+**Status**: Done gate met (2026-04-21). Live graph panes render and interact
+through `graph-canvas`, not `egui_graphs`. Final validation was gated for
+several days on disk-space availability (~700 GB target directory against
+<1 GB free); confirmed on disk recovery 2026-04-21.
+
 **Goal**: replace the hot-path `egui_graphs` graph renderer with the portable
 graph-canvas seam while staying inside the egui shell.
 
-This milestone is primarily a **host-wiring and authority shift**, not a
-greenfield graph-canvas build. The portable crate is already substantially
-implemented; what remains is making the egui host consume it as the live graph
-surface and retiring the current `egui_graphs` hot path.
+This milestone was primarily a **host-wiring and authority shift**, not a
+greenfield graph-canvas build. The portable crate was already substantially
+implemented; what remained was making the egui host consume it as the live
+graph surface and retiring the `egui_graphs` hot path.
 
 Checklist:
 
-- [ ] Move the live graph-view scene derivation path to `graph-canvas`
-- [ ] Move the live graph interaction grammar to portable `CanvasInputEvent`
-  and `CanvasAction` flows
-- [ ] Keep Graphshell-owned camera semantics outside framework metadata/state
+- [x] Move the live graph-view scene derivation path to `graph-canvas`
+  — landed; final validation 2026-04-21 on disk recovery
+- [x] Move the live graph interaction grammar to portable `CanvasInputEvent`
+  and `CanvasAction` flows — landed
+- [x] Keep Graphshell-owned camera semantics outside framework metadata/state
+  — landed
 - [x] Add an egui host adapter that consumes `graph-canvas` packets and emits
   host-local paint/input glue only
   - landed as `render::render_graph_canvas_in_ui` plus
@@ -244,38 +251,110 @@ Checklist:
     mainly does viewport translation, input translation, and packet painting;
     the future iced adapter can consume the same frame runner instead of
     re-owning scene derivation and interaction state
-- [ ] Prefer the existing `graph-canvas` Vello backend as the shared rendering
+- [x] Prefer the existing `graph-canvas` Vello backend as the shared rendering
   convergence point where practical, so egui and iced can consume the same
-  graph-render backend rather than each owning separate paint logic
-- [ ] Preserve current graph overlays and panels around the new canvas seam
-- [ ] Remove live dependence on `egui_graphs` from the graph pane hot path
+  graph-render backend rather than each owning separate paint logic — landed
+- [x] Preserve current graph overlays and panels around the new canvas seam
+  — landed
+- [x] Remove live dependence on `egui_graphs` from the graph pane hot path
+  — landed
 
 Done gate:
 
-- graph panes render and interact through `graph-canvas`, not `egui_graphs`
+- graph panes render and interact through `graph-canvas`, not `egui_graphs` ✅
 
 ### M3. Rekey the Compositor Around Portable Identity
+
+**Status**: Done gate met (2026-04-20). The compositor hot path already
+keys composition on `NodeKey` / `PaneId`; the identity-rekey work the
+original checklist anticipated was mostly absorbed into M1 prep. What
+remained after M1 is host-specific *presentation* extraction, which
+has its own slice: M3.5 below.
 
 **Goal**: make composition care about `NodeKey`, `PaneId`, content surfaces,
 and rects, not framework-owned tree ids.
 
 Checklist:
 
-- [ ] Continue the shift from `TileId` to `NodeKey` / `PaneId` in compositor
-  inputs and registries
-- [ ] Keep `ViewerSurfaceRegistry` as the intended authority for content
-  surfaces
-- [ ] Make explicit that pane rect input comes from GraphTree's existing
-  taffy-backed `compute_layout()` path; this milestone is about making that
-  layout authoritative, not selecting a new pane layout engine
-- [ ] Make content callback registration and overlay passes portable across
-  host frameworks
-- [ ] Keep GL fallback explicit and contained rather than architecturally central
+- [x] Continue the shift from `TileId` to `NodeKey` / `PaneId` in compositor
+  inputs and registries — done as part of M1; the compositor's static
+  registries (`COMPOSITOR_CONTENT_CALLBACKS`,
+  `COMPOSITOR_NATIVE_TEXTURES`, `COMPOSITED_CONTENT_SIGNATURES`,
+  `LAST_SENT_NATIVE_OVERLAY_RECTS`) all key on `NodeKey`. Frame inputs
+  (`active_node_pane_rects_from_graph_tree`) produce
+  `(PaneId, NodeKey, egui::Rect)` tuples, not `TileId`.
+- [x] Keep `ViewerSurfaceRegistry` as the intended authority for content
+  surfaces — `shell/desktop/workbench/compositor_adapter.rs::ViewerSurfaceRegistry`
+  owns `HashMap<NodeKey, ViewerSurface>` and is the single consumer seam
+  the host passes through.
+- [x] Make explicit that pane rect input comes from GraphTree's existing
+  taffy-backed `compute_layout()` path — the frame-loop entry point in
+  `tile_render_pass.rs` reads rects out of GraphTree + `node_pane_ids:
+  HashMap<NodeKey, PaneId>` before handing them to the compositor.
+- [x] Keep GL fallback explicit and contained rather than architecturally
+  central — GL paths are feature-gated (`#[cfg(feature = "gl_compat")]`),
+  limited to `compositor_adapter.rs`, and expressed as a named
+  `ContentSurfaceHandle::CallbackFallback` variant distinct from the
+  primary wgpu path.
+- [~] Make content callback registration and overlay passes portable
+  across host frameworks — **overlay-pass painting was extracted on
+  2026-04-20** (see `OverlayAffordancePainter` trait +
+  `EguiOverlayAffordancePainter` impl in `compositor_adapter.rs`).
+  Content-callback registration is still egui-adjacent and is tracked
+  under M3.5 below.
 
 Done gate:
 
-- the compositor does not require egui-owned identity to schedule content
-  composition
+- [x] the compositor does not require egui-owned identity to schedule
+  content composition — met: identity is `NodeKey` / `PaneId` everywhere
+  in the hot path; the remaining egui coupling is in presentation
+  (painting, callback registration), not identity.
+
+### M3.5. Host-Neutral Presentation Extraction
+
+**Status**: Overlay-pass painting landed 2026-04-20. Content-callback
+executor + overlay-descriptor portability (euclid types) remain for
+iced-host bring-up.
+
+**Goal**: the compositor's presentation layer can be swapped for an
+iced equivalent without touching any identity, scheduling, or
+descriptor-generation code.
+
+The M3 checklist originally folded "make overlay and content-callback
+passes portable" into identity rekeying. On investigation they're
+independent: descriptor generation is already host-neutral; painting
+and callback invocation are the host-specific seams.
+
+Checklist:
+
+- [x] **Overlay-pass painting** (landed 2026-04-20): `OverlayAffordancePainter`
+  trait + `EguiOverlayAffordancePainter` impl. The existing
+  `execute_overlay_affordance_pass(ctx, ..)` entry point now wraps a
+  new `execute_overlay_affordance_pass_with_painter(painter, ..)`
+  that dispatches per-overlay through the trait. iced implements
+  `OverlayAffordancePainter` with its own painting APIs and plugs in
+  at the single call site. Verified by the
+  `overlay_affordance_pass_routes_through_painter_trait` test — a
+  non-egui `RecordingPainter` observes every descriptor in order.
+- [ ] **Content-callback executor**: same shape as overlay pass —
+  trait-based executor for `paint_offscreen_content_pass` and the
+  guarded-callback family in `compositor_adapter.rs`. Estimated
+  ~400 LOC using the overlay-pass extraction pattern.
+- [ ] **Euclid-typed overlay descriptors**: `OverlayStrokePass.tile_rect`,
+  `.stroke`, etc. currently carry `egui::Rect` / `egui::Stroke`.
+  Convert to `euclid::default::Rect<f32>` / `graph_canvas::packet::Stroke`
+  so the descriptor surface is truly host-neutral. Trait signatures
+  update accordingly. Scoped with iced bring-up so the two
+  implementations can be verified together.
+- [ ] **Iced stub painter**: minimal `IcedOverlayAffordancePainter`
+  with no actual painting — just log-and-count — to validate the
+  trait boundary from the iced-host side before full bring-up.
+
+Done gate:
+
+- no host-specific painting code lives on `CompositorAdapter`'s static
+  surface; overlay + content passes invoke traits that the egui and
+  iced hosts implement independently.
 
 ### M3.5. Runtime Boundary Design Pass
 
@@ -303,7 +382,7 @@ Checklist:
 - [x] Define the view-model surface the egui and iced hosts will each consume
 - [x] Identify what remains intentionally host-specific even after extraction
 
-**Landed 2026-04-16**: [`2026-04-16_runtime_boundary_design.md`](2026-04-16_runtime_boundary_design.md)
+**Landed 2026-04-16**: [`../../../archive_docs/checkpoint_2026-04-17/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md`](../../../archive_docs/checkpoint_2026-04-17/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md)
 captures the full classification, six `HostPorts` trait surfaces, `FrameViewModel`
 shape, `FrameHostInput` shape, and explicit non-goals. M4 can proceed as a
 mechanical extraction.
@@ -412,10 +491,11 @@ This is the recommended first task stack, in order.
   correctly read from graph truth, not tiles — no tile dependency to remove)
 - [x] Finish per-view `GraphTree` persistence migration
 - [x] Remove the dead `rebuild_from_tiles(...)` helper
-- [ ] Replace live graph packet derivation with `graph-canvas`
-- [ ] Replace live graph input resolution with `graph-canvas` actions/events
-- [ ] Land the egui graph-canvas host adapter as the live path
-- [ ] Rekey compositor adapters from `TileId` toward `NodeKey` / `PaneId`
+- [x] Replace live graph packet derivation with `graph-canvas` — M2 done 2026-04-21
+- [x] Replace live graph input resolution with `graph-canvas` actions/events — M2 done 2026-04-21
+- [x] Land the egui graph-canvas host adapter as the live path — M2 done 2026-04-21
+- [x] Rekey compositor adapters from `TileId` toward `NodeKey` / `PaneId` — M3 done 2026-04-20
+- [ ] Finish M3.5 presentation extraction residuals: content-callback executor trait, euclid-typed overlay descriptors, iced stub painter
 - [ ] Split `Gui` into runtime/presenter plus egui adapter responsibilities
 - [ ] Scaffold iced host entry point with one graph surface
 - [ ] Add iced `GraphTree` adapter
@@ -578,6 +658,71 @@ for workflow activation, with early `implemented` check and rollback on failure
 
 **Next**: move navigator/tree-tab projections to GraphTree-only reads
 (M1 remaining item), then begin M2 (graph-canvas as live surface).
+
+### 2026-04-20 — M3 done gate met + M3.5 carved
+
+Compositor investigation showed the identity-rekey work the M3
+checklist anticipated had already been absorbed into M1 prep.
+Registries (`COMPOSITOR_CONTENT_CALLBACKS`,
+`COMPOSITOR_NATIVE_TEXTURES`, `COMPOSITED_CONTENT_SIGNATURES`,
+`LAST_SENT_NATIVE_OVERLAY_RECTS`), frame inputs
+(`active_node_pane_rects_from_graph_tree` — already producing
+`(PaneId, NodeKey, egui::Rect)` tuples), and the
+`ViewerSurfaceRegistry` content-surface authority all key on
+`NodeKey` / `PaneId` today. The compositor does not require
+egui-owned identity to schedule composition — the original done gate
+— so M3 is marked done.
+
+What was genuinely left after M1 was **host-specific presentation
+extraction**, not identity migration. The plan was edited to reflect
+this: M3's checklist is now `[x]` marked against the identity items,
+and a new M3.5 section was carved for the three presentation slices
+(overlay-pass painting, content-callback executor, euclid-typed
+overlay descriptors).
+
+**M3.5 overlay-pass painting landed same day** as the pattern-setter
+extraction:
+
+- New trait `OverlayAffordancePainter` in
+  `shell/desktop/workbench/compositor_adapter.rs` with one method,
+  `fn paint(&mut self, overlay: &OverlayStrokePass)`.
+- Egui implementation: `EguiOverlayAffordancePainter { ctx: &Context }`
+  dispatches to the existing `CompositorAdapter::draw_*` static
+  functions (which remain egui's implementation detail).
+- New dispatcher
+  `CompositorAdapter::execute_overlay_affordance_pass_with_painter(
+      painter: &mut dyn OverlayAffordancePainter, pass_tracker,
+      overlays)`
+  carries the diagnostics + pass-tracker bookkeeping and hands each
+  overlay descriptor to the painter.
+- Legacy `execute_overlay_affordance_pass(ctx, ...)` kept as a
+  thin wrapper that constructs an `EguiOverlayAffordancePainter`
+  and delegates — zero call-site churn in `tile_render_pass.rs` or
+  tests.
+- New test `overlay_affordance_pass_routes_through_painter_trait`
+  uses a non-egui `RecordingPainter` to verify every overlay
+  descriptor is delivered in order with payload intact. This pins
+  the contract the future iced painter will rely on.
+
+Iced bring-up now has a concrete, minimal entry point for overlay
+painting: implement `OverlayAffordancePainter` against iced's
+drawing APIs and pass it where the egui host currently passes an
+`EguiOverlayAffordancePainter`. Everything else — descriptor
+generation, diagnostics, pass-tracking — stays the same.
+
+Follow-on (tracked under M3.5 checklist): content-callback executor
+trait extraction (~400 LOC, same shape) and euclid-typed overlay
+descriptors (scoped with iced bring-up so both impls verify
+together). Neither blocks M4; both unblock M5.
+
+**Receipts**:
+
+- `cargo test -p graphshell --lib shell::desktop::workbench::compositor_adapter`
+  — 32 pass (was 31 pre-extraction; +1 for the trait-seam test).
+- `cargo test -p graphshell --lib` — 2155 pass (was 2154 pre-extraction).
+- `cargo test -p graph-canvas --features simulate --lib` — 259 pass
+  (unchanged; the portable side didn't move).
+- `cargo check -p graphshell --lib` clean.
 
 ---
 

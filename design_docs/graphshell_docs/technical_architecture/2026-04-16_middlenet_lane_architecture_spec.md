@@ -5,7 +5,7 @@
 # Middlenet Lane Architecture Spec
 
 **Date**: 2026-04-16
-**Status**: Proposed architectural spec
+**Status**: Active architectural spec with partial implementation
 **Scope**: Define the crate split, lane model, async lifecycle, and shared host
 plumbing for a protocol-first Middlenet engine that can choose between a
 direct portable document renderer, an HTML lane built from Blitz's DOM/style/
@@ -32,6 +32,44 @@ fallback.
 - [`../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md`](../../verso_docs/research/2026-04-16_smolnet_capability_model_and_scroll_alignment.md)
   — capability-model framing for smolnet protocols, Scroll's UDC alignment,
   and the recommended transport-plus-format adapter split
+
+---
+
+## Implementation Note (2026-04-20)
+
+The first extraction slice described by this spec is now landed in the
+repository.
+
+Implemented now:
+
+- `middlenet-core` exists and owns the canonical semantic document/source
+  model.
+- `middlenet-adapters` exists and adapts Gemini, Gopher, Finger/plain text,
+  Markdown, RSS, Atom, and JSON Feed into semantic documents.
+- `middlenet-render` exists and produces a backend-neutral Direct Lane scene
+  model for semantic documents.
+- `middlenet-engine` now acts as a facade for source detection, adaptation,
+  lane choice, and Direct Lane render packaging.
+- `viewer:middlenet` on native desktop now renders through
+  `PreparedDocument -> RenderScene` instead of the old Middlenet DOM/display
+  list scaffolding.
+- the old `dom.rs`, `style.rs`, `layout.rs`, `compositor.rs`, `script.rs`, and
+  `viewer.rs` modules in `middlenet-engine` are no longer part of the default
+  compile path and are gated behind `legacy-scaffolding`.
+
+Still deferred:
+
+- `middlenet-html`
+- `middlenet-servo`
+- `graphshell-gpu`
+- async streamed `DocumentDelta` plumbing beyond the batch-compatible carrier
+- shared host cache/offscreen/frame plumbing
+
+One design adjustment surfaced during implementation: `RenderRequest`,
+`RenderScene`, and hit-test carriers live in `middlenet-render` for v1, while
+lane-selection carriers such as `PreparedDocument`, `HostCapabilities`, and
+`LaneOverride` live in `middlenet-engine`. That keeps `middlenet-core` smaller
+and purely semantic.
 
 ---
 
@@ -192,9 +230,9 @@ The lane architecture should be expressed as a crate split.
 
 | Crate | Responsibility | Canonical? |
 |---|---|---|
-| `middlenet-core` | Semantic document model, provenance, metadata, observation-card view model, render request/response types | Yes |
+| `middlenet-core` | Semantic document model, provenance, metadata, canonical link/action model | Yes |
 | `middlenet-adapters` | Gemini/Gopher/Finger/Markdown/feed/plain-text/article adapters into `middlenet-core` | Yes |
-| `middlenet-render` | Direct Lane renderer for canonical Middlenet documents | No |
+| `middlenet-render` | Direct Lane renderer plus render-scene/request carriers for canonical Middlenet documents | No |
 | `middlenet-html` | HTML lane adapter: Blitz DOM/style/layout integration plus WebRender translation | No |
 | `middlenet-servo` | Servo-backed lane adapter and capability bridge | No |
 | `graphshell-gpu` | Shared device/font/image/offscreen/frame-scheduling host plumbing | No |
@@ -209,9 +247,8 @@ The lane architecture should be expressed as a crate split.
 - link/action model
 - title/snippet extraction
 - observation-card rendering payloads
-- lane request/response contracts
-- lane override enums
-- host-capability-neutral display model
+- canonical trust/diagnostics model
+- batch-compatible streamed carrier types such as `DocumentDelta`
 
 It MUST NOT depend on Servo, Blitz, egui, or host-native viewers.
 
@@ -233,6 +270,7 @@ Adapters MUST output `middlenet-core` data.
 `middlenet-render` SHOULD own:
 
 - Direct Lane scene derivation
+- render request/scene carriers
 - text layout
 - paint model
 - link geometry and hit-testing metadata
@@ -338,25 +376,40 @@ It MAY later widen to richer inline formatting and embedded media descriptors,
 but it should start from protocol-faithful document primitives, not browser DOM
 maximalism.
 
-### 5.2 `RenderRequest`
+### 5.2 `PreparedDocument`
 
-A lane-selection input carrier.
+The engine facade needs a post-adaptation carrier before lane choice.
+
+`PreparedDocument` SHOULD carry:
+
+- canonical source kind
+- semantic document
+- provenance
+- trust state
+- adaptation diagnostics
+- raw source availability or raw source handle
+- adaptation metadata such as body length / streaming state
+
+In the current implementation this carrier lives in `middlenet-engine`, not in
+`middlenet-core`.
+
+### 5.3 `RenderRequest`
+
+A Direct Lane render-time request carrier.
 
 Should include:
 
-- canonical source kind
-- URI and provenance
-- whether content is live, captured, archived, or generated
-- whether JS/forms/auth are required
-- fidelity preference
-- offline requirement
+- viewport width and height
+- scale factor
 - preview/detail mode
-- host target
-- explicit user lane override
-- presentation mode (`Rendered` vs `FaithfulSource`)
-- cancellation token or equivalent lifecycle-cancel handle
+- theme tokens
+- optional font/image resolver handles
 
-### 5.3 `DocumentDelta`
+Lane-selection inputs such as host capability and explicit lane override SHOULD
+remain outside this type. In the current implementation they live beside
+`PreparedDocument` in `middlenet-engine`.
+
+### 5.4 `DocumentDelta`
 
 Adapter output SHOULD be streamable rather than all-at-once.
 
@@ -374,7 +427,7 @@ It SHOULD cover:
 Adapters SHOULD expose an async stream of `DocumentDelta` values rather than
 only a single final document payload.
 
-### 5.4 `HostCapabilities`
+### 5.5 `HostCapabilities`
 
 Describes what the current host can do.
 
@@ -431,11 +484,12 @@ Lane choice MUST be deterministic, explainable, and overridable.
 ### 6.1 Selection phases
 
 1. Detect source/content kind.
-2. Build canonical `RenderRequest`.
-3. Score available lanes against request + host capabilities.
+2. Build canonical `PreparedDocument`.
+3. Score available lanes against prepared document + host capabilities.
 4. Apply explicit user override if valid.
 5. Choose best lane.
-6. If chosen lane fails, walk fallback chain with recorded reason.
+6. Build lane-specific render request if the chosen lane needs one.
+7. If chosen lane fails, walk fallback chain with recorded reason.
 
 ### 6.2 Baseline precedence
 
@@ -541,8 +595,8 @@ The concurrency model MUST be named explicitly.
   do not synchronously return finished documents in the general case.
 - Adapter output SHOULD be an async stream of `DocumentDelta` values rather than
   a single final result.
-- `RenderRequest` MUST carry cancellation support so closed panes, abandoned
-  previews, and scrolled-off background jobs can stop early.
+- lane jobs MUST carry cancellation support so closed panes, abandoned previews,
+  and scrolled-off background jobs can stop early.
 - Rendering lifecycle MUST expose explicit phases:
   `Started -> Partial -> Complete`, with `Invalidated`, `Failed`, and
   `Cancelled` as side paths.
@@ -558,17 +612,18 @@ The concurrency model MUST be named explicitly.
 
 ## 8. Current `middlenet-engine` Mapping
 
-The current crate already contains the seeds of the lane split.
+The current repository now contains the first real lane split rather than only
+the seeds of one.
 
 | Current file | Future home |
 |---|---|
-| `document.rs` | `middlenet-core` |
-| `source.rs` | `middlenet-core` / `middlenet-adapters` |
-| `adapters.rs` | `middlenet-adapters` |
-| `engine.rs` | `middlenet-engine` facade |
-| `viewer.rs` | `middlenet-render` host-facing direct renderer contract |
-| `dom.rs`, `style.rs`, `layout.rs`, `compositor.rs` | retire or carve into `middlenet-html`; do not grow these into the Direct Lane |
-| `script.rs` | keep only if a concrete HTML/Servo-side need survives; do not treat it as the seed of a generic Middlenet mini-browser |
+| `document.rs` | moved to `middlenet-core` |
+| `source.rs` | moved to `middlenet-core` |
+| `adapters.rs` | moved to `middlenet-adapters` |
+| `engine.rs` | now the `middlenet-engine` facade |
+| `viewer.rs` | no longer default-built; Direct Lane host contract lives in `middlenet-render` plus shell-side viewer code |
+| `dom.rs`, `style.rs`, `layout.rs`, `compositor.rs` | gated behind `legacy-scaffolding`; still candidates for retirement or future `middlenet-html` carve-out |
+| `script.rs` | gated behind `legacy-scaffolding`; not a seed for a generic Middlenet mini-browser |
 
 ### 8.1 Architectural correction
 
@@ -627,8 +682,9 @@ This spec does not require:
 1. Stabilize and widen `SimpleDocument` into a canonical `SemanticDocument`.
 2. Extract `middlenet-core` and `middlenet-adapters`.
 3. Build the Direct Lane (`middlenet-render`) first.
-4. Route hover previews, search results, and observation cards through Direct.
-5. Add explicit lane chooser API in `middlenet-engine`.
+4. Route feed/article-native `viewer:middlenet` through Direct.
+5. Reuse the same semantic/render path for previews, search results, and
+   observation cards.
 6. Add `graphshell-gpu`-style shared host plumbing for device/font/image/
    offscreen/frame coordination.
 7. Add `middlenet-html` as an optional HTML lane using Blitz's DOM/style/layout

@@ -2,23 +2,33 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Portable MiddleNet engine scaffolding.
-//!
-//! This module is the first extraction seam for the future portable web core.
-//! It intentionally starts with the format-agnostic document model already used
-//! by the Gemini/Gopher/Finger paths, plus source metadata that future protocol
-//! adapters can share without depending on Servo or host-native viewers.
-
-pub mod adapters;
-pub mod document;
 pub mod engine;
-pub mod source;
 
-// Phase 2: Engine Stack Scaffolding
+pub mod document {
+    pub use middlenet_core::document::*;
+}
+
+pub mod source {
+    pub use middlenet_core::source::*;
+}
+
+pub mod adapters {
+    pub use middlenet_adapters::*;
+}
+
+pub mod render {
+    pub use middlenet_render::*;
+}
+
+#[cfg(feature = "legacy-scaffolding")]
 pub mod compositor;
+#[cfg(feature = "legacy-scaffolding")]
 pub mod dom;
+#[cfg(feature = "legacy-scaffolding")]
 pub mod layout;
+#[cfg(feature = "legacy-scaffolding")]
 pub mod script;
+#[cfg(feature = "legacy-scaffolding")]
 pub mod style;
-
+#[cfg(feature = "legacy-scaffolding")]
 pub mod viewer;

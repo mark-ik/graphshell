@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 use crate::model::archive::ArchivePrivacyClass;
 use middlenet_engine::document::{SimpleBlock, SimpleDocument};
+use middlenet_engine::source::{MiddleNetContentKind, MiddleNetSource};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -217,13 +218,16 @@ fn route_selector(selector: &str, registry: &GopherRegistry, hostname: &str, por
 }
 
 fn serve_root_menu(registry: &GopherRegistry, hostname: &str, port: u16) -> String {
-    let index_doc = SimpleDocument::Blocks(vec![
-        SimpleBlock::Heading {
-            level: 1,
-            text: format!("{hostname} — Graphshell Gopherspace"),
-        },
-        SimpleBlock::Paragraph("This gopherspace is served by Graphshell.".to_string()),
-    ]);
+    let index_doc = SimpleDocument::from_blocks(
+        &MiddleNetSource::new(MiddleNetContentKind::GopherMap),
+        vec![
+            SimpleBlock::Heading {
+                level: 1,
+                text: format!("{hostname} — Graphshell Gopherspace"),
+            },
+            SimpleBlock::Paragraph("This gopherspace is served by Graphshell.".to_string()),
+        ],
+    );
     let mut out = index_doc.to_gophermap(hostname, port);
     // Remove trailing ".\r\n" to append node entries, then re-add it
     if out.ends_with(".\r\n") {

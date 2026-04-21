@@ -36,7 +36,7 @@ impl WryViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::native::verso::wry_types::WryRenderMode;
+    use crate::mods::native::web_runtime::wry_types::WryRenderMode;
 
     #[test]
     fn native_overlay_mode_reports_true() {

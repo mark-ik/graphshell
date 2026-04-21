@@ -11,20 +11,14 @@ use crate::registries::atomic::viewer::{
 use crate::services::persistence::types::NodeAuditEventKind;
 use graphshell_comms::misfin::{self, MisfinAddress, MisfinIdentitySpec, MisfinSendOutcome};
 use graphshell_comms::transport::{TitanUploadOutcome, titan_upload};
-use middlenet_engine::document::{SimpleBlock, SimpleDocument};
-use middlenet_engine::engine::{MiddleNetEngine, MiddleNetLoadResult};
+use middlenet_engine::engine::{
+    LaneDecision, MiddleNetEngine, MiddleNetLoadResult, PreparedDocument,
+};
+use middlenet_engine::render::{RenderBlockKind, RenderRequest, RenderTextRun, TextStyle};
 use middlenet_engine::source::{MiddleNetContent, MiddleNetContentKind, MiddleNetSource};
+use verso::{DispatchOutcome, EngineChoice, HostCapabilities as VersoHostCapabilities};
 
 pub(crate) struct MiddleNetEmbeddedViewer;
-
-impl middlenet_engine::viewer::HostViewerAdapter for MiddleNetEmbeddedViewer {
-    fn render_document(
-        &mut self,
-        document: &middlenet_engine::dom::Document,
-    ) -> middlenet_engine::viewer::RenderResult {
-        middlenet_engine::viewer::generate_display_list(document)
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 struct MiddleNetViewerState {
@@ -75,17 +69,26 @@ impl EmbeddedViewer for MiddleNetEmbeddedViewer {
         };
 
         ui.heading("MiddleNet");
-        ui.small(format!("Lane: {}", source.content_kind.label()));
+        ui.small(format!("Source: {}", source.content_kind.label()));
         ui.small(ctx.node_url);
         ui.separator();
 
         match load_for_viewer(ctx, source, parsed_url.as_ref()) {
-            MiddleNetLoadResult::Parsed(content) => {
+            MiddleNetLoadResult::Parsed(prepared) => {
+                let dispatch =
+                    verso::dispatch_prepared(&prepared, &VersoHostCapabilities::default(), None);
+                let lane = dispatch.middlenet_lane.unwrap_or(LaneDecision::Unsupported);
+                ui.small(format!("Engine: {}", dispatch.engine.label()));
+                ui.small(format!("Lane: {}", lane.label()));
+                if !prepared.diagnostics.flags.is_empty() {
+                    ui.small(format!("Diagnostics: {}", prepared.diagnostics.flags.len()));
+                }
+                ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    render_document(ui, ctx.node_key, &content, &mut intents);
+                    render_document(ui, ctx.node_key, &prepared, dispatch, &mut intents);
                     if let Some(url) = parsed_url.as_ref()
                         && matches!(url.scheme(), "gemini" | "titan")
-                        && content.source.content_kind == MiddleNetContentKind::GeminiText
+                        && prepared.source.content_kind == MiddleNetContentKind::GeminiText
                     {
                         ui.add_space(8.0);
                         ui.separator();
@@ -94,7 +97,7 @@ impl EmbeddedViewer for MiddleNetEmbeddedViewer {
                             ui,
                             ctx.node_key,
                             url,
-                            &content,
+                            &prepared,
                             &mut state,
                             &mut intents,
                             &mut app_commands,
@@ -308,7 +311,7 @@ fn render_misfin_view(
     egui::CollapsingHeader::new("Gemmail preview")
         .default_open(true)
         .show(ui, |ui| {
-            render_document(ui, ctx.node_key, &preview_content, intents);
+            render_content_document(ui, ctx.node_key, &preview_content, intents);
             ui.add_space(6.0);
             let mut preview_text = preview;
             ui.add(
@@ -384,7 +387,7 @@ fn render_titan_editor(
     ui: &mut egui::Ui,
     node_key: crate::graph::NodeKey,
     url: &url::Url,
-    content: &MiddleNetContent,
+    content: &PreparedDocument,
     state: &mut MiddleNetViewerState,
     intents: &mut Vec<crate::app::GraphIntent>,
     app_commands: &mut Vec<crate::app::AppCommand>,
@@ -850,6 +853,125 @@ fn queue_node_notice(
 fn render_document(
     ui: &mut egui::Ui,
     node_key: crate::graph::NodeKey,
+    prepared: &PreparedDocument,
+    dispatch: DispatchOutcome,
+    intents: &mut Vec<crate::app::GraphIntent>,
+) {
+    let lane = dispatch.middlenet_lane.unwrap_or(LaneDecision::Unsupported);
+    if let Some(title) = prepared.document.meta.title.as_deref() {
+        ui.strong(title);
+        ui.add_space(6.0);
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        ui.small(format!("Trust: {:?}", prepared.trust_state));
+        if let Some(uri) = prepared.source.canonical_uri.as_deref()
+            && ui.button("Open source").clicked()
+        {
+            intents.push(crate::app::GraphIntent::SetNodeUrl {
+                key: node_key,
+                new_url: uri.to_string(),
+            });
+        }
+        if let Some(raw_source) = prepared.raw_source.as_ref() {
+            ui.label(format!("Raw source: {} bytes", raw_source.len()));
+        }
+        if lane == LaneDecision::Direct && !prepared.document.meta.alternate_open_targets.is_empty()
+        {
+            ui.label(format!(
+                "Alternates: {}",
+                prepared.document.meta.alternate_open_targets.len()
+            ));
+        }
+    });
+
+    for diagnostic in &prepared.diagnostics.flags {
+        ui.small(format!("Diagnostic: {diagnostic:?}"));
+    }
+
+    if dispatch.engine != EngineChoice::Middlenet {
+        ui.small(format!(
+            "{} owns this request; the Middlenet viewer only renders Middlenet lanes.",
+            dispatch.engine.label()
+        ));
+        return;
+    }
+
+    let output = MiddleNetEngine::render(prepared, lane, &RenderRequest::default());
+    let Some(scene) = output.scene else {
+        if let Some(note) = output.note {
+            ui.small(note);
+        }
+        return;
+    };
+
+    for block in scene.blocks {
+        match block.kind {
+            RenderBlockKind::Rule => {
+                ui.separator();
+            }
+            RenderBlockKind::CodeFence => {
+                let mut text = block
+                    .text_runs
+                    .first()
+                    .map(|run| run.text.clone())
+                    .unwrap_or_default();
+                ui.add(
+                    egui::TextEdit::multiline(&mut text)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .interactive(false),
+                );
+            }
+            RenderBlockKind::List { ordered: _ } => {
+                if let Some(run) = block.text_runs.first() {
+                    for line in run.text.lines() {
+                        ui.horizontal(|ui| {
+                            ui.label("•");
+                            ui.label(line);
+                        });
+                    }
+                }
+            }
+            RenderBlockKind::FeedHeader | RenderBlockKind::FeedEntry => {
+                for run in &block.text_runs {
+                    render_text_run(ui, node_key, run, intents);
+                }
+                ui.add_space(6.0);
+            }
+            RenderBlockKind::Heading { .. }
+            | RenderBlockKind::Paragraph
+            | RenderBlockKind::Link
+            | RenderBlockKind::Quote
+            | RenderBlockKind::MetadataRow
+            | RenderBlockKind::Badge
+            | RenderBlockKind::RawSourceNotice => {
+                for run in &block.text_runs {
+                    render_text_run(ui, node_key, run, intents);
+                }
+            }
+        }
+    }
+
+    if let Some(raw_source) = prepared.raw_source.as_ref() {
+        egui::CollapsingHeader::new("Raw source")
+            .default_open(false)
+            .show(ui, |ui| {
+                let mut raw_source = raw_source.clone();
+                ui.add(
+                    egui::TextEdit::multiline(&mut raw_source)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(8)
+                        .interactive(false),
+                );
+            });
+    }
+}
+
+fn render_content_document(
+    ui: &mut egui::Ui,
+    node_key: crate::graph::NodeKey,
     content: &MiddleNetContent,
     intents: &mut Vec<crate::app::GraphIntent>,
 ) {
@@ -858,69 +980,82 @@ fn render_document(
         ui.add_space(6.0);
     }
 
-    let result = middlenet_engine::viewer::generate_display_list(&content.document);
-    for action in result.display_list {
-        match action {
-            middlenet_engine::viewer::DisplayAction::Heading { level, text } => {
-                let size = match level {
-                    1 => 24.0,
-                    2 => 20.0,
-                    _ => 17.0,
-                };
-                ui.label(egui::RichText::new(&text).strong().size(size));
+    let scene =
+        middlenet_engine::render::render_document(&content.document, &RenderRequest::default());
+    for block in scene.blocks {
+        match block.kind {
+            RenderBlockKind::Rule => {
+                ui.separator();
             }
-            middlenet_engine::viewer::DisplayAction::Paragraph(text) => {
-                ui.label(&text);
-            }
-            middlenet_engine::viewer::DisplayAction::ListItem(text) => {
-                ui.horizontal(|ui| {
-                    ui.label("•");
-                    ui.label(&text);
-                });
-            }
-            middlenet_engine::viewer::DisplayAction::Link { text, href } => {
-                let response = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&text).color(egui::Color32::from_rgb(100, 149, 237)),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if response.clicked() {
-                    intents.push(crate::app::GraphIntent::SetNodeUrl {
-                        key: node_key,
-                        new_url: href.clone(),
-                    });
-                }
-                response.on_hover_text(href);
-            }
-            middlenet_engine::viewer::DisplayAction::Quote(text) => {
-                ui.colored_label(egui::Color32::from_gray(170), format!("> {}", text));
-            }
-            middlenet_engine::viewer::DisplayAction::CodeFence { text, .. } => {
-                let mut display_text = text.clone();
-                if display_text.ends_with('\n') {
-                    display_text.pop();
-                }
-                if display_text.starts_with('\n') {
-                    display_text.remove(0);
-                }
+            RenderBlockKind::CodeFence => {
+                let mut text = block
+                    .text_runs
+                    .first()
+                    .map(|run| run.text.clone())
+                    .unwrap_or_default();
                 ui.add(
-                    egui::TextEdit::multiline(&mut display_text)
+                    egui::TextEdit::multiline(&mut text)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY)
                         .interactive(false),
                 );
             }
-            middlenet_engine::viewer::DisplayAction::Separator => {
-                ui.separator();
+            RenderBlockKind::List { ordered: _ } => {
+                if let Some(run) = block.text_runs.first() {
+                    for line in run.text.lines() {
+                        ui.horizontal(|ui| {
+                            ui.label("•");
+                            ui.label(line);
+                        });
+                    }
+                }
             }
-            middlenet_engine::viewer::DisplayAction::Text(text) => {
-                ui.label(text);
-            }
-            middlenet_engine::viewer::DisplayAction::Spacer(size) => {
-                ui.add_space(size);
+            _ => {
+                for run in &block.text_runs {
+                    render_text_run(ui, node_key, run, intents);
+                }
             }
         }
+    }
+}
+
+fn render_text_run(
+    ui: &mut egui::Ui,
+    node_key: crate::graph::NodeKey,
+    run: &RenderTextRun,
+    intents: &mut Vec<crate::app::GraphIntent>,
+) {
+    let rich_text = match run.style {
+        TextStyle::Title => egui::RichText::new(&run.text).strong().size(26.0),
+        TextStyle::Heading => egui::RichText::new(&run.text).strong().size(20.0),
+        TextStyle::Quote => egui::RichText::new(format!("> {}", run.text))
+            .italics()
+            .color(egui::Color32::from_gray(170)),
+        TextStyle::Metadata => egui::RichText::new(&run.text)
+            .small()
+            .color(egui::Color32::from_gray(180)),
+        TextStyle::Code => egui::RichText::new(&run.text).monospace(),
+        TextStyle::Badge => egui::RichText::new(&run.text)
+            .small()
+            .strong()
+            .color(egui::Color32::from_rgb(180, 200, 255)),
+        TextStyle::Link => {
+            egui::RichText::new(&run.text).color(egui::Color32::from_rgb(100, 149, 237))
+        }
+        TextStyle::Body => egui::RichText::new(&run.text),
+    };
+
+    if let Some(target) = run.link_target.as_ref() {
+        let response = ui.add(egui::Label::new(rich_text).sense(egui::Sense::click()));
+        if response.clicked() {
+            intents.push(crate::app::GraphIntent::SetNodeUrl {
+                key: node_key,
+                new_url: target.href.clone(),
+            });
+        }
+        response.on_hover_text(&target.href);
+    } else {
+        ui.label(rich_text);
     }
 }
 

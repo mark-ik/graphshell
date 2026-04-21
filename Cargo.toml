@@ -10,7 +10,17 @@ publish = false
 rust-version = "1.92.0"
 
 [workspace]
-members = ["crates/graph-canvas", "crates/graph-memory", "crates/graph-tree", "crates/graphshell-core", "crates/middlenet-engine"]
+members = [
+    "crates/graph-canvas",
+    "crates/graph-memory",
+    "crates/graph-tree",
+    "crates/graphshell-core",
+    "crates/middlenet-core",
+    "crates/middlenet-adapters",
+    "crates/middlenet-render",
+    "crates/middlenet-engine",
+    "crates/verso",
+]
 
 [lib]
 name = "graphshell"
@@ -80,6 +90,7 @@ iced-host = ["dep:iced"]
 
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }
+verso = { path = "crates/verso" }
 graphshell-comms = { path = "crates/graphshell-comms" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }
@@ -163,7 +174,6 @@ egui = "0.34.1"
 egui-file-dialog = "0.13.0"
 egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
 egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"] }
-egui_graphs = { version = "0.30.0", features = ["events"] }
 egui_tiles = { version = "0.15.0", features = ["serde"] }
 graph-canvas = { path = "crates/graph-canvas" }
 graph-tree = { path = "crates/graph-tree" }

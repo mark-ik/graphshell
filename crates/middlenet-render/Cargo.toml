@@ -1,18 +1,11 @@
 [package]
-name = "middlenet-engine"
+name = "middlenet-render"
 version = "0.0.1"
 edition = "2024"
 
-[features]
-default = []
-legacy-scaffolding = []
-
 [dependencies]
 middlenet-core = { path = "../middlenet-core" }
-middlenet-adapters = { path = "../middlenet-adapters" }
-middlenet-render = { path = "../middlenet-render" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [lib]
 path = "src/lib.rs"
-

@@ -355,7 +355,7 @@ fn decode_png_metadata(png_bytes: &[u8]) -> Result<WryFrameMetadata, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::native::verso::wry_types::WryPlatform;
+    use crate::mods::native::web_runtime::wry_types::WryPlatform;
 
     /// Smoke test: WryManager is constructable and reports no webviews.
     #[test]

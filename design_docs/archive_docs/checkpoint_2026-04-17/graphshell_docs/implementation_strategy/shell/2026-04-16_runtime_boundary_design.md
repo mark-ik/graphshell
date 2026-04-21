@@ -5,10 +5,16 @@
 # M3.5 Runtime Boundary Design Pass
 
 **Date**: 2026-04-16
-**Status**: Design pass / M4 prerequisite
+**Status**: Archived 2026-04-17
 **Scope**: Classify every `Gui` responsibility into runtime, host-adapter,
 render-backend, or OS-integration buckets, and specify the service-port and
 view-model surfaces that M4 will extract.
+
+**Archive note**:
+
+- M3.5 is complete; this document is retained as the landed design receipt for the runtime/host boundary classification.
+- Active migration execution remains in `2026-04-14_iced_host_migration_execution_plan.md` and the follow-on shell cleanup plans.
+- The host/runtime seam defined here is already referenced by the runtime scaffolding in `shell/desktop/ui/host_ports.rs`, `frame_model.rs`, and `gui_state.rs`.
 
 **Related**:
 

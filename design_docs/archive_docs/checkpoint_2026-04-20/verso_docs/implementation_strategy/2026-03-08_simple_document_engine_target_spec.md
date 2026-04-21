@@ -1,26 +1,5 @@
 # SimpleDocument and EngineTarget Spec
 
-**Status**: Superseded and archived on 2026-04-20
-
-This document described the older Servo-first `SimpleDocument` /
-`EngineTarget` pipeline.
-
-It has been superseded by:
-
-- [`../../graphshell_docs/technical_architecture/2026-03-29_middlenet_engine_spec.md`](../../graphshell_docs/technical_architecture/2026-03-29_middlenet_engine_spec.md)
-- [`../../graphshell_docs/technical_architecture/2026-04-16_middlenet_lane_architecture_spec.md`](../../graphshell_docs/technical_architecture/2026-04-16_middlenet_lane_architecture_spec.md)
-
-The archived full copy is preserved at:
-
-- [`../../archive_docs/checkpoint_2026-04-20/verso_docs/implementation_strategy/2026-03-08_simple_document_engine_target_spec.md`](../../archive_docs/checkpoint_2026-04-20/verso_docs/implementation_strategy/2026-03-08_simple_document_engine_target_spec.md)
-
-The rest of this file is retained only as a compatibility redirect for old
-links and references.
-
----
-
-# Archived Original Header
-
 **Date**: 2026-03-08
 **Status**: Canonical contract
 **Priority**: Required before Gemini resolver, Reader Mode, or markdown pipeline implementation

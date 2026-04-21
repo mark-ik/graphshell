@@ -5,7 +5,7 @@
 # MiddleNet and the Portable MiddleNet Engine
 
 **Date**: 2026-03-29
-**Status**: Design note — target architecture with phased delivery baseline
+**Status**: Active design note with partially landed extraction baseline
 **Scope**: Define the MiddleNet protocol space, name the portable WASM rendering
 engine that serves it, and describe how it fits into each host envelope.
 
@@ -80,6 +80,16 @@ Current implementation reality:
 - Protocol-faithful adapters already exist for Gemini/gemtext, Gopher, Finger,
   RSS, Atom, JSON Feed, Markdown, and plain text, with Titan and Misfin helper
   surfaces for mutation and messaging.
+- The first crate split is now real in the repository:
+  `middlenet-core`, `middlenet-adapters`, `middlenet-render`, and a slimmed
+  `middlenet-engine` facade all exist as workspace members.
+- The canonical content model is now `SemanticDocument` plus provenance/trust/
+  diagnostics metadata rather than the older `SimpleDocument`-only framing.
+- The native `viewer:middlenet` surface now renders semantic documents through
+  a Direct Lane render scene instead of the old Middlenet DOM/display-list
+  scaffolding.
+- Feed/article content is now a concrete first-class Direct Lane surface with
+  preserved source/article links and raw-source visibility.
 - WebFinger, NIP-05, Matrix, and ActivityPub actor resolution already feed a
   person-node model with cached provenance, freshness TTLs, and refresh UI.
 - The extracted `middlenet-engine` / `graphshell-comms` split, browser/PWA
@@ -92,11 +102,12 @@ This means the doc should be read as a **phased delivery target**:
    Graphshell continues shipping native desktop Middlenet adapters, viewer
    routing, person-node convergence, and selective Servo/Wry delegation.
 2. **Phase 1: extraction boundary**.
-   Pull protocol/document adapters and host seams into portable crates without
-   yet promising browser-host execution.
+   This phase is now partially landed: protocol/document adapters and the
+   semantic core have moved into portable crates, while host plumbing and some
+   compatibility seams remain in transition.
 3. **Phase 2: portable document engine**.
-   Land a first extracted smallnet/document engine for native and controlled
-   WASM hosts, starting with protocol-faithful Tier 0/1 content.
+   This phase is now partially landed on native desktop via the Direct Lane
+   semantic/render path, but not yet across browser/PWA/WASI envelopes.
 4. **Phase 3: browser/mobile envelopes**.
    Add host-aware degradation, browser transport policies, and co-op envelope
    decisions only after the extracted engine boundary is real.
@@ -208,10 +219,11 @@ parse smallnet and document protocols to the same **canonical semantic document
 model** before rendering. That canonical model is not the same thing as the
 HTML lane's DOM tree.
 
-The current repository already implements much of the **protocol-faithful
-adapter surface** behind this idea, but it does so inside the native Graphshell
-codebase rather than through the fully extracted html5ever/Stylo/Taffy/Boa
-engine stack described below.
+The current repository now implements the first real extraction of that
+protocol-faithful adapter surface through `middlenet-core`,
+`middlenet-adapters`, `middlenet-render`, and a facade-style
+`middlenet-engine`, but it does not yet implement the fully extracted HTML lane
+or the broader WASM host envelopes described below.
 
 ```
 gemini://  → gemtext parser   ─┐

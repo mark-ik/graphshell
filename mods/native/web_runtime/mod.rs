@@ -11,7 +11,7 @@
 //! without it (core seed mode).
 
 #[cfg(all(test, feature = "wry"))]
-use crate::mods::native::verso::wry_manager::OverlaySyncState;
+use crate::mods::native::web_runtime::wry_manager::OverlaySyncState;
 use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders};
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
@@ -19,7 +19,7 @@ use crate::registries::infrastructure::mod_loader::{
 #[cfg(feature = "wry")]
 use crate::{
     graph::NodeKey,
-    mods::native::verso::wry_manager::{OverlayRect, WryManager},
+    mods::native::web_runtime::wry_manager::{OverlayRect, WryManager},
 };
 #[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
@@ -81,14 +81,14 @@ pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, vi
 
 #[cfg(feature = "wry")]
 pub(crate) fn wry_composited_texture_support()
--> crate::mods::native::verso::wry_types::WryCompositedTextureSupport {
+-> crate::mods::native::web_runtime::wry_types::WryCompositedTextureSupport {
     with_wry_manager(|manager| manager.composited_texture_support())
 }
 
 #[cfg(feature = "wry")]
 pub(crate) fn wry_frame_state_for_node(
     node_key: NodeKey,
-) -> Option<crate::mods::native::verso::wry_frame_source::WryFrameState> {
+) -> Option<crate::mods::native::web_runtime::wry_frame_source::WryFrameState> {
     let node_id = node_key.index() as u64;
     with_wry_manager(|manager| manager.frame_state_for_node(node_id).cloned())
 }
@@ -216,7 +216,7 @@ pub(crate) fn verso_manifest() -> ModManifest {
     ];
 
     ModManifest::new(
-        "mod:verso",
+        "mod:web-runtime",
         "Verso — Web Rendering",
         ModType::Native,
         provides,
@@ -299,12 +299,12 @@ mod tests {
     use crate::graph::NodeKey;
 
     #[cfg(feature = "wry")]
-    use crate::mods::native::verso::wry_manager::OverlayRect;
+    use crate::mods::native::web_runtime::wry_manager::OverlayRect;
 
     #[test]
     fn verso_manifest_provides_required_capabilities() {
         let manifest = verso_manifest();
-        assert_eq!(manifest.mod_id, "mod:verso");
+        assert_eq!(manifest.mod_id, "mod:web-runtime");
         assert_eq!(manifest.mod_type, ModType::Native);
         assert!(manifest.provides.contains(&"protocol:http".to_string()));
         assert!(manifest.provides.contains(&"protocol:https".to_string()));

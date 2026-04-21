@@ -34,7 +34,7 @@ use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
 
 use crate::model::archive::ArchivePrivacyClass;
-use middlenet_engine::document::{SimpleBlock, SimpleDocument};
+use middlenet_engine::document::{LinkTarget, SimpleBlock, SimpleDocument};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -299,12 +299,18 @@ fn serve_index(registry: &CapsuleRegistry, hostname: &str) -> GeminiResponse {
         for node in &nodes {
             doc_blocks.push(SimpleBlock::Link {
                 text: node.title.clone(),
-                href: format!("gemini://{hostname}/node/{}", node.node_id),
+                target: LinkTarget::new(format!("gemini://{hostname}/node/{}", node.node_id)),
             });
         }
     }
 
-    let body = SimpleDocument::Blocks(doc_blocks).to_gemini();
+    let body = SimpleDocument::from_blocks(
+        &middlenet_engine::source::MiddleNetSource::new(
+            middlenet_engine::source::MiddleNetContentKind::GeminiText,
+        ),
+        doc_blocks,
+    )
+    .to_gemini();
     GeminiResponse {
         header: "20 text/gemini\r\n".to_string(),
         body: Some(body),

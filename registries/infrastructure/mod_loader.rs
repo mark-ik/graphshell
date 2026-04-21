@@ -401,7 +401,7 @@ fn parse_disabled_mod_ids_from_env() -> HashSet<String> {
         })
         .unwrap_or(false)
     {
-        disabled.insert("mod:verso".to_string());
+        disabled.insert("mod:web-runtime".to_string());
     }
     disabled
 }
@@ -840,7 +840,7 @@ impl Default for ModRegistry {
 
 fn verso_manifest() -> ModManifest {
     ModManifest::new(
-        "mod:verso",
+        "mod:web-runtime",
         "Verso",
         ModType::Native,
         vec![
@@ -1020,7 +1020,7 @@ mod tests {
         let mods = discover_native_mods();
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-protocol"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-viewer"));
-        assert!(mods.iter().any(|entry| entry.mod_id == "mod:verso"));
+        assert!(mods.iter().any(|entry| entry.mod_id == "mod:web-runtime"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:nostrcore"));
     }
 
@@ -1044,7 +1044,7 @@ mod tests {
         let protocol = test_manifest("mod:protocol", &["ProtocolRegistry"], &[]);
         let viewer = test_manifest("mod:viewer", &["ViewerRegistry"], &[]);
         let verso = test_manifest(
-            "mod:verso",
+            "mod:web-runtime",
             &["viewer:webview"],
             &["ProtocolRegistry", "ViewerRegistry"],
         );
@@ -1058,7 +1058,7 @@ mod tests {
         assert_eq!(ids.len(), 3);
         let protocol_idx = ids.iter().position(|id| *id == "mod:protocol").unwrap();
         let viewer_idx = ids.iter().position(|id| *id == "mod:viewer").unwrap();
-        let verso_idx = ids.iter().position(|id| *id == "mod:verso").unwrap();
+        let verso_idx = ids.iter().position(|id| *id == "mod:web-runtime").unwrap();
         assert!(protocol_idx < verso_idx);
         assert!(viewer_idx < verso_idx);
     }
@@ -1088,7 +1088,7 @@ mod tests {
         let registry = ModRegistry::new();
         assert!(registry.get_manifest("mod:core-protocol").is_some());
         assert!(registry.get_manifest("mod:core-viewer").is_some());
-        assert!(registry.get_manifest("mod:verso").is_some());
+        assert!(registry.get_manifest("mod:web-runtime").is_some());
 
         // All should be in Discovered state initially
         assert_eq!(
@@ -1100,7 +1100,7 @@ mod tests {
             Some(ModStatus::Discovered)
         );
         assert_eq!(
-            registry.get_status("mod:verso"),
+            registry.get_status("mod:web-runtime"),
             Some(ModStatus::Discovered)
         );
     }
@@ -1183,7 +1183,7 @@ mod tests {
         let load_order = registry.list_mods();
         let protocol_idx = load_order.iter().position(|id| id == "mod:core-protocol");
         let viewer_idx = load_order.iter().position(|id| id == "mod:core-viewer");
-        let verso_idx = load_order.iter().position(|id| id == "mod:verso");
+        let verso_idx = load_order.iter().position(|id| id == "mod:web-runtime");
 
         assert!(protocol_idx.is_some());
         assert!(viewer_idx.is_some());
@@ -1204,14 +1204,14 @@ mod tests {
         // All mods should load successfully
         assert!(loaded.contains(&"mod:core-protocol".to_string()));
         assert!(loaded.contains(&"mod:core-viewer".to_string()));
-        assert!(loaded.contains(&"mod:verso".to_string()));
+        assert!(loaded.contains(&"mod:web-runtime".to_string()));
 
         // Check status transitions to Active
         assert_eq!(
             registry.get_status("mod:core-protocol"),
             Some(ModStatus::Active)
         );
-        assert_eq!(registry.get_status("mod:verso"), Some(ModStatus::Active));
+        assert_eq!(registry.get_status("mod:web-runtime"), Some(ModStatus::Active));
     }
 
     #[test]
@@ -1236,7 +1236,7 @@ mod tests {
 
     #[test]
     fn mod_registry_without_verso_disables_webview_capability() {
-        let mut registry = test_registry_with_disabled(&["mod:verso"]);
+        let mut registry = test_registry_with_disabled(&["mod:web-runtime"]);
         registry
             .resolve_dependencies()
             .expect("dependencies should resolve without verso");
@@ -1250,7 +1250,7 @@ mod tests {
 
     #[test]
     fn test_safe_capability_path_disabling_verso_removes_webview_capabilities() {
-        let disabled = disabled_set(&["mod:verso"]);
+        let disabled = disabled_set(&["mod:web-runtime"]);
         let capabilities = compute_active_capabilities_with_disabled(&disabled);
 
         assert!(!capabilities.contains("viewer:webview"));
