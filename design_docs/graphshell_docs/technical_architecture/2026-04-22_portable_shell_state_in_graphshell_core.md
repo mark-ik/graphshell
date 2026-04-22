@@ -724,3 +724,102 @@ itself and the per-tile overlay descriptor list.
   tests across the extracted types).
 - **WASM compile**: clean on `wasm32-unknown-unknown` as of this
   slice.
+
+### 2026-04-22 — Slice 10: Final consolidation — FrameViewModel, FocusAuthorityMut, CommandSurfaceTelemetry
+
+The remaining shell-side types blocking the "all portable state in
+graphshell-core" goal were moved in a single consolidation pass:
+
+**New portable modules:**
+
+- [`graphshell_core::overlay`] — `OverlayStrokePass`,
+  `OverlayAffordanceStyle`, `GlyphOverlay`, `GlyphAnchor` (extracted
+  from `compositor_adapter.rs` + `registries/atomic/lens/registry.rs`;
+  depends on `graph-canvas::packet::Stroke` which is cross-host
+  portable by design). 3 tests pinning serde wire shape + variant
+  distinctness.
+- [`graphshell_core::routing`] — `ToolSurfaceReturnTarget`
+  (extracted from `app/routing.rs`). 3 tests pinning serde round-trip
+  and variant distinctness.
+
+**Added to existing modules:**
+
+- `ToolPaneState` added to [`graphshell_core::pane`] alongside
+  `PaneId` and `TileRenderMode`. 5-variant enum with `title()` /
+  `is_navigator_surface()` helpers.
+- `GraphViewId` added to [`graphshell_core::graph`] alongside
+  `NodeKey`. Wasm-gated `new()`; WASM hosts call `from_uuid(uuid)`
+  with a host-supplied UUID.
+- `FrameViewModel` added to
+  [`graphshell_core::shell_state::frame_model`] now that
+  `OverlayStrokePass` + sub-view-model types are all portable.
+  Completes the `FrameViewModel` + `FrameHostInput` + all children
+  portability goal.
+- `FocusAuthorityMut` added to
+  [`graphshell_core::shell_state::authorities`]. Uses
+  `PortableInstant` for `focus_ring_started_at`; `latch_ring` takes
+  `now: PortableInstant` as an explicit parameter rather than calling
+  a platform clock. 6 new tests covering latch-on-noop, record-on-change,
+  clear-on-None, zero-alpha-with-no-ring, linear-fade-through-duration,
+  clear-hint-if-matches.
+- `CommandSurfaceTelemetry` + all its data shapes
+  (`CommandBarSemanticMetadata`, `OmnibarSemanticMetadata`, etc.) moved
+  to [`graphshell_core::shell_state::command_surface_telemetry`] now
+  that `PaneId` + `ToolSurfaceReturnTarget` are portable. Confirmed
+  empirically that `std::sync::Mutex` compiles to
+  `wasm32-unknown-unknown` (Rust 1.70+), so the
+  `Mutex<CommandSurfaceSemanticSnapshot>` fields didn't need a
+  refactor. 6 new tests covering default state, publish/latest
+  round-trip, clear-removes-published, route-event counters,
+  omnibar-mailbox counters, saturating-at-u64-max.
+
+**Shell-side latent bugs surfaced & fixed during consolidation:**
+
+- `FocusRingCurve` had no `serde::Serialize`/`Deserialize` derives
+  pre-migration but was used as a serde field in `FocusRingSettings`.
+  The shell never compiled due to the pre-existing webrender blocker,
+  so the error was latent; graphshell-core's clean compile surfaced it.
+  Fixed by adding the serde derives to the portable
+  `FocusRingCurve`.
+
+**Signatures changed:**
+
+- `FocusAuthorityMut::latch_ring(changed_this_frame, new_focused_node)`
+  → `latch_ring(changed_this_frame, new_focused_node, now:
+  PortableInstant)`. Callers (`tile_render_pass.rs:699`) now pass
+  `portable_now()` explicitly. The bundle's method no longer reaches
+  for a shell-side helper.
+- `FocusAuthorityMut::ring_alpha` / `ring_alpha_with_curve` already
+  took `now: Instant` before this slice; changed to `now:
+  PortableInstant`.
+
+**Final cumulative state:**
+
+- **Portable modules in graphshell-core**: 14
+  (`actions`, `address`, `async_request`, `content`, `geometry`,
+  `graph`, `host_event`, `overlay`, `pane`, `persistence`, `routing`,
+  `shell_state`, `time`, `types`).
+- **Portable submodules under `shell_state`**: 7 (`authorities`,
+  `command_palette`, `command_surface_telemetry`, `frame_model`,
+  `omnibar`, `toolbar`, + existing from earlier slices).
+- **Test suite**: **219 pass** (was 98 pre-M4, **+121 new portable
+  tests** cumulative across the extraction).
+- **WASM compile**: clean on `wasm32-unknown-unknown`.
+
+**What's still shell-side (intentionally non-portable host
+companions):**
+
+- `ToolbarAuthorityMut` — references `ProviderSuggestionDriver`
+  (holds a shell-owned `crossbeam_channel::Receiver<T>`) and
+  `&CommandSurfaceTelemetry` (portable but passed by reference
+  alongside the non-portable driver).
+- `GraphshellRuntime` itself — holds `tokio::runtime::Runtime`,
+  `Arc<RegistryRuntime>`, `ControlPanel` (tokio), `ViewerSurfaceRegistry`
+  (servo surfaces). These are host-adjacent by design; the portable
+  state is *owned by* the runtime but the runtime struct itself stays
+  in the shell crate until a separate runtime-holder split (design
+  doc §4 slice 10).
+
+The runtime/host boundary is now fully portable for everything except
+the concrete async + viewer-surface plumbing — exactly what the M4
+portability goal targeted.

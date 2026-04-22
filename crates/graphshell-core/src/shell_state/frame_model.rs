@@ -22,15 +22,105 @@
 //! timestamps via [`FrameHostInput`]; the runtime never asks the
 //! platform "what time is it now".
 
+use std::collections::HashMap;
 use std::time::Duration;
+
+use graph_tree::{OwnedTreeRow, SplitBoundary, TabEntry};
 
 use crate::content::ContentLoadState;
 use crate::geometry::{PortablePoint, PortableRect, PortableSize};
 use crate::graph::NodeKey;
 use crate::host_event::{HostEvent, ModifiersState};
+use crate::overlay::OverlayStrokePass;
 use crate::pane::{PaneId, TileRenderMode};
 use crate::shell_state::toolbar::ToolbarDraft;
 use crate::time::PortableInstant;
+
+// ---------------------------------------------------------------------------
+// FrameViewModel — aggregate per-frame host-painting snapshot
+// ---------------------------------------------------------------------------
+
+/// Per-frame snapshot produced by `GraphshellRuntime` for the host to
+/// paint.
+///
+/// All fields are read-only from the host's perspective. The host may
+/// rasterise, lay out, or cache derived quantities, but must not mutate
+/// the model — any feedback flows back through host ports /
+/// [`FrameHostInput`].
+///
+/// No `Debug` derive because `OverlayStrokePass` transitively contains
+/// non-Debug fields. Can be revisited independently.
+#[derive(Clone, Default)]
+pub struct FrameViewModel {
+    /// Visible panes with their screen rects (portable units), in
+    /// stable iteration order.
+    pub active_pane_rects: Vec<(PaneId, NodeKey, PortableRect)>,
+
+    /// `PaneId` → `TileRenderMode` mapping, refreshed per frame
+    /// alongside `active_pane_rects`. Mirrors
+    /// `graph_runtime.pane_render_modes` for hosts that can't read
+    /// the runtime state directly (iced).
+    pub pane_render_modes: HashMap<PaneId, TileRenderMode>,
+
+    /// `PaneId` → viewer-ID string mapping, refreshed per frame.
+    /// Resolves to the string identifier of the viewer implementation
+    /// a pane currently hosts (e.g., "servo", "wry:…"). Consumed by
+    /// compositor semantic-input resolution.
+    pub pane_viewer_ids: HashMap<PaneId, String>,
+
+    /// GraphTree rows for sidebar / navigator rendering.
+    pub tree_rows: Vec<OwnedTreeRow<NodeKey>>,
+
+    /// Flat tab ordering for a tab-bar view.
+    pub tab_order: Vec<TabEntry<NodeKey>>,
+
+    /// Split boundaries (draggable gutter handles between panes).
+    pub split_boundaries: Vec<SplitBoundary<NodeKey>>,
+
+    /// Currently active member (the pane that owns keyboard focus).
+    pub active_pane: Option<NodeKey>,
+
+    /// Aggregate focus state (which surface is focused, focus ring
+    /// animation).
+    pub focus: FocusViewModel,
+
+    /// Toolbar / location bar state.
+    pub toolbar: ToolbarViewModel,
+
+    /// Omnibar search session projection. `None` when no session is
+    /// active.
+    pub omnibar: Option<OmnibarViewModel>,
+
+    /// Graph-search (Ctrl+G) panel state projection.
+    pub graph_search: GraphSearchViewModel,
+
+    /// Command-palette (F2 / Ctrl+K) session projection.
+    pub command_palette: CommandPaletteViewModel,
+
+    /// Overlay descriptors the host must paint this frame (focus
+    /// rings, selection strokes, lens glyphs, etc.).
+    pub overlays: Vec<OverlayStrokePass>,
+
+    /// Which dialogs / overlays are open.
+    pub dialogs: DialogsViewModel,
+
+    /// Toasts queued this frame — the host drains and displays them.
+    pub toasts: Vec<ToastSpec>,
+
+    /// Content surfaces whose content changed this frame and should be
+    /// presented. The host consults its surface registry to resolve
+    /// each key to a concrete handle.
+    pub surfaces_to_present: Vec<NodeKey>,
+
+    /// UX-visible degraded-mode receipts the host should render as
+    /// chrome (e.g., "content viewer is in degraded mode").
+    pub degraded_receipts: Vec<DegradedReceiptSpec>,
+
+    /// Number of viewer thumbnail captures currently pending async
+    /// completion. Hosts can gate a "capture in progress" spinner on
+    /// `captures_in_flight > 0`.
+    pub captures_in_flight: usize,
+}
 
 // ---------------------------------------------------------------------------
 // Focus ring animation + curve
@@ -45,7 +135,9 @@ use crate::time::PortableInstant;
 /// the animation entirely (ring is either fully lit or fully off),
 /// which is the right choice for reduced-motion accessibility
 /// profiles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum FocusRingCurve {
     /// alpha = 1 − t/d (default).
     #[default]

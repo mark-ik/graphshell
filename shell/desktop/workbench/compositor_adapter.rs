@@ -802,24 +802,10 @@ pub(crate) struct CompositorPassTracker {
 /// draw-call boundary via `egui_rect_from_portable` /
 /// `egui_stroke_from_portable`; iced painters consume the portable types
 /// directly.
-#[derive(Clone)]
-pub(crate) struct OverlayStrokePass {
-    pub(crate) node_key: NodeKey,
-    pub(crate) tile_rect: PortableRect,
-    pub(crate) rounding: f32,
-    pub(crate) stroke: graph_canvas::packet::Stroke,
-    pub(crate) glyph_overlays: Vec<crate::registries::atomic::lens::GlyphOverlay>,
-    pub(crate) style: OverlayAffordanceStyle,
-    pub(crate) render_mode: TileRenderMode,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum OverlayAffordanceStyle {
-    RectStroke,
-    DashedRectStroke,
-    AreaStroke,
-    ChromeOnly,
-}
+// `OverlayStrokePass` + `OverlayAffordanceStyle` moved to
+// `graphshell_core::overlay` in M4 slice 10 (2026-04-22). Re-exported
+// here so existing call sites resolve unchanged.
+pub(crate) use graphshell_core::overlay::{OverlayAffordanceStyle, OverlayStrokePass};
 
 /// Host-agnostic sink for an overlay-affordance pass. Implementors
 /// turn one [`OverlayStrokePass`] descriptor into actual pixels using

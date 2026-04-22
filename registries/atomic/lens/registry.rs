@@ -18,20 +18,11 @@ pub(crate) struct LensDefinition {
     pub(crate) overlay_descriptor: Option<LensOverlayDescriptor>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GlyphAnchor {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-    Center,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GlyphOverlay {
-    pub(crate) glyph_id: String,
-    pub(crate) anchor: GlyphAnchor,
-}
+// `GlyphOverlay` + `GlyphAnchor` moved to `graphshell_core::overlay`
+// in M4 slice 10 (2026-04-22) — they travel together with
+// `OverlayStrokePass` through the view-model. Re-exported here so
+// call sites resolve unchanged.
+pub(crate) use graphshell_core::overlay::{GlyphAnchor, GlyphOverlay};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LensOverlayDescriptor {

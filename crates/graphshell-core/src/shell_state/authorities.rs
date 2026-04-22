@@ -7,31 +7,42 @@
 //! The M4 runtime extraction bundles per-subsystem mutable references
 //! into `*AuthorityMut<'a>` structs so phase-pipeline functions can
 //! accept one handle per subsystem instead of threading each field
-//! individually. Two of the four bundles are now fully portable:
+//! individually. Three of the four bundles are now fully portable:
 //!
 //! - [`GraphSearchAuthorityMut`] — five `&mut T` refs where every `T`
 //!   is portable (`bool`, `String`, `Vec<NodeKey>`, `Option<usize>`).
 //! - [`CommandAuthorityMut`] — toggle flag + a reference to the
 //!   portable [`CommandPaletteSession`].
+//! - [`FocusAuthorityMut`] — focused-node hint + focus-ring animation
+//!   bookkeeping. `focus_ring_started_at` uses
+//!   [`PortableInstant`](crate::time::PortableInstant); the host
+//!   supplies "now" values at call sites (see [`latch_ring`],
+//!   [`ring_alpha`], [`ring_alpha_with_curve`]) rather than the bundle
+//!   reaching for a platform clock.
 //!
-//! The other two authority bundles remain shell-side:
+//! The remaining bundle stays shell-side:
 //!
-//! - `FocusAuthorityMut` — blocked on `std::time::Instant` in
-//!   `focus_ring_started_at` (not available on
-//!   `wasm32-unknown-unknown`). Moves with slice 8's time-portability
-//!   decision.
-//! - `ToolbarAuthorityMut` — blocked on `OmnibarSearchSession` (still
-//!   carries `Instant`), `ProviderSuggestionDriver` (holds
-//!   `crossbeam_channel::Receiver<T>`), and `&CommandSurfaceTelemetry`
-//!   (still behind `Mutex`). Moves with slices 5b / 6-follow-on.
+//! - `ToolbarAuthorityMut` — references
+//!   `ProviderSuggestionDriver` (which holds a shell-owned
+//!   `crossbeam_channel::Receiver<T>`) and
+//!   `&CommandSurfaceTelemetry` (a shell-side `Mutex`-wrapped sink);
+//!   both are intentionally non-portable host companions.
 //!
-//! Pre-M4 slice 9 (2026-04-22) both portable bundles lived in
-//! `shell/desktop/ui/gui_state.rs`. The graphshell crate re-exports
-//! them from their original locations so existing import paths still
-//! resolve.
+//! Pre-M4 slice 10 (2026-04-22) `FocusAuthorityMut` lived in
+//! `shell/desktop/ui/gui_state.rs` alongside the prior bundle moves.
+//! The graphshell crate re-exports it from its original location so
+//! existing import paths still resolve.
+//!
+//! [`latch_ring`]: FocusAuthorityMut::latch_ring
+//! [`ring_alpha`]: FocusAuthorityMut::ring_alpha
+//! [`ring_alpha_with_curve`]: FocusAuthorityMut::ring_alpha_with_curve
+
+use std::time::Duration;
 
 use crate::graph::NodeKey;
 use crate::shell_state::command_palette::{CommandPaletteSession, SearchPaletteScope};
+use crate::shell_state::frame_model::{FocusRingCurve, FocusRingSpec};
+use crate::time::PortableInstant;
 
 /// Host-facing mutation handle for graph-search session state.
 ///
@@ -181,6 +192,140 @@ impl<'a> CommandAuthorityMut<'a> {
     }
 }
 
+/// Host-facing mutation handle bundling the focus fields the render
+/// / compositor path touches each frame. Replaces the four
+/// individual `&mut`-field parameters (`focused_node_hint`,
+/// `focus_ring_node_key`, `focus_ring_started_at`,
+/// `focus_ring_duration`) that `TileRenderPassArgs` and
+/// `PostRenderPhaseArgs` carried pre-M4.1.
+///
+/// Per the M3.5 runtime boundary design (§3.1 Focus authority), focus
+/// policy truth belongs on the runtime. Callers destructure the
+/// runtime at the host boundary, assemble a `FocusAuthorityMut`, and
+/// pass it down. The render path calls named methods
+/// ([`clear_hint`], [`set_hint`], [`latch_ring`], …) instead of
+/// dereferencing raw refs.
+///
+/// `focus_ring_started_at` is a [`PortableInstant`]; the host
+/// provides "now" values at each call site rather than the bundle
+/// reaching for a platform clock. This keeps the bundle WASM-safe
+/// (no `std::time::Instant::now()` dependency).
+///
+/// [`clear_hint`]: Self::clear_hint
+/// [`set_hint`]: Self::set_hint
+/// [`latch_ring`]: Self::latch_ring
+pub struct FocusAuthorityMut<'a> {
+    pub focused_node_hint: &'a mut Option<NodeKey>,
+    /// Whether the graph canvas currently owns focus. Read-only this
+    /// frame — the value is produced upstream by the focus-authority
+    /// projection.
+    pub graph_surface_focused: bool,
+    pub focus_ring_node_key: &'a mut Option<NodeKey>,
+    pub focus_ring_started_at: &'a mut Option<PortableInstant>,
+    pub focus_ring_duration: Duration,
+}
+
+impl<'a> FocusAuthorityMut<'a> {
+    /// Reborrow the bundle with a shorter lifetime. Needed when the
+    /// bundle flows through multiple call sites the borrow checker
+    /// can't statically prove are mutually exclusive.
+    pub fn reborrow(&mut self) -> FocusAuthorityMut<'_> {
+        FocusAuthorityMut {
+            focused_node_hint: &mut *self.focused_node_hint,
+            graph_surface_focused: self.graph_surface_focused,
+            focus_ring_node_key: &mut *self.focus_ring_node_key,
+            focus_ring_started_at: &mut *self.focus_ring_started_at,
+            focus_ring_duration: self.focus_ring_duration,
+        }
+    }
+
+    /// Current focus hint (the node a pane wants to own focus on this
+    /// frame, or `None` when the hint has been cleared).
+    pub fn hint(&self) -> Option<NodeKey> {
+        *self.focused_node_hint
+    }
+
+    /// Whether the graph canvas surface currently owns focus. When
+    /// true, pane-level focus mutations should reset the node hint so
+    /// the canvas retains input routing.
+    pub fn graph_surface_focused(&self) -> bool {
+        self.graph_surface_focused
+    }
+
+    /// Replace the focus hint with `value`.
+    pub fn set_hint(&mut self, value: Option<NodeKey>) {
+        *self.focused_node_hint = value;
+    }
+
+    /// Clear the focus hint unconditionally.
+    pub fn clear_hint(&mut self) {
+        *self.focused_node_hint = None;
+    }
+
+    /// Clear the focus hint if it currently points at `node_key`.
+    /// Returns `true` when the clear fired.
+    pub fn clear_hint_if_matches(&mut self, node_key: NodeKey) -> bool {
+        if *self.focused_node_hint == Some(node_key) {
+            *self.focused_node_hint = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Latch a new focus-ring animation from a focus transition delta.
+    /// Called once per frame after the active-pane focused-node is
+    /// resolved; a no-op when `changed_this_frame` is false so the
+    /// ring keeps fading toward its current target.
+    ///
+    /// `now` is the host-supplied monotonic timestamp for this frame;
+    /// callers pass their platform's `PortableInstant` shim
+    /// (`portable_time::portable_now()` on desktop).
+    pub fn latch_ring(
+        &mut self,
+        changed_this_frame: bool,
+        new_focused_node: Option<NodeKey>,
+        now: PortableInstant,
+    ) {
+        if !changed_this_frame {
+            return;
+        }
+        *self.focus_ring_node_key = new_focused_node;
+        *self.focus_ring_started_at = new_focused_node.map(|_| now);
+    }
+
+    /// Compute the paint alpha for the focus ring using the default
+    /// linear curve.
+    pub fn ring_alpha(&self, focused_node: Option<NodeKey>, now: PortableInstant) -> f32 {
+        self.ring_alpha_with_curve(focused_node, now, FocusRingCurve::Linear)
+    }
+
+    /// Compute the paint alpha applying the supplied fade reshape.
+    /// Returns 0.0 when the ring target, clock, or stored start-time
+    /// precludes any ring; otherwise delegates to
+    /// [`FocusRingSpec::alpha_at_with_curve`] so the render path and
+    /// the view-model projection share one implementation.
+    pub fn ring_alpha_with_curve(
+        &self,
+        focused_node: Option<NodeKey>,
+        now: PortableInstant,
+        curve: FocusRingCurve,
+    ) -> f32 {
+        let Some(node_key) = *self.focus_ring_node_key else {
+            return 0.0;
+        };
+        let Some(started_at) = *self.focus_ring_started_at else {
+            return 0.0;
+        };
+        FocusRingSpec {
+            node_key,
+            started_at,
+            duration: self.focus_ring_duration,
+        }
+        .alpha_at_with_curve(focused_node, now, curve)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,6 +447,126 @@ mod tests {
         // Idempotent — clearing an already-clear flag is a no-op.
         authority.clear_toggle_request();
         assert!(!authority.toggle_requested());
+    }
+
+    #[test]
+    fn focus_authority_latch_ring_is_noop_when_nothing_changed() {
+        let mut focused_node_hint = Some(NodeKey::new(5));
+        let mut focus_ring_node_key = Some(NodeKey::new(1));
+        let mut focus_ring_started_at = Some(PortableInstant(500));
+        let mut authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(500),
+        };
+
+        // changed_this_frame = false — no mutation.
+        authority.latch_ring(false, Some(NodeKey::new(99)), PortableInstant(1_000));
+        assert_eq!(*authority.focus_ring_node_key, Some(NodeKey::new(1)));
+        assert_eq!(*authority.focus_ring_started_at, Some(PortableInstant(500)));
+    }
+
+    #[test]
+    fn focus_authority_latch_ring_records_new_target_and_timestamp() {
+        let mut focused_node_hint = None;
+        let mut focus_ring_node_key = None;
+        let mut focus_ring_started_at = None;
+        let mut authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(300),
+        };
+
+        let now = PortableInstant(2_000);
+        authority.latch_ring(true, Some(NodeKey::new(42)), now);
+        assert_eq!(*authority.focus_ring_node_key, Some(NodeKey::new(42)));
+        assert_eq!(*authority.focus_ring_started_at, Some(now));
+    }
+
+    #[test]
+    fn focus_authority_latch_ring_clears_timestamp_on_none() {
+        // When the new focus target is None (focus surrendered),
+        // latch_ring clears the started_at timestamp so ring_alpha
+        // returns 0.0 even if the node_key survives. Pin this.
+        let mut focused_node_hint = None;
+        let mut focus_ring_node_key = Some(NodeKey::new(7));
+        let mut focus_ring_started_at = Some(PortableInstant(500));
+        let mut authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(500),
+        };
+
+        authority.latch_ring(true, None, PortableInstant(1_000));
+        assert_eq!(*authority.focus_ring_node_key, None);
+        assert_eq!(*authority.focus_ring_started_at, None);
+    }
+
+    #[test]
+    fn focus_authority_ring_alpha_returns_zero_when_no_stored_ring() {
+        let mut focused_node_hint = None;
+        let mut focus_ring_node_key: Option<NodeKey> = None;
+        let mut focus_ring_started_at: Option<PortableInstant> = None;
+        let authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(500),
+        };
+
+        // No ring node stored → 0.0 regardless of `focused_node` /
+        // `now`.
+        assert_eq!(
+            authority.ring_alpha(Some(NodeKey::new(1)), PortableInstant(100)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn focus_authority_ring_alpha_fades_linearly_through_duration() {
+        let mut focused_node_hint = None;
+        let mut focus_ring_node_key = Some(NodeKey::new(3));
+        let mut focus_ring_started_at = Some(PortableInstant(1_000));
+        let authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(1_000),
+        };
+
+        let half = PortableInstant(1_500);
+        let alpha = authority.ring_alpha(Some(NodeKey::new(3)), half);
+        assert!((alpha - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn focus_authority_clear_hint_if_matches_fires_only_on_match() {
+        let mut focused_node_hint = Some(NodeKey::new(7));
+        let mut focus_ring_node_key = None;
+        let mut focus_ring_started_at = None;
+        let mut authority = FocusAuthorityMut {
+            focused_node_hint: &mut focused_node_hint,
+            graph_surface_focused: false,
+            focus_ring_node_key: &mut focus_ring_node_key,
+            focus_ring_started_at: &mut focus_ring_started_at,
+            focus_ring_duration: Duration::from_millis(500),
+        };
+
+        // Non-match: hint preserved, returns false.
+        assert!(!authority.clear_hint_if_matches(NodeKey::new(99)));
+        assert_eq!(*authority.focused_node_hint, Some(NodeKey::new(7)));
+
+        // Match: hint cleared, returns true.
+        assert!(authority.clear_hint_if_matches(NodeKey::new(7)));
+        assert_eq!(*authority.focused_node_hint, None);
     }
 
     #[test]

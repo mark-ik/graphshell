@@ -696,7 +696,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
     #[cfg(feature = "diagnostics")]
     emit_navigation_transition_when_focus_hint_changes(focused_node_hint_before, focus.hint());
     let focus_delta = tile_compositor::FocusDelta::new(focused_node_hint_before, focused_node_key);
-    focus.latch_ring(focus_delta.changed_this_frame, focus_delta.new_focused_node);
+    focus.latch_ring(
+        focus_delta.changed_this_frame,
+        focus_delta.new_focused_node,
+        crate::shell::desktop::ui::portable_time::portable_now(),
+    );
 
     // Delegate alpha derivation to the host-neutral helper on
     // `FocusRingSpec` so egui (here) and iced share the same
@@ -719,7 +723,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
             .map(|spec| {
                 spec.alpha_at_with_curve(
                     focused_node_key,
-                    Instant::now(),
+                    crate::shell::desktop::ui::portable_time::portable_now(),
                     focus_ring_settings.curve,
                 )
             })

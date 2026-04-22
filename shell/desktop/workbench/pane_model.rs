@@ -315,47 +315,10 @@ impl From<NodePaneStateCompat> for NodePaneState {
     }
 }
 
-/// Tool pane content variant.
-///
-/// Determines which tool surface is rendered in a tool pane.
-/// New tool surfaces can be added as variants here; the pane model remains stable.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum ToolPaneState {
-    /// Engine topology, compositor state, and diagnostics inspector.
-    Diagnostics,
-    /// Traversal history timeline and dissolved node archive.
-    HistoryManager,
-    /// Accessibility inspection surface.
-    AccessibilityInspector,
-    /// Legacy file-tree projection surface, now presented as Navigator.
-    FileTree,
-    /// Application and workspace settings.
-    Settings,
-}
-
-impl ToolPaneState {
-    pub(crate) fn navigator_surface() -> Self {
-        Self::FileTree
-    }
-
-    pub(crate) fn is_navigator_surface(&self) -> bool {
-        matches!(self, Self::FileTree)
-    }
-
-    pub(crate) fn is_file_tree_surface(&self) -> bool {
-        self.is_navigator_surface()
-    }
-
-    pub(crate) fn title(&self) -> &'static str {
-        match self {
-            Self::Diagnostics => "Diagnostics",
-            Self::HistoryManager => "History",
-            Self::AccessibilityInspector => "Accessibility",
-            Self::FileTree => "Navigator",
-            Self::Settings => "Settings",
-        }
-    }
-}
+// `ToolPaneState` moved to `graphshell_core::pane` in M4 slice 10
+// (2026-04-22) alongside `PaneId` + `TileRenderMode`. Re-exported at
+// the original path so callers resolve unchanged.
+pub(crate) use graphshell_core::pane::ToolPaneState;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "ToolPaneRefCompat")]

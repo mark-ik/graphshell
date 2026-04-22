@@ -62,6 +62,43 @@ pub type GraphDirection = Directed;
 /// Graph backend index type exposed for adapter integration.
 pub type GraphIndex = petgraph::graph::DefaultIx;
 
+/// Unique identifier for a graph-view pane (one projection of a graph;
+/// many graph-view panes can exist concurrently, each with its own
+/// camera / selection / filter state).
+///
+/// Pre-M4 slice 10 (2026-04-22) this lived in `app/graph_views.rs`;
+/// moved here alongside the other graph-level identity types so
+/// portable runtime code (`ToolSurfaceReturnTarget`, `FrameViewModel`,
+/// etc.) can reference it without reaching across the app boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GraphViewId(Uuid);
+
+impl GraphViewId {
+    /// Fresh random identity. Gated to non-WASM because
+    /// `Uuid::new_v4()` requires an OS randomness source that is
+    /// unavailable on `wasm32-unknown-unknown`; WASM hosts construct
+    /// via [`GraphViewId::from_uuid`] with a host-supplied UUID.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Default for GraphViewId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct UuidAsBytes;
 
 impl ArchiveWith<Uuid> for UuidAsBytes {

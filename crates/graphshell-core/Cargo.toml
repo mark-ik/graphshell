@@ -12,7 +12,9 @@ description = "Portable identity, authority, and mutation kernel for Graphshell"
 test-utils = []
 
 [dependencies]
+graph-canvas = { path = "../graph-canvas" }
 graph-memory = { path = "../graph-memory" }
+graph-tree = { path = "../graph-tree" }
 serde = { version = "1.0", features = ["derive"] }
 rkyv = { version = "0.8", features = ["std"] }
 time = { version = "0.3", features = ["formatting"] }

@@ -88,53 +88,13 @@ pub struct WorkspaceUserStylesheetSetting {
     pub enabled: bool,
 }
 
-/// Shape of the focus-ring fade-out curve the runtime applies between a
-/// freshly-latched focus transition and the ring's expiry.
-///
-/// `Linear` is the historical default (constant-rate fade). `EaseOut`
-/// gives a slower fade at first that accelerates toward zero — makes the
-/// ring feel like it's "settling in" before fading. `Step` skips the
-/// animation entirely (ring is either fully lit or fully off), which is
-/// the right choice for reduced-motion accessibility profiles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FocusRingCurve {
-    /// alpha = 1 − t/d (default).
-    #[default]
-    Linear,
-    /// alpha = 1 − (t/d)² — slow at start, fast at end.
-    EaseOut,
-    /// alpha = 1 while t < d, else 0 — instant cutoff, no fade.
-    Step,
-}
-
-impl_display_from_str!(FocusRingCurve {
-    FocusRingCurve::Linear => "linear",
-    FocusRingCurve::EaseOut => "ease_out",
-    FocusRingCurve::Step => "step",
-});
-
-impl FocusRingCurve {
-    /// Reshape a normalized fade progress in `[0.0, 1.0]` (0 = just
-    /// latched, 1 = animation complete) into a visual alpha value in
-    /// `[0.0, 1.0]`.
-    pub fn alpha_from_progress(self, progress: f32) -> f32 {
-        let p = progress.clamp(0.0, 1.0);
-        match self {
-            Self::Linear => 1.0 - p,
-            Self::EaseOut => {
-                let remaining = 1.0 - p;
-                remaining * remaining
-            }
-            Self::Step => {
-                if p >= 1.0 {
-                    0.0
-                } else {
-                    1.0
-                }
-            }
-        }
-    }
-}
+// `FocusRingCurve` moved to `graphshell_core::shell_state::frame_model`
+// in M4 slice 8 (2026-04-22). Re-exported here so existing
+// `crate::app::FocusRingCurve` imports resolve unchanged. The
+// portable version carries its own `Display`/`FromStr` impls with
+// the same wire shape the old `impl_display_from_str!` macro
+// produced ("linear", "ease_out", "step").
+pub use graphshell_core::shell_state::frame_model::FocusRingCurve;
 
 /// User-configurable focus-ring behavior. Lives on
 /// `ChromeUiState::focus_ring_settings`; defaults match the historical

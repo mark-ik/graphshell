@@ -200,7 +200,7 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     /// `GraphshellRuntime` (see `apply_canvas_region_focus_state`).
     pub(super) graph_surface_focused: bool,
     pub(super) focus_ring_node_key: &'a mut Option<NodeKey>,
-    pub(super) focus_ring_started_at: &'a mut Option<std::time::Instant>,
+    pub(super) focus_ring_started_at: &'a mut Option<graphshell_core::time::PortableInstant>,
     /// Read-only; focus-ring animation length is owned by runtime state
     /// and sourced from `chrome_ui.focus_ring_settings`. Never mutated
     /// by any phase.

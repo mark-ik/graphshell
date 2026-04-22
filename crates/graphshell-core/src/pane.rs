@@ -96,6 +96,57 @@ pub enum TileRenderMode {
     Placeholder,
 }
 
+/// Tool pane content variant.
+///
+/// Identifies which tool surface is rendered in a tool pane. New tool
+/// surfaces land as additional variants; the pane model contract stays
+/// stable across additions (serde round-trip remains compatible as
+/// long as variants are added at the tail).
+///
+/// Pre-M4 slice 10 (2026-04-22) this enum lived in
+/// `shell/desktop/workbench/pane_model.rs`. Moved here alongside
+/// [`PaneId`] so `ToolSurfaceReturnTarget::Tool(ToolPaneState)` in
+/// [`crate::routing`] can be fully portable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolPaneState {
+    /// Engine topology, compositor state, and diagnostics inspector.
+    Diagnostics,
+    /// Traversal history timeline and dissolved node archive.
+    HistoryManager,
+    /// Accessibility inspection surface.
+    AccessibilityInspector,
+    /// Legacy file-tree projection surface, now presented as Navigator.
+    FileTree,
+    /// Application and workspace settings.
+    Settings,
+}
+
+impl ToolPaneState {
+    /// The canonical navigator tool surface identity.
+    pub fn navigator_surface() -> Self {
+        Self::FileTree
+    }
+
+    pub fn is_navigator_surface(&self) -> bool {
+        matches!(self, Self::FileTree)
+    }
+
+    pub fn is_file_tree_surface(&self) -> bool {
+        self.is_navigator_surface()
+    }
+
+    /// Human-readable tool title. Chrome surfaces render this directly.
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::Diagnostics => "Diagnostics",
+            Self::HistoryManager => "History",
+            Self::AccessibilityInspector => "Accessibility",
+            Self::FileTree => "Navigator",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

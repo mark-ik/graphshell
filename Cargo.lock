@@ -4960,7 +4960,9 @@ name = "graphshell-core"
 version = "0.0.1"
 dependencies = [
  "euclid",
+ "graph-canvas",
  "graph-memory",
+ "graph-tree",
  "infer",
  "mime_guess",
  "petgraph 0.8.3",

@@ -146,29 +146,10 @@ pub struct GraphViewFrame {
     pub pan_y: f32,
 }
 
-/// Unique identifier for a graph view pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct GraphViewId(uuid::Uuid);
-
-impl GraphViewId {
-    pub fn new() -> Self {
-        Self(uuid::Uuid::new_v4())
-    }
-
-    pub(crate) fn from_uuid(id: uuid::Uuid) -> Self {
-        Self(id)
-    }
-
-    pub fn as_uuid(self) -> uuid::Uuid {
-        self.0
-    }
-}
-
-impl Default for GraphViewId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// `GraphViewId` moved to `graphshell_core::graph` in M4 slice 10
+// (2026-04-22) alongside `NodeKey`. Re-exported at the original path
+// so callers resolve unchanged.
+pub use graphshell_core::graph::GraphViewId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum SceneMode {

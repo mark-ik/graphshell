@@ -6,12 +6,10 @@ pub enum SettingsRouteTarget {
     Settings(SettingsToolPage),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolSurfaceReturnTarget {
-    Graph(GraphViewId),
-    Node(NodeKey),
-    Tool(crate::shell::desktop::workbench::pane_model::ToolPaneState),
-}
+// `ToolSurfaceReturnTarget` moved to `graphshell_core::routing` in
+// M4 slice 10 (2026-04-22). Re-exported here so existing `app::
+// ToolSurfaceReturnTarget` import paths resolve unchanged.
+pub use graphshell_core::routing::ToolSurfaceReturnTarget;
 
 impl GraphBrowserApp {
     pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {

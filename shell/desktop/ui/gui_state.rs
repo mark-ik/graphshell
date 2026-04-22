@@ -105,131 +105,15 @@ pub(crate) struct RuntimeFocusAuthorityState {
     pub(crate) realized_focus_state: Option<RuntimeFocusState>,
 }
 
-/// Host-facing mutation handle bundling the focus fields the render /
-/// compositor path touches each frame. Replaces the four individual
-/// `&mut`-field parameters (`focused_node_hint`, `focus_ring_node_key`,
-/// `focus_ring_started_at`, `focus_ring_duration`) that `TileRenderPassArgs`
-/// and `PostRenderPhaseArgs` used to carry.
-///
-/// Per the M3.5 runtime boundary design (§3.1 Focus authority), focus
-/// policy truth belongs on `GraphshellRuntime`. M4.1 slice 1b introduces
-/// this bundle as the transitional seam: callers destructure
-/// `GraphshellRuntime` at the host boundary, assemble a
-/// `FocusAuthorityMut`, and pass it down. The render path calls named
-/// methods (`clear_hint`, `set_hint`, `latch_ring`, …) instead of
-/// dereferencing raw refs. A follow-on slice will replace the bundle
-/// with `&mut GraphshellRuntime` once the surrounding destructure
-/// collapses.
-pub(crate) struct FocusAuthorityMut<'a> {
-    pub(crate) focused_node_hint: &'a mut Option<NodeKey>,
-    /// Whether the graph canvas currently owns focus. Read-only this
-    /// frame — the value is produced upstream by the focus-authority
-    /// projection.
-    pub(crate) graph_surface_focused: bool,
-    pub(crate) focus_ring_node_key: &'a mut Option<NodeKey>,
-    pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
-    pub(crate) focus_ring_duration: Duration,
-}
-
-impl<'a> FocusAuthorityMut<'a> {
-    /// Reborrow the bundle with a shorter lifetime. Needed when the
-    /// bundle flows through multiple call sites the borrow checker
-    /// can't statically prove are mutually exclusive (e.g., separate
-    /// `if matches!(layer_state, …)` branches against `WorkbenchChromeProjection`).
-    pub(crate) fn reborrow(&mut self) -> FocusAuthorityMut<'_> {
-        FocusAuthorityMut {
-            focused_node_hint: &mut *self.focused_node_hint,
-            graph_surface_focused: self.graph_surface_focused,
-            focus_ring_node_key: &mut *self.focus_ring_node_key,
-            focus_ring_started_at: &mut *self.focus_ring_started_at,
-            focus_ring_duration: self.focus_ring_duration,
-        }
-    }
-
-    /// Current focus hint (the node a pane wants to own focus on this
-    /// frame, or `None` when the hint has been cleared).
-    pub(crate) fn hint(&self) -> Option<NodeKey> {
-        *self.focused_node_hint
-    }
-
-    /// Whether the graph canvas surface currently owns focus. When
-    /// true, pane-level focus mutations should reset the node hint so
-    /// the canvas retains input routing.
-    pub(crate) fn graph_surface_focused(&self) -> bool {
-        self.graph_surface_focused
-    }
-
-    /// Replace the focus hint with `value`.
-    pub(crate) fn set_hint(&mut self, value: Option<NodeKey>) {
-        *self.focused_node_hint = value;
-    }
-
-    /// Clear the focus hint unconditionally.
-    pub(crate) fn clear_hint(&mut self) {
-        *self.focused_node_hint = None;
-    }
-
-    /// Clear the focus hint if it currently points at `node_key`.
-    /// Returns `true` when the clear fired (the caller can use this as
-    /// a hook for diagnostics or logging).
-    pub(crate) fn clear_hint_if_matches(&mut self, node_key: NodeKey) -> bool {
-        if *self.focused_node_hint == Some(node_key) {
-            *self.focused_node_hint = None;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Latch a new focus-ring animation from a focus transition delta.
-    /// Called once per frame after the active-pane focused-node is
-    /// resolved; a no-op when `delta.changed_this_frame` is false so
-    /// the ring keeps fading toward its current target.
-    pub(crate) fn latch_ring(
-        &mut self,
-        changed_this_frame: bool,
-        new_focused_node: Option<NodeKey>,
-    ) {
-        if !changed_this_frame {
-            return;
-        }
-        *self.focus_ring_node_key = new_focused_node;
-        *self.focus_ring_started_at = new_focused_node.map(|_| Instant::now());
-    }
-
-    /// Compute the paint alpha for the focus ring using the default
-    /// linear curve. Thin wrapper over [`Self::ring_alpha_with_curve`];
-    /// preserved so pre-M4.1 call sites that don't consult settings
-    /// still compile unchanged.
-    pub(crate) fn ring_alpha(&self, focused_node: Option<NodeKey>, now: Instant) -> f32 {
-        self.ring_alpha_with_curve(focused_node, now, crate::app::FocusRingCurve::Linear)
-    }
-
-    /// Compute the paint alpha applying the supplied fade reshape.
-    /// Returns 0.0 when the ring target, clock, or stored start-time
-    /// precludes any ring; otherwise delegates to
-    /// [`FocusRingSpec::alpha_at_with_curve`] so the render path and
-    /// the view-model projection share one implementation.
-    pub(crate) fn ring_alpha_with_curve(
-        &self,
-        focused_node: Option<NodeKey>,
-        now: Instant,
-        curve: crate::app::FocusRingCurve,
-    ) -> f32 {
-        let Some(node_key) = *self.focus_ring_node_key else {
-            return 0.0;
-        };
-        let Some(started_at) = *self.focus_ring_started_at else {
-            return 0.0;
-        };
-        crate::shell::desktop::ui::frame_model::FocusRingSpec {
-            node_key,
-            started_at,
-            duration: self.focus_ring_duration,
-        }
-        .alpha_at_with_curve(focused_node, now, curve)
-    }
-}
+// `FocusAuthorityMut` moved to
+// `graphshell_core::shell_state::authorities` in M4 slice 10
+// (2026-04-22). Re-exported at the original path so existing
+// `crate::shell::desktop::ui::gui_state::FocusAuthorityMut`
+// imports resolve unchanged. `latch_ring` now takes a `now:
+// PortableInstant` parameter (the portable version doesn't reach
+// for `portable_now()` internally); callers supply it via
+// `shell::desktop::ui::portable_time::portable_now()`.
+pub(crate) use graphshell_core::shell_state::authorities::FocusAuthorityMut;
 
 /// Host-facing mutation handle for toolbar / omnibar session state.
 ///
@@ -414,7 +298,7 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) focus_ring_node_key: Option<NodeKey>,
-    pub(crate) focus_ring_started_at: Option<Instant>,
+    pub(crate) focus_ring_started_at: Option<graphshell_core::time::PortableInstant>,
     pub(crate) focus_ring_duration: Duration,
     pub(crate) omnibar_search_session: Option<OmnibarSearchSession>,
     /// Host-side driver (crossbeam receiver + generation tag) for the
@@ -593,7 +477,9 @@ impl GraphshellRuntime {
         let effective_duration = focus_ring_settings.duration();
         let ring_spec_candidate = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
             node_key,
-            started_at: self.focus_ring_started_at.unwrap_or_else(Instant::now),
+            started_at: self
+                .focus_ring_started_at
+                .unwrap_or_else(crate::shell::desktop::ui::portable_time::portable_now),
             duration: effective_duration,
         });
         // Derive the active pane's focused node by correlating the
@@ -627,7 +513,7 @@ impl GraphshellRuntime {
                 .map(|spec| {
                     spec.alpha_at_with_curve(
                         active_pane_focused_node,
-                        Instant::now(),
+                        crate::shell::desktop::ui::portable_time::portable_now(),
                         focus_ring_settings.curve,
                     )
                 })
