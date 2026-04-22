@@ -35,7 +35,7 @@ pub(crate) fn run_pre_frame_phase(
     window: &EmbedderWindow,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     thumbnail_channel: &crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailChannel,
-    thumbnail_capture_in_flight: &mut HashSet<WebViewId>,
+    thumbnail_capture_in_flight: &mut HashSet<graphshell_core::content::ViewerInstanceId>,
     command_palette_toggle_requested: &mut bool,
 ) -> PreFramePhaseOutput {
     let mut frame_intents = Vec::new();

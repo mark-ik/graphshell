@@ -368,7 +368,8 @@ fn render_action_entry_button(
     focused_pane_id: Option<PaneId>,
     should_close: &mut bool,
 ) {
-    let shortcuts = entry.id.shortcut_hints();
+    let shortcuts =
+        crate::render::action_registry::shortcut_hints_for_action(entry.id);
     let button = egui::Button::new(if shortcuts.is_empty() {
         entry.id.label().to_string()
     } else {

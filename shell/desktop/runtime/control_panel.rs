@@ -45,55 +45,15 @@ use crate::shell::desktop::runtime::registries::{
     RegistryRuntime,
 };
 
-/// Frame-drained result carrier for short-lived host requests owned by Shell.
-///
-/// Shell keeps mailbox ownership on the frame thread and polls it at frame
-/// boundaries, so background work never mutates Shell-visible state directly.
-pub(crate) struct HostRequestMailbox<T> {
-    rx: Option<crossbeam_channel::Receiver<T>>,
-}
-
-pub(crate) enum HostRequestPoll<T> {
-    Pending,
-    Ready(T),
-    Interrupted,
-}
-
-impl<T> HostRequestMailbox<T> {
-    pub(crate) fn idle() -> Self {
-        Self { rx: None }
-    }
-
-    fn pending(rx: crossbeam_channel::Receiver<T>) -> Self {
-        Self { rx: Some(rx) }
-    }
-
-    pub(crate) fn has_pending_result(&self) -> bool {
-        self.rx.is_some()
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.rx = None;
-    }
-
-    pub(crate) fn poll_frame(&mut self) -> HostRequestPoll<T> {
-        let Some(rx) = self.rx.as_ref() else {
-            return HostRequestPoll::Interrupted;
-        };
-
-        match rx.try_recv() {
-            Ok(value) => {
-                self.rx = None;
-                HostRequestPoll::Ready(value)
-            }
-            Err(crossbeam_channel::TryRecvError::Empty) => HostRequestPoll::Pending,
-            Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                self.rx = None;
-                HostRequestPoll::Interrupted
-            }
-        }
-    }
-}
+// `HostRequestMailbox<T>` was removed in M4 slice 5 (2026-04-22). The
+// omnibar path (its sole caller) now uses
+// `graphshell_core::async_request::AsyncRequestState<T>` for the
+// portable state machine, with the concrete
+// `crossbeam_channel::Receiver<T>` owned by a shell-side driver
+// (`shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver`).
+// If a new caller needs the old pattern, reach for `AsyncRequestState`
+// + [`spawn_blocking_host_request_rx`] rather than reintroducing a
+// shell-scoped wrapper.
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
@@ -754,13 +714,23 @@ impl ControlPanel {
         log::debug!("control_panel: supervised task spawned ({label})");
     }
 
-    /// Run a blocking host request under ControlPanel supervision and return a
-    /// single-result mailbox that can be polled safely from the UI frame loop.
-    pub(crate) fn spawn_blocking_host_request<T, F>(
+    /// Run a blocking host request under ControlPanel supervision and return
+    /// a raw `crossbeam_channel::Receiver<T>` that the caller's shell-side
+    /// driver polls at frame boundaries.
+    ///
+    /// Callers pair the returned receiver with an
+    /// [`AsyncRequestState<T>`](graphshell_core::async_request::AsyncRequestState)
+    /// on the portable state side: they bump a generation counter via
+    /// `AsyncRequestState::arm_pending(generation)`, retain `(generation,
+    /// receiver)` on the host, and at the next frame drain the receiver and
+    /// call `resolve(generation, value)` on the state. This keeps the
+    /// portable state free of threading primitives — see
+    /// [`graphshell_core::async_request`] for the full contract.
+    pub(crate) fn spawn_blocking_host_request_rx<T, F>(
         &mut self,
         label: &'static str,
         work: F,
-    ) -> HostRequestMailbox<T>
+    ) -> crossbeam_channel::Receiver<T>
     where
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
@@ -781,7 +751,7 @@ impl ControlPanel {
                 let _ = tx.send(value);
             }
         });
-        HostRequestMailbox::pending(rx)
+        rx
     }
 
     pub(crate) fn spawn_registered_agent(
@@ -1261,24 +1231,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spawn_blocking_host_request_is_supervised_and_returns_result() {
+    async fn spawn_blocking_host_request_rx_is_supervised_and_returns_result() {
         let mut panel = ControlPanel::new(None);
 
-        let mut mailbox = panel.spawn_blocking_host_request("test_blocking_request", || 42usize);
+        let rx = panel.spawn_blocking_host_request_rx("test_blocking_request", || 42usize);
 
         assert_eq!(panel.worker_count(), 1);
         let started = Instant::now();
         let value = loop {
-            match mailbox.poll_frame() {
-                HostRequestPoll::Pending => {
+            match rx.try_recv() {
+                Ok(value) => break value,
+                Err(crossbeam_channel::TryRecvError::Empty) => {
                     assert!(
                         started.elapsed() < Duration::from_secs(2),
                         "blocking host request should return a value"
                     );
                     tokio::task::yield_now().await;
                 }
-                HostRequestPoll::Ready(value) => break value,
-                HostRequestPoll::Interrupted => {
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     panic!("blocking host request should not disconnect before delivery");
                 }
             }

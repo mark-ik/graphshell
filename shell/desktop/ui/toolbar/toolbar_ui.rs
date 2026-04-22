@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
-use crate::shell::desktop::runtime::control_panel::{ControlPanel, HostRequestPoll};
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
 pub(crate) use crate::shell::desktop::ui::omnibar_state::{
     HistoricalNodeMatch, OmnibarMatch, OmnibarSearchMode, OmnibarSearchSession, OmnibarSessionKind,
     ProviderSuggestionError, ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,
@@ -103,50 +103,57 @@ pub(crate) use crate::shell::desktop::ui::command_surface_telemetry::{
     OmnibarMailboxEventSequenceMetadata, OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
 };
 
-pub(crate) fn latest_command_surface_event_sequence_metadata() -> CommandSurfaceEventSequenceMetadata
-{
-    CommandSurfaceTelemetry::global().latest_event_sequence_metadata()
+// Slice-6 (2026-04-22): all free functions take an explicit
+// `&CommandSurfaceTelemetry`. Production callers pass
+// `&runtime.command_surface_telemetry`; tests pass a per-test
+// `CommandSurfaceTelemetry::new()` instance.
+
+pub(crate) fn latest_command_surface_event_sequence_metadata(
+    telemetry: &CommandSurfaceTelemetry,
+) -> CommandSurfaceEventSequenceMetadata {
+    telemetry.latest_event_sequence_metadata()
 }
 
-pub(crate) fn note_command_surface_route_resolved() {
-    CommandSurfaceTelemetry::global().note_route_resolved();
+pub(crate) fn note_command_surface_route_resolved(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_route_resolved();
 }
 
-pub(crate) fn note_command_surface_route_fallback() {
-    CommandSurfaceTelemetry::global().note_route_fallback();
+pub(crate) fn note_command_surface_route_fallback(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_route_fallback();
 }
 
-pub(crate) fn note_command_surface_route_no_target() {
-    CommandSurfaceTelemetry::global().note_route_no_target();
+pub(crate) fn note_command_surface_route_no_target(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_route_no_target();
 }
 
 #[cfg(test)]
 pub(crate) fn set_command_surface_event_sequence_metadata_for_tests(
+    telemetry: &CommandSurfaceTelemetry,
     metadata: CommandSurfaceEventSequenceMetadata,
 ) {
-    CommandSurfaceTelemetry::global().set_event_sequence_metadata_for_tests(metadata);
+    telemetry.set_event_sequence_metadata_for_tests(metadata);
 }
 
 #[cfg(test)]
-pub(crate) fn clear_command_surface_event_sequence_metadata() {
-    CommandSurfaceTelemetry::global().clear_event_sequence_metadata();
+pub(crate) fn clear_command_surface_event_sequence_metadata(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.clear_event_sequence_metadata();
 }
 
-pub(crate) fn publish_command_surface_semantic_snapshot(snapshot: CommandSurfaceSemanticSnapshot) {
-    CommandSurfaceTelemetry::global().publish_snapshot(snapshot);
+pub(crate) fn publish_command_surface_semantic_snapshot(
+    telemetry: &CommandSurfaceTelemetry,
+    snapshot: CommandSurfaceSemanticSnapshot,
+) {
+    telemetry.publish_snapshot(snapshot);
 }
 
-pub(crate) fn latest_command_surface_semantic_snapshot() -> Option<CommandSurfaceSemanticSnapshot> {
-    CommandSurfaceTelemetry::global().latest_snapshot()
+pub(crate) fn latest_command_surface_semantic_snapshot(
+    telemetry: &CommandSurfaceTelemetry,
+) -> Option<CommandSurfaceSemanticSnapshot> {
+    telemetry.latest_snapshot()
 }
 
-pub(crate) fn clear_command_surface_semantic_snapshot() {
-    CommandSurfaceTelemetry::global().clear_snapshot();
-}
-
-#[cfg(test)]
-pub(crate) fn lock_command_surface_snapshot_tests() -> std::sync::MutexGuard<'static, ()> {
-    CommandSurfaceTelemetry::global().lock_tests()
+pub(crate) fn clear_command_surface_semantic_snapshot(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.clear_snapshot();
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -188,6 +195,10 @@ pub(crate) struct Input<'a> {
     /// individual refs inside `render_toolbar_ui` so sub-widgets keep
     /// their existing raw-ref signatures.
     pub toolbar_authority: ToolbarAuthorityMut<'a>,
+    /// Shared reference to the runtime-owned command-surface telemetry
+    /// sink. Renders write the live semantic snapshot and bump
+    /// event-sequence counters through here (M4 slice 6, 2026-04-22).
+    pub command_surface_telemetry: &'a CommandSurfaceTelemetry,
     pub focus_location_field_for_search: bool,
     pub frame_intents: &'a mut Vec<GraphIntent>,
     #[cfg(feature = "diagnostics")]
@@ -288,13 +299,14 @@ fn provider_status_label(status: ProviderSuggestionStatus) -> Option<String> {
 }
 
 fn command_surface_semantic_snapshot(
+    telemetry: &CommandSurfaceTelemetry,
     graph_app: &GraphBrowserApp,
     command_bar_focus_target: CommandBarFocusTarget,
     local_widget_focus: &Option<LocalFocusTarget>,
     omnibar_search_session: &Option<OmnibarSearchSession>,
     location: &str,
 ) -> CommandSurfaceSemanticSnapshot {
-    let event_sequences = latest_command_surface_event_sequence_metadata();
+    let event_sequences = latest_command_surface_event_sequence_metadata(telemetry);
     let location_focused = matches!(
         local_widget_focus,
         Some(LocalFocusTarget::ToolbarLocation { .. })
@@ -359,8 +371,11 @@ fn command_surface_semantic_snapshot(
     }
 }
 
-pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
-    CommandSurfaceTelemetry::global().note_omnibar_mailbox_request_started();
+pub(super) fn emit_omnibar_provider_mailbox_request_started(
+    telemetry: &CommandSurfaceTelemetry,
+    query: &str,
+) {
+    telemetry.note_omnibar_mailbox_request_started();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
@@ -369,8 +384,8 @@ pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
     );
 }
 
-pub(super) fn emit_omnibar_provider_mailbox_applied() {
-    CommandSurfaceTelemetry::global().note_omnibar_mailbox_applied();
+pub(super) fn emit_omnibar_provider_mailbox_applied(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_omnibar_mailbox_applied();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
@@ -379,8 +394,8 @@ pub(super) fn emit_omnibar_provider_mailbox_applied() {
     );
 }
 
-pub(super) fn emit_omnibar_provider_mailbox_failed() {
-    CommandSurfaceTelemetry::global().note_omnibar_mailbox_failed();
+pub(super) fn emit_omnibar_provider_mailbox_failed(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_omnibar_mailbox_failed();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
@@ -389,8 +404,8 @@ pub(super) fn emit_omnibar_provider_mailbox_failed() {
     );
 }
 
-pub(super) fn emit_omnibar_provider_mailbox_stale() {
-    CommandSurfaceTelemetry::global().note_omnibar_mailbox_stale();
+pub(super) fn emit_omnibar_provider_mailbox_stale(telemetry: &CommandSurfaceTelemetry) {
+    telemetry.note_omnibar_mailbox_stale();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
@@ -576,6 +591,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         runtime_focus_state,
         local_widget_focus,
         toolbar_authority,
+        command_surface_telemetry,
         focus_location_field_for_search,
         frame_intents,
         #[cfg(feature = "diagnostics")]
@@ -594,13 +610,14 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         editable,
         show_clear_data_confirm: _show_clear_data_confirm,
         omnibar_search_session,
+        omnibar_provider_suggestion_driver,
     } = toolbar_authority;
     let location = &mut editable.location;
     let location_dirty = &mut editable.location_dirty;
     let location_submitted = &mut editable.location_submitted;
 
     if winit_window.fullscreen().is_some() {
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(command_surface_telemetry);
         render_fullscreen_origin_strip(ctx, graph_app, command_bar_focus_target);
         return Output {
             toggle_tile_view_requested: false,
@@ -650,6 +667,8 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
                         location_submitted,
                         focus_location_field_for_search,
                         omnibar_search_session,
+                        omnibar_provider_suggestion_driver,
+                        command_surface_telemetry,
                         frame_intents,
                         &mut open_selected_mode_after_submit,
                     );
@@ -672,13 +691,17 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
             });
         });
 
-    publish_command_surface_semantic_snapshot(command_surface_semantic_snapshot(
-        graph_app,
-        command_bar_focus_target,
-        local_widget_focus,
-        omnibar_search_session,
-        location,
-    ));
+    publish_command_surface_semantic_snapshot(
+        command_surface_telemetry,
+        command_surface_semantic_snapshot(
+            command_surface_telemetry,
+            graph_app,
+            command_bar_focus_target,
+            local_widget_focus,
+            omnibar_search_session,
+            location,
+        ),
+    );
 
     #[cfg(feature = "diagnostics")]
     diagnostics_state.tick_drain();
@@ -787,13 +810,14 @@ mod tests {
 
     #[test]
     fn omnibar_provider_mailbox_helpers_emit_diagnostics() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
         install_global_sender(diag_tx);
 
-        emit_omnibar_provider_mailbox_request_started("rust async");
-        emit_omnibar_provider_mailbox_applied();
-        emit_omnibar_provider_mailbox_failed();
-        emit_omnibar_provider_mailbox_stale();
+        emit_omnibar_provider_mailbox_request_started(&telemetry, "rust async");
+        emit_omnibar_provider_mailbox_applied(&telemetry);
+        emit_omnibar_provider_mailbox_failed(&telemetry);
+        emit_omnibar_provider_mailbox_stale(&telemetry);
 
         let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
         assert!(
@@ -832,8 +856,8 @@ mod tests {
 
     #[test]
     fn command_surface_semantic_snapshot_cache_round_trips() {
-        let _guard = super::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
         let snapshot = CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
@@ -861,11 +885,11 @@ mod tests {
             context_palette: None,
         };
 
-        publish_command_surface_semantic_snapshot(snapshot.clone());
+        publish_command_surface_semantic_snapshot(&telemetry, snapshot.clone());
 
-        assert_eq!(latest_command_surface_semantic_snapshot(), Some(snapshot));
+        assert_eq!(latest_command_surface_semantic_snapshot(&telemetry), Some(snapshot));
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]

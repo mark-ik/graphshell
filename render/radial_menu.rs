@@ -149,7 +149,7 @@ pub(crate) fn clear_semantic_snapshot() {
 /// clear_semantic_snapshot();
 /// ```
 ///
-/// Matches the existing `lock_command_surface_snapshot_tests` pattern
+/// Matches the existing `per-test CommandSurfaceTelemetry::new() (slice 6)` pattern
 /// for the sibling command-surface snapshot global. The lock lives
 /// in release builds too but is never acquired outside tests, so
 /// there is no runtime cost in production.

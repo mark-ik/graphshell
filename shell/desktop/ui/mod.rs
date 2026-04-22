@@ -31,6 +31,7 @@ pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod omnibar_state;
 pub(crate) mod overview_plane;
+pub(crate) mod portable_time;
 pub(crate) mod persistence_ops;
 pub(crate) mod shell_layout_pass;
 pub(crate) mod swatch;

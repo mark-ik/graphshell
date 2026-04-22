@@ -136,6 +136,11 @@ pub(crate) fn run_toolbar_phase(
     clear_data_confirm_deadline_secs: &mut Option<f64>,
     focus_location_field_for_search: bool,
     omnibar_search_session: &mut Option<OmnibarSearchSession>,
+    omnibar_provider_suggestion_driver: &mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
+    command_surface_telemetry:
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     toasts: &mut egui_notify::Toasts,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
@@ -166,6 +171,8 @@ pub(crate) fn run_toolbar_phase(
             show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
             clear_data_confirm_deadline_secs,
             omnibar_search_session,
+            omnibar_provider_suggestion_driver,
+            command_surface_telemetry,
             toasts,
             viewer_surfaces,
             tile_favicon_textures,

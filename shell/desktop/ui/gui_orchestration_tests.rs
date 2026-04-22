@@ -20,7 +20,7 @@ use crate::shell::desktop::workbench::pane_model::{
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
-use servo::LoadStatus;
+use graphshell_core::content::ContentLoadState;
 use servo::WebViewId;
 use tempfile::TempDir;
 
@@ -352,14 +352,7 @@ fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_en
     let mut graph_search_filter_mode = false;
     let mut graph_search_matches = Vec::new();
     let mut graph_search_active_match_index = None;
-    let mut toolbar_state = ToolbarState {
-        editable: ToolbarEditable::default(),
-        show_clear_data_confirm: false,
-        load_status: LoadStatus::Complete,
-        status_text: None,
-        can_go_back: false,
-        can_go_forward: false,
-    };
+    let mut toolbar_state = ToolbarState::with_initial_location("");
     let mut frame_intents = Vec::<GraphIntent>::new();
 
     super::run_graph_search_phase(

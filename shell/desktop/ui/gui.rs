@@ -13,9 +13,9 @@ use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
 use log::warn;
+use graphshell_core::content::ContentLoadState;
 use servo::{
-    DeviceIndependentPixel, LoadStatus, OffscreenRenderingContext, WebViewId,
-    WindowRenderingContext,
+    DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, WindowRenderingContext,
 };
 use url::Url;
 use winit::event::WindowEvent;
@@ -404,18 +404,7 @@ impl EguiHost {
             ),
             // Placeholder; overwritten immediately below once persistence is consulted.
             workbench_view_id: crate::app::GraphViewId::new(),
-            toolbar_state: ToolbarState {
-                editable: ToolbarEditable {
-                    location: initial_url.to_string(),
-                    location_dirty: false,
-                    location_submitted: false,
-                },
-                show_clear_data_confirm: false,
-                load_status: LoadStatus::Complete,
-                status_text: None,
-                can_go_back: false,
-                can_go_forward: false,
-            },
+            toolbar_state: ToolbarState::with_initial_location(initial_url),
             bookmark_import_dialog: None,
             control_panel,
             registry_runtime,
@@ -436,6 +425,7 @@ impl EguiHost {
             focus_ring_started_at: None,
             focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
+            omnibar_provider_suggestion_driver: None,
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
@@ -443,6 +433,8 @@ impl EguiHost {
                 crate::shell::desktop::ui::command_palette_state::CommandPaletteSession::default(),
             pending_webview_context_surface_requests: Vec::new(),
             clear_data_confirm_deadline_secs: None,
+            command_surface_telemetry:
+                crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
         };
 
         let mut gui = Self {
@@ -699,10 +691,10 @@ impl EguiHost {
     }
 
     pub(crate) fn set_embedded_content_focus_webview(&mut self, webview_id: Option<WebViewId>) {
-        let target = webview_id.map(|renderer_id| {
+        let target = webview_id.map(|servo_webview_id| {
             crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
-                renderer_id,
-                node_key: self.runtime.graph_app.get_node_for_webview(renderer_id),
+                renderer_id: crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(servo_webview_id),
+                node_key: self.runtime.graph_app.get_node_for_webview(servo_webview_id),
             }
         });
         focus_state::apply_focus_command(
@@ -716,31 +708,27 @@ impl EguiHost {
     }
 
     pub(crate) fn focused_embedded_content_webview_id(&self) -> Option<WebViewId> {
+        let unwrap_servo = |target: &crate::shell::desktop::ui::gui_state::EmbeddedContentTarget| {
+            match target {
+                crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
+                    renderer_id,
+                    ..
+                } => crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_viewer_instance(
+                    renderer_id,
+                ),
+            }
+        };
         self.runtime
             .focus_authority
             .embedded_content_focus
             .as_ref()
-            .map(|target| match target {
-                crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
-                    renderer_id,
-                    ..
-                } => *renderer_id,
-            })
+            .and_then(unwrap_servo)
             .or_else(|| {
                 self.runtime
                     .focus_authority
                     .realized_focus_state
                     .as_ref()
-                    .and_then(|state| {
-                        state.embedded_content_focus.as_ref().map(|target| {
-                            match target {
-                            crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
-                                renderer_id,
-                                ..
-                            } => *renderer_id,
-                        }
-                        })
-                    })
+                    .and_then(|state| state.embedded_content_focus.as_ref().and_then(unwrap_servo))
             })
             .or_else(|| self.runtime.graph_app.embedded_content_focus_webview())
     }
@@ -775,7 +763,7 @@ impl EguiHost {
     ) {
         self.runtime.pending_webview_context_surface_requests.push(
             crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest {
-                webview_id,
+                webview_id: crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(webview_id),
                 anchor,
             },
         );
@@ -923,6 +911,8 @@ impl EguiHost {
                     focus_ring_started_at,
                     focus_ring_duration,
                     omnibar_search_session,
+                    omnibar_provider_suggestion_driver,
+                    command_surface_telemetry,
                     focus_authority,
                     toolbar_drafts: _,
                     command_palette_toggle_requested,
@@ -977,6 +967,8 @@ impl EguiHost {
                 focus_ring_started_at,
                 focus_ring_duration: *focus_ring_duration,
                 omnibar_search_session,
+                omnibar_provider_suggestion_driver,
+                command_surface_telemetry,
                 command_authority: CommandAuthorityMut {
                     toggle_requested: command_palette_toggle_requested,
                     session: command_palette_session,

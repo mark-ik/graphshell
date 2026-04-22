@@ -164,6 +164,8 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    pub(crate) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     /// Focus mutation bundle carried in from the frame pipeline. Replaces
     /// the prior per-field `focused_node_hint` / `focus_ring_node_key` /
     /// `focus_ring_started_at` / `focus_ring_duration` fields. See
@@ -218,6 +220,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         pending_webview_context_surface_requests,
         toasts,
         control_panel,
+        command_surface_telemetry,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
         #[cfg(feature = "diagnostics")]
@@ -267,8 +270,20 @@ pub(crate) fn run_post_render_phase<FActive>(
     for PendingWebviewContextSurfaceRequest { webview_id, anchor } in
         pending_webview_context_surface_requests.drain(..)
     {
+        let Some(servo_webview_id) =
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_viewer_instance(
+                &webview_id,
+            )
+        else {
+            // Non-Servo provider (Wry, iced_webview, MiddleNet) — the
+            // Servo-specific context-surface dispatch below can't
+            // service it. Drop the request silently; the originating
+            // provider is responsible for offering its own context
+            // menu affordance.
+            continue;
+        };
         let _ = open_preferred_context_command_surface_for_webview_target(
-            ctx, graph_app, webview_id, anchor,
+            ctx, graph_app, servo_webview_id, anchor,
         );
     }
 
@@ -351,6 +366,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
                         control_panel,
+                        command_surface_telemetry,
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,
                         #[cfg(feature = "diagnostics")]
@@ -393,6 +409,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
                         control_panel,
+                        command_surface_telemetry,
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,
                         #[cfg(feature = "diagnostics")]
@@ -573,6 +590,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 focus: focus.reborrow(),
                                 suppress_runtime_side_effects: preview_mode_active,
                                 control_panel,
+                                command_surface_telemetry,
                                 #[cfg(feature = "diagnostics")]
                                 diagnostics_state,
                                 #[cfg(feature = "diagnostics")]

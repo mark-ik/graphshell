@@ -2,8 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
-    PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
-    lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
+    PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
 };
 use crate::shell::desktop::workbench::ux_bridge::UxNodeSelector;
 use crate::shell::desktop::workbench::ux_tree;
@@ -15,7 +14,7 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
     harness.open_node_tab(node);
     harness.app.select_node(node, false);
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 7);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 7);
     let snapshot_json = ux_tree::snapshot_json_for_tests(&snapshot);
 
     assert_eq!(
@@ -67,9 +66,9 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
 
 #[test]
 fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
-    let _guard = lock_command_surface_snapshot_tests();
-    clear_command_surface_semantic_snapshot();
-    publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+    let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+    clear_command_surface_semantic_snapshot(&telemetry);
+    publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
         command_bar: CommandBarSemanticMetadata {
             active_pane: None,
             focused_node: None,
@@ -97,7 +96,7 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
     });
 
     let mut harness = TestRegistry::new();
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 7);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
     let snapshot_json = ux_tree::snapshot_json_for_tests(&snapshot);
     let semantic_nodes = snapshot_json
         .get("semantic_nodes")
@@ -135,5 +134,5 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
         "bridge should resolve the command bar semantic node"
     );
 
-    clear_command_surface_semantic_snapshot();
+    clear_command_surface_semantic_snapshot(&telemetry);
 }

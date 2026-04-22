@@ -76,16 +76,12 @@ use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use dpi::PhysicalSize;
 use egui::{Area, Context, Id, LayerId, Order, Rect as EguiRect, Stroke, StrokeKind};
 
-/// Portable rect type for overlay/content descriptor surfaces. Chosen to
-/// match the `graph-canvas` packet vocabulary so host-neutral descriptors
-/// can flow through the compositor without egui leakage.
-pub(crate) type PortableRect = euclid::default::Rect<f32>;
-
-/// Portable point type for host-boundary pointer / position values.
-pub(crate) type PortablePoint = euclid::default::Point2D<f32>;
-
-/// Portable size type for host-boundary viewport / bounds values.
-pub(crate) type PortableSize = euclid::default::Size2D<f32>;
+// Portable geometry aliases moved to `graphshell_core::geometry` in M4
+// slice 8 (2026-04-22). Re-exported here so existing imports
+// (`shell::desktop::workbench::compositor_adapter::{PortableRect, …}`)
+// resolve unchanged. The egui conversion helpers below stay shell-side
+// (they touch `egui::*` types).
+pub(crate) use graphshell_core::geometry::{PortablePoint, PortableRect, PortableSize};
 
 #[inline]
 pub(crate) fn portable_rect_from_egui(r: EguiRect) -> PortableRect {

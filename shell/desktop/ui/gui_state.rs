@@ -26,33 +26,18 @@ use crate::shell::desktop::ui::omnibar_state::{
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
-use servo::{LoadStatus, WebViewId};
+use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
 
-/// The editable subset of a toolbar input surface: the fields the user
-/// manipulates as they type and submit. Shared between the live
-/// [`ToolbarState`] (what the widget currently renders) and per-pane
-/// [`ToolbarDraft`]s (saved snapshots for panes that don't currently own
-/// the toolbar).
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ToolbarEditable {
-    pub(crate) location: String,
-    pub(crate) location_dirty: bool,
-    pub(crate) location_submitted: bool,
-}
-
-pub(crate) struct ToolbarState {
-    pub(crate) editable: ToolbarEditable,
-    pub(crate) show_clear_data_confirm: bool,
-    pub(crate) load_status: LoadStatus,
-    pub(crate) status_text: Option<String>,
-    pub(crate) can_go_back: bool,
-    pub(crate) can_go_forward: bool,
-}
-
-/// Per-pane snapshot of the editable toolbar fields. A draft is
-/// structurally identical to [`ToolbarEditable`]; the alias preserves the
-/// `ToolbarDraft` name used by persistence sites and view-model fields.
-pub(crate) type ToolbarDraft = ToolbarEditable;
+// Toolbar session types moved to `graphshell_core::shell_state::toolbar`
+// in M4 slice 2 (2026-04-22). Re-exported here so existing call sites
+// (`ToolbarState { … }`, `ToolbarEditable { … }`, `ToolbarDraft` type
+// refs) resolve unchanged. Cold-startup constructions should prefer
+// `ToolbarState::with_initial_location(...)` over field-by-field
+// construction — reduces the chance that a new `ToolbarState` field
+// gets default-zeroed at a construction site and forgotten.
+pub(crate) use graphshell_core::shell_state::toolbar::{
+    ToolbarDraft, ToolbarEditable, ToolbarState,
+};
 
 pub(super) enum BookmarkImportDialogEvent {
     Continue,
@@ -266,6 +251,14 @@ pub(crate) struct ToolbarAuthorityMut<'a> {
     pub(crate) editable: &'a mut ToolbarEditable,
     pub(crate) show_clear_data_confirm: &'a mut bool,
     pub(crate) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+    /// Non-portable companion to `omnibar_search_session.provider_mailbox`:
+    /// the host-side crossbeam receiver + generation tag that
+    /// `drive_provider_suggestion_bridge` drains into the portable
+    /// `AsyncRequestState`. Bundled alongside the session because the
+    /// two are always mutated together in the toolbar frame.
+    pub(crate) omnibar_provider_suggestion_driver: &'a mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
 }
 
 impl<'a> ToolbarAuthorityMut<'a> {
@@ -276,6 +269,7 @@ impl<'a> ToolbarAuthorityMut<'a> {
             editable: &mut *self.editable,
             show_clear_data_confirm: &mut *self.show_clear_data_confirm,
             omnibar_search_session: &mut *self.omnibar_search_session,
+            omnibar_provider_suggestion_driver: &mut *self.omnibar_provider_suggestion_driver,
         }
     }
 
@@ -348,156 +342,17 @@ impl<'a> ToolbarAuthorityMut<'a> {
     }
 }
 
-/// Host-facing mutation handle for graph-search session state.
-///
-/// Bundles the five `graph_search_*` fields on `GraphshellRuntime`
-/// (`open`, `query`, `filter_mode`, `matches`, `active_match_index`)
-/// that previously flowed through `ExecuteUpdateFrameArgs` as
-/// individual `&mut` parameters. Callers use `close()` / `open()` /
-/// `set_query(…)` instead of field pokes.
-pub(crate) struct GraphSearchAuthorityMut<'a> {
-    pub(crate) open: &'a mut bool,
-    pub(crate) query: &'a mut String,
-    pub(crate) filter_mode: &'a mut bool,
-    pub(crate) matches: &'a mut Vec<NodeKey>,
-    pub(crate) active_match_index: &'a mut Option<usize>,
-}
+// `GraphSearchAuthorityMut` moved to
+// `graphshell_core::shell_state::authorities` in M4 slice 9 (2026-04-22).
+// Re-exported at this path so existing `pub(crate) use crate::shell::
+// desktop::ui::gui_state::GraphSearchAuthorityMut` call sites resolve
+// unchanged.
+pub(crate) use graphshell_core::shell_state::authorities::GraphSearchAuthorityMut;
 
-impl<'a> GraphSearchAuthorityMut<'a> {
-    pub(crate) fn reborrow(&mut self) -> GraphSearchAuthorityMut<'_> {
-        GraphSearchAuthorityMut {
-            open: &mut *self.open,
-            query: &mut *self.query,
-            filter_mode: &mut *self.filter_mode,
-            matches: &mut *self.matches,
-            active_match_index: &mut *self.active_match_index,
-        }
-    }
-
-    pub(crate) fn is_open(&self) -> bool {
-        *self.open
-    }
-
-    pub(crate) fn set_open(&mut self, value: bool) {
-        *self.open = value;
-    }
-
-    /// Close the graph-search panel and reset its transient state. The
-    /// query text is preserved so a subsequent `open()` restores it.
-    pub(crate) fn close(&mut self) {
-        *self.open = false;
-        self.matches.clear();
-        *self.active_match_index = None;
-    }
-
-    pub(crate) fn query(&self) -> &str {
-        self.query.as_str()
-    }
-
-    pub(crate) fn query_mut(&mut self) -> &mut String {
-        &mut *self.query
-    }
-
-    pub(crate) fn set_query(&mut self, value: impl Into<String>) {
-        *self.query = value.into();
-    }
-
-    pub(crate) fn filter_mode_active(&self) -> bool {
-        *self.filter_mode
-    }
-
-    pub(crate) fn set_filter_mode(&mut self, value: bool) {
-        *self.filter_mode = value;
-    }
-
-    pub(crate) fn toggle_filter_mode(&mut self) {
-        *self.filter_mode = !*self.filter_mode;
-    }
-
-    pub(crate) fn matches(&self) -> &[NodeKey] {
-        self.matches.as_slice()
-    }
-
-    pub(crate) fn set_matches(&mut self, matches: Vec<NodeKey>) {
-        *self.matches = matches;
-    }
-
-    pub(crate) fn active_match_index(&self) -> Option<usize> {
-        *self.active_match_index
-    }
-
-    pub(crate) fn set_active_match_index(&mut self, value: Option<usize>) {
-        *self.active_match_index = value;
-    }
-}
-
-/// Host-facing mutation handle for runtime-owned command-palette state.
-///
-/// Per the M4 runtime extraction (§3.2 Command routing), the palette's
-/// toggle request and its session state (search query, scope filter,
-/// selection cursor, focus-on-open flag) live on `GraphshellRuntime`.
-/// The widget mutates them through this bundle instead of stashing
-/// search state in `egui::Context::data_mut(...)` persistent storage,
-/// the pre-M4 pattern that did not survive a host migration.
-///
-/// The palette's **open flag** (`show_command_palette`) deliberately
-/// stays on `graph_app.workspace.chrome_ui`, not on the runtime, and
-/// is NOT a member of this bundle. It's one of eight mutually-
-/// exclusive modal flags (`show_help_panel`, `show_settings_overlay`,
-/// `show_scene_overlay`, `show_radial_menu`, `show_context_palette`,
-/// `command_palette_contextual_mode`, `show_clip_inspector`,
-/// `show_command_palette`) that `app::ux_navigation` manages as a
-/// coordinated cluster at ~15 call sites. Lifting any one flag in
-/// isolation would split the cluster and force ux_navigation to
-/// coordinate across layer boundaries. Future work: a "modal surface
-/// extraction" session lifts the whole cluster to the runtime as a
-/// coherent bundle; until then the widget and callers continue to
-/// read/write the open flag directly through `graph_app`.
-///
-/// Follows the `ToolbarAuthorityMut` / `GraphSearchAuthorityMut`
-/// pattern: callers assemble the bundle inline at the phase boundary
-/// and pass it down.
-pub(crate) struct CommandAuthorityMut<'a> {
-    pub(crate) toggle_requested: &'a mut bool,
-    pub(crate) session: &'a mut CommandPaletteSession,
-}
-
-impl<'a> CommandAuthorityMut<'a> {
-    pub(crate) fn reborrow(&mut self) -> CommandAuthorityMut<'_> {
-        CommandAuthorityMut {
-            toggle_requested: &mut *self.toggle_requested,
-            session: &mut *self.session,
-        }
-    }
-
-    pub(crate) fn toggle_requested(&self) -> bool {
-        *self.toggle_requested
-    }
-
-    pub(crate) fn clear_toggle_request(&mut self) {
-        *self.toggle_requested = false;
-    }
-
-    /// Arm the session for a fresh open: reset query/scope/selection
-    /// and request keyboard focus for the search field on the next
-    /// frame. The palette's visibility flag (`show_command_palette`)
-    /// lives on workspace state and is flipped by the caller; this
-    /// method only touches runtime-owned session state.
-    pub(crate) fn prime_fresh_open(
-        &mut self,
-        default_scope: crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
-    ) {
-        self.session.open_fresh(default_scope);
-    }
-
-    pub(crate) fn session(&self) -> &CommandPaletteSession {
-        self.session
-    }
-
-    pub(crate) fn session_mut(&mut self) -> &mut CommandPaletteSession {
-        self.session
-    }
-}
+// `CommandAuthorityMut` moved to
+// `graphshell_core::shell_state::authorities` in M4 slice 9 (2026-04-22).
+// Re-exported at this path so existing call sites resolve unchanged.
+pub(crate) use graphshell_core::shell_state::authorities::CommandAuthorityMut;
 
 /// Host-neutral runtime state for the Graphshell shell.
 ///
@@ -545,7 +400,7 @@ pub(crate) struct GraphshellRuntime {
     /// stay on the host adapter until the render-backend boundary is
     /// formalized, but the set of pending WebViewIds lives here so
     /// iced will inherit it for free.
-    pub(crate) thumbnail_capture_in_flight: std::collections::HashSet<WebViewId>,
+    pub(crate) thumbnail_capture_in_flight: std::collections::HashSet<ViewerInstanceId>,
 
     /// Typed frame-bound relay set for Shell-facing async signal bridges.
     pub(crate) frame_inbox: GuiFrameInbox,
@@ -562,6 +417,15 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) focus_ring_started_at: Option<Instant>,
     pub(crate) focus_ring_duration: Duration,
     pub(crate) omnibar_search_session: Option<OmnibarSearchSession>,
+    /// Host-side driver (crossbeam receiver + generation tag) for the
+    /// omnibar provider-suggestion async request. Non-portable
+    /// companion to `omnibar_search_session.provider_mailbox.result`
+    /// (which is `AsyncRequestState<ProviderSuggestionFetchOutcome>`).
+    /// The toolbar frame bridges this into the portable mailbox state
+    /// at the top of each render. Introduced M4 slice 5 (2026-04-22).
+    pub(crate) omnibar_provider_suggestion_driver: Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
     pub(crate) focus_authority: RuntimeFocusAuthorityState,
     pub(crate) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(crate) command_palette_toggle_requested: bool,
@@ -577,6 +441,13 @@ pub(crate) struct GraphshellRuntime {
     /// `ctx::data_mut` temp storage; moved onto runtime state in M6
     /// §4.2 so iced can read/write it the same way.
     pub(crate) clear_data_confirm_deadline_secs: Option<f64>,
+    /// Command-surface telemetry sink (latest published snapshot +
+    /// event-sequence counters). Previously a crate-global
+    /// `OnceLock<CommandSurfaceTelemetry>`; moved onto runtime state in
+    /// M4 slice 6 (2026-04-22) so iced and egui hosts get their own
+    /// sink and the static storage goes away.
+    pub(crate) command_surface_telemetry:
+        crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
 }
 
 impl GraphshellRuntime {
@@ -941,14 +812,7 @@ impl GraphshellRuntime {
                 graph_tree::ProjectionLens::Traversal,
             ),
             workbench_view_id: GraphViewId::new(),
-            toolbar_state: ToolbarState {
-                editable: ToolbarEditable::default(),
-                show_clear_data_confirm: false,
-                load_status: servo::LoadStatus::Complete,
-                status_text: None,
-                can_go_back: false,
-                can_go_forward: false,
-            },
+            toolbar_state: ToolbarState::with_initial_location(""),
             bookmark_import_dialog: None,
             control_panel,
             registry_runtime: Arc::new(RegistryRuntime::default()),
@@ -968,12 +832,15 @@ impl GraphshellRuntime {
             focus_ring_started_at: None,
             focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
+            omnibar_provider_suggestion_driver: None,
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
             command_palette_session: CommandPaletteSession::default(),
             pending_webview_context_surface_requests: Vec::new(),
             clear_data_confirm_deadline_secs: None,
+            command_surface_telemetry:
+                crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
         }
     }
 
@@ -984,9 +851,13 @@ impl GraphshellRuntime {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Portable context-menu request. Completed M4 slice 4 (2026-04-22):
+/// `webview_id` is a `ViewerInstanceId`; boundary sites convert from
+/// `servo::WebViewId` via `viewer_instance_id_from_servo(...)` and
+/// consumers unwrap via `servo_webview_id_from_viewer_instance(...)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingWebviewContextSurfaceRequest {
-    pub(crate) webview_id: WebViewId,
+    pub(crate) webview_id: ViewerInstanceId,
     pub(crate) anchor: [f32; 2],
 }
 
@@ -1027,10 +898,15 @@ pub(crate) enum LocalFocusTarget {
     GraphSearch,
 }
 
+/// Focus target for embedded content inside a pane. Completed M4 slice
+/// 4 (2026-04-22): `renderer_id` is a `ViewerInstanceId`. The `WebView`
+/// variant name describes the target kind, not the provider; a future
+/// Wry or MiddleNet direct-viewer target would be a sibling variant,
+/// distinguished at the `ViewerInstanceId` level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EmbeddedContentTarget {
     WebView {
-        renderer_id: WebViewId,
+        renderer_id: ViewerInstanceId,
         node_key: Option<NodeKey>,
     },
 }
@@ -1057,12 +933,20 @@ pub(crate) enum FocusedContentDownloadState {
     Recent,
 }
 
+/// Snapshot of the focused viewer's user-visible status. Completed M4
+/// slice 4 (2026-04-22): `renderer_id` is a portable `ViewerInstanceId`.
+/// The `unavailable` constructor accepts the portable type; callers in
+/// `webview_status_sync.rs` wrap servo's `WebViewId` at the boundary.
+///
+/// `Eq` is not derivable because `content_zoom_level: Option<f32>` carries
+/// a float that doesn't implement `Eq` (NaN semantics); tests rely on
+/// `PartialEq` only.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FocusedContentStatus {
     pub(crate) node_key: Option<NodeKey>,
-    pub(crate) renderer_id: Option<WebViewId>,
+    pub(crate) renderer_id: Option<ViewerInstanceId>,
     pub(crate) current_url: Option<String>,
-    pub(crate) load_status: LoadStatus,
+    pub(crate) load_status: ContentLoadState,
     pub(crate) status_text: Option<String>,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
@@ -1074,12 +958,15 @@ pub(crate) struct FocusedContentStatus {
 }
 
 impl FocusedContentStatus {
-    pub(crate) fn unavailable(node_key: Option<NodeKey>, renderer_id: Option<WebViewId>) -> Self {
+    pub(crate) fn unavailable(
+        node_key: Option<NodeKey>,
+        renderer_id: Option<ViewerInstanceId>,
+    ) -> Self {
         Self {
             node_key,
             renderer_id,
             current_url: None,
-            load_status: LoadStatus::Complete,
+            load_status: ContentLoadState::Complete,
             status_text: None,
             can_go_back: false,
             can_go_forward: false,
@@ -1188,7 +1075,10 @@ pub(crate) struct RuntimeFocusInputs {
     pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) local_widget_focus: Option<LocalFocusTarget>,
-    pub(crate) embedded_content_focus_webview: Option<WebViewId>,
+    /// Completed M4 slice 4 (2026-04-22): portable viewer identity.
+    /// Call sites wrap via `viewer_instance_id_from_servo(...)` when
+    /// coming from servo-sourced focus events.
+    pub(crate) embedded_content_focus_webview: Option<ViewerInstanceId>,
     pub(crate) embedded_content_focus_node: Option<NodeKey>,
     pub(crate) show_command_palette: bool,
     pub(crate) show_context_palette: bool,

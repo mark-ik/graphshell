@@ -43,6 +43,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
         responsive_webviews,
+        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
     } = args;
@@ -73,6 +74,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         favicon_textures,
         responsive_webviews,
         webview_creation_backpressure,
+        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
     });
@@ -119,6 +121,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             pending_webview_context_surface_requests,
             toasts,
             control_panel,
+            command_surface_telemetry,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             #[cfg(feature = "diagnostics")]
@@ -148,6 +151,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
         favicon_textures,
         responsive_webviews,
         webview_creation_backpressure,
+        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
     } = args;
@@ -167,6 +171,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
         favicon_textures,
         responsive_webviews,
         webview_creation_backpressure,
+        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
     );

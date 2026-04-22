@@ -172,7 +172,7 @@ pub(crate) fn handle_runtime_command(
     graph_tree: &mut graph_tree::GraphTree<NodeKey>,
     command: UxBridgeCommand,
 ) -> Result<UxBridgeResponse, UxBridgeError> {
-    let snapshot = ux_tree::build_snapshot(tiles_tree, graph_app, 0);
+    let snapshot = ux_tree::build_snapshot(tiles_tree, graph_app, None, 0);
     match command {
         UxBridgeCommand::GetUxSnapshot
         | UxBridgeCommand::FindUxNode { .. }
@@ -180,7 +180,7 @@ pub(crate) fn handle_runtime_command(
         UxBridgeCommand::InvokeUxAction { selector, action } => {
             let (intent, target) = workbench_intent_for_action(&snapshot, &selector, action)?;
             apply_workbench_intent(graph_app, tiles_tree, graph_tree, &intent);
-            ux_tree::publish_snapshot(&ux_tree::build_snapshot(tiles_tree, graph_app, 0));
+            ux_tree::publish_snapshot(&ux_tree::build_snapshot(tiles_tree, graph_app, None, 0));
             Ok(UxBridgeResponse::Action {
                 status: UxActionStatus::Applied,
                 ux_node_id: target.ux_node_id.clone(),
@@ -586,7 +586,7 @@ mod tests {
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
         OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
-        clear_command_surface_semantic_snapshot, lock_command_surface_snapshot_tests,
+        clear_command_surface_semantic_snapshot,
         publish_command_surface_semantic_snapshot,
     };
 
@@ -608,7 +608,7 @@ mod tests {
         harness.open_node_tab(node);
         harness.app.select_node(node, false);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 9);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 9);
         ux_tree::publish_snapshot(&snapshot);
 
         let response = handle_latest_snapshot_command(UxBridgeCommand::GetUxSnapshot)
@@ -626,9 +626,9 @@ mod tests {
 
     #[test]
     fn focus_path_bridge_returns_root_to_focused_node() {
-        let _guard = lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -650,7 +650,7 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 10);
         let response = handle_snapshot_command(&snapshot, UxBridgeCommand::GetFocusPath);
         match response {
             UxBridgeResponse::FocusPath(path) => {
@@ -666,14 +666,14 @@ mod tests {
             other => panic!("expected focus-path response, got {other:?}"),
         }
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
     fn find_node_bridge_matches_command_bar_projection() {
-        let _guard = lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -695,7 +695,7 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 11);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 11);
         let response = handle_snapshot_command(
             &snapshot,
             UxBridgeCommand::FindUxNode {
@@ -713,16 +713,16 @@ mod tests {
             other => panic!("expected command bar node response, got {other:?}"),
         }
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
     fn runtime_bridge_open_and_dismiss_command_palette() {
-        let _guard = lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
 
         let mut harness = TestRegistry::new();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -754,7 +754,7 @@ mod tests {
         );
         assert!(harness.app.workspace.chrome_ui.show_command_palette);
 
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata::default(),
             omnibar: OmnibarSemanticMetadata {
                 active: true,
@@ -785,7 +785,7 @@ mod tests {
         );
         assert!(!harness.app.workspace.chrome_ui.show_command_palette);
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
@@ -796,7 +796,7 @@ mod tests {
         harness.open_node_tab(first);
         harness.open_node_tab(second);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 7);
         let second_node = snapshot
             .semantic_nodes
             .iter()
@@ -830,7 +830,7 @@ mod tests {
                 action: UxAction::Focus,
             }
         );
-        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 8);
+        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 8);
         let focused = refreshed
             .semantic_nodes
             .iter()
@@ -856,7 +856,7 @@ mod tests {
                 action: UxAction::Close,
             }
         );
-        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 9);
+        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 9);
         assert!(
             refreshed
                 .semantic_nodes
@@ -882,7 +882,7 @@ mod tests {
         harness
             .open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 3);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 3);
         let tool = snapshot
             .semantic_nodes
             .iter()
@@ -926,7 +926,7 @@ mod tests {
                 action: UxAction::Close,
             }
         );
-        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 4);
+        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 4);
         assert!(
             refreshed
                 .semantic_nodes
@@ -942,7 +942,7 @@ mod tests {
         let second_view = crate::app::GraphViewId::new();
         harness.open_graph_tab(second_view);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
         let graph_surface = snapshot
             .semantic_nodes
             .iter()
@@ -994,7 +994,7 @@ mod tests {
                 action: UxAction::Close,
             }
         );
-        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 6);
+        let refreshed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 6);
         assert!(
             refreshed
                 .semantic_nodes
@@ -1046,7 +1046,7 @@ mod tests {
         let node = harness.add_node("https://ux-bridge-queued.example");
         harness.open_node_tab(node);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 4);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 4);
         ux_tree::publish_snapshot(&snapshot);
 
         let node_pane = snapshot
@@ -1092,7 +1092,7 @@ mod tests {
         harness
             .open_tool_tab(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 4);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 4);
         ux_tree::publish_snapshot(&snapshot);
 
         let tool = snapshot
@@ -1125,7 +1125,7 @@ mod tests {
         let view_id = crate::app::GraphViewId::new();
         harness.open_graph_tab(view_id);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 4);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 4);
         ux_tree::publish_snapshot(&snapshot);
 
         let graph_surface = snapshot

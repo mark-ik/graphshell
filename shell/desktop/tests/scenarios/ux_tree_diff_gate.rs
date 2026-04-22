@@ -13,7 +13,7 @@ use crate::render::radial_menu::{
 };
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-    clear_command_surface_semantic_snapshot, lock_command_surface_snapshot_tests,
+    clear_command_surface_semantic_snapshot,
 };
 use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -178,7 +178,7 @@ fn graph_navigation_selected_node_case() -> SnapshotBaselineCase {
 
     capture_snapshot_case(
         "pre_wgpu_graph_navigation_selected_node",
-        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 11),
+        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 11),
     )
 }
 
@@ -189,7 +189,7 @@ fn pane_lifecycle_open_node_tab_case() -> SnapshotBaselineCase {
 
     capture_snapshot_case(
         "pre_wgpu_pane_lifecycle_open_node_tab",
-        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 12),
+        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 12),
     )
 }
 
@@ -232,7 +232,7 @@ fn command_surface_radial_palette_case() -> SnapshotBaselineCase {
     });
 
     let harness = TestRegistry::new();
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 14);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
     clear_semantic_snapshot();
 
     capture_snapshot_case("pre_wgpu_command_surface_radial_palette", snapshot)
@@ -254,7 +254,7 @@ fn degraded_viewer_placeholder_case() -> SnapshotBaselineCase {
 
     capture_snapshot_case(
         "pre_wgpu_degraded_viewer_placeholder",
-        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 16),
+        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 16),
     )
 }
 
@@ -265,7 +265,7 @@ fn degraded_viewer_composited_case() -> SnapshotBaselineCase {
 
     capture_snapshot_case(
         "pre_wgpu_degraded_viewer_composited",
-        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 17),
+        ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 17),
     )
 }
 
@@ -317,7 +317,7 @@ fn ux_tree_diff_gate_policy_matches_contract_defaults() {
     let node = harness.add_node("https://scenario-uxtree-diff.example");
     harness.open_node_tab(node);
 
-    let baseline = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 9);
+    let baseline = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 9);
 
     let mut semantic_changed = baseline.clone();
     semantic_changed.semantic_nodes[0].label = "Workbench Contract Shift".to_string();
@@ -355,19 +355,19 @@ fn pre_wgpu_critical_path_snapshots_match_baselines() {
 
 #[test]
 fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
-    let _guard = lock_command_surface_snapshot_tests();
-    clear_command_surface_semantic_snapshot();
+    let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+    clear_command_surface_semantic_snapshot(&telemetry);
 
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
     let mut tree = Tree::new("pre_wgpu_command_palette_structure", root, tiles);
 
-    let baseline = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, 21));
+    let baseline = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, Some(&telemetry), 21));
 
     let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
-    let current = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, 22));
+    let current = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, Some(&telemetry), 22));
     let gate = classify_snapshot_json_diff_gate(&baseline, &current, false);
 
     assert!(
@@ -375,5 +375,5 @@ fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
         "command palette open state should not mutate the structural UxTree snapshot gate"
     );
 
-    clear_command_surface_semantic_snapshot();
+    clear_command_surface_semantic_snapshot(&telemetry);
 }

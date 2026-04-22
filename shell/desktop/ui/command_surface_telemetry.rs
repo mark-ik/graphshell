@@ -2,25 +2,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Command-surface telemetry singleton.
+//! Command-surface telemetry sink.
 //!
 //! Consolidates the publish-latest-snapshot cell and the event sequence
 //! counter cell that widgets emit into as the user interacts with the
-//! command bar, omnibar, and command palette. Previously two parallel
-//! `OnceLock<Mutex<…>>` statics in `toolbar/toolbar_ui.rs`; collapsed
-//! into a single `CommandSurfaceTelemetry` struct with a methods-based
-//! API so the responsibility is named in one place and a future runtime
-//! slice can move ownership onto `GraphshellRuntime` without another
-//! public-API break.
+//! command bar, omnibar, and command palette.
 //!
-//! The shapes exposed here (`CommandSurfaceSemanticSnapshot`,
-//! `CommandSurfaceEventSequenceMetadata`, etc.) are consumed by
-//! `ux_probes` diagnostics and several widget-level tests, so they
-//! remain `pub(crate)`. The telemetry singleton is a transitional global
-//! — not host-coupled (no egui/iced types in its surface), but not yet
-//! runtime-owned either. iced and egui hosts share the same cell.
+//! M4 slice 6 (2026-04-22) migrated ownership onto `GraphshellRuntime`.
+//! The `OnceLock<CommandSurfaceTelemetry>` crate-global is gone;
+//! production call sites receive a `&CommandSurfaceTelemetry`
+//! reference (either from the runtime via the phase pipeline, or
+//! through the workbench snapshot builders' optional parameter).
+//! Tests construct per-test instances via
+//! [`CommandSurfaceTelemetry::new`] — each test's sink is naturally
+//! isolated without the previous `test_lock: Mutex<()>` serialisation.
+//!
+//! The snapshot/metadata shapes exposed here
+//! (`CommandSurfaceSemanticSnapshot`,
+//! `CommandSurfaceEventSequenceMetadata`, etc.) depend on
+//! shell-specific types (`PaneId`, `ToolSurfaceReturnTarget`), so the
+//! whole module stays shell-side until those move to
+//! `graphshell-core`. The `Mutex`-wrapped interior is still a
+//! portability concern on `wasm32-unknown-unknown`, but that moves
+//! with the rest of the module when it migrates.
 
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::Mutex;
 
 use crate::app::ToolSurfaceReturnTarget;
 use crate::graph::NodeKey;
@@ -88,25 +94,18 @@ pub(crate) struct CommandSurfaceSemanticSnapshot {
 ///
 /// Holds the "latest published snapshot" cell and the counter cell
 /// widgets bump as they route commands and fetch omnibar suggestions.
-/// Accessed via `CommandSurfaceTelemetry::global()`; all mutation flows
-/// through named methods.
+/// Owned by `GraphshellRuntime` (M4 slice 6, 2026-04-22); production
+/// call sites receive a `&CommandSurfaceTelemetry` reference rather
+/// than reaching a crate-global singleton.
+#[derive(Default)]
 pub(crate) struct CommandSurfaceTelemetry {
     snapshot: Mutex<Option<CommandSurfaceSemanticSnapshot>>,
     events: Mutex<CommandSurfaceEventSequenceMetadata>,
-    #[cfg(test)]
-    test_lock: Mutex<()>,
 }
 
-static TELEMETRY: OnceLock<CommandSurfaceTelemetry> = OnceLock::new();
-
 impl CommandSurfaceTelemetry {
-    pub(crate) fn global() -> &'static CommandSurfaceTelemetry {
-        TELEMETRY.get_or_init(|| CommandSurfaceTelemetry {
-            snapshot: Mutex::new(None),
-            events: Mutex::new(CommandSurfaceEventSequenceMetadata::default()),
-            #[cfg(test)]
-            test_lock: Mutex::new(()),
-        })
+    pub(crate) fn new() -> Self {
+        Self::default()
     }
 
     pub(crate) fn latest_snapshot(&self) -> Option<CommandSurfaceSemanticSnapshot> {
@@ -203,15 +202,5 @@ impl CommandSurfaceTelemetry {
         if let Ok(mut state) = self.events.lock() {
             *state = CommandSurfaceEventSequenceMetadata::default();
         }
-    }
-
-    /// Serialize test access to the telemetry singleton. Tests that
-    /// publish a snapshot and read it back must hold this lock so
-    /// concurrent test threads don't stomp each other's state.
-    #[cfg(test)]
-    pub(crate) fn lock_tests(&self) -> MutexGuard<'_, ()> {
-        self.test_lock
-            .lock()
-            .expect("command-surface telemetry test mutex poisoned")
     }
 }

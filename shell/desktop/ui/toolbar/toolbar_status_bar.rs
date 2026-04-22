@@ -150,13 +150,18 @@ fn return_anchor_label(anchor: &ReturnAnchor) -> String {
     }
 }
 
-fn load_status_chip(status: servo::LoadStatus) -> Option<StatusChip> {
+fn load_status_chip(
+    status: graphshell_core::content::ContentLoadState,
+) -> Option<StatusChip> {
+    use graphshell_core::content::ContentLoadState;
     match status {
-        servo::LoadStatus::Complete => None,
-        servo::LoadStatus::Started => {
+        ContentLoadState::Complete => None,
+        ContentLoadState::Started => {
             Some(StatusChip::toned("Load: loading", StatusChipTone::Notice))
         }
-        _ => Some(StatusChip::toned("Load: active", StatusChipTone::Notice)),
+        ContentLoadState::HeadParsed => {
+            Some(StatusChip::toned("Load: active", StatusChipTone::Notice))
+        }
     }
 }
 
@@ -408,7 +413,7 @@ mod tests {
             node_key: None,
             renderer_id: None,
             current_url: Some("https://example.com/path".to_string()),
-            load_status: servo::LoadStatus::Started,
+            load_status: graphshell_core::content::ContentLoadState::Started,
             status_text: Some("Waiting on renderer".to_string()),
             can_go_back: false,
             can_go_forward: false,

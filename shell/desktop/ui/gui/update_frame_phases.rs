@@ -49,6 +49,11 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) toolbar_state: &'a mut ToolbarState,
     pub(super) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+    pub(super) omnibar_provider_suggestion_driver: &'a mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
+    pub(super) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
@@ -85,6 +90,8 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
     pub(super) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    pub(super) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
 }
@@ -135,6 +142,8 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     #[cfg(feature = "diagnostics")]
     pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
+    pub(super) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
 }
@@ -149,7 +158,8 @@ pub(super) struct PreFrameAndIntentInitArgs<'a> {
     /// Consolidated tx/rx pair for async thumbnail capture result
     /// delivery. See [`ThumbnailChannel`](crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailChannel).
     pub(super) thumbnail_channel: &'a super::super::thumbnail_pipeline::ThumbnailChannel,
-    pub(super) thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
+    pub(super) thumbnail_capture_in_flight:
+        &'a mut HashSet<graphshell_core::content::ViewerInstanceId>,
     pub(super) command_authority:
         crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
     pub(super) control_panel: &'a mut ControlPanel,
@@ -178,7 +188,8 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) thumbnail_channel: &'a super::super::thumbnail_pipeline::ThumbnailChannel,
-    pub(super) thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
+    pub(super) thumbnail_capture_in_flight:
+        &'a mut HashSet<graphshell_core::content::ViewerInstanceId>,
     pub(super) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub(super) app_state: &'a Option<Rc<RunningAppState>>,
@@ -195,6 +206,11 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     /// by any phase.
     pub(super) focus_ring_duration: Duration,
     pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+    pub(super) omnibar_provider_suggestion_driver: &'a mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
+    pub(super) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) command_authority:
         crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
     pub(super) pending_webview_context_surface_requests:

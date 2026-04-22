@@ -385,7 +385,7 @@ pub(crate) fn clear_snapshot() {
 /// `LATEST_UX_TREE_SNAPSHOT` is a `OnceLock<Mutex<Option<…>>>` — every
 /// test that walks `publish_snapshot → build / read / clear` against it
 /// must bind the returned guard so parallel tests do not stomp each
-/// other's state. Matches the `lock_command_surface_snapshot_tests`
+/// other's state. Matches the `per-test CommandSurfaceTelemetry::new() (slice 6)`
 /// and `lock_radial_palette_snapshot_tests` patterns elsewhere in the
 /// crate. Lives outside `cfg(test)` so integration tests and
 /// `webdriver_runtime` tests can reach it; the mutex is never acquired
@@ -413,9 +413,18 @@ pub(crate) fn lock_ux_tree_snapshot_tests()
 pub(crate) fn build_snapshot_with_walker(
     walker: &dyn PaneTreeWalker,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
-    build_snapshot_with_walker_and_rects(walker, graph_app, build_duration_us, &HashMap::new())
+    build_snapshot_with_walker_and_rects(
+        walker,
+        graph_app,
+        command_surface_telemetry,
+        build_duration_us,
+        &HashMap::new(),
+    )
 }
 
 /// Tiles-backed convenience: constructs a `TilesTreeWalker` and
@@ -426,10 +435,13 @@ pub(crate) fn build_snapshot_with_walker(
 pub(crate) fn build_snapshot(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
-    build_snapshot_with_walker(&walker, graph_app, build_duration_us)
+    build_snapshot_with_walker(&walker, graph_app, command_surface_telemetry, build_duration_us)
 }
 
 /// Host-neutral snapshot builder — M6 §5.1 first step.
@@ -448,6 +460,9 @@ pub(crate) fn build_snapshot(
 /// workbench/semantics level.
 pub(crate) fn build_snapshot_host_neutral(
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
     let mut snapshot = root_snapshot(build_duration_us, false, Vec::new());
@@ -461,6 +476,7 @@ pub(crate) fn build_snapshot_host_neutral(
         &mut trace_nodes,
     );
     append_command_surface_nodes(
+        command_surface_telemetry,
         &mut semantic_nodes,
         &mut presentation_nodes,
         &mut trace_nodes,
@@ -549,11 +565,20 @@ fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
 pub(crate) fn build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> UxTreeSnapshot {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
-    build_snapshot_with_walker_and_rects(&walker, graph_app, build_duration_us, node_rects)
+    build_snapshot_with_walker_and_rects(
+        &walker,
+        graph_app,
+        command_surface_telemetry,
+        build_duration_us,
+        node_rects,
+    )
 }
 
 /// Host-neutral snapshot builder with per-pane rects. The core of the
@@ -562,6 +587,9 @@ pub(crate) fn build_snapshot_with_rects(
 pub(crate) fn build_snapshot_with_walker_and_rects(
     walker: &dyn PaneTreeWalker,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> UxTreeSnapshot {
@@ -599,6 +627,7 @@ pub(crate) fn build_snapshot_with_walker_and_rects(
         &mut trace_nodes,
     );
     append_command_surface_nodes(
+        command_surface_telemetry,
         &mut semantic_nodes,
         &mut presentation_nodes,
         &mut trace_nodes,
@@ -620,11 +649,20 @@ pub(crate) fn build_snapshot_with_walker_and_rects(
 pub(crate) fn try_build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> Result<UxTreeSnapshot, String> {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
-    try_build_snapshot_with_walker_and_rects(&walker, graph_app, build_duration_us, node_rects)
+    try_build_snapshot_with_walker_and_rects(
+        &walker,
+        graph_app,
+        command_surface_telemetry,
+        build_duration_us,
+        node_rects,
+    )
 }
 
 /// Host-neutral panic-safe snapshot builder. Returns the panic message
@@ -632,11 +670,20 @@ pub(crate) fn try_build_snapshot_with_rects(
 pub(crate) fn try_build_snapshot_with_walker_and_rects(
     walker: &dyn PaneTreeWalker,
     graph_app: &GraphBrowserApp,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     build_duration_us: u64,
     node_rects: &HashMap<NodeKey, egui::Rect>,
 ) -> Result<UxTreeSnapshot, String> {
     catch_unwind(AssertUnwindSafe(|| {
-        build_snapshot_with_walker_and_rects(walker, graph_app, build_duration_us, node_rects)
+        build_snapshot_with_walker_and_rects(
+            walker,
+            graph_app,
+            command_surface_telemetry,
+            build_duration_us,
+            node_rects,
+        )
     }))
     .map_err(panic_payload_message)
 }
@@ -646,11 +693,14 @@ pub(crate) fn degraded_root_only_snapshot(build_duration_us: u64) -> UxTreeSnaps
 }
 
 fn append_command_surface_nodes(
+    telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
-    let Some(snapshot) = latest_command_surface_semantic_snapshot() else {
+    let Some(snapshot) = telemetry.and_then(latest_command_surface_semantic_snapshot) else {
         return;
     };
 
@@ -2465,6 +2515,7 @@ mod tests {
 
     #[test]
     fn host_neutral_builder_matches_tiles_builder_on_empty_tree() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         // With an empty tiles tree, the tile-walking builder adds no
         // pane entries. In that configuration, the tiles-based builder
         // and the host-neutral builder must produce identical
@@ -2472,10 +2523,8 @@ mod tests {
         // flows through the host-neutral path.
         let _radial_guard =
             crate::render::radial_menu::lock_radial_palette_snapshot_tests();
-        let _command_guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_semantic_snapshot();
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
         let mut harness = TestRegistry::new();
         harness.tiles_tree = Tree::new(
             "test_empty_tiles_tree",
@@ -2493,27 +2542,26 @@ mod tests {
                     .is_none()
         );
 
-        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
-        let host_neutral = build_snapshot_host_neutral(&harness.app, 42);
+        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
+        let host_neutral = build_snapshot_host_neutral(&harness.app, Some(&telemetry), 42);
 
         assert_eq!(host_neutral, tiles_snapshot);
     }
 
     #[test]
     fn host_neutral_builder_is_strict_prefix_of_tiles_builder() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         // With a non-empty tiles tree, the host-neutral snapshot
         // should still contain every non-pane entry from the
         // tiles-based snapshot in the same order. The tiles snapshot
         // adds extra pane entries that the host-neutral builder skips.
         let _radial_guard =
             crate::render::radial_menu::lock_radial_palette_snapshot_tests();
-        let _command_guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
         clear_semantic_snapshot();
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
         let harness = TestRegistry::new();
-        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 42);
-        let host_neutral = build_snapshot_host_neutral(&harness.app, 42);
+        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
+        let host_neutral = build_snapshot_host_neutral(&harness.app, Some(&telemetry), 42);
 
         let non_pane: Vec<_> = tiles_snapshot
             .semantic_nodes
@@ -2531,7 +2579,7 @@ mod tests {
         // content depends on published registries; the root entry is
         // unconditional and serves as the structural anchor.
         let harness = TestRegistry::new();
-        let snap = build_snapshot_host_neutral(&harness.app, 7);
+        let snap = build_snapshot_host_neutral(&harness.app, None, 7);
         let root = snap
             .semantic_nodes
             .iter()
@@ -2547,7 +2595,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-id.example");
         harness.open_node_tab(node);
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 12);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 12);
         let semantic = semantic_ids(&snapshot);
         let presentation = presentation_ids(&snapshot);
         let trace = trace_ids(&snapshot);
@@ -2567,7 +2615,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-probe.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         snapshot.presentation_nodes.push(UxPresentationNode {
             ux_node_id: "uxnode://orphan/presentation".to_string(),
@@ -2588,7 +2636,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-trace-probe.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         snapshot.trace_nodes.push(UxTraceNode {
             ux_node_id: "uxnode://orphan/trace".to_string(),
@@ -2607,7 +2655,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-orphan-parent.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let graph_surface = snapshot
             .semantic_nodes
@@ -2626,7 +2674,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-empty-label.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let graph_surface = snapshot
             .semantic_nodes
@@ -2645,7 +2693,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-focus-uniqueness.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let mut focused_nodes = snapshot
             .semantic_nodes
@@ -2671,7 +2719,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-duplicate-id.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let duplicate = snapshot
             .semantic_nodes
@@ -2697,7 +2745,7 @@ mod tests {
             .get_node(node)
             .expect("node should exist in the graph")
             .lifecycle;
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let node_pane = snapshot
             .semantic_nodes
@@ -2720,7 +2768,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-tombstone-pane.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let node_pane_id = {
             let node_pane = snapshot
@@ -2748,7 +2796,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://ux-tree-bounds.example");
         harness.open_node_tab(node);
-        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let mut snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
 
         let interactive_id = snapshot
             .semantic_nodes
@@ -2806,7 +2854,7 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
         clear_semantic_snapshot();
 
         let violation = radial_sector_count_violation(&snapshot)
@@ -2820,7 +2868,7 @@ mod tests {
         set_force_build_failure_for_tests(true);
 
         let result =
-            try_build_snapshot_with_rects(&harness.tiles_tree, &harness.app, 5, &HashMap::new());
+            try_build_snapshot_with_rects(&harness.tiles_tree, &harness.app, None, 5, &HashMap::new());
 
         set_force_build_failure_for_tests(false);
         assert!(result.is_err());
@@ -2848,7 +2896,7 @@ mod tests {
     #[test]
     fn write_snapshot_to_path_writes_json_payload() {
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
         let temp_path = std::env::temp_dir().join(format!(
             "graphshell-ux-snapshot-{}.json",
             std::process::id()
@@ -2871,7 +2919,7 @@ mod tests {
         harness.open_node_tab(node);
         harness.app.select_node(node, false);
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 5);
         let graph_surface = snapshot
             .semantic_nodes
             .iter()
@@ -2904,7 +2952,7 @@ mod tests {
         harness.open_node_tab(node);
         harness.app.note_frame_activated("alpha", [node]);
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 7);
 
         let frame_tabs = snapshot
             .semantic_nodes
@@ -2925,7 +2973,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-diff-semantic.example");
         harness.open_node_tab(node);
 
-        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, None, 10);
         let mut current = baseline.clone();
         current.semantic_nodes[0].label = "Workbench Renamed".to_string();
 
@@ -2941,7 +2989,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-diff-presentation.example");
         harness.open_node_tab(node);
 
-        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, None, 10);
         let mut current = baseline.clone();
         current.presentation_nodes[0]
             .transient_flags
@@ -2963,7 +3011,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-diff-promotion.example");
         harness.open_node_tab(node);
 
-        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let baseline = build_snapshot(&harness.tiles_tree, &harness.app, None, 10);
         let mut current = baseline.clone();
         current.presentation_nodes[0]
             .style_flags
@@ -2983,7 +3031,7 @@ mod tests {
         harness.open_node_tab(node_a);
         harness.app.select_node(node_b, false);
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
         let graph_nodes = snapshot
             .semantic_nodes
             .iter()
@@ -3000,7 +3048,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-point-lod.example");
         harness.open_node_tab(node);
 
-        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
         let graph_view_id = initial_snapshot
             .semantic_nodes
             .iter()
@@ -3027,7 +3075,7 @@ mod tests {
                 },
             );
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
 
         assert!(
             snapshot
@@ -3048,7 +3096,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-compact-lod.example");
         harness.open_node_tab(node);
 
-        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let initial_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
         let graph_view_id = initial_snapshot
             .semantic_nodes
             .iter()
@@ -3075,7 +3123,7 @@ mod tests {
                 },
             );
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
 
         assert!(
             snapshot
@@ -3098,7 +3146,7 @@ mod tests {
         let node = harness.add_node("https://ux-tree-point-mismatch.example");
         harness.open_node_tab(node);
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
         let graph_view_id = snapshot
             .semantic_nodes
             .iter()
@@ -3163,7 +3211,7 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 7);
 
         assert!(
             snapshot
@@ -3221,10 +3269,9 @@ mod tests {
 
     #[test]
     fn snapshot_projects_command_surface_probe_receipts() {
-        let _guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: Some(NodeKey::new(17)),
@@ -3252,7 +3299,7 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
 
         assert!(
             snapshot
@@ -3298,15 +3345,14 @@ mod tests {
             "snapshot should include command palette return-target metadata"
         );
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
     fn command_surface_capture_owner_violation_detects_conflicting_owners() {
-        let _guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: Some(NodeKey::new(9)),
@@ -3334,22 +3380,21 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
 
         let violation = command_surface_capture_owner_violation(&snapshot)
             .expect("expected capture-owner conflict to be detected");
         assert!(violation.contains("omnibar"));
         assert!(violation.contains("command_palette"));
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
     fn command_surface_return_target_violation_detects_missing_restore_anchor() {
-        let _guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -3377,21 +3422,20 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
 
         let violation = command_surface_return_target_violation(&snapshot)
             .expect("expected missing command-surface restore anchor to be detected");
         assert!(violation.contains("command palette"));
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
     fn command_surface_return_target_violation_accepts_command_bar_fallback_anchor() {
-        let _guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: None,
@@ -3419,11 +3463,11 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
 
         assert!(command_surface_return_target_violation(&snapshot).is_none());
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
@@ -3464,7 +3508,7 @@ mod tests {
             PendingConnectedOpenScope::Neighbors,
         );
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 9);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 9);
 
         assert!(
             snapshot.semantic_nodes.iter().any(|entry| {
@@ -3572,7 +3616,7 @@ mod tests {
             },
         );
 
-        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 11);
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, None, 11);
 
         let projected_hosts = snapshot
             .semantic_nodes

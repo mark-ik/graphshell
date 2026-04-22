@@ -43,6 +43,11 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) show_clear_data_confirm: &'a mut bool,
     pub(crate) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(crate) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+    pub(crate) omnibar_provider_suggestion_driver: &'a mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
+    pub(crate) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
@@ -80,6 +85,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         show_clear_data_confirm,
         clear_data_confirm_deadline_secs,
         omnibar_search_session,
+        omnibar_provider_suggestion_driver,
+        command_surface_telemetry,
         toasts,
         viewer_surfaces,
         tile_favicon_textures,
@@ -138,7 +145,9 @@ pub(crate) fn handle_toolbar_dialog_phase(
                     editable: &mut *editable,
                     show_clear_data_confirm: &mut *show_clear_data_confirm,
                     omnibar_search_session: &mut *omnibar_search_session,
+                    omnibar_provider_suggestion_driver: &mut *omnibar_provider_suggestion_driver,
                 },
+                command_surface_telemetry,
                 focus_location_field_for_search,
                 frame_intents,
                 #[cfg(feature = "diagnostics")]

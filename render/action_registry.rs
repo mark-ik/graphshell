@@ -14,72 +14,23 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::input::action_id as input_action;
 use std::sync::Once;
 
+// The portable action taxonomy — `InputMode`, `ActionCategory`,
+// `ActionId`, the key/label helpers, `all_action_ids`,
+// `action_id_has_namespace_format` — lives in
+// [`graphshell_core::actions`]. Re-exported here so existing call
+// sites (`use crate::render::action_registry::{ActionId, …}`)
+// resolve unchanged. Host-coupled helpers
+// (`shortcut_hints_for_action`, `ActionContext`, `ActionEntry`,
+// `list_actions_for_context`, `rank_categories_for_context`) stay
+// in this module because they depend on the host-side input
+// registry / app-state types.
+pub use graphshell_core::actions::{
+    action_id_has_namespace_format, all_action_ids, ActionCategory, ActionId,
+    CATEGORY_PIN_ORDER_PERSIST_KEY, CATEGORY_RECENCY_PERSIST_KEY, InputMode,
+    category_from_persisted_name, category_persisted_name, default_category_order,
+};
+
 static ACTION_KEY_AUDIT_ONCE: Once = Once::new();
-
-/// Preferred input mode, used as a layout hint by control surfaces.
-///
-/// `InputMode` is not a gate — both surfaces work in both modes — but
-/// surfaces may use it to choose their default presentation (e.g. radial
-/// menu as the primary surface in Gamepad mode).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum InputMode {
-    #[default]
-    MouseKeyboard,
-    Gamepad,
-}
-
-/// Logical grouping of actions, used for separators and ordering in the
-/// command palette and as sector grouping in the radial palette.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ActionCategory {
-    Node,
-    Edge,
-    Graph,
-    Persistence,
-}
-
-pub const CATEGORY_RECENCY_PERSIST_KEY: &str = "command_palette_category_recency";
-pub const CATEGORY_PIN_ORDER_PERSIST_KEY: &str = "command_palette_category_pins";
-
-impl ActionCategory {
-    /// Display label for the category group heading.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Node => "Node",
-            Self::Edge => "Edge",
-            Self::Graph => "Graph",
-            Self::Persistence => "Persistence",
-        }
-    }
-}
-
-pub fn default_category_order() -> [ActionCategory; 4] {
-    [
-        ActionCategory::Node,
-        ActionCategory::Edge,
-        ActionCategory::Graph,
-        ActionCategory::Persistence,
-    ]
-}
-
-pub fn category_persisted_name(category: ActionCategory) -> &'static str {
-    match category {
-        ActionCategory::Node => "node",
-        ActionCategory::Edge => "edge",
-        ActionCategory::Graph => "graph",
-        ActionCategory::Persistence => "persistence",
-    }
-}
-
-pub fn category_from_persisted_name(name: &str) -> Option<ActionCategory> {
-    match name {
-        "node" => Some(ActionCategory::Node),
-        "edge" => Some(ActionCategory::Edge),
-        "graph" => Some(ActionCategory::Graph),
-        "persistence" => Some(ActionCategory::Persistence),
-        _ => None,
-    }
-}
 
 fn base_category_rank(category: ActionCategory) -> usize {
     match category {
@@ -156,517 +107,61 @@ pub fn rank_categories_for_context(
     ordered
 }
 
-/// Stable identifier for a registered action.
+/// Shortcut-binding display labels for a given action, formatted for
+/// palette / radial / tooltip presentation. Reads the live input
+/// registry, which maps action-ids to user-configured bindings.
 ///
-/// Each variant corresponds to one logical operation.  The action content
-/// (label, category, enabled state) is resolved at runtime via
-/// [`list_actions_for_context`] so that control surfaces remain free of
-/// hardcoded dispatch tables.
-#[derive(
-    Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub enum ActionId {
-    // Node actions
-    NodeNew,
-    NodeNewAsTab,
-    NodePinToggle,
-    NodePinSelected,
-    NodeUnpinSelected,
-    NodeDelete,
-    NodeEditTags,
-    NodeChooseFrame,
-    NodeAddToFrame,
-    NodeAddConnectedToFrame,
-    NodeOpenFrame,
-    NodeOpenNeighbors,
-    NodeOpenConnected,
-    NodeOpenSplit,
-    NodeDetachToSplit,
-    NodeMoveToActivePane,
-    NodeWarmSelect,
-    NodeRemoveFromGraphlet,
-    NodeImportWebFinger,
-    NodeResolveNip05,
-    NodeResolveMatrix,
-    NodeResolveActivityPub,
-    NodeRefreshPersonIdentity,
-    /// Soft-delete selected nodes → Ghost Node (Tombstone lifecycle).
-    NodeMarkTombstone,
-    NodeCopyUrl,
-    NodeCopyTitle,
-    NodeRenderAuto,
-    NodeRenderWebView,
-    NodeRenderWry,
-    // Edge actions
-    EdgeConnectPair,
-    EdgeConnectBoth,
-    EdgeRemoveUser,
-    // Graph actions
-    GraphFit,
-    GraphFitGraphlet,
-    GraphCycleFocusRegion,
-    GraphToggleOverviewPlane,
-    GraphTogglePhysics,
-    /// Toggle per-view ghost node (tombstone) visibility.
-    GraphToggleGhostNodes,
-    GraphPhysicsConfig,
-    GraphCommandPalette,
-    GraphRadialMenu,
-    WorkbenchToggleOverlay,
-    FrameSelect,
-    FrameOpen,
-    FrameOpenAsSplit,
-    FrameRename,
-    FrameSettings,
-    FrameSuppressSplitOffer,
-    FrameDelete,
-    FrameEnableSplitOffer,
-    WorkbenchUnlockSurfaceLayout,
-    WorkbenchLockSurfaceLayout,
-    WorkbenchRememberLayoutPreference,
-    WorkbenchGroupSelectedTiles,
-    // Persistence actions
-    PersistUndo,
-    PersistRedo,
-    PersistSaveSnapshot,
-    PersistRestoreSession,
-    PersistSaveGraph,
-    PersistRestoreLatestGraph,
-    PersistOpenHub,
-    PersistImportBookmarks,
-    WorkbenchOpenSettingsPane,
-    WorkbenchOpenSettingsOverlay,
-    PersistOpenHistoryManager,
-    WorkbenchActivateWorkflowDefault,
-    WorkbenchActivateWorkflowResearch,
-    WorkbenchActivateWorkflowReading,
-}
-
-impl ActionId {
-    pub fn shortcut_hints(self) -> Vec<String> {
-        let action_ids: &[&str] = match self {
-            Self::NodeNew => &[input_action::graph::NODE_NEW],
-            Self::NodePinToggle => &[input_action::graph::NODE_PIN_TOGGLE],
-            Self::NodePinSelected => &[input_action::graph::NODE_PIN_SELECTED],
-            Self::NodeUnpinSelected => &[input_action::graph::NODE_UNPIN_SELECTED],
-            Self::NodeDelete => &[input_action::graph::NODE_DELETE],
-            Self::NodeEditTags => &[input_action::graph::NODE_EDIT_TAGS],
-            Self::EdgeConnectPair => &[input_action::graph::EDGE_CONNECT_PAIR],
-            Self::EdgeConnectBoth => &[input_action::graph::EDGE_CONNECT_BOTH],
-            Self::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
-            Self::GraphFit => &[],
-            Self::GraphFitGraphlet => &[],
-            Self::GraphToggleOverviewPlane => &[input_action::graph::TOGGLE_OVERVIEW_PLANE],
-            Self::GraphTogglePhysics => &[input_action::graph::TOGGLE_PHYSICS],
-            Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
-            Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
-            Self::GraphRadialMenu => &[input_action::graph::RADIAL_MENU_OPEN],
-            Self::WorkbenchToggleOverlay => &[input_action::workbench::TOGGLE_WORKBENCH_OVERLAY],
-            Self::PersistUndo => &[input_action::workbench::UNDO],
-            Self::PersistRedo => &[input_action::workbench::REDO],
-            Self::PersistOpenHistoryManager => &[input_action::workbench::OPEN_HISTORY_MANAGER],
-            _ => &[],
-        };
-
-        action_ids
-            .iter()
-            .flat_map(|action_id| {
-                crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-                    action_id,
-                )
-            })
-            .collect()
-    }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::NodeNew => "node:new",
-            Self::NodeNewAsTab => "node:new_as_tab",
-            Self::NodePinToggle => "node:pin_toggle",
-            Self::NodePinSelected => "node:pin_selected",
-            Self::NodeUnpinSelected => "node:unpin_selected",
-            Self::NodeDelete => "node:delete",
-            Self::NodeEditTags => "node:edit_tags",
-            Self::NodeChooseFrame => "node:choose_frame",
-            Self::NodeAddToFrame => "node:add_to_frame",
-            Self::NodeAddConnectedToFrame => "node:add_connected_to_frame",
-            Self::NodeOpenFrame => "node:open_frame",
-            Self::NodeOpenNeighbors => "node:open_neighbors",
-            Self::NodeOpenConnected => "node:open_connected",
-            Self::NodeOpenSplit => "node:open_split",
-            Self::NodeDetachToSplit => "node:detach_to_split",
-            Self::NodeMoveToActivePane => "node:move_to_active_pane",
-            Self::NodeWarmSelect => "node:warm_select",
-            Self::NodeRemoveFromGraphlet => "node:remove_from_graphlet",
-            Self::NodeImportWebFinger => "node:import_webfinger",
-            Self::NodeResolveNip05 => "node:resolve_nip05",
-            Self::NodeResolveMatrix => "node:resolve_matrix",
-            Self::NodeResolveActivityPub => "node:resolve_activitypub",
-            Self::NodeRefreshPersonIdentity => "node:refresh_person_identity",
-            Self::NodeMarkTombstone => "node:mark_tombstone",
-            Self::NodeCopyUrl => "node:copy_url",
-            Self::NodeCopyTitle => "node:copy_title",
-            Self::NodeRenderAuto => "node:render_auto",
-            Self::NodeRenderWebView => "node:render_webview",
-            Self::NodeRenderWry => "node:render_wry",
-            Self::EdgeConnectPair => "edge:connect_pair",
-            Self::EdgeConnectBoth => "edge:connect_both",
-            Self::EdgeRemoveUser => "edge:remove_user",
-            Self::GraphFit => "graph:fit",
-            Self::GraphFitGraphlet => "graph:fit_graphlet",
-            Self::GraphCycleFocusRegion => "graph:cycle_focus_region",
-            Self::GraphToggleOverviewPlane => "graph:toggle_overview_plane",
-            Self::GraphTogglePhysics => "graph:toggle_physics",
-            Self::GraphToggleGhostNodes => "graph:toggle_ghost_nodes",
-            Self::GraphPhysicsConfig => "graph:physics_config",
-            Self::GraphCommandPalette => "workbench:command_palette_open",
-            Self::GraphRadialMenu => "workbench:radial_menu_open",
-            Self::WorkbenchToggleOverlay => "workbench:toggle_workbench_overlay",
-            Self::FrameSelect => "frame:select",
-            Self::FrameOpen => "frame:open",
-            Self::FrameOpenAsSplit => "frame:open_as_split",
-            Self::FrameRename => "frame:rename",
-            Self::FrameSettings => "frame:settings",
-            Self::FrameSuppressSplitOffer => "frame:suppress_split_offer",
-            Self::FrameDelete => "frame:delete",
-            Self::FrameEnableSplitOffer => "frame:enable_split_offer",
-            Self::WorkbenchUnlockSurfaceLayout => "workbench:unlock_surface_layout",
-            Self::WorkbenchLockSurfaceLayout => "workbench:lock_surface_layout",
-            Self::WorkbenchRememberLayoutPreference => "workbench:remember_layout_preference",
-            Self::WorkbenchGroupSelectedTiles => "workbench:group_selected_tiles",
-            Self::PersistUndo => "persistence:undo",
-            Self::PersistRedo => "persistence:redo",
-            Self::PersistSaveSnapshot => "persistence:save_snapshot",
-            Self::PersistRestoreSession => "persistence:restore_session",
-            Self::PersistSaveGraph => "persistence:save_graph",
-            Self::PersistRestoreLatestGraph => "persistence:restore_latest_graph",
-            Self::PersistOpenHub => "persistence:open_hub",
-            Self::PersistImportBookmarks => "import:bookmarks_from_file",
-            Self::WorkbenchOpenSettingsPane => "workbench:settings_pane",
-            Self::WorkbenchOpenSettingsOverlay => "workbench:settings_overlay",
-            Self::PersistOpenHistoryManager => "workbench:open_history_manager",
-            Self::WorkbenchActivateWorkflowDefault => "workbench:activate_workflow_default",
-            Self::WorkbenchActivateWorkflowResearch => "workbench:activate_workflow_research",
-            Self::WorkbenchActivateWorkflowReading => "workbench:activate_workflow_reading",
-        }
-    }
-
-    /// Short label suitable for a radial menu sector (≤ 12 chars).
-    pub fn short_label(self) -> &'static str {
-        match self {
-            Self::NodeNew => "New",
-            Self::NodeNewAsTab => "New Tab",
-            Self::NodePinToggle => "Pin",
-            Self::NodePinSelected => "Pin",
-            Self::NodeUnpinSelected => "Unpin",
-            Self::NodeDelete => "Delete",
-            Self::NodeEditTags => "Tags",
-            Self::NodeChooseFrame => "Choose F",
-            Self::NodeAddToFrame => "Add F",
-            Self::NodeAddConnectedToFrame => "Add Conn F",
-            Self::NodeOpenFrame => "Frame",
-            Self::NodeOpenNeighbors => "Neighbors",
-            Self::NodeOpenConnected => "Connected",
-            Self::NodeOpenSplit => "Split",
-            Self::NodeDetachToSplit => "Detach",
-            Self::NodeMoveToActivePane => "Move",
-            Self::NodeWarmSelect => "Open Cold",
-            Self::NodeRemoveFromGraphlet => "Leave Group",
-            Self::NodeImportWebFinger => "WebFinger",
-            Self::NodeResolveNip05 => "NIP-05",
-            Self::NodeResolveMatrix => "Matrix",
-            Self::NodeResolveActivityPub => "ActivityPub",
-            Self::NodeRefreshPersonIdentity => "Refresh Identity",
-            Self::NodeMarkTombstone => "Ghost",
-            Self::NodeCopyUrl => "Copy URL",
-            Self::NodeCopyTitle => "Copy Title",
-            Self::NodeRenderAuto => "Auto",
-            Self::NodeRenderWebView => "WebView",
-            Self::NodeRenderWry => "Wry",
-            Self::EdgeConnectPair => "Pair",
-            Self::EdgeConnectBoth => "Both",
-            Self::EdgeRemoveUser => "Remove",
-            Self::GraphFit => "Fit",
-            Self::GraphFitGraphlet => "Fit Graphlet",
-            Self::GraphCycleFocusRegion => "Focus",
-            Self::GraphToggleOverviewPlane => "Overview",
-            Self::GraphTogglePhysics => "Physics",
-            Self::GraphToggleGhostNodes => "Ghosts",
-            Self::GraphPhysicsConfig => "Config",
-            Self::GraphCommandPalette => "Cmd",
-            Self::GraphRadialMenu => "Radial",
-            Self::WorkbenchToggleOverlay => "Workbench Ovl",
-            Self::FrameSelect => "Select F",
-            Self::FrameOpen => "Open F",
-            Self::FrameOpenAsSplit => "Split F",
-            Self::FrameRename => "Rename F",
-            Self::FrameSettings => "F Settings",
-            Self::FrameSuppressSplitOffer => "Suppress",
-            Self::FrameDelete => "Delete F",
-            Self::FrameEnableSplitOffer => "Re-enable",
-            Self::WorkbenchUnlockSurfaceLayout => "Unlock",
-            Self::WorkbenchLockSurfaceLayout => "Lock",
-            Self::WorkbenchRememberLayoutPreference => "Remember",
-            Self::WorkbenchGroupSelectedTiles => "Group Tiles",
-            Self::PersistUndo => "Undo",
-            Self::PersistRedo => "Redo",
-            Self::PersistSaveSnapshot => "Save W",
-            Self::PersistRestoreSession => "Restore W",
-            Self::PersistSaveGraph => "Save G",
-            Self::PersistRestoreLatestGraph => "Latest G",
-            Self::PersistOpenHub => "Persist Ovl",
-            Self::PersistImportBookmarks => "Import Bm",
-            Self::WorkbenchOpenSettingsPane => "Set Pane",
-            Self::WorkbenchOpenSettingsOverlay => "Set Ovl",
-            Self::PersistOpenHistoryManager => "History",
-            Self::WorkbenchActivateWorkflowDefault => "Workflow D",
-            Self::WorkbenchActivateWorkflowResearch => "Workflow R",
-            Self::WorkbenchActivateWorkflowReading => "Workflow Read",
-        }
-    }
-
-    /// Full label suitable for the command palette list.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::NodeNew => "Create Node",
-            Self::NodeNewAsTab => "Create Node as Tab",
-            Self::NodePinToggle => "Toggle Pin",
-            Self::NodePinSelected => "Pin Selected",
-            Self::NodeUnpinSelected => "Unpin Selected",
-            Self::NodeDelete => "Delete Selected Node(s)",
-            Self::NodeEditTags => "Edit Tags...",
-            Self::NodeChooseFrame => "Choose Frame...",
-            Self::NodeAddToFrame => "Add To Frame...",
-            Self::NodeAddConnectedToFrame => "Add Connected To Frame...",
-            Self::NodeOpenFrame => "Open via Frame Route",
-            Self::NodeOpenNeighbors => "Open with Neighbors",
-            Self::NodeOpenConnected => "Open with Connected",
-            Self::NodeOpenSplit => "Open Node in Split",
-            Self::NodeDetachToSplit => "Detach Focused to Split",
-            Self::NodeMoveToActivePane => "Move Node to Active Pane",
-            Self::NodeWarmSelect => "Open Cold Selection as Tiles",
-            Self::NodeRemoveFromGraphlet => "Remove from Graphlet",
-            Self::NodeImportWebFinger => "Import WebFinger Discovery",
-            Self::NodeResolveNip05 => "Resolve NIP-05 Identity",
-            Self::NodeResolveMatrix => "Resolve Matrix Profile",
-            Self::NodeResolveActivityPub => "Import ActivityPub Actor",
-            Self::NodeRefreshPersonIdentity => "Refresh Person Identity",
-            Self::NodeMarkTombstone => "Ghost Selected Node(s)",
-            Self::NodeCopyUrl => "Copy Node URL",
-            Self::NodeCopyTitle => "Copy Node Title",
-            Self::NodeRenderAuto => "Render With Auto",
-            Self::NodeRenderWebView => "Render With WebView",
-            Self::NodeRenderWry => "Render With Wry",
-            Self::EdgeConnectPair => "Connect Source -> Target",
-            Self::EdgeConnectBoth => "Connect Both Directions",
-            Self::EdgeRemoveUser => "Remove User Edge",
-            Self::GraphFit => "Fit Graph to Screen",
-            Self::GraphFitGraphlet => "Fit Graphlet to Screen",
-            Self::GraphCycleFocusRegion => "Cycle Focus Region",
-            Self::GraphToggleOverviewPlane => "Toggle Overview Plane",
-            Self::GraphTogglePhysics => "Toggle Physics Simulation",
-            Self::GraphToggleGhostNodes => "Toggle Ghost Node Visibility",
-            Self::GraphPhysicsConfig => "Open Physics Settings",
-            Self::GraphCommandPalette => "Open Command Palette",
-            Self::GraphRadialMenu => "Open Radial Palette",
-            Self::WorkbenchToggleOverlay => "Toggle Workbench Overlay",
-            Self::FrameSelect => "Select Frame",
-            Self::FrameOpen => "Open Frame",
-            Self::FrameOpenAsSplit => "Open Frame As Split",
-            Self::FrameRename => "Rename Frame",
-            Self::FrameSettings => "Open Frame Settings",
-            Self::FrameSuppressSplitOffer => "Suppress Split Offer",
-            Self::FrameDelete => "Delete Frame",
-            Self::FrameEnableSplitOffer => "Re-enable Split Offer",
-            Self::WorkbenchUnlockSurfaceLayout => "Unlock Surface Layout",
-            Self::WorkbenchLockSurfaceLayout => "Lock Surface Layout",
-            Self::WorkbenchRememberLayoutPreference => "Remember Layout Preference",
-            Self::WorkbenchGroupSelectedTiles => "Group Selected Tiles",
-            Self::PersistUndo => "Undo",
-            Self::PersistRedo => "Redo",
-            Self::PersistSaveSnapshot => "Save Frame Snapshot",
-            Self::PersistRestoreSession => "Restore Session Frame",
-            Self::PersistSaveGraph => "Save Graph Snapshot",
-            Self::PersistRestoreLatestGraph => "Restore Latest Graph",
-            Self::PersistOpenHub => "Open Persistence Overlay",
-            Self::PersistImportBookmarks => "Import Browser Bookmarks...",
-            Self::WorkbenchOpenSettingsPane => "Open Settings Pane",
-            Self::WorkbenchOpenSettingsOverlay => "Open Settings Overlay",
-            Self::PersistOpenHistoryManager => "Open History Manager",
-            Self::WorkbenchActivateWorkflowDefault => "Activate Default Workflow",
-            Self::WorkbenchActivateWorkflowResearch => "Activate Research Workflow",
-            Self::WorkbenchActivateWorkflowReading => "Activate Reading Workflow",
-        }
-    }
-
-    /// Logical category for grouping in command surfaces.
-    pub fn category(self) -> ActionCategory {
-        match self {
-            Self::NodeNew
-            | Self::NodeNewAsTab
-            | Self::NodePinToggle
-            | Self::NodePinSelected
-            | Self::NodeUnpinSelected
-            | Self::NodeDelete
-            | Self::NodeEditTags
-            | Self::NodeChooseFrame
-            | Self::NodeAddToFrame
-            | Self::NodeAddConnectedToFrame
-            | Self::NodeOpenFrame
-            | Self::NodeOpenNeighbors
-            | Self::NodeOpenConnected
-            | Self::NodeOpenSplit
-            | Self::NodeDetachToSplit
-            | Self::NodeMoveToActivePane
-            | Self::NodeCopyUrl
-            | Self::NodeCopyTitle
-            | Self::NodeRenderAuto
-            | Self::NodeRenderWebView
-            | Self::NodeRenderWry
-            | Self::NodeWarmSelect
-            | Self::NodeRemoveFromGraphlet
-            | Self::NodeImportWebFinger
-            | Self::NodeResolveNip05
-            | Self::NodeResolveMatrix
-            | Self::NodeResolveActivityPub
-            | Self::NodeRefreshPersonIdentity
-            | Self::NodeMarkTombstone => ActionCategory::Node,
-            Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
-                ActionCategory::Edge
-            }
-            Self::GraphFit
-            | Self::GraphFitGraphlet
-            | Self::GraphCycleFocusRegion
-            | Self::GraphToggleOverviewPlane
-            | Self::GraphTogglePhysics
-            | Self::GraphToggleGhostNodes
-            | Self::GraphPhysicsConfig
-            | Self::GraphCommandPalette
-            | Self::GraphRadialMenu
-            | Self::WorkbenchToggleOverlay
-            | Self::FrameSelect
-            | Self::FrameOpen
-            | Self::FrameOpenAsSplit
-            | Self::FrameRename
-            | Self::FrameSettings
-            | Self::FrameSuppressSplitOffer
-            | Self::FrameDelete
-            | Self::FrameEnableSplitOffer
-            | Self::WorkbenchUnlockSurfaceLayout
-            | Self::WorkbenchLockSurfaceLayout
-            | Self::WorkbenchRememberLayoutPreference
-            | Self::WorkbenchGroupSelectedTiles => ActionCategory::Graph,
-            Self::PersistUndo
-            | Self::PersistRedo
-            | Self::PersistSaveSnapshot
-            | Self::PersistRestoreSession
-            | Self::PersistSaveGraph
-            | Self::PersistRestoreLatestGraph
-            | Self::PersistOpenHub
-            | Self::PersistImportBookmarks
-            | Self::WorkbenchOpenSettingsPane
-            | Self::WorkbenchOpenSettingsOverlay
-            | Self::PersistOpenHistoryManager
-            | Self::WorkbenchActivateWorkflowDefault
-            | Self::WorkbenchActivateWorkflowResearch
-            | Self::WorkbenchActivateWorkflowReading => ActionCategory::Persistence,
-        }
-    }
-}
-
-fn action_id_has_namespace_format(id: &str) -> bool {
-    let mut parts = id.split(':');
-    let Some(namespace) = parts.next() else {
-        return false;
+/// Kept as a free function (rather than a method on `ActionId`) so
+/// the portable `ActionId` enum in `graphshell-core` doesn't depend
+/// on the host-side input registry. Call sites use
+/// `shortcut_hints_for_action(id)` where they previously wrote
+/// `id.shortcut_hints()`.
+pub fn shortcut_hints_for_action(id: ActionId) -> Vec<String> {
+    let action_ids: &[&str] = match id {
+        ActionId::NodeNew => &[input_action::graph::NODE_NEW],
+        ActionId::NodePinToggle => &[input_action::graph::NODE_PIN_TOGGLE],
+        ActionId::NodePinSelected => &[input_action::graph::NODE_PIN_SELECTED],
+        ActionId::NodeUnpinSelected => &[input_action::graph::NODE_UNPIN_SELECTED],
+        ActionId::NodeDelete => &[input_action::graph::NODE_DELETE],
+        ActionId::NodeEditTags => &[input_action::graph::NODE_EDIT_TAGS],
+        ActionId::EdgeConnectPair => &[input_action::graph::EDGE_CONNECT_PAIR],
+        ActionId::EdgeConnectBoth => &[input_action::graph::EDGE_CONNECT_BOTH],
+        ActionId::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
+        ActionId::GraphFit => &[],
+        ActionId::GraphFitGraphlet => &[],
+        ActionId::GraphToggleOverviewPlane => &[input_action::graph::TOGGLE_OVERVIEW_PLANE],
+        ActionId::GraphTogglePhysics => &[input_action::graph::TOGGLE_PHYSICS],
+        ActionId::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
+        ActionId::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
+        ActionId::GraphRadialMenu => &[input_action::graph::RADIAL_MENU_OPEN],
+        ActionId::WorkbenchToggleOverlay => &[input_action::workbench::TOGGLE_WORKBENCH_OVERLAY],
+        ActionId::PersistUndo => &[input_action::workbench::UNDO],
+        ActionId::PersistRedo => &[input_action::workbench::REDO],
+        ActionId::PersistOpenHistoryManager => &[input_action::workbench::OPEN_HISTORY_MANAGER],
+        _ => &[],
     };
-    let Some(name) = parts.next() else {
-        return false;
-    };
-    if parts.next().is_some() || namespace.is_empty() || name.is_empty() {
-        return false;
-    }
-    namespace
-        .chars()
-        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+
+    action_ids
+        .iter()
+        .flat_map(|action_id| {
+            crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                action_id,
+            )
+        })
+        .collect()
 }
 
-fn all_action_ids() -> &'static [ActionId] {
-    use ActionId::*;
+// The ActionId enum body and its `key` / `short_label` / `label` /
+// `category` methods moved to `graphshell_core::actions` in M4
+// slice 1 (2026-04-22). They're re-exported via the `pub use ...`
+// at the top of this module so existing call sites
+// (`ActionId::NodeNew`, `id.label()`, `id.category()`, etc.) resolve
+// unchanged. `shortcut_hints` stays here as a free function above
+// because it reads the host-side input registry.
 
-    &[
-        NodeNew,
-        NodeNewAsTab,
-        NodePinToggle,
-        NodePinSelected,
-        NodeUnpinSelected,
-        NodeDelete,
-        NodeEditTags,
-        NodeChooseFrame,
-        NodeAddToFrame,
-        NodeAddConnectedToFrame,
-        NodeOpenFrame,
-        NodeOpenNeighbors,
-        NodeOpenConnected,
-        NodeOpenSplit,
-        NodeDetachToSplit,
-        NodeMoveToActivePane,
-        NodeCopyUrl,
-        NodeCopyTitle,
-        NodeRenderAuto,
-        NodeRenderWebView,
-        NodeRenderWry,
-        NodeWarmSelect,
-        NodeRemoveFromGraphlet,
-        NodeImportWebFinger,
-        NodeResolveNip05,
-        NodeResolveMatrix,
-        NodeResolveActivityPub,
-        NodeRefreshPersonIdentity,
-        NodeMarkTombstone,
-        EdgeConnectPair,
-        EdgeConnectBoth,
-        EdgeRemoveUser,
-        GraphFit,
-        GraphFitGraphlet,
-        GraphCycleFocusRegion,
-        GraphToggleOverviewPlane,
-        GraphTogglePhysics,
-        GraphToggleGhostNodes,
-        GraphPhysicsConfig,
-        GraphCommandPalette,
-        GraphRadialMenu,
-        WorkbenchToggleOverlay,
-        FrameSelect,
-        FrameOpen,
-        FrameOpenAsSplit,
-        FrameRename,
-        FrameSettings,
-        FrameSuppressSplitOffer,
-        FrameDelete,
-        FrameEnableSplitOffer,
-        WorkbenchUnlockSurfaceLayout,
-        WorkbenchLockSurfaceLayout,
-        WorkbenchRememberLayoutPreference,
-        WorkbenchGroupSelectedTiles,
-        PersistUndo,
-        PersistRedo,
-        PersistSaveSnapshot,
-        PersistRestoreSession,
-        PersistSaveGraph,
-        PersistRestoreLatestGraph,
-        PersistOpenHub,
-        PersistImportBookmarks,
-        WorkbenchOpenSettingsPane,
-        WorkbenchOpenSettingsOverlay,
-        PersistOpenHistoryManager,
-        WorkbenchActivateWorkflowDefault,
-        WorkbenchActivateWorkflowResearch,
-        WorkbenchActivateWorkflowReading,
-    ]
-}
+// The `all_action_ids` and `action_id_has_namespace_format`
+// helpers also moved to `graphshell_core::actions`; both are
+// re-exported above.
 
 fn warn_on_nonconforming_action_keys() {
     ACTION_KEY_AUDIT_ONCE.call_once(|| {

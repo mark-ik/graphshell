@@ -71,6 +71,8 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
     pub suppress_runtime_side_effects: bool,
     pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
+    pub command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     #[cfg(feature = "diagnostics")]
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     #[cfg(feature = "diagnostics")]
@@ -251,6 +253,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         mut focus,
         suppress_runtime_side_effects,
         control_panel,
+        command_surface_telemetry,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
         #[cfg(feature = "diagnostics")]
@@ -285,6 +288,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         active_search_match,
         graph_search_filter_mode,
         search_query_active,
+        command_surface_telemetry,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
         #[cfg(feature = "diagnostics")]

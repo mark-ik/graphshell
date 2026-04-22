@@ -377,6 +377,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     active_search_match: Option<NodeKey>,
     graph_search_filter_mode: bool,
     search_query_active: bool,
+    command_surface_telemetry:
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     #[cfg(feature = "diagnostics")] runtime_focus_inspector: Option<
@@ -492,6 +494,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         let (uxtree_snapshot, build_error) = match ux_tree::try_build_snapshot_with_rects(
             tiles_tree,
             graph_app,
+            Some(command_surface_telemetry),
             build_latency_us,
             &node_rect_map,
         ) {
@@ -823,6 +826,8 @@ mod tests {
 
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
+                let telemetry =
+                    crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
                 let outputs = render_tile_tree_and_collect_outputs(
                     ui,
                     &mut tree,
@@ -833,6 +838,7 @@ mod tests {
                     None,
                     false,
                     false,
+                    &telemetry,
                     #[cfg(feature = "diagnostics")]
                     &mut diagnostics_state,
                     #[cfg(feature = "diagnostics")]

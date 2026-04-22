@@ -747,8 +747,7 @@ mod tests {
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceEventSequenceMetadata, CommandSurfaceSemanticSnapshot,
         OmnibarMailboxEventSequenceMetadata, OmnibarSemanticMetadata,
-        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
-        lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
+        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
         set_command_surface_event_sequence_metadata_for_tests,
     };
 
@@ -837,6 +836,7 @@ mod tests {
         crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             3,
         )
     }
@@ -943,6 +943,7 @@ mod tests {
         let mut snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             5,
         );
         snapshot.presentation_nodes.retain(|node| {
@@ -970,12 +971,12 @@ mod tests {
 
     #[test]
     fn evaluate_registered_probes_surfaces_navigation_violation() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _guard = lock_probe_tests();
         reset_probe_runtime_for_tests();
 
-        let _guard = lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -1005,8 +1006,7 @@ mod tests {
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app,
-            7,
+            &harness.app, Some(&telemetry), 7,
         );
 
         assert!(
@@ -1024,7 +1024,7 @@ mod tests {
                 && violation.message.contains("command palette")
         }));
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 
     #[test]
@@ -1038,6 +1038,7 @@ mod tests {
         let mut snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             9,
         );
 
@@ -1082,6 +1083,7 @@ mod tests {
         let mut snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             9,
         );
 
@@ -1132,6 +1134,7 @@ mod tests {
         let mut snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             9,
         );
 
@@ -1210,6 +1213,7 @@ mod tests {
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             14,
         );
         let report = evaluate_registered_probes(&snapshot, 0);
@@ -1237,6 +1241,7 @@ mod tests {
         let mut snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             11,
         );
 
@@ -1292,13 +1297,12 @@ mod tests {
 
     #[test]
     fn evaluate_registered_probes_surfaces_command_surface_observability_violation() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _guard = lock_probe_tests();
         reset_probe_runtime_for_tests();
 
-        let _guard = lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        set_command_surface_event_sequence_metadata_for_tests(
-            CommandSurfaceEventSequenceMetadata {
+        clear_command_surface_semantic_snapshot(&telemetry);
+        set_command_surface_event_sequence_metadata_for_tests(&telemetry, CommandSurfaceEventSequenceMetadata {
                 route_events: CommandRouteEventSequenceMetadata {
                     resolved: 0,
                     fallback: 0,
@@ -1312,7 +1316,7 @@ mod tests {
                 },
             },
         );
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -1336,8 +1340,7 @@ mod tests {
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app,
-            13,
+            &harness.app, Some(&telemetry), 13,
         );
 
         let first = evaluate_registered_probes(&snapshot, 0);
@@ -1358,6 +1361,6 @@ mod tests {
             [first.violations, second.violations]
         );
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
     }
 }

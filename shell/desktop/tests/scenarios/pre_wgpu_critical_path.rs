@@ -39,7 +39,7 @@ fn graph_navigation_node_selection_reflected_in_uxtree() {
     harness.open_node_tab(node);
     harness.app.select_node(node, false);
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 11);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 11);
 
     let selected_node = snapshot.semantic_nodes.iter().find(|n| n.state.selected);
     assert!(
@@ -130,7 +130,7 @@ fn pane_lifecycle_open_node_tab_appears_in_uxtree() {
     let node = harness.add_node("https://scenario-pane.example/article");
     harness.open_node_tab(node);
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 12);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 12);
 
     let has_node_pane = snapshot
         .semantic_nodes
@@ -193,7 +193,7 @@ fn pane_lifecycle_close_tool_pane_removes_entry_from_uxtree() {
         &mut intents,
     );
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 13);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 13);
     let has_tool_pane = snapshot
         .semantic_nodes
         .iter()
@@ -373,7 +373,7 @@ fn modal_isolation_dismiss_radial_menu_clears_modal_state() {
     let mut harness = TestRegistry::new();
     harness.app.workspace.chrome_ui.show_radial_menu = true;
 
-    let snapshot_open = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 14);
+    let snapshot_open = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 14);
     let workbench_blocked_open = snapshot_open
         .semantic_nodes
         .iter()
@@ -381,7 +381,7 @@ fn modal_isolation_dismiss_radial_menu_clears_modal_state() {
 
     harness.app.workspace.chrome_ui.show_radial_menu = false;
 
-    let snapshot_closed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 15);
+    let snapshot_closed = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 15);
     let workbench_blocked_closed = snapshot_closed
         .semantic_nodes
         .iter()
@@ -432,7 +432,7 @@ fn degraded_viewer_placeholder_render_mode_is_degraded_in_uxtree() {
         }
     }
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 16);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 16);
 
     let node_pane = snapshot
         .semantic_nodes
@@ -458,7 +458,7 @@ fn degraded_viewer_composited_render_mode_is_not_degraded_in_uxtree() {
     // viewer for https:// to CompositedTexture — the healthy (non-degraded) state.
     harness.open_node_tab(node);
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 17);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 17);
 
     let node_pane = snapshot
         .semantic_nodes

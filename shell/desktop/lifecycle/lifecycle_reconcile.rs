@@ -41,6 +41,8 @@ pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub(crate) frame_intents: &'a mut Vec<GraphIntent>,
+    pub(crate) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
 }
 
 fn sample_memory_pressure() -> (MemoryPressureLevel, u64, u64) {
@@ -209,7 +211,11 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         );
     }
 
-    webview_controller::apply_pending_browser_commands(args.graph_app, args.window);
+    webview_controller::apply_pending_browser_commands(
+        args.graph_app,
+        args.window,
+        args.command_surface_telemetry,
+    );
 
     tile_runtime::prune_stale_node_panes(
         args.tiles_tree,

@@ -251,7 +251,7 @@ impl TestRegistry {
                 command,
             ),
             _ => {
-                let snapshot = ux_tree::build_snapshot(&self.tiles_tree, &self.app, 0);
+                let snapshot = ux_tree::build_snapshot(&self.tiles_tree, &self.app, None, 0);
                 ux_tree::publish_snapshot(&snapshot);
                 ux_bridge::handle_latest_snapshot_command(command)
             }

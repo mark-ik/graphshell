@@ -700,8 +700,7 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
-        CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot,
-        lock_command_surface_snapshot_tests, publish_command_surface_semantic_snapshot,
+        CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
     };
 
     #[test]
@@ -786,11 +785,11 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     #[test]
     fn ux_bridge_action_script_queues_open_command_palette() {
-        let _command_surface_guard = lock_command_surface_snapshot_tests();
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _ux_tree_guard =
             crate::shell::desktop::workbench::ux_tree::lock_ux_tree_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        clear_command_surface_semantic_snapshot(&telemetry);
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: None,
                 focused_node: None,
@@ -803,8 +802,7 @@ mod tests {
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app,
-            0,
+            &harness.app, Some(&telemetry), 0,
         );
         crate::shell::desktop::workbench::ux_tree::publish_snapshot(&snapshot);
 
@@ -834,7 +832,7 @@ mod tests {
             Some(crate::app::WorkbenchIntent::OpenCommandPalette)
         ));
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
         crate::shell::desktop::workbench::ux_tree::clear_snapshot();
     }
 
@@ -849,6 +847,7 @@ mod tests {
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
             &harness.app,
+            None,
             0,
         );
         crate::shell::desktop::workbench::ux_tree::publish_snapshot(&snapshot);

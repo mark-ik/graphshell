@@ -97,7 +97,8 @@ pub(crate) struct PreFrameIngestArgs<'a> {
     /// Replaces the separate `thumbnail_capture_tx`/`_rx` fields that
     /// flowed through this struct pre-session-4-follow-ons.
     pub(crate) thumbnail_channel: &'a thumbnail_pipeline::ThumbnailChannel,
-    pub(crate) thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
+    pub(crate) thumbnail_capture_in_flight:
+        &'a mut HashSet<graphshell_core::content::ViewerInstanceId>,
 }
 
 pub(crate) struct PreFrameIngestOutput {
@@ -453,6 +454,8 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    pub(crate) command_surface_telemetry:
+        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
 }
 
 fn history_preview_mode_active(graph_app: &GraphBrowserApp) -> bool {
@@ -475,6 +478,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         favicon_textures,
         responsive_webviews,
         webview_creation_backpressure,
+        command_surface_telemetry,
     } = args;
 
     if history_preview_mode_active(graph_app) {
@@ -519,6 +523,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         responsive_webviews,
         webview_creation_backpressure,
         frame_intents,
+        command_surface_telemetry,
     });
 
     #[cfg(debug_assertions)]

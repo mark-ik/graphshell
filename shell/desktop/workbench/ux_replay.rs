@@ -6,69 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use super::ux_tree::UxTreeSnapshot;
 
-/// Represents a platform-agnostic UI event that can be serialized,
-/// deserialized, and fed into either the egui or expected iced hosts
-/// for parity verification and golden testing.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum HostEvent {
-    PointerMoved {
-        x: f32,
-        y: f32,
-    },
-    PointerDown {
-        x: f32,
-        y: f32,
-        button: PointerButton,
-    },
-    PointerUp {
-        x: f32,
-        y: f32,
-        button: PointerButton,
-    },
-    Scroll {
-        dx: f32,
-        dy: f32,
-    },
-    Zoom {
-        delta: f32,
-    },
-    Text(String),
-    Key {
-        key: String,
-        pressed: bool,
-        modifiers: ModifiersState,
-    },
-    Focus(bool),
-    WindowResized {
-        width: f32,
-        height: f32,
-    },
-    /// Synthesized command-surface events (e.g. from tests invoking Command Palette directly)
-    CommandSurface {
-        surface_id: String,
-        action: String,
-        payload: Option<serde_json::Value>,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PointerButton {
-    Primary,
-    Secondary,
-    Middle,
-    Back,
-    Forward,
-    Other(u16),
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ModifiersState {
-    pub(crate) alt: bool,
-    pub(crate) ctrl: bool,
-    pub(crate) shift: bool,
-    pub(crate) mac_cmd: bool,
-    pub(crate) command: bool,
-}
+// HostEvent + PointerButton + ModifiersState moved to
+// `graphshell_core::host_event` in M4 slice 8 (2026-04-22).
+// Re-exported here so existing import paths resolve unchanged.
+pub(crate) use graphshell_core::host_event::{HostEvent, ModifiersState, PointerButton};
 
 /// A captured sequence of actions and the structural expectation it should produce.
 /// This matches M0's "same state in -> same runtime outputs out" mandate.

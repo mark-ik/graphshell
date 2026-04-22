@@ -1331,14 +1331,13 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     #[test]
     fn accessibility_inspector_snapshot_reports_selected_node_profile() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         use euclid::default::Point2D;
         // `command_surface_semantic_node_count` reads a process-global
         // snapshot; hold the snapshot lock and clear it so a parallel
         // test's published surface can't pollute this test's
         // "expected 0" assertion.
-        let _command_guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot();
+        crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot(&telemetry);
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
@@ -1360,6 +1359,7 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     #[test]
     fn accessibility_inspector_snapshot_counts_command_surface_semantics() {
+        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         use crate::shell::desktop::tests::harness::TestRegistry;
         use crate::shell::desktop::ui::toolbar::toolbar_ui::{
             CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
@@ -1367,12 +1367,10 @@ mod tests {
             publish_command_surface_semantic_snapshot,
         };
 
-        let _guard =
-            crate::shell::desktop::ui::toolbar::toolbar_ui::lock_command_surface_snapshot_tests();
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
         ux_tree::clear_snapshot();
 
-        publish_command_surface_semantic_snapshot(CommandSurfaceSemanticSnapshot {
+        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
                 active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
                 focused_node: None,
@@ -1402,14 +1400,14 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let uxtree_snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 5);
+        let uxtree_snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 5);
         ux_tree::publish_snapshot(&uxtree_snapshot);
 
         let snapshot = GraphshellTileBehavior::accessibility_inspector_snapshot(&harness.app);
 
         assert_eq!(snapshot.command_surface_semantic_node_count, 3);
 
-        clear_command_surface_semantic_snapshot();
+        clear_command_surface_semantic_snapshot(&telemetry);
         ux_tree::clear_snapshot();
     }
 
@@ -1556,7 +1554,7 @@ mod tests {
         harness.open_node_tab(node);
         harness.app.select_node(node, false);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 10);
         let graph_surface_count = snapshot
             .semantic_nodes
             .iter()
@@ -1585,7 +1583,7 @@ mod tests {
         harness.open_node_tab(node);
         harness.app.select_node(node, false);
 
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 8);
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 8);
         let violation = ux_tree::presentation_id_consistency_violation(&snapshot);
         assert!(
             violation.is_none(),

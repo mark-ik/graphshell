@@ -50,7 +50,8 @@ fn provider_mailbox_for_query(
     if should_fetch_provider {
         ProviderSuggestionMailbox::debounced(
             request_query.into(),
-            Instant::now() + Duration::from_millis(debounce_ms),
+            crate::shell::desktop::ui::portable_time::portable_now()
+                .saturating_add_ms(debounce_ms),
         )
     } else {
         ProviderSuggestionMailbox::ready()
@@ -108,6 +109,10 @@ pub(super) fn render_location_search_panel(
     location_submitted: &mut bool,
     focus_location_field_for_search: bool,
     omnibar_search_session: &mut Option<OmnibarSearchSession>,
+    omnibar_provider_suggestion_driver: &mut Option<
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
+    >,
+    command_surface_telemetry: &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
@@ -369,10 +374,19 @@ pub(super) fn render_location_search_panel(
         && location_field.has_focus()
         && session.query == location.trim()
     {
+        // Bridge any freshly-arrived result from the host-side
+        // receiver into the portable mailbox state before the rest of
+        // this frame inspects it. The bridge retires the driver slot
+        // once the request terminates (Ready or Interrupted).
+        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::drive_provider_suggestion_bridge(
+            omnibar_provider_suggestion_driver,
+            &mut session.provider_mailbox,
+        );
+
         let mut fetched_outcome = None;
         if let Some(deadline) = session.provider_mailbox.debounce_deadline
-            && !session.provider_mailbox.result_mailbox.has_pending_result()
-            && Instant::now() >= deadline
+            && !session.provider_mailbox.has_pending_result()
+            && crate::shell::desktop::ui::portable_time::portable_now().has_reached(deadline)
             && let OmnibarSessionKind::SearchProvider(provider) = session.kind
         {
             session.provider_mailbox.debounce_deadline = None;
@@ -390,29 +404,52 @@ pub(super) fn render_location_search_panel(
                     &cached_suggestions,
                 ));
             } else {
-                emit_omnibar_provider_mailbox_request_started(&provider_query);
-                session.provider_mailbox.result_mailbox = spawn_provider_suggestion_request(
+                emit_omnibar_provider_mailbox_request_started(
+                    command_surface_telemetry,
+                    &provider_query,
+                );
+                let generation = session.provider_mailbox.arm_new_request();
+                let rx = spawn_provider_suggestion_request(
                     control_panel,
                     provider,
                     &provider_query,
                     graph_app.workspace.graph_runtime.runtime_caches.clone(),
                 );
+                *omnibar_provider_suggestion_driver = Some(
+                    crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver::new(
+                        generation, rx,
+                    ),
+                );
             }
         }
 
-        match session.provider_mailbox.result_mailbox.poll_frame() {
-            HostRequestPoll::Pending => {
-                ctx.request_repaint_after(Duration::from_millis(75));
-            }
-            HostRequestPoll::Ready(outcome) => {
-                fetched_outcome = Some(outcome);
-            }
-            HostRequestPoll::Interrupted => {
-                if session.provider_mailbox.request_query.is_some() {
-                    fetched_outcome = Some(ProviderSuggestionFetchOutcome {
-                        matches: Vec::new(),
-                        status: ProviderSuggestionStatus::Failed(ProviderSuggestionError::Network),
-                    });
+        // Consume any result the bridge deposited, or translate an
+        // `Interrupted` state into a synthetic failure outcome when a
+        // request was in flight. Mirrors the old three-way poll_frame
+        // match: Ready → fetched_outcome, Pending → request_repaint,
+        // Interrupted-with-armed-request → synthetic failure.
+        if let Some(outcome) = session.provider_mailbox.result.take() {
+            fetched_outcome = Some(outcome);
+        } else {
+            use graphshell_core::async_request::AsyncRequestState;
+            match &session.provider_mailbox.result {
+                AsyncRequestState::Pending { .. } => {
+                    ctx.request_repaint_after(Duration::from_millis(75));
+                }
+                AsyncRequestState::Interrupted => {
+                    if session.provider_mailbox.request_query.is_some() {
+                        fetched_outcome = Some(ProviderSuggestionFetchOutcome {
+                            matches: Vec::new(),
+                            status: ProviderSuggestionStatus::Failed(
+                                ProviderSuggestionError::Network,
+                            ),
+                        });
+                    }
+                    session.provider_mailbox.result.clear();
+                }
+                AsyncRequestState::Idle | AsyncRequestState::Ready { .. } => {
+                    // Idle: no request armed — nothing to do.
+                    // Ready: `take` above already moved state to Idle.
                 }
             }
         }
@@ -427,7 +464,7 @@ pub(super) fn render_location_search_panel(
                 } else {
                     ProviderSuggestionStatus::Ready
                 };
-                emit_omnibar_provider_mailbox_stale();
+                emit_omnibar_provider_mailbox_stale(command_surface_telemetry);
                 return;
             }
             if let OmnibarSessionKind::SearchProvider(provider) = session.kind
@@ -511,9 +548,9 @@ pub(super) fn render_location_search_panel(
             );
             session.provider_mailbox.clear_pending();
             if mailbox_failed {
-                emit_omnibar_provider_mailbox_failed();
+                emit_omnibar_provider_mailbox_failed(command_surface_telemetry);
             } else {
-                emit_omnibar_provider_mailbox_applied();
+                emit_omnibar_provider_mailbox_applied(command_surface_telemetry);
             }
             session.active_index = session
                 .active_index
@@ -583,8 +620,7 @@ mod tests {
         SearchProviderKind, provider_cache_key, provider_query_for_session,
         provider_query_matches_mailbox, should_dispatch_location_submit,
     };
-    use crate::shell::desktop::runtime::control_panel::{HostRequestMailbox, HostRequestPoll};
-    use std::time::{Duration, Instant};
+    use graphshell_core::async_request::AsyncRequestState;
 
     #[test]
     fn submit_dispatch_triggers_for_focused_enter() {
@@ -666,7 +702,7 @@ mod tests {
             Vec::new(),
             ProviderSuggestionMailbox::debounced(
                 "rust async".to_string(),
-                Instant::now() + Duration::from_millis(10),
+                graphshell_core::time::PortableInstant(0).saturating_add_ms(10),
             ),
         );
 
@@ -681,7 +717,7 @@ mod tests {
             Vec::new(),
             ProviderSuggestionMailbox::debounced(
                 "rust book".to_string(),
-                Instant::now() + Duration::from_millis(10),
+                graphshell_core::time::PortableInstant(0).saturating_add_ms(10),
             ),
         );
 
@@ -689,9 +725,44 @@ mod tests {
     }
 
     #[test]
-    fn provider_mailbox_poll_reports_interrupted_when_idle() {
-        let mut mailbox = HostRequestMailbox::<usize>::idle();
+    fn provider_mailbox_idle_reports_no_pending_result() {
+        // Replaces the old `HostRequestMailbox::idle()` / `poll_frame()`
+        // test; the portable `AsyncRequestState` starts Idle and the
+        // mailbox's `has_pending_result()` contract (true only when
+        // Pending or Ready) is what shell callers rely on to gate
+        // spawn logic. Pin it.
+        let mailbox = ProviderSuggestionMailbox::idle();
+        assert!(!mailbox.has_pending_result());
+        assert!(matches!(mailbox.result, AsyncRequestState::Idle));
+    }
 
-        assert!(matches!(mailbox.poll_frame(), HostRequestPoll::Interrupted));
+    #[test]
+    fn provider_mailbox_arm_new_request_bumps_generation_and_marks_pending() {
+        let mut mailbox = ProviderSuggestionMailbox::idle();
+        let gen1 = mailbox.arm_new_request();
+        assert!(mailbox.has_pending_result());
+        assert!(matches!(
+            mailbox.result,
+            AsyncRequestState::Pending { generation } if generation == gen1
+        ));
+
+        let gen2 = mailbox.arm_new_request();
+        assert!(gen2 > gen1, "arm_new_request must bump monotonically");
+    }
+
+    #[test]
+    fn provider_mailbox_clear_pending_resets_to_idle() {
+        let mut mailbox = ProviderSuggestionMailbox::idle();
+        mailbox.arm_new_request();
+        mailbox.request_query = Some("rust".to_string());
+        mailbox.debounce_deadline =
+            Some(graphshell_core::time::PortableInstant(0).saturating_add_ms(10));
+
+        mailbox.clear_pending();
+
+        assert!(!mailbox.has_pending_result());
+        assert!(mailbox.request_query.is_none());
+        assert!(mailbox.debounce_deadline.is_none());
+        assert!(matches!(mailbox.result, AsyncRequestState::Idle));
     }
 }

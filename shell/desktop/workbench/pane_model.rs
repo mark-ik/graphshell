@@ -33,31 +33,9 @@
 use crate::app::GraphViewId;
 use crate::graph::NodeKey;
 
-/// Opaque stable identifier for a workbench pane.
-///
-/// Distinct from `egui_tiles::TileId` (layout tree identity) and `PaneId` in
-/// `persistence_ops` (the legacy u64 persistence key). This is the canonical
-/// pane identity for the pane-hosted view architecture.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PaneId(uuid::Uuid);
-
-impl PaneId {
-    pub(crate) fn new() -> Self {
-        Self(uuid::Uuid::new_v4())
-    }
-}
-
-impl Default for PaneId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for PaneId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "pane:{}", self.0)
-    }
-}
+// `PaneId` moved to `graphshell_core::pane` in M4 slice 8 (2026-04-22).
+// Re-exported here at the original path so callers resolve unchanged.
+pub(crate) use graphshell_core::pane::PaneId;
 
 /// Presentation/chrome mode for a workbench pane.
 ///
@@ -189,20 +167,9 @@ impl PartialEq<GraphViewId> for GraphPaneRef {
 /// Carries which node to display and an optional explicit viewer backend override.
 /// Canonical viewer selection (based on `mime_hint`, `address_kind`, user policy)
 /// is delegated to `ViewerRegistry`; `viewer_id_override` is an explicit user/intent override only.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
-pub(crate) enum TileRenderMode {
-    /// Viewer renders to a Graphshell-owned composited texture (e.g. Servo).
-    CompositedTexture,
-    /// Viewer uses an OS-native overlay window (e.g. Wry).
-    NativeOverlay,
-    /// Viewer renders directly into egui UI.
-    EmbeddedEgui,
-    /// Viewer is unavailable or unresolved for this pane.
-    #[default]
-    Placeholder,
-}
+// `TileRenderMode` moved to `graphshell_core::pane` in M4 slice 8
+// (2026-04-22). Re-exported here so callers resolve unchanged.
+pub(crate) use graphshell_core::pane::TileRenderMode;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "NodePaneStateCompat")]

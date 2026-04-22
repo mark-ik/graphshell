@@ -13,7 +13,15 @@
 //! - `#[wasm_bindgen]` / UniFFI annotations (belong in wrapper crates)
 //! - any platform I/O (file, network, browser APIs)
 
+pub mod actions;
 pub mod address;
+pub mod async_request;
+pub mod content;
+pub mod geometry;
 pub mod graph;
+pub mod host_event;
+pub mod pane;
 pub mod persistence;
+pub mod shell_state;
+pub mod time;
 pub mod types;

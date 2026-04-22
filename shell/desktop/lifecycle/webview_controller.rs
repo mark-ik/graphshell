@@ -142,8 +142,12 @@ fn resolve_browser_command_target(
     }
 }
 
-pub(crate) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: &EmbedderWindow) {
-    browser_command_routing::apply_pending_browser_commands(app, window)
+pub(crate) fn apply_pending_browser_commands(
+    app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    telemetry: &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+) {
+    browser_command_routing::apply_pending_browser_commands(app, window, telemetry)
 }
 
 pub(crate) struct AddressBarSubmitOutcome {

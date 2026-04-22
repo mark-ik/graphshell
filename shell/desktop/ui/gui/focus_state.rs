@@ -20,12 +20,12 @@ enum CanvasFocusTarget {
 
 fn embedded_focus_components(
     focus: Option<&EmbeddedContentTarget>,
-) -> (Option<servo::WebViewId>, Option<NodeKey>) {
+) -> (Option<graphshell_core::content::ViewerInstanceId>, Option<NodeKey>) {
     match focus {
         Some(EmbeddedContentTarget::WebView {
             renderer_id,
             node_key,
-        }) => (Some(*renderer_id), *node_key),
+        }) => (Some(renderer_id.clone()), *node_key),
         None => (None, None),
     }
 }
@@ -45,7 +45,9 @@ pub(crate) fn workspace_runtime_focus_state(
         focused_node_hint: None,
         graph_surface_focused: false,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app.embedded_content_focus_webview(),
+        embedded_content_focus_webview: graph_app
+            .embedded_content_focus_webview()
+            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
@@ -118,7 +120,9 @@ pub(crate) fn workbench_runtime_focus_state(
         focused_node_hint,
         graph_surface_focused,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app.embedded_content_focus_webview(),
+        embedded_content_focus_webview: graph_app
+            .embedded_content_focus_webview()
+            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
@@ -226,7 +230,9 @@ pub(crate) fn refresh_realized_runtime_focus_state(
         focused_node_hint,
         graph_surface_focused,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app.embedded_content_focus_webview(),
+        embedded_content_focus_webview: graph_app
+            .embedded_content_focus_webview()
+            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
@@ -785,7 +791,11 @@ pub(crate) fn realize_embedded_content_focus_from_authority(
     graph_app: &mut GraphBrowserApp,
 ) {
     let webview_id = match focus_authority.embedded_content_focus.as_ref() {
-        Some(EmbeddedContentTarget::WebView { renderer_id, .. }) => Some(*renderer_id),
+        Some(EmbeddedContentTarget::WebView { renderer_id, .. }) => {
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_viewer_instance(
+                renderer_id,
+            )
+        }
         None => None,
     };
     graph_app.set_embedded_content_focus_webview(webview_id);
@@ -904,6 +914,10 @@ mod tests {
         let graph_view = GraphViewId::new();
         let node_key = NodeKey::new(17);
         let webview_id = test_webview_id();
+        let webview_instance =
+            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(
+                webview_id,
+            );
         let return_target = ToolSurfaceReturnTarget::Graph(graph_view);
 
         let state = build_runtime_focus_state(RuntimeFocusInputs {
@@ -916,7 +930,7 @@ mod tests {
             local_widget_focus: Some(LocalFocusTarget::ToolbarLocation {
                 pane_id: Some(pane_id),
             }),
-            embedded_content_focus_webview: Some(webview_id),
+            embedded_content_focus_webview: Some(webview_instance.clone()),
             embedded_content_focus_node: Some(node_key),
             show_command_palette: false,
             show_context_palette: true,
@@ -943,7 +957,7 @@ mod tests {
         assert_eq!(
             state.embedded_content_focus,
             Some(EmbeddedContentTarget::WebView {
-                renderer_id: webview_id,
+                renderer_id: webview_instance,
                 node_key: Some(node_key)
             })
         );
@@ -1280,6 +1294,10 @@ mod tests {
     fn focus_command_updates_embedded_content_authority() {
         let node_key = NodeKey::new(818);
         let webview_id = test_webview_id();
+        let webview_instance =
+            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(
+                webview_id,
+            );
         let mut focus_authority =
             crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
 
@@ -1287,7 +1305,7 @@ mod tests {
             &mut focus_authority,
             FocusCommand::SetEmbeddedContentFocus {
                 target: Some(EmbeddedContentTarget::WebView {
-                    renderer_id: webview_id,
+                    renderer_id: webview_instance.clone(),
                     node_key: Some(node_key),
                 }),
             },
@@ -1296,7 +1314,7 @@ mod tests {
         assert_eq!(
             focus_authority.embedded_content_focus,
             Some(EmbeddedContentTarget::WebView {
-                renderer_id: webview_id,
+                renderer_id: webview_instance,
                 node_key: Some(node_key),
             })
         );
@@ -1323,7 +1341,10 @@ mod tests {
                     graph_view_focus: Some(graph_view),
                     local_widget_focus: None,
                     embedded_content_focus: Some(EmbeddedContentTarget::WebView {
-                        renderer_id: test_webview_id(),
+                        renderer_id:
+                            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(
+                                test_webview_id(),
+                            ),
                         node_key: Some(realized_node),
                     }),
                     capture_stack: Vec::new(),

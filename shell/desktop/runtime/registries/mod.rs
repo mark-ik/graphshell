@@ -1012,7 +1012,7 @@ pub(crate) fn phase3_nostr_persisted_subscriptions() -> Vec<PersistedNostrSubscr
 /// must bind this guard for the whole dance, otherwise parallel tests
 /// each carrying their own per-test `OnceLock<Mutex<()>>` race each
 /// other. Matches the pattern used elsewhere in the crate for other
-/// process-global state (`lock_command_surface_snapshot_tests`,
+/// process-global state (`per-test CommandSurfaceTelemetry::new() (slice 6)`,
 /// `lock_radial_palette_snapshot_tests`, `lock_ux_tree_snapshot_tests`).
 pub(crate) fn lock_phase3_nostr_tests() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();

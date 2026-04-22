@@ -47,6 +47,8 @@ pub(crate) fn run_semantic_lifecycle_phase(
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    command_surface_telemetry:
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
@@ -72,6 +74,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
         favicon_textures,
         responsive_webviews,
         webview_creation_backpressure,
+        command_surface_telemetry,
         frame_intents,
     );
 }
@@ -109,6 +112,8 @@ fn reconcile_semantic_lifecycle_phase(
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    command_surface_telemetry:
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
     gui_frame::run_lifecycle_reconcile_and_apply(
@@ -124,6 +129,7 @@ fn reconcile_semantic_lifecycle_phase(
             favicon_textures,
             responsive_webviews,
             webview_creation_backpressure,
+            command_surface_telemetry,
         },
         frame_intents,
     );

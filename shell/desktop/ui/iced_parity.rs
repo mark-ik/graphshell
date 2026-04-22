@@ -208,7 +208,7 @@ mod tests {
         );
 
         let walker = GraphTreeWalker::new(&tree);
-        let snapshot = build_snapshot_with_walker(&walker, &app, 0);
+        let snapshot = build_snapshot_with_walker(&walker, &app, None, 0);
 
         // Workbench root present regardless of walker.
         assert!(
@@ -271,8 +271,16 @@ mod tests {
         let _ = runtime_egui.tick(&input, &mut egui_ports);
         let _ = runtime_iced.tick(&input, &mut iced_ports);
 
-        let snap_egui = build_snapshot_host_neutral(&runtime_egui.graph_app, 0);
-        let snap_iced = build_snapshot_host_neutral(&runtime_iced.graph_app, 0);
+        let snap_egui = build_snapshot_host_neutral(
+            &runtime_egui.graph_app,
+            Some(&runtime_egui.command_surface_telemetry),
+            0,
+        );
+        let snap_iced = build_snapshot_host_neutral(
+            &runtime_iced.graph_app,
+            Some(&runtime_iced.command_surface_telemetry),
+            0,
+        );
 
         // Build durations zeroed; trace_summary's `build_duration_us` is
         // the only time-varying field, and we passed 0 on both sides.

@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::mpsc::{Receiver, Sender};
 
+use graphshell_core::content::ViewerInstanceId;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat};
 use log::warn;
@@ -14,6 +15,9 @@ use servo::{Image, PixelFormat, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    servo_webview_id_from_viewer_instance, viewer_instance_id_from_servo,
+};
 use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 
 // Historical defaults; new `chrome_ui.thumbnail_settings` overrides
@@ -306,14 +310,23 @@ pub(crate) fn request_pending_thumbnail_captures(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
     channel: &dyn BackendThumbnailPort,
-    in_flight: &mut HashSet<WebViewId>,
+    in_flight: &mut HashSet<ViewerInstanceId>,
 ) {
     // Retain only in-flight ids whose webview still exists. Paired
     // with the matching retain at the top of
     // `load_pending_thumbnail_results` so either entry point catches a
     // webview disappearance regardless of call ordering; the second
     // call is a no-op within a single frame.
-    in_flight.retain(|id| window.contains_webview(*id));
+    //
+    // The set stores portable `ViewerInstanceId`s now; decode each
+    // back to its servo `WebViewId` for the window-side membership
+    // check. Non-servo ids (future Wry/iced_webview entries) fall
+    // through to `false` and are dropped — the current pipeline only
+    // submits servo captures, so that branch is defensive.
+    in_flight.retain(|id| {
+        servo_webview_id_from_viewer_instance(id)
+            .is_some_and(|servo_id| window.contains_webview(servo_id))
+    });
 
     let settings = graph_app.workspace.chrome_ui.thumbnail_settings;
     // Kill switch: when the user has disabled thumbnails (privacy
@@ -335,7 +348,8 @@ pub(crate) fn request_pending_thumbnail_captures(
     let aspect = settings.aspect;
 
     for id in window.take_pending_thumbnail_capture_requests() {
-        if in_flight.contains(&id) {
+        let portable_id = viewer_instance_id_from_servo(id);
+        if in_flight.contains(&portable_id) {
             continue;
         }
 
@@ -365,7 +379,7 @@ pub(crate) fn request_pending_thumbnail_captures(
         };
 
         let sender = channel.clone_sender();
-        in_flight.insert(id);
+        in_flight.insert(portable_id);
         webview.take_screenshot(None, move |result| {
             let (png_bytes, width, height) = match result {
                 Ok(image) => {
@@ -401,7 +415,7 @@ pub(crate) fn load_pending_thumbnail_results(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
     channel: &dyn BackendThumbnailPort,
-    in_flight: &mut HashSet<WebViewId>,
+    in_flight: &mut HashSet<ViewerInstanceId>,
 ) -> Vec<GraphIntent> {
     // Retain only in-flight ids whose webview still exists. Mirrors
     // the retain in `request_pending_thumbnail_captures` so either
@@ -409,11 +423,14 @@ pub(crate) fn load_pending_thumbnail_results(
     // single frame one of the two calls is a no-op, but keeping both
     // makes the helpers safe to call independently (e.g., if a test
     // or iced bring-up path only invokes one side).
-    in_flight.retain(|id| window.contains_webview(*id));
+    in_flight.retain(|id| {
+        servo_webview_id_from_viewer_instance(id)
+            .is_some_and(|servo_id| window.contains_webview(servo_id))
+    });
     let mut intents = Vec::new();
 
     while let Some(result) = channel.try_recv() {
-        in_flight.remove(&result.webview_id);
+        in_flight.remove(&viewer_instance_id_from_servo(result.webview_id));
         if let Some(intent) = graph_intent_for_thumbnail_result(graph_app, &result) {
             intents.push(intent);
         }

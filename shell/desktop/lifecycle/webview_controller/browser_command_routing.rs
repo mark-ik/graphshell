@@ -59,12 +59,15 @@ pub(super) fn resolve_browser_command_target(
     }
 }
 
-pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: &EmbedderWindow) {
+pub(super) fn apply_pending_browser_commands(
+    app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    telemetry: &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+) {
     while let Some((target, command)) = app.take_pending_browser_command() {
         let webview_id = match resolve_browser_command_target(app, window, target) {
             BrowserCommandRouteOutcome::Resolved(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved(
-                );
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved(telemetry);
                 emit_message_received_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
                     command.diagnostic_label().len() as u64,
@@ -73,8 +76,7 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
                 webview_id
             }
             BrowserCommandRouteOutcome::Fallback(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback(
-                );
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback(telemetry);
                 emit_message_sent_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
                     command.diagnostic_label().len(),
@@ -83,7 +85,7 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
                 webview_id
             }
             BrowserCommandRouteOutcome::NoTarget => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target();
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target(telemetry);
                 emit_message_sent_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET,
                     command.diagnostic_label().len(),
@@ -97,7 +99,7 @@ pub(super) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: 
             }
         };
         let Some(webview) = window.webview_by_id(webview_id) else {
-            crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target();
+            crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target(telemetry);
             emit_message_sent_with_payload(
                 CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET,
                 command.diagnostic_label().len(),
@@ -172,7 +174,9 @@ mod tests {
             BrowserCommand::Close,
         );
 
-        apply_pending_browser_commands(&mut app, &window);
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        apply_pending_browser_commands(&mut app, &window, &telemetry);
 
         let emitted: Vec<DiagnosticEvent> = diag_rx.try_iter().collect();
         assert!(

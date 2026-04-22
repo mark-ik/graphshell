@@ -10,7 +10,7 @@ fn uxtree_graph_semantic_parity_matches_graph_model_count() {
     harness.open_node_tab(node_b);
     harness.app.select_node(node_b, false);
 
-    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 11);
+    let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, None, 11);
 
     let graph_semantic_nodes = snapshot
         .semantic_nodes
