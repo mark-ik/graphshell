@@ -13,7 +13,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::shell::desktop::ui::gui_orchestration;
-use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, ToolbarState};
+use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, ToolbarEditable, ToolbarState};
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, NodePaneState, PaneId, ToolPaneRef, ToolPaneState, ViewerId,
 };
@@ -353,9 +353,7 @@ fn run_graph_search_phase_applies_filter_mode_for_udc_descendant_query_end_to_en
     let mut graph_search_matches = Vec::new();
     let mut graph_search_active_match_index = None;
     let mut toolbar_state = ToolbarState {
-        location: String::new(),
-        location_dirty: false,
-        location_submitted: false,
+        editable: ToolbarEditable::default(),
         show_clear_data_confirm: false,
         load_status: LoadStatus::Complete,
         status_text: None,

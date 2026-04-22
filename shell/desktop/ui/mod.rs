@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+pub(crate) mod command_palette_state;
+pub(crate) mod command_surface_telemetry;
 pub(crate) mod dialog;
 pub(crate) mod dialog_panels;
 pub(crate) mod egui_host_ports;
@@ -27,6 +29,7 @@ pub(crate) mod iced_host_ports;
 pub(crate) mod iced_parity;
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
+pub(crate) mod omnibar_state;
 pub(crate) mod overview_plane;
 pub(crate) mod persistence_ops;
 pub(crate) mod shell_layout_pass;

@@ -5,6 +5,7 @@ use crate::app::{
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
+use crate::shell::desktop::ui::command_palette_state::SearchPaletteScope;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::ui::toolbar_routing;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -165,6 +166,128 @@ pub(super) fn render_settings_menu(
                     graph_app.set_context_command_surface_preference(preference);
                 }
             }
+
+            ui.separator();
+            ui.label("Command Bar");
+            ui.label(
+                egui::RichText::new(
+                    "Chrome density for the top command bar and the omnibar suggestion dropdown.",
+                )
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
+            ui.horizontal(|ui| {
+                ui.label("Height");
+                let mut toolbar_height = graph_app.toolbar_height_dp();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut toolbar_height)
+                            .range(24.0..=96.0)
+                            .speed(0.5)
+                            .suffix("dp"),
+                    )
+                    .on_hover_text(
+                        "Height of the top command bar in device-independent pixels. \
+                         Larger for accessibility; smaller for dense layouts.",
+                    )
+                    .changed()
+                {
+                    graph_app.set_toolbar_height_dp(toolbar_height);
+                }
+                ui.label("Dropdown rows");
+                let mut dropdown_rows = graph_app.omnibar_dropdown_max_rows();
+                if ui
+                    .add(egui::DragValue::new(&mut dropdown_rows).range(3..=24))
+                    .on_hover_text(
+                        "Maximum number of omnibar suggestion rows shown before scrolling.",
+                    )
+                    .changed()
+                {
+                    graph_app.set_omnibar_dropdown_max_rows(dropdown_rows);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Provider debounce");
+                let mut debounce_ms = graph_app.omnibar_provider_debounce_ms();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut debounce_ms)
+                            .range(0..=2000)
+                            .speed(5.0)
+                            .suffix("ms"),
+                    )
+                    .on_hover_text(
+                        "Delay before issuing a search-provider suggestion request \
+                         (DuckDuckGo / Bing / Google). Higher conserves requests; \
+                         lower feels more instant. 0 disables debouncing.",
+                    )
+                    .changed()
+                {
+                    graph_app.set_omnibar_provider_debounce_ms(debounce_ms);
+                }
+            });
+
+            ui.separator();
+            ui.label("Command Palette");
+            ui.label(
+                egui::RichText::new(
+                    "Default scope applied when the palette opens, and per-category \
+                     row cap in search mode.",
+                )
+                .small()
+                .color(theme_tokens.radial_chrome_text),
+            );
+            let current_scope = graph_app.command_palette_default_scope();
+            egui::ComboBox::from_id_salt("command_palette_default_scope_setting")
+                .selected_text(format!("Default scope: {}", current_scope.label()))
+                .show_ui(ui, |ui| {
+                    for candidate in SearchPaletteScope::ALL {
+                        if ui
+                            .selectable_label(current_scope == candidate, candidate.label())
+                            .clicked()
+                        {
+                            graph_app.set_command_palette_default_scope(candidate);
+                        }
+                    }
+                });
+            ui.horizontal(|ui| {
+                ui.label("Rows per category");
+                let mut cap = graph_app.command_palette_max_per_category();
+                if ui
+                    .add(egui::DragValue::new(&mut cap).range(0..=100))
+                    .on_hover_text(
+                        "Maximum result rows shown per category in the palette's \
+                         search mode. Rows beyond the cap are hinted with a \
+                         \"… N more\" affordance. 0 disables the cap (show all).",
+                    )
+                    .changed()
+                {
+                    graph_app.set_command_palette_max_per_category(cap);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Recent commands");
+                let mut depth = graph_app.command_palette_recents_depth();
+                if ui
+                    .add(egui::DragValue::new(&mut depth).range(0..=32))
+                    .on_hover_text(
+                        "Number of recently-executed commands surfaced above \
+                         the categorized results when the palette opens in \
+                         search mode with an empty query. 0 disables the \
+                         Recent section and clears any stored recents.",
+                    )
+                    .changed()
+                {
+                    graph_app.set_command_palette_recents_depth(depth);
+                }
+                if ui
+                    .button("Forget")
+                    .on_hover_text("Clear the stored recent-commands ring.")
+                    .clicked()
+                {
+                    graph_app.clear_command_palette_recents();
+                }
+            });
 
             ui.separator();
             ui.label("Related Surfaces");

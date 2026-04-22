@@ -30,6 +30,7 @@ use std::time::Duration;
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
 use crate::shell::desktop::ui::frame_model::{ToastSeverity, ToastSpec};
+use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
 
@@ -45,7 +46,7 @@ pub(crate) trait HostInputPort {
     fn poll_events(&mut self) -> Vec<HostEvent>;
 
     /// Current pointer hover position in screen coordinates, if any.
-    fn pointer_hover_position(&self) -> Option<egui::Pos2>;
+    fn pointer_hover_position(&self) -> Option<PortablePoint>;
 
     /// Does a host-owned widget (text input, dialog field) currently want
     /// keyboard input? When true, the runtime should not route keyboard
@@ -98,20 +99,17 @@ pub(crate) trait HostSurfacePort {
 /// Overlays are described host-neutrally by `OverlayStrokePass` descriptors
 /// (see [`crate::shell::desktop::workbench::compositor_adapter::OverlayStrokePass`]);
 /// this port's methods translate descriptor intent into concrete draw calls
-/// against whatever painter the host owns.
-///
-/// (The `egui::Rect` / `egui::Stroke` / `egui::Color32` types flowing through
-/// these methods are the "cosmetic leaks" called out in the M3.5 design doc.
-/// They do not block iced implementation — iced can pair each egui primitive
-/// with a trivial conversion at the boundary.)
+/// against whatever painter the host owns. All method types are portable
+/// (post-M3.6): egui impls convert via the boundary helpers in
+/// `compositor_adapter.rs`; iced impls consume portable types directly.
 pub(crate) trait HostPaintPort {
     /// Paint a rectangular stroke outline for an overlay affordance (e.g.,
     /// focus ring, selection outline).
     fn draw_overlay_stroke(
         &mut self,
         node_key: NodeKey,
-        rect: egui::Rect,
-        stroke: egui::Stroke,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
         rounding: f32,
     );
 
@@ -120,29 +118,29 @@ pub(crate) trait HostPaintPort {
     fn draw_dashed_overlay_stroke(
         &mut self,
         node_key: NodeKey,
-        rect: egui::Rect,
-        stroke: egui::Stroke,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
     );
 
     /// Paint lens glyph overlays positioned relative to a tile rect.
     fn draw_overlay_glyphs(
         &mut self,
         node_key: NodeKey,
-        rect: egui::Rect,
+        rect: PortableRect,
         glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
-        color: egui::Color32,
+        color: graph_canvas::packet::Color,
     );
 
     /// Paint chrome markers (tick/indicator lines at tile edges).
     fn draw_overlay_chrome_markers(
         &mut self,
         node_key: NodeKey,
-        rect: egui::Rect,
-        stroke: egui::Stroke,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
     );
 
     /// Paint a degraded-mode receipt (small in-tile text banner).
-    fn draw_degraded_receipt(&mut self, rect: egui::Rect, message: &str);
+    fn draw_degraded_receipt(&mut self, rect: PortableRect, message: &str);
 }
 
 // ---------------------------------------------------------------------------

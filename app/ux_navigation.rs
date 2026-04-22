@@ -5,6 +5,113 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_FOCUS_CAPTURE_EXIT,
 };
 
+/// Identifies one of the seven mutually-exclusive modal chrome
+/// surfaces on `ChromeUiState`. Replaces the pre-M4 pattern where each
+/// `open_*` method spelled out its own "set this flag true, set all
+/// others false" block inline, at ~15 call sites that drifted over
+/// time (e.g., `open_clip_inspector` cleared palette/radial but not
+/// help/settings/scene, a subtle inconsistency).
+///
+/// The underlying booleans still live on `ChromeUiState` because
+/// `app::ux_navigation` is in the `app` layer below `GraphshellRuntime`
+/// and can't reach runtime-scope state; this enum names the cluster
+/// without moving ownership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModalSurface {
+    CommandPalette,
+    ContextPalette,
+    HelpPanel,
+    SettingsOverlay,
+    SceneOverlay,
+    RadialMenu,
+    ClipInspector,
+}
+
+impl GraphBrowserApp {
+    /// Read the backing flag for a modal surface.
+    pub fn is_modal_surface_open(&self, which: ModalSurface) -> bool {
+        let chrome = &self.workspace.chrome_ui;
+        match which {
+            ModalSurface::CommandPalette => chrome.show_command_palette,
+            ModalSurface::ContextPalette => chrome.show_context_palette,
+            ModalSurface::HelpPanel => chrome.show_help_panel,
+            ModalSurface::SettingsOverlay => chrome.show_settings_overlay,
+            ModalSurface::SceneOverlay => chrome.show_scene_overlay,
+            ModalSurface::RadialMenu => chrome.show_radial_menu,
+            ModalSurface::ClipInspector => chrome.show_clip_inspector,
+        }
+    }
+
+    /// `true` when any modal surface other than `except` is currently
+    /// open. Considers every surface including `ClipInspector`; use
+    /// [`any_other_focus_capturing_modal_open`] when asking the
+    /// narrower question "should I restore focus now?", which has
+    /// historically excluded clip since clip is a viewer-scoped
+    /// surface rather than a chrome modal.
+    ///
+    /// [`any_other_focus_capturing_modal_open`]: Self::any_other_focus_capturing_modal_open
+    pub fn any_other_modal_surface_open(&self, except: ModalSurface) -> bool {
+        [
+            ModalSurface::CommandPalette,
+            ModalSurface::ContextPalette,
+            ModalSurface::HelpPanel,
+            ModalSurface::SettingsOverlay,
+            ModalSurface::SceneOverlay,
+            ModalSurface::RadialMenu,
+            ModalSurface::ClipInspector,
+        ]
+        .iter()
+        .any(|surface| *surface != except && self.is_modal_surface_open(*surface))
+    }
+
+    /// `true` when any focus-capturing modal surface other than
+    /// `except` is open. Excludes `ClipInspector` to match the
+    /// pre-M4 focus-restore semantics — clip is a webview-scoped
+    /// viewer and doesn't participate in the chrome-modal focus
+    /// cluster that chooses when to restore the underlying
+    /// workspace's transient focus target.
+    pub fn any_other_focus_capturing_modal_open(&self, except: ModalSurface) -> bool {
+        [
+            ModalSurface::CommandPalette,
+            ModalSurface::ContextPalette,
+            ModalSurface::HelpPanel,
+            ModalSurface::SettingsOverlay,
+            ModalSurface::SceneOverlay,
+            ModalSurface::RadialMenu,
+        ]
+        .iter()
+        .any(|surface| *surface != except && self.is_modal_surface_open(*surface))
+    }
+
+    /// Close every modal surface except `keep`. When `keep` is `None`,
+    /// closes all modals. Also clears `command_palette_contextual_mode`
+    /// when neither command nor context palette is being kept, and
+    /// closes `ClipInspector` (which carries extra runtime state beyond
+    /// a bool) via its own cleanup method unless it's the one kept.
+    pub fn close_modal_surfaces_except(&mut self, keep: Option<ModalSurface>) {
+        let keep_cmd = keep == Some(ModalSurface::CommandPalette);
+        let keep_ctx = keep == Some(ModalSurface::ContextPalette);
+        let keep_help = keep == Some(ModalSurface::HelpPanel);
+        let keep_settings = keep == Some(ModalSurface::SettingsOverlay);
+        let keep_scene = keep == Some(ModalSurface::SceneOverlay);
+        let keep_radial = keep == Some(ModalSurface::RadialMenu);
+        let keep_clip = keep == Some(ModalSurface::ClipInspector);
+        let chrome = &mut self.workspace.chrome_ui;
+        chrome.show_command_palette = keep_cmd;
+        chrome.show_context_palette = keep_ctx;
+        chrome.show_help_panel = keep_help;
+        chrome.show_settings_overlay = keep_settings;
+        chrome.show_scene_overlay = keep_scene;
+        chrome.show_radial_menu = keep_radial;
+        if !keep_cmd && !keep_ctx {
+            chrome.command_palette_contextual_mode = false;
+        }
+        if !keep_clip {
+            self.close_clip_inspector();
+        }
+    }
+}
+
 impl GraphBrowserApp {
     pub(crate) fn emit_ux_navigation_transition(&self) {
         emit_event(DiagnosticEvent::MessageReceived {
@@ -118,14 +225,7 @@ impl GraphBrowserApp {
                     .map(ToolSurfaceReturnTarget::Graph),
             );
         }
-        self.workspace.chrome_ui.show_scene_overlay = true;
-        self.workspace.chrome_ui.show_help_panel = false;
-        self.workspace.chrome_ui.show_settings_overlay = false;
-        self.workspace.chrome_ui.show_command_palette = false;
-        self.workspace.chrome_ui.show_context_palette = false;
-        self.workspace.chrome_ui.command_palette_contextual_mode = false;
-        self.workspace.chrome_ui.show_radial_menu = false;
-        self.close_clip_inspector();
+        self.close_modal_surfaces_except(Some(ModalSurface::SceneOverlay));
         self.set_pending_node_context_target(None);
         if !was_open {
             self.emit_focus_capture_enter();
@@ -138,12 +238,7 @@ impl GraphBrowserApp {
             return;
         }
         self.workspace.chrome_ui.show_scene_overlay = false;
-        if !self.workspace.chrome_ui.show_command_palette
-            && !self.workspace.chrome_ui.show_context_palette
-            && !self.workspace.chrome_ui.show_help_panel
-            && !self.workspace.chrome_ui.show_settings_overlay
-            && !self.workspace.chrome_ui.show_radial_menu
-        {
+        if !self.any_other_focus_capturing_modal_open(ModalSurface::SceneOverlay) {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();
@@ -160,14 +255,7 @@ impl GraphBrowserApp {
                     .map(ToolSurfaceReturnTarget::Graph),
             );
         }
-        self.workspace.chrome_ui.show_help_panel = true;
-        self.workspace.chrome_ui.show_scene_overlay = false;
-        self.workspace.chrome_ui.show_settings_overlay = false;
-        self.workspace.chrome_ui.show_command_palette = false;
-        self.workspace.chrome_ui.show_context_palette = false;
-        self.workspace.chrome_ui.command_palette_contextual_mode = false;
-        self.workspace.chrome_ui.show_radial_menu = false;
-        self.close_clip_inspector();
+        self.close_modal_surfaces_except(Some(ModalSurface::HelpPanel));
         self.set_pending_node_context_target(None);
         if !was_open {
             self.emit_focus_capture_enter();
@@ -181,12 +269,7 @@ impl GraphBrowserApp {
             return;
         }
         self.workspace.chrome_ui.show_help_panel = false;
-        if !self.workspace.chrome_ui.show_command_palette
-            && !self.workspace.chrome_ui.show_context_palette
-            && !self.workspace.chrome_ui.show_radial_menu
-            && !self.workspace.chrome_ui.show_scene_overlay
-            && !self.workspace.chrome_ui.show_settings_overlay
-        {
+        if !self.any_other_focus_capturing_modal_open(ModalSurface::HelpPanel) {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();
@@ -205,14 +288,7 @@ impl GraphBrowserApp {
                     .map(ToolSurfaceReturnTarget::Graph),
             );
         }
-        self.workspace.chrome_ui.show_settings_overlay = true;
-        self.workspace.chrome_ui.show_scene_overlay = false;
-        self.workspace.chrome_ui.show_help_panel = false;
-        self.workspace.chrome_ui.show_command_palette = false;
-        self.workspace.chrome_ui.show_context_palette = false;
-        self.workspace.chrome_ui.command_palette_contextual_mode = false;
-        self.workspace.chrome_ui.show_radial_menu = false;
-        self.close_clip_inspector();
+        self.close_modal_surfaces_except(Some(ModalSurface::SettingsOverlay));
         self.set_pending_node_context_target(None);
         if !was_open {
             self.emit_focus_capture_enter();
@@ -225,12 +301,7 @@ impl GraphBrowserApp {
             return;
         }
         self.workspace.chrome_ui.show_settings_overlay = false;
-        if !self.workspace.chrome_ui.show_command_palette
-            && !self.workspace.chrome_ui.show_context_palette
-            && !self.workspace.chrome_ui.show_scene_overlay
-            && !self.workspace.chrome_ui.show_help_panel
-            && !self.workspace.chrome_ui.show_radial_menu
-        {
+        if !self.any_other_focus_capturing_modal_open(ModalSurface::SettingsOverlay) {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();
@@ -353,14 +424,8 @@ impl GraphBrowserApp {
 
     pub fn open_radial_menu(&mut self) {
         let was_open = self.workspace.chrome_ui.show_radial_menu;
-        self.workspace.chrome_ui.show_help_panel = false;
-        self.workspace.chrome_ui.show_scene_overlay = false;
-        self.workspace.chrome_ui.show_settings_overlay = false;
-        self.workspace.chrome_ui.show_command_palette = false;
-        self.workspace.chrome_ui.show_context_palette = false;
-        self.workspace.chrome_ui.command_palette_contextual_mode = false;
         self.workspace.chrome_ui.context_palette_anchor = None;
-        self.workspace.chrome_ui.show_radial_menu = true;
+        self.close_modal_surfaces_except(Some(ModalSurface::RadialMenu));
         // If `open_radial(scope, anchor)` already populated the
         // enum, preserve it; otherwise fall back to a scopeless
         // radial (legacy F3 toggle with no explicit target).
@@ -373,7 +438,6 @@ impl GraphBrowserApp {
                 anchor: Anchor::ScreenCenter,
             };
         }
-        self.close_clip_inspector();
         if !was_open {
             self.emit_focus_capture_enter();
             self.emit_ux_navigation_transition();
@@ -388,12 +452,7 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.surface_state = ActionSurfaceState::Closed;
         self.set_pending_node_context_target(None);
         self.set_pending_frame_context_target(None);
-        if !self.workspace.chrome_ui.show_command_palette
-            && !self.workspace.chrome_ui.show_context_palette
-            && !self.workspace.chrome_ui.show_scene_overlay
-            && !self.workspace.chrome_ui.show_help_panel
-            && !self.workspace.chrome_ui.show_settings_overlay
-        {
+        if !self.any_other_focus_capturing_modal_open(ModalSurface::RadialMenu) {
             self.request_restore_transient_surface_focus();
         }
         self.emit_focus_capture_exit();

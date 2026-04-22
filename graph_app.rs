@@ -194,6 +194,7 @@ pub use graph_mutations::{NoteId, NoteRecord};
 
 #[path = "app/ux_navigation.rs"]
 mod ux_navigation;
+pub use ux_navigation::ModalSurface;
 
 #[path = "app/action_surface.rs"]
 pub(crate) mod action_surface;
@@ -205,8 +206,9 @@ mod startup_persistence;
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
 pub use settings_persistence::{
-    DefaultWebViewerBackend, NavigatorSidebarSidePreference, SettingsToolPage, ThemeMode,
-    WorkspaceUserStylesheetSetting, WryRenderModePreference,
+    DefaultWebViewerBackend, FocusRingCurve, FocusRingSettings, NavigatorSidebarSidePreference,
+    SettingsToolPage, ThemeMode, ThumbnailAspect, ThumbnailFilter, ThumbnailFormat,
+    ThumbnailSettings, WorkspaceUserStylesheetSetting, WryRenderModePreference,
 };
 
 #[path = "app/workbench_layout_policy.rs"]
@@ -324,6 +326,22 @@ impl GraphBrowserApp {
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
+    pub const SETTINGS_OMNIBAR_DROPDOWN_MAX_ROWS_NAME: &'static str =
+        "workspace:settings-omnibar-dropdown-max-rows";
+    pub const SETTINGS_TOOLBAR_HEIGHT_DP_NAME: &'static str =
+        "workspace:settings-toolbar-height-dp";
+    pub const SETTINGS_OMNIBAR_PROVIDER_DEBOUNCE_MS_NAME: &'static str =
+        "workspace:settings-omnibar-provider-debounce-ms";
+    pub const SETTINGS_COMMAND_PALETTE_DEFAULT_SCOPE_NAME: &'static str =
+        "workspace:settings-command-palette-default-scope";
+    pub const SETTINGS_COMMAND_PALETTE_MAX_PER_CATEGORY_NAME: &'static str =
+        "workspace:settings-command-palette-max-per-category";
+    pub const SETTINGS_COMMAND_PALETTE_RECENTS_DEPTH_NAME: &'static str =
+        "workspace:settings-command-palette-recents-depth";
+    pub const SETTINGS_COMMAND_PALETTE_RECENTS_NAME: &'static str =
+        "workspace:settings-command-palette-recents";
+    pub const SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME: &'static str =
+        "workspace:settings-command-palette-tier1-default-category";
     pub const SETTINGS_WRY_ENABLED_NAME: &'static str = "workspace:settings-wry-enabled";
     pub const SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME: &'static str =
         "workspace:settings-webview-preview-active-refresh-secs";
@@ -365,6 +383,28 @@ impl GraphBrowserApp {
     pub const DEFAULT_WARM_CACHE_LIMIT: usize = 12;
     pub const DEFAULT_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS: u64 = 2;
     pub const DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS: u64 = 30;
+    /// Default fixed height of the top chrome command bar in device-
+    /// independent pixels. Previously hardcoded in `toolbar_ui::TOOLBAR_HEIGHT`;
+    /// exposed as a setting in M4 so users can increase the target for
+    /// accessibility or shrink it for dense layouts.
+    pub const DEFAULT_TOOLBAR_HEIGHT_DP: f32 = 40.0;
+    /// Default maximum number of omnibar dropdown rows shown before
+    /// scrolling / truncation. Previously hardcoded in
+    /// `toolbar_ui::OMNIBAR_DROPDOWN_MAX_ROWS`; exposed as a setting in
+    /// M4 so high-resolution users can widen and laptop users can shrink.
+    pub const DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS: usize = 8;
+    /// Default debounce window for external search-provider suggestion
+    /// requests (DuckDuckGo / Bing / Google), in milliseconds. Larger
+    /// values reduce request volume at the cost of snappiness; smaller
+    /// values feel instant but issue more requests. Previously
+    /// hardcoded in `toolbar_ui::OMNIBAR_PROVIDER_DEBOUNCE_MS`.
+    pub const DEFAULT_OMNIBAR_PROVIDER_DEBOUNCE_MS: u64 = 140;
+    /// Default soft cap on command-palette search result rows per
+    /// category. `0` disables the cap.
+    pub const DEFAULT_COMMAND_PALETTE_MAX_PER_CATEGORY: usize = 12;
+    /// Default depth of the command-palette recents ring. `0`
+    /// disables the "Recent" section entirely.
+    pub const DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH: usize = 8;
     pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
     // DEFAULT_CAMERA_PAN_INERTIA_{ENABLED,DAMPING} removed 2026-04-20 —
     // the workspace-global inertia fields they initialized were zombie
@@ -545,6 +585,17 @@ impl GraphBrowserApp {
                     lasso_binding_preference: CanvasLassoBinding::RightDrag,
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                    omnibar_dropdown_max_rows: Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS,
+                    toolbar_height_dp: Self::DEFAULT_TOOLBAR_HEIGHT_DP,
+                    omnibar_provider_debounce_ms: Self::DEFAULT_OMNIBAR_PROVIDER_DEBOUNCE_MS,
+                    command_palette_default_scope:
+                        crate::shell::desktop::ui::command_palette_state::SearchPaletteScope::Workbench,
+                    command_palette_max_per_category:
+                        Self::DEFAULT_COMMAND_PALETTE_MAX_PER_CATEGORY,
+                    command_palette_recents: Vec::new(),
+                    command_palette_recents_depth:
+                        Self::DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH,
+                    command_palette_tier1_default_category: None,
                     wry_enabled: true,
                     default_web_viewer_backend: DefaultWebViewerBackend::Servo,
                     wry_render_mode_preference: WryRenderModePreference::Auto,
@@ -563,6 +614,8 @@ impl GraphBrowserApp {
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
+                    focus_ring_settings: settings_persistence::FocusRingSettings::default(),
+                    thumbnail_settings: settings_persistence::ThumbnailSettings::default(),
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
@@ -732,6 +785,17 @@ impl GraphBrowserApp {
                     lasso_binding_preference: CanvasLassoBinding::RightDrag,
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                    omnibar_dropdown_max_rows: Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS,
+                    toolbar_height_dp: Self::DEFAULT_TOOLBAR_HEIGHT_DP,
+                    omnibar_provider_debounce_ms: Self::DEFAULT_OMNIBAR_PROVIDER_DEBOUNCE_MS,
+                    command_palette_default_scope:
+                        crate::shell::desktop::ui::command_palette_state::SearchPaletteScope::Workbench,
+                    command_palette_max_per_category:
+                        Self::DEFAULT_COMMAND_PALETTE_MAX_PER_CATEGORY,
+                    command_palette_recents: Vec::new(),
+                    command_palette_recents_depth:
+                        Self::DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH,
+                    command_palette_tier1_default_category: None,
                     wry_enabled: true,
                     default_web_viewer_backend: DefaultWebViewerBackend::Servo,
                     wry_render_mode_preference: WryRenderModePreference::Auto,
@@ -749,6 +813,8 @@ impl GraphBrowserApp {
                     workbench_display_mode: WorkbenchDisplayMode::Split,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: false,
+                    focus_ring_settings: settings_persistence::FocusRingSettings::default(),
+                    thumbnail_settings: settings_persistence::ThumbnailSettings::default(),
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,

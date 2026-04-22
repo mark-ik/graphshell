@@ -38,16 +38,12 @@ impl EguiHost {
             favicon_textures,
             viewer_surfaces,
             tile_favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
+            thumbnail_channel,
             thumbnail_capture_in_flight,
             webview_creation_backpressure,
             app_state,
-            graph_search_open,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
+            mut graph_search,
+            mut command_authority,
             focus_authority,
             focused_node_hint,
             graph_surface_focused,
@@ -55,7 +51,6 @@ impl EguiHost {
             focus_ring_started_at,
             focus_ring_duration,
             omnibar_search_session,
-            command_palette_toggle_requested,
             pending_webview_context_surface_requests,
             bookmark_import_dialog,
             rendering_context,
@@ -78,10 +73,9 @@ impl EguiHost {
                 state,
                 window,
                 favicon_textures,
-                thumbnail_capture_tx,
-                thumbnail_capture_rx,
+                thumbnail_channel,
                 thumbnail_capture_in_flight,
-                command_palette_toggle_requested,
+                command_authority: command_authority.reborrow(),
                 control_panel,
             });
 
@@ -95,11 +89,7 @@ impl EguiHost {
                 window,
                 tiles_tree,
                 graph_surface_focused,
-                graph_search_open,
-                graph_search_query,
-                graph_search_filter_mode,
-                graph_search_matches,
-                graph_search_active_match_index,
+                graph_search: graph_search.reborrow(),
                 focus_authority,
                 toolbar_state,
                 viewer_surfaces,
@@ -125,7 +115,7 @@ impl EguiHost {
             tiles_tree,
             graph_tree,
             focused_node_hint: *focused_node_hint,
-            graph_surface_focused: *graph_surface_focused,
+            graph_surface_focused,
             focus_authority,
             toolbar_state,
             clear_data_confirm_deadline_secs,
@@ -139,11 +129,7 @@ impl EguiHost {
             window_rendering_context,
             responsive_webviews: &pre_frame.responsive_webviews,
             webview_creation_backpressure,
-            graph_search_open,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
+            graph_search: graph_search.reborrow(),
             graph_search_output: &mut graph_search_output,
             frame_intents: &mut frame_intents,
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
@@ -157,6 +143,20 @@ impl EguiHost {
         )
         .overlay_active();
 
+        // M4.1 slice 1c: assemble the host-facing focus mutation bundle
+        // after phases 1–3 have settled `graph_surface_focused`. The
+        // downstream render/post-render path takes ownership of this
+        // handle and calls named methods (`clear_hint`, `set_hint`,
+        // `latch_ring`, …) instead of touching individual runtime
+        // fields. Upstream phases still consume individual refs because
+        // each phase only touches a subset.
+        let focus = crate::shell::desktop::ui::gui_state::FocusAuthorityMut {
+            focused_node_hint,
+            graph_surface_focused,
+            focus_ring_node_key,
+            focus_ring_started_at,
+            focus_ring_duration,
+        };
         Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
             ctx,
             ui_render_backend,
@@ -176,16 +176,10 @@ impl EguiHost {
             window_rendering_context,
             webview_creation_backpressure,
             focus_authority,
-            focused_node_hint,
-            graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
+            focus,
             pending_webview_context_surface_requests,
-            graph_search_query,
-            graph_search_matches,
-            graph_search_active_match_index,
-            graph_search_filter_mode,
+            graph_search: graph_search.reborrow(),
+            command_authority: command_authority.reborrow(),
             toasts,
             registry_runtime,
             control_panel,
@@ -244,11 +238,7 @@ impl EguiHost {
             window,
             tiles_tree,
             graph_surface_focused,
-            graph_search_open,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
+            graph_search,
             focus_authority,
             toolbar_state,
             viewer_surfaces,
@@ -261,6 +251,18 @@ impl EguiHost {
             webview_creation_backpressure,
             frame_intents,
         } = args;
+
+        // Destructure the bundle into the raw refs that
+        // `gui_orchestration::run_graph_search_phase` still consumes.
+        // The bundle is the host-facing shape; the five refs are the
+        // widget-orchestration shape.
+        let GraphSearchAuthorityMut {
+            open: graph_search_open,
+            query: graph_search_query,
+            filter_mode: graph_search_filter_mode,
+            matches: graph_search_matches,
+            active_match_index: graph_search_active_match_index,
+        } = graph_search;
 
         let graph_search_output = gui_orchestration::run_graph_search_phase(
             ctx,
@@ -280,7 +282,7 @@ impl EguiHost {
         gui_orchestration::run_keyboard_phase(
             ctx,
             graph_app,
-            *graph_surface_focused,
+            graph_surface_focused,
             window,
             tiles_tree,
             viewer_surfaces,
@@ -325,15 +327,19 @@ impl EguiHost {
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
-            graph_search_open,
-            graph_search_query,
-            graph_search_filter_mode,
-            graph_search_matches,
-            graph_search_active_match_index,
+            graph_search,
             graph_search_output,
             frame_intents,
             open_node_tile_after_intents,
         } = args;
+
+        let GraphSearchAuthorityMut {
+            open: graph_search_open,
+            query: graph_search_query,
+            filter_mode: graph_search_filter_mode,
+            matches: graph_search_matches,
+            active_match_index: graph_search_active_match_index,
+        } = graph_search;
 
         let mut local_widget_focus = focus_authority.local_widget_focus.clone();
 

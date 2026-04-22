@@ -11,6 +11,7 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
+use crate::shell::desktop::ui::gui_state::ToolbarEditable;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
@@ -36,8 +37,7 @@ pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(crate) frame_intents: &'a mut Vec<GraphIntent>,
-    pub(crate) location_dirty: &'a mut bool,
-    pub(crate) location_submitted: &'a mut bool,
+    pub(crate) editable: &'a mut ToolbarEditable,
     pub(crate) show_clear_data_confirm: &'a mut bool,
     pub(crate) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
@@ -60,8 +60,8 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
                     args.favicon_textures,
                 );
                 args.graph_app.clear_graph_and_persistence();
-                *args.location_dirty = false;
-                *args.location_submitted = false;
+                args.editable.location_dirty = false;
+                args.editable.location_submitted = false;
                 *args.clear_data_confirm_deadline_secs = None;
                 args.toasts.success(CLEAR_DATA_CONFIRM_SUCCESS_TEXT);
             }

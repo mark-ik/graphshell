@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[cfg(feature = "diagnostics")]
 use egui_tiles::TileId;
@@ -63,12 +63,13 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub responsive_webviews: &'a HashSet<WebViewId>,
     pub webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub focused_node_hint: &'a mut Option<NodeKey>,
-    pub graph_surface_focused: bool,
+    /// Focus mutation bundle — replaces the former per-field
+    /// `focused_node_hint` / `focus_ring_node_key` / `focus_ring_started_at` /
+    /// `focus_ring_duration` members. M4.1 slice 1b encapsulates focus
+    /// mutations behind this handle; see
+    /// [`FocusAuthorityMut`](crate::shell::desktop::ui::gui_state::FocusAuthorityMut).
+    pub focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
     pub suppress_runtime_side_effects: bool,
-    pub focus_ring_node_key: &'a mut Option<NodeKey>,
-    pub focus_ring_started_at: &'a mut Option<Instant>,
-    pub focus_ring_duration: Duration,
     pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     #[cfg(feature = "diagnostics")]
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -247,12 +248,8 @@ pub(crate) fn run_tile_render_pass_in_ui(
         window_rendering_context,
         responsive_webviews,
         webview_creation_backpressure,
-        focused_node_hint,
-        graph_surface_focused,
+        mut focus,
         suppress_runtime_side_effects,
-        focus_ring_node_key,
-        focus_ring_started_at,
-        focus_ring_duration,
         control_panel,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
@@ -262,7 +259,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
     #[cfg(feature = "diagnostics")]
     let render_pass_started = Instant::now();
     #[cfg(feature = "diagnostics")]
-    let focused_node_hint_before = *focused_node_hint;
+    let focused_node_hint_before = focus.hint();
 
     let available_rect = ui.max_rect();
 
@@ -373,12 +370,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
             // GraphTree consistent without the removed per-frame sync.
             super::graph_tree_commands::dismiss_node(graph_tree, node_key);
 
-            if *focused_node_hint == Some(node_key) {
+            if focus.clear_hint_if_matches(node_key) {
                 log::debug!(
                     "tile_render_pass: clearing focused_node_hint for closed node {:?}",
                     node_key
                 );
-                *focused_node_hint = None;
             }
             log::debug!(
                 "tile_render_pass: releasing runtime for closed node {:?}",
@@ -394,12 +390,11 @@ pub(crate) fn run_tile_render_pass_in_ui(
         }
 
         for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
-            if *focused_node_hint == Some(node_key) {
+            if focus.clear_hint_if_matches(node_key) {
                 log::debug!(
                     "tile_render_pass: clearing focused_node_hint for unmapped node {:?}",
                     node_key
                 );
-                *focused_node_hint = None;
             }
             log::debug!(
                 "tile_render_pass: releasing mapped runtime without tile for node {:?}",
@@ -610,13 +605,17 @@ pub(crate) fn run_tile_render_pass_in_ui(
         }
     }
 
-    let focused_node_pane = if graph_surface_focused {
-        *focused_node_hint = None;
+    let focused_node_pane = if focus.graph_surface_focused() {
+        focus.clear_hint();
         None
     } else {
-        tile_compositor::activate_focused_node_for_frame(window, graph_app, focused_node_hint);
+        tile_compositor::activate_focused_node_for_frame(
+            window,
+            graph_app,
+            focus.focused_node_hint,
+        );
 
-        if let Some(node_key) = *focused_node_hint
+        if let Some(node_key) = focus.hint()
             && graph_app.get_webview_for_node(node_key).is_none()
         {
             ctx.request_repaint();
@@ -648,7 +647,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 pane_id: *pane_id,
                 node_key: *node_key,
             });
-        *focused_node_hint = focused_node_pane.map(|pane| pane.node_key);
+        focus.set_hint(focused_node_pane.map(|pane| pane.node_key));
         focused_node_pane
     };
 
@@ -691,23 +690,34 @@ pub(crate) fn run_tile_render_pass_in_ui(
     }
 
     #[cfg(feature = "diagnostics")]
-    emit_navigation_transition_when_focus_hint_changes(
-        focused_node_hint_before,
-        *focused_node_hint,
-    );
+    emit_navigation_transition_when_focus_hint_changes(focused_node_hint_before, focus.hint());
     let focus_delta = tile_compositor::FocusDelta::new(focused_node_hint_before, focused_node_key);
-    latch_focus_ring_transition(focus_delta, focus_ring_node_key, focus_ring_started_at);
+    focus.latch_ring(focus_delta.changed_this_frame, focus_delta.new_focused_node);
 
-    let focus_ring_alpha = if *focus_ring_node_key == focused_node_key {
-        focus_ring_started_at
-            .as_ref()
-            .map(|started| {
-                let elapsed = started.elapsed();
-                if elapsed >= focus_ring_duration {
-                    0.0
-                } else {
-                    1.0 - (elapsed.as_secs_f32() / focus_ring_duration.as_secs_f32())
-                }
+    // Delegate alpha derivation to the host-neutral helper on
+    // `FocusRingSpec` so egui (here) and iced share the same
+    // animation math. `project_view_model` uses the same path at
+    // its population site. Both source fade duration from
+    // `chrome_ui.focus_ring_settings` so the user-chosen value
+    // wins over the legacy `runtime.focus_ring_duration` field.
+    let focus_ring_settings = graph_app.workspace.chrome_ui.focus_ring_settings;
+    let focus_ring_alpha = if focus_ring_settings.enabled {
+        (*focus.focus_ring_node_key)
+            .and_then(|node_key| {
+                (*focus.focus_ring_started_at).map(|started_at| {
+                    crate::shell::desktop::ui::frame_model::FocusRingSpec {
+                        node_key,
+                        started_at,
+                        duration: focus_ring_settings.duration(),
+                    }
+                })
+            })
+            .map(|spec| {
+                spec.alpha_at_with_curve(
+                    focused_node_key,
+                    Instant::now(),
+                    focus_ring_settings.curve,
+                )
             })
             .unwrap_or(0.0)
     } else {
@@ -887,19 +897,6 @@ pub(crate) fn run_tile_render_pass_in_ui(
     );
 
     post_render_intents
-}
-
-fn latch_focus_ring_transition(
-    focus_delta: tile_compositor::FocusDelta,
-    focus_ring_node_key: &mut Option<NodeKey>,
-    focus_ring_started_at: &mut Option<Instant>,
-) {
-    if !focus_delta.changed_this_frame {
-        return;
-    }
-
-    *focus_ring_node_key = focus_delta.new_focused_node;
-    *focus_ring_started_at = focus_delta.new_focused_node.map(|_| Instant::now());
 }
 
 fn open_mode_from_pending(mode: PendingOpenMode) -> TileOpenMode {

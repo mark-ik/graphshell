@@ -19,21 +19,19 @@
 //! `HostPorts` are in place. Today the runtime still mutates shell state
 //! directly; these types are the migration target.
 //!
-//! ## Residual egui leaks
-//!
-//! `egui::Rect`, `egui::Pos2`, and `egui::Vec2` appear in several fields
-//! because the data they describe (tile rects, pointer position, viewport
-//! size) currently originates from egui primitives. The M3.5 doc flags this
-//! as a "cosmetic leak" to be cleaned up in a follow-on pass; iced could
-//! implement these ports against the same types via simple conversions, so
-//! the leak does not block a second host.
+//! Post-M3.6, the boundary vocabulary uses portable types (`PortableRect`,
+//! `PortablePoint`, `PortableSize` from `compositor_adapter`) rather than
+//! `egui::*`. Egui hosts convert at population sites
+//! (`gui.rs::build_frame_host_input`, `gui_state.rs::project_view_model`);
+//! iced hosts consume portable types directly.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::gui_state::ToolbarDraft;
-use crate::shell::desktop::workbench::compositor_adapter::OverlayStrokePass;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    OverlayStrokePass, PortablePoint, PortableRect, PortableSize,
+};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use graph_tree::{OwnedTreeRow, SplitBoundary, TabEntry};
@@ -49,13 +47,32 @@ use servo::LoadStatus;
 /// rasterize, lay out, or cache derived quantities, but must not mutate the
 /// model — any feedback flows back through `HostPorts` / [`FrameHostInput`].
 ///
-/// (No `Debug` derive because `OverlayStrokePass` contains non-Debug types
-/// like `egui::Stroke` today. Once the overlay descriptors are cleaned up of
-/// residual egui types, this can gain `Debug`.)
+/// (No `Debug` derive because `OverlayStrokePass` transitively contains
+/// non-Debug types — e.g., `OverlayAffordanceStyle` which derives only
+/// `Clone, Copy`. Can be revisited independently of the M3.6 type cleanup.)
 #[derive(Clone, Default)]
 pub(crate) struct FrameViewModel {
-    /// Visible panes with their screen rects, in stable iteration order.
-    pub(crate) active_pane_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
+    /// Visible panes with their screen rects (portable units), in stable
+    /// iteration order.
+    pub(crate) active_pane_rects: Vec<(PaneId, NodeKey, PortableRect)>,
+
+    /// PaneId → TileRenderMode mapping, refreshed per frame alongside
+    /// `active_pane_rects`. Mirrors `graph_runtime.pane_render_modes`
+    /// for hosts that can't read `graph_app.workspace.graph_runtime`
+    /// directly (iced). Previously host code reached through the
+    /// compositor which scraped tiles directly; this projection makes
+    /// the map a proper view-model citizen.
+    pub(crate) pane_render_modes: std::collections::HashMap<
+        PaneId,
+        crate::shell::desktop::workbench::pane_model::TileRenderMode,
+    >,
+
+    /// PaneId → viewer-ID mapping, refreshed per frame alongside
+    /// `active_pane_rects`. Resolves to the string identifier of the
+    /// viewer implementation a pane is currently hosting (e.g.,
+    /// "servo", "wry:…"). Consumed by compositor semantic-input
+    /// resolution.
+    pub(crate) pane_viewer_ids: std::collections::HashMap<PaneId, String>,
 
     /// GraphTree rows for sidebar / navigator rendering.
     pub(crate) tree_rows: Vec<OwnedTreeRow<NodeKey>>,
@@ -75,6 +92,16 @@ pub(crate) struct FrameViewModel {
     /// Toolbar / location bar state.
     pub(crate) toolbar: ToolbarViewModel,
 
+    /// Omnibar search session projection. `None` when no session is
+    /// active (user is not in an `@`-prefixed or search-provider query).
+    pub(crate) omnibar: Option<OmnibarViewModel>,
+
+    /// Graph-search (Ctrl+G) panel state projection.
+    pub(crate) graph_search: GraphSearchViewModel,
+
+    /// Command-palette (F2 / Ctrl+K) session projection.
+    pub(crate) command_palette: CommandPaletteViewModel,
+
     /// Overlay descriptors the host must paint this frame
     /// (focus rings, selection strokes, lens glyphs, etc.).
     pub(crate) overlays: Vec<OverlayStrokePass>,
@@ -93,6 +120,14 @@ pub(crate) struct FrameViewModel {
     /// UX-visible degraded-mode receipts the host should render as chrome
     /// (e.g., "content viewer is in degraded mode").
     pub(crate) degraded_receipts: Vec<DegradedReceiptSpec>,
+
+    /// Number of webview thumbnail captures currently pending async
+    /// completion. Hosts can gate a "capture in progress" spinner /
+    /// dim overlay on `captures_in_flight > 0`. The set of
+    /// `WebViewId`s itself is not projected — consumers only need the
+    /// count; the set stays on `GraphshellRuntime` as the mutation
+    /// target.
+    pub(crate) captures_in_flight: usize,
 }
 
 /// Aggregate focus state exposed to the host.
@@ -107,6 +142,12 @@ pub(crate) struct FocusViewModel {
 
     /// Active focus-ring animation, if any.
     pub(crate) focus_ring: Option<FocusRingSpec>,
+
+    /// Focus-ring paint alpha for the current focused node at projection time
+    /// (0.0 when no ring applies; 1.0→0.0 linear fade-out while the ring
+    /// animation is live). Hosts paint the ring proportional to this value
+    /// without having to read `started_at`/`duration` and re-derive the math.
+    pub(crate) focus_ring_alpha: f32,
 }
 
 /// Focus-ring animation state the host renders over a node pane.
@@ -115,6 +156,54 @@ pub(crate) struct FocusRingSpec {
     pub(crate) node_key: NodeKey,
     pub(crate) started_at: Instant,
     pub(crate) duration: Duration,
+}
+
+impl FocusRingSpec {
+    /// Paint alpha at `now` for a given currently-focused node using the
+    /// default linear curve. Returns 0.0 when the ring does not apply
+    /// (different node, or animation elapsed); otherwise a linear
+    /// fade-out from 1.0 to 0.0 across `duration`.
+    ///
+    /// Thin wrapper over [`Self::alpha_at_with_curve`] with
+    /// [`FocusRingCurve::Linear`] — preserves the M4.1 slice-1a contract
+    /// pinned by existing unit tests.
+    pub(crate) fn alpha_at(&self, focused_node_key: Option<NodeKey>, now: Instant) -> f32 {
+        self.alpha_at_with_curve(
+            focused_node_key,
+            now,
+            crate::app::FocusRingCurve::Linear,
+        )
+    }
+
+    /// Paint alpha at `now` with the supplied fade reshape. Same gating
+    /// semantics as [`Self::alpha_at`] — returns 0.0 when the ring
+    /// doesn't apply to `focused_node_key` or when the animation has
+    /// elapsed — but the in-window alpha is piped through
+    /// [`FocusRingCurve::alpha_from_progress`] so callers can honor user
+    /// preference (linear, ease-out, step).
+    pub(crate) fn alpha_at_with_curve(
+        &self,
+        focused_node_key: Option<NodeKey>,
+        now: Instant,
+        curve: crate::app::FocusRingCurve,
+    ) -> f32 {
+        if Some(self.node_key) != focused_node_key {
+            return 0.0;
+        }
+        if self.duration.is_zero() {
+            // Avoid a division-by-zero when the user has configured an
+            // instant-off ring (`duration_ms = 0`). Step-like behavior.
+            return 0.0;
+        }
+        let elapsed = now
+            .checked_duration_since(self.started_at)
+            .unwrap_or_default();
+        if elapsed >= self.duration {
+            return 0.0;
+        }
+        let progress = elapsed.as_secs_f32() / self.duration.as_secs_f32();
+        curve.alpha_from_progress(progress)
+    }
 }
 
 /// Toolbar / location-bar projection for the host.
@@ -127,11 +216,99 @@ pub(crate) struct ToolbarViewModel {
     pub(crate) status_text: Option<String>,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
-    /// Per-pane location-bar drafts. The host uses these to populate the
-    /// input widget when the active pane changes. The draft type is shared
-    /// with the runtime's live bookkeeping (see `GraphshellRuntime::toolbar_drafts`);
-    /// hosts treat the values as read-only.
-    pub(crate) per_pane_drafts: HashMap<PaneId, ToolbarDraft>,
+    /// Draft snapshot for the currently active pane, if one has been
+    /// captured. The runtime already restores this draft into
+    /// `location`/`location_dirty`/`location_submitted` on pane switch,
+    /// so hosts rarely need to consume the draft directly — it is
+    /// exposed here so iced can render per-pane indicators (e.g., a
+    /// "draft pending" dot on tab chrome) without reaching into the
+    /// runtime's `toolbar_drafts` map. Previously projected as a full
+    /// `HashMap<PaneId, ToolbarDraft>` clone every frame; narrowed in
+    /// M4 because no host consumed the full map.
+    pub(crate) active_pane_draft: Option<(PaneId, ToolbarDraft)>,
+}
+
+/// Omnibar search session projection.
+///
+/// Captures the state the host must paint this frame when the omnibar is
+/// active: query text, current match slate, active-match cursor, and
+/// provider-suggestion status. Mutation flows through
+/// `ToolbarAuthorityMut::omnibar_session_mut`; this is the read-only
+/// snapshot hosts project off without touching runtime state.
+#[derive(Debug, Clone)]
+pub(crate) struct OmnibarViewModel {
+    pub(crate) kind: OmnibarSessionKindView,
+    pub(crate) query: String,
+    pub(crate) match_count: usize,
+    pub(crate) active_match_index: usize,
+    pub(crate) selected_index_count: usize,
+    pub(crate) provider_status: OmnibarProviderStatusView,
+}
+
+/// Host-neutral classification of an omnibar session's origin, so hosts
+/// can render different badges for graph navigation vs. external search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OmnibarSessionKindView {
+    /// Graph-scoped navigation session (node/tab/edge match modes).
+    Graph,
+    /// External search-provider session (DuckDuckGo, Bing, Google).
+    SearchProvider,
+}
+
+/// Host-neutral projection of the provider suggestion mailbox status.
+/// Mirrors `omnibar_state::ProviderSuggestionStatus` without the
+/// host-specific string formatting that `provider_status_label` applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OmnibarProviderStatusView {
+    Idle,
+    Loading,
+    Ready,
+    FailedNetwork,
+    FailedHttp(u16),
+    FailedParse,
+}
+
+/// Graph-search panel (Ctrl+G) projection.
+///
+/// Mirrors the five `graph_search_*` fields on `GraphshellRuntime` as a
+/// read-only snapshot. Mutation flows through
+/// `GraphSearchAuthorityMut`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GraphSearchViewModel {
+    pub(crate) open: bool,
+    pub(crate) query: String,
+    pub(crate) filter_mode: bool,
+    pub(crate) match_count: usize,
+    pub(crate) active_match_index: Option<usize>,
+}
+
+/// Command-palette projection.
+///
+/// Mirrors the open flag + `CommandPaletteSession` fields the host needs
+/// to render the palette shell (chrome framing, focus badge, etc.). The
+/// match list is not projected — it's computed per-frame from the
+/// action registry inside the widget; projecting it would just be a
+/// duplicate allocation.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CommandPaletteViewModel {
+    pub(crate) open: bool,
+    pub(crate) contextual_mode: bool,
+    pub(crate) query: String,
+    pub(crate) scope: CommandPaletteScopeView,
+    pub(crate) selected_index: Option<usize>,
+    pub(crate) toggle_requested: bool,
+}
+
+/// Host-neutral projection of `SearchPaletteScope`. Distinct from the
+/// runtime enum so future scope variants don't propagate into the
+/// view-model without deliberate wiring.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum CommandPaletteScopeView {
+    CurrentTarget,
+    ActivePane,
+    ActiveGraph,
+    #[default]
+    Workbench,
 }
 
 /// Which dialogs / overlays are open. Flags for booleans; detailed state for
@@ -201,10 +378,10 @@ pub(crate) struct FrameHostInput {
     pub(crate) events: Vec<HostEvent>,
 
     /// Current pointer hover position in screen coordinates (if any).
-    pub(crate) pointer_hover: Option<egui::Pos2>,
+    pub(crate) pointer_hover: Option<PortablePoint>,
 
     /// Current viewport size.
-    pub(crate) viewport_size: egui::Vec2,
+    pub(crate) viewport_size: PortableSize,
 
     /// Whether a host-owned widget currently wants keyboard input
     /// (affects whether the runtime routes keyboard events to content).
@@ -221,4 +398,139 @@ pub(crate) struct FrameHostInput {
     /// timing. Populated even when `events` is still empty during the
     /// partial event-translation migration.
     pub(crate) had_input_events: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FocusRingSpec;
+    use crate::graph::NodeKey;
+    use std::time::{Duration, Instant};
+
+    fn spec(node: NodeKey, started: Instant, duration_ms: u64) -> FocusRingSpec {
+        FocusRingSpec {
+            node_key: node,
+            started_at: started,
+            duration: Duration::from_millis(duration_ms),
+        }
+    }
+
+    #[test]
+    fn alpha_is_zero_when_focused_node_differs() {
+        let now = Instant::now();
+        let s = spec(NodeKey::new(1), now, 500);
+        assert_eq!(s.alpha_at(Some(NodeKey::new(2)), now), 0.0);
+        assert_eq!(s.alpha_at(None, now), 0.0);
+    }
+
+    #[test]
+    fn alpha_is_full_at_start_and_zero_past_duration() {
+        let start = Instant::now();
+        let s = spec(NodeKey::new(7), start, 500);
+        // Exactly at start -> full intensity.
+        assert!((s.alpha_at(Some(NodeKey::new(7)), start) - 1.0).abs() < 1e-6);
+        // After duration -> clamped to zero.
+        let past = start + Duration::from_millis(600);
+        assert_eq!(s.alpha_at(Some(NodeKey::new(7)), past), 0.0);
+    }
+
+    #[test]
+    fn alpha_fades_linearly_through_duration() {
+        let start = Instant::now();
+        let s = spec(NodeKey::new(3), start, 1000);
+        let half = start + Duration::from_millis(500);
+        let alpha = s.alpha_at(Some(NodeKey::new(3)), half);
+        assert!(
+            (alpha - 0.5).abs() < 1e-3,
+            "expected ~0.5 at half duration, got {alpha}"
+        );
+    }
+
+    #[test]
+    fn alpha_is_zero_for_clock_before_start() {
+        // Defensive: `now` earlier than `started_at` (can happen with
+        // fake/test clocks). Should not panic and should return 0.0.
+        let start = Instant::now();
+        let earlier = start - Duration::from_millis(50);
+        let s = spec(NodeKey::new(9), start, 500);
+        // checked_duration_since returns None for earlier < start, so elapsed
+        // collapses to Duration::default() (zero) -> full alpha, which is
+        // the defensible behavior (the ring is "fresh"). The important
+        // guarantee is that it does not panic.
+        let alpha = s.alpha_at(Some(NodeKey::new(9)), earlier);
+        assert!((0.0..=1.0).contains(&alpha), "alpha out of range: {alpha}");
+    }
+
+    #[test]
+    fn zero_duration_settings_produce_zero_alpha_even_mid_animation() {
+        // Users who configure `duration_ms = 0` for an instant-off
+        // ring must not trigger a division-by-zero in the progress
+        // calculation. `alpha_at_with_curve` returns 0.0 up-front for
+        // the degenerate duration.
+        let start = Instant::now();
+        let s = FocusRingSpec {
+            node_key: NodeKey::new(1),
+            started_at: start,
+            duration: Duration::from_millis(0),
+        };
+        assert_eq!(
+            s.alpha_at_with_curve(
+                Some(NodeKey::new(1)),
+                start,
+                crate::app::FocusRingCurve::Linear,
+            ),
+            0.0
+        );
+    }
+
+    #[test]
+    fn ease_out_curve_reshapes_alpha_toward_zero_faster_than_linear() {
+        // At the midpoint, EaseOut (alpha = (1-p)^2 = 0.25) drops
+        // alpha further than Linear (alpha = 1-p = 0.5). Pinning this
+        // relationship so future tweaks to the curve math don't
+        // silently invert it.
+        let start = Instant::now();
+        let s = spec(NodeKey::new(3), start, 1000);
+        let half = start + Duration::from_millis(500);
+        let linear = s.alpha_at_with_curve(
+            Some(NodeKey::new(3)),
+            half,
+            crate::app::FocusRingCurve::Linear,
+        );
+        let ease_out = s.alpha_at_with_curve(
+            Some(NodeKey::new(3)),
+            half,
+            crate::app::FocusRingCurve::EaseOut,
+        );
+        assert!(
+            ease_out < linear,
+            "expected ease_out ({ease_out}) < linear ({linear}) at midpoint"
+        );
+        assert!((ease_out - 0.25).abs() < 1e-3, "expected ~0.25, got {ease_out}");
+    }
+
+    #[test]
+    fn step_curve_is_on_then_off_with_no_fade() {
+        // Step curve should stay at full alpha for the entire duration,
+        // then snap to zero at/after expiry.
+        let start = Instant::now();
+        let s = spec(NodeKey::new(5), start, 500);
+        let mid = start + Duration::from_millis(250);
+        let past = start + Duration::from_millis(600);
+        assert_eq!(
+            s.alpha_at_with_curve(
+                Some(NodeKey::new(5)),
+                mid,
+                crate::app::FocusRingCurve::Step,
+            ),
+            1.0
+        );
+        assert_eq!(
+            s.alpha_at_with_curve(
+                Some(NodeKey::new(5)),
+                past,
+                crate::app::FocusRingCurve::Step,
+            ),
+            0.0
+        );
+    }
 }

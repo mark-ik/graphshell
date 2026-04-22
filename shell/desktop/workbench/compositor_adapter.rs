@@ -75,6 +75,79 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use dpi::PhysicalSize;
 use egui::{Area, Context, Id, LayerId, Order, Rect as EguiRect, Stroke, StrokeKind};
+
+/// Portable rect type for overlay/content descriptor surfaces. Chosen to
+/// match the `graph-canvas` packet vocabulary so host-neutral descriptors
+/// can flow through the compositor without egui leakage.
+pub(crate) type PortableRect = euclid::default::Rect<f32>;
+
+/// Portable point type for host-boundary pointer / position values.
+pub(crate) type PortablePoint = euclid::default::Point2D<f32>;
+
+/// Portable size type for host-boundary viewport / bounds values.
+pub(crate) type PortableSize = euclid::default::Size2D<f32>;
+
+#[inline]
+pub(crate) fn portable_rect_from_egui(r: EguiRect) -> PortableRect {
+    PortableRect::new(
+        euclid::default::Point2D::new(r.min.x, r.min.y),
+        euclid::default::Size2D::new(r.width(), r.height()),
+    )
+}
+
+#[inline]
+pub(crate) fn egui_rect_from_portable(r: PortableRect) -> EguiRect {
+    EguiRect::from_min_size(
+        egui::pos2(r.origin.x, r.origin.y),
+        egui::vec2(r.size.width, r.size.height),
+    )
+}
+
+#[inline]
+pub(crate) fn portable_point_from_egui(p: egui::Pos2) -> PortablePoint {
+    PortablePoint::new(p.x, p.y)
+}
+
+#[inline]
+pub(crate) fn egui_point_from_portable(p: PortablePoint) -> egui::Pos2 {
+    egui::pos2(p.x, p.y)
+}
+
+#[inline]
+pub(crate) fn portable_size_from_egui(v: egui::Vec2) -> PortableSize {
+    PortableSize::new(v.x, v.y)
+}
+
+#[inline]
+pub(crate) fn egui_size_from_portable(s: PortableSize) -> egui::Vec2 {
+    egui::vec2(s.width, s.height)
+}
+
+#[inline]
+pub(crate) fn portable_stroke_from_egui(s: Stroke) -> graph_canvas::packet::Stroke {
+    graph_canvas::packet::Stroke {
+        width: s.width,
+        color: graph_canvas::packet::Color::new(
+            f32::from(s.color.r()) / 255.0,
+            f32::from(s.color.g()) / 255.0,
+            f32::from(s.color.b()) / 255.0,
+            f32::from(s.color.a()) / 255.0,
+        ),
+    }
+}
+
+#[inline]
+pub(crate) fn egui_stroke_from_portable(s: graph_canvas::packet::Stroke) -> Stroke {
+    Stroke::new(
+        s.width,
+        egui::Color32::from_rgba_premultiplied(
+            (s.color.r * 255.0).round().clamp(0.0, 255.0) as u8,
+            (s.color.g * 255.0).round().clamp(0.0, 255.0) as u8,
+            (s.color.b * 255.0).round().clamp(0.0, 255.0) as u8,
+            (s.color.a * 255.0).round().clamp(0.0, 255.0) as u8,
+        ),
+    )
+}
 use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContextCore, WebView};
@@ -726,12 +799,19 @@ pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
 }
 
+/// Host-neutral overlay-pass descriptor. `tile_rect` and `stroke` carry
+/// portable types (`euclid::default::Rect<f32>` /
+/// `graph_canvas::packet::Stroke`) so this descriptor can flow across the
+/// host boundary without egui leakage. Egui painters convert back at the
+/// draw-call boundary via `egui_rect_from_portable` /
+/// `egui_stroke_from_portable`; iced painters consume the portable types
+/// directly.
 #[derive(Clone)]
 pub(crate) struct OverlayStrokePass {
     pub(crate) node_key: NodeKey,
-    pub(crate) tile_rect: EguiRect,
+    pub(crate) tile_rect: PortableRect,
     pub(crate) rounding: f32,
-    pub(crate) stroke: Stroke,
+    pub(crate) stroke: graph_canvas::packet::Stroke,
     pub(crate) glyph_overlays: Vec<crate::registries::atomic::lens::GlyphOverlay>,
     pub(crate) style: OverlayAffordanceStyle,
     pub(crate) render_mode: TileRenderMode,
@@ -767,42 +847,44 @@ pub(crate) struct EguiOverlayAffordancePainter<'a> {
 
 impl OverlayAffordancePainter for EguiOverlayAffordancePainter<'_> {
     fn paint(&mut self, overlay: &OverlayStrokePass) {
+        let egui_rect = egui_rect_from_portable(overlay.tile_rect);
+        let egui_stroke = egui_stroke_from_portable(overlay.stroke);
         match overlay.style {
             OverlayAffordanceStyle::RectStroke => CompositorAdapter::draw_overlay_stroke(
                 self.ctx,
                 overlay.node_key,
-                overlay.tile_rect,
+                egui_rect,
                 overlay.rounding,
-                overlay.stroke,
+                egui_stroke,
             ),
             OverlayAffordanceStyle::DashedRectStroke => {
                 CompositorAdapter::draw_dashed_overlay_stroke(
                     self.ctx,
                     overlay.node_key,
-                    overlay.tile_rect,
-                    overlay.stroke,
+                    egui_rect,
+                    egui_stroke,
                 )
             }
             OverlayAffordanceStyle::AreaStroke => CompositorAdapter::draw_overlay_stroke_in_area(
                 self.ctx,
                 overlay.node_key,
-                overlay.tile_rect,
+                egui_rect,
                 overlay.rounding,
-                overlay.stroke,
+                egui_stroke,
             ),
             OverlayAffordanceStyle::ChromeOnly => CompositorAdapter::draw_overlay_chrome_markers(
                 self.ctx,
                 overlay.node_key,
-                overlay.tile_rect,
-                overlay.stroke,
+                egui_rect,
+                egui_stroke,
             ),
         }
         CompositorAdapter::draw_overlay_glyphs(
             self.ctx,
             overlay.node_key,
-            overlay.tile_rect,
+            egui_rect,
             &overlay.glyph_overlays,
-            overlay.stroke.color,
+            egui_stroke.color,
             overlay.style,
         );
     }
@@ -827,7 +909,7 @@ pub(crate) trait ContentPassPainter {
     fn register_content_callback_on_layer(
         &mut self,
         node_key: NodeKey,
-        tile_rect: EguiRect,
+        tile_rect: PortableRect,
         callback: BackendCustomPass,
     );
 
@@ -836,7 +918,7 @@ pub(crate) trait ContentPassPainter {
     fn paint_native_content_texture(
         &mut self,
         node_key: NodeKey,
-        tile_rect: EguiRect,
+        tile_rect: PortableRect,
         texture_token: BackendTextureToken,
     );
 }
@@ -845,7 +927,9 @@ pub(crate) trait ContentPassPainter {
 /// existing `CompositorAdapter::register_content_pass` and
 /// `CompositorAdapter::paint_native_content_texture` associated
 /// functions, which remain the implementation detail of the egui host.
-/// An iced implementation mirrors this shape with iced's painting APIs.
+/// Converts portable rects to `EguiRect` at the draw-call boundary. An
+/// iced implementation mirrors this shape with iced's painting APIs,
+/// consuming `PortableRect` directly without conversion.
 pub(crate) struct EguiContentPassPainter<'a> {
     pub(crate) ctx: &'a Context,
 }
@@ -854,22 +938,27 @@ impl ContentPassPainter for EguiContentPassPainter<'_> {
     fn register_content_callback_on_layer(
         &mut self,
         node_key: NodeKey,
-        tile_rect: EguiRect,
+        tile_rect: PortableRect,
         callback: BackendCustomPass,
     ) {
-        CompositorAdapter::register_content_pass(self.ctx, node_key, tile_rect, callback);
+        CompositorAdapter::register_content_pass(
+            self.ctx,
+            node_key,
+            egui_rect_from_portable(tile_rect),
+            callback,
+        );
     }
 
     fn paint_native_content_texture(
         &mut self,
         node_key: NodeKey,
-        tile_rect: EguiRect,
+        tile_rect: PortableRect,
         texture_token: BackendTextureToken,
     ) {
         CompositorAdapter::paint_native_content_texture(
             self.ctx,
             node_key,
-            tile_rect,
+            egui_rect_from_portable(tile_rect),
             texture_token,
         );
     }
@@ -948,20 +1037,34 @@ impl CompositorAdapter {
     /// Compose a webview into an offscreen target and register the guarded
     /// content pass callback against the parent painter.
     ///
-    /// This keeps callback wiring (`render_to_parent`) and guardrails localized
-    /// to the adapter boundary rather than call sites.
-    pub(crate) fn compose_webview_content_pass(
-        ctx: &Context,
+    /// Host-neutral entry point — takes a [`ContentPassPainter`] trait
+    /// object instead of an `egui::Context`. The egui host constructs an
+    /// [`EguiContentPassPainter`] and calls this directly or via
+    /// [`Self::compose_webview_content_pass`]; the future iced host
+    /// constructs its own impl without touching this function.
+    ///
+    /// This keeps callback wiring (`render_to_parent`) and guardrails
+    /// localized to the adapter boundary rather than call sites, and is
+    /// the extraction seam for M3.5 content-pass portability.
+    pub(crate) fn compose_webview_content_pass_with_painter(
+        painter: &mut dyn ContentPassPainter,
         ui_render_backend: &mut UiRenderBackendHandle,
         node_key: NodeKey,
-        tile_rect: EguiRect,
+        tile_rect: PortableRect,
         pixels_per_point: f32,
         render_context: &OffscreenRenderingContext,
         webview: &WebView,
     ) -> CompositedContentPassOutcome {
-        let Some((size, target_size)) =
-            Self::prepare_composited_target(node_key, tile_rect, pixels_per_point, render_context)
-        else {
+        // Internal math (target sizing, webview resize) still uses egui
+        // types today. Convert at the entry boundary once, then pass
+        // portable rects to the host-neutral painter.
+        let egui_tile_rect = egui_rect_from_portable(tile_rect);
+        let Some((size, target_size)) = Self::prepare_composited_target(
+            node_key,
+            egui_tile_rect,
+            pixels_per_point,
+            render_context,
+        ) else {
             return CompositedContentPassOutcome::InvalidTileRect;
         };
 
@@ -977,7 +1080,7 @@ impl CompositorAdapter {
             Self::upsert_native_content_texture(node_key, render_context, ui_render_backend)
         {
             Self::unregister_content_callback(node_key);
-            Self::paint_native_content_texture(ctx, node_key, tile_rect, texture_token);
+            painter.paint_native_content_texture(node_key, tile_rect, texture_token);
             return CompositedContentPassOutcome::Registered;
         }
 
@@ -985,7 +1088,34 @@ impl CompositorAdapter {
             return CompositedContentPassOutcome::MissingContentCallback;
         }
 
-        Self::compose_registered_content_pass(ctx, node_key, tile_rect)
+        Self::compose_registered_content_pass_with_painter(painter, node_key, tile_rect)
+    }
+
+    /// Backwards-compatible egui entry point — constructs an
+    /// [`EguiContentPassPainter`] internally and delegates to
+    /// [`Self::compose_webview_content_pass_with_painter`] after
+    /// converting the egui rect to portable form. Kept so existing call
+    /// sites in `tile_render_pass.rs` / compositor glue don't have to
+    /// change shape as the trait lands.
+    pub(crate) fn compose_webview_content_pass(
+        ctx: &Context,
+        ui_render_backend: &mut UiRenderBackendHandle,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        pixels_per_point: f32,
+        render_context: &OffscreenRenderingContext,
+        webview: &WebView,
+    ) -> CompositedContentPassOutcome {
+        let mut painter = EguiContentPassPainter { ctx };
+        Self::compose_webview_content_pass_with_painter(
+            &mut painter,
+            ui_render_backend,
+            node_key,
+            portable_rect_from_egui(tile_rect),
+            pixels_per_point,
+            render_context,
+            webview,
+        )
     }
 
     pub(crate) fn content_layer(node_key: NodeKey) -> LayerId {
@@ -1080,16 +1210,38 @@ impl CompositorAdapter {
         }
     }
 
+    /// Host-neutral registered-content-pass composition — takes a
+    /// [`ContentPassPainter`] trait object. The egui host constructs an
+    /// [`EguiContentPassPainter`]; the future iced host constructs its
+    /// own impl. Shared with
+    /// [`Self::compose_webview_content_pass_with_painter`].
+    pub(crate) fn compose_registered_content_pass_with_painter(
+        painter: &mut dyn ContentPassPainter,
+        node_key: NodeKey,
+        tile_rect: PortableRect,
+    ) -> CompositedContentPassOutcome {
+        let Some(callback) = Self::registered_content_pass_callback(node_key) else {
+            return CompositedContentPassOutcome::MissingContentCallback;
+        };
+        painter.register_content_callback_on_layer(node_key, tile_rect, callback);
+        CompositedContentPassOutcome::Registered
+    }
+
+    /// Backwards-compatible egui entry point — constructs an
+    /// [`EguiContentPassPainter`] internally, converts the egui rect to
+    /// portable form, and delegates to
+    /// [`Self::compose_registered_content_pass_with_painter`].
     pub(crate) fn compose_registered_content_pass(
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
     ) -> CompositedContentPassOutcome {
-        let Some(callback) = Self::registered_content_pass_callback(node_key) else {
-            return CompositedContentPassOutcome::MissingContentCallback;
-        };
-        Self::register_content_pass(ctx, node_key, tile_rect, callback);
-        CompositedContentPassOutcome::Registered
+        let mut painter = EguiContentPassPainter { ctx };
+        Self::compose_registered_content_pass_with_painter(
+            &mut painter,
+            node_key,
+            portable_rect_from_egui(tile_rect),
+        )
     }
 
     fn paint_native_content_texture(
@@ -1802,6 +1954,10 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
 
+    // M3.6 portable-type helpers live in the parent module; tests reference
+    // them without a `super::` prefix at several call sites.
+    use super::{portable_rect_from_egui, portable_stroke_from_egui};
+
     use crate::graph::NodeKey;
     use crate::shell::desktop::render_backend::{
         BackendContentBridgeCapabilities, BackendParentRenderCallback,
@@ -2111,9 +2267,12 @@ mod tests {
             &tracker,
             vec![OverlayStrokePass {
                 node_key: node,
-                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                tile_rect: portable_rect_from_egui(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0),
+                    egui::pos2(100.0, 60.0),
+                )),
                 rounding: 4.0,
-                stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                stroke: portable_stroke_from_egui(Stroke::new(2.0, egui::Color32::WHITE)),
                 glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::RectStroke,
                 render_mode: TileRenderMode::CompositedTexture,
@@ -2173,18 +2332,24 @@ mod tests {
         let overlays = vec![
             Pass {
                 node_key: NodeKey::new(101),
-                tile_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(64.0, 32.0)),
+                tile_rect: portable_rect_from_egui(egui::Rect::from_min_size(
+                    egui::pos2(0.0, 0.0),
+                    egui::vec2(64.0, 32.0),
+                )),
                 rounding: 2.0,
-                stroke: Stroke::new(1.0, egui::Color32::WHITE),
+                stroke: portable_stroke_from_egui(Stroke::new(1.0, egui::Color32::WHITE)),
                 glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::RectStroke,
                 render_mode: TileRenderMode::CompositedTexture,
             },
             Pass {
                 node_key: NodeKey::new(202),
-                tile_rect: egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(80.0, 40.0)),
+                tile_rect: portable_rect_from_egui(egui::Rect::from_min_size(
+                    egui::pos2(10.0, 10.0),
+                    egui::vec2(80.0, 40.0),
+                )),
                 rounding: 0.0,
-                stroke: Stroke::new(2.0, egui::Color32::BLACK),
+                stroke: portable_stroke_from_egui(Stroke::new(2.0, egui::Color32::BLACK)),
                 glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::ChromeOnly,
                 render_mode: TileRenderMode::NativeOverlay,
@@ -2205,6 +2370,73 @@ mod tests {
         assert_eq!(seen[1].0, NodeKey::new(202));
         assert!(matches!(seen[1].1, OverlayAffordanceStyle::ChromeOnly));
         assert!(matches!(seen[1].2, TileRenderMode::NativeOverlay));
+    }
+
+    #[test]
+    fn content_pass_routes_through_painter_trait() {
+        // M3.5 extraction seam for content-pass operations: verify a
+        // non-egui painter receives the register-callback call when a
+        // content callback has been pre-registered. Pins the contract
+        // that the future iced painter will rely on. Parallel to
+        // `overlay_affordance_pass_routes_through_painter_trait`.
+        use super::{CompositorContentCallback, ContentPassPainter as PainterTrait};
+        use crate::shell::desktop::render_backend::{BackendCustomPass, BackendTextureToken};
+        use std::cell::RefCell;
+        use std::sync::Arc;
+
+        let _guard = resource_retirement_test_lock()
+            .lock()
+            .expect("resource retirement test lock poisoned");
+        clear_content_callbacks_for_tests();
+        clear_native_textures_for_tests();
+
+        #[derive(Default)]
+        struct RecordingPainter {
+            registered: RefCell<Vec<NodeKey>>,
+            native_painted: RefCell<Vec<NodeKey>>,
+        }
+
+        impl PainterTrait for RecordingPainter {
+            fn register_content_callback_on_layer(
+                &mut self,
+                node_key: NodeKey,
+                _tile_rect: super::PortableRect,
+                _callback: BackendCustomPass,
+            ) {
+                self.registered.borrow_mut().push(node_key);
+            }
+
+            fn paint_native_content_texture(
+                &mut self,
+                node_key: NodeKey,
+                _tile_rect: super::PortableRect,
+                _texture_token: BackendTextureToken,
+            ) {
+                self.native_painted.borrow_mut().push(node_key);
+            }
+        }
+
+        let node = NodeKey::new(303);
+        let callback: CompositorContentCallback = Arc::new(|_gl, _clip| {});
+        CompositorAdapter::register_content_callback(node, "test", "test", callback);
+
+        let mut painter = RecordingPainter::default();
+        let tile_rect = super::portable_rect_from_egui(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(50.0, 50.0),
+        ));
+
+        let outcome = CompositorAdapter::compose_registered_content_pass_with_painter(
+            &mut painter,
+            node,
+            tile_rect,
+        );
+
+        assert_eq!(outcome, CompositedContentPassOutcome::Registered);
+        assert_eq!(painter.registered.borrow().as_slice(), &[node]);
+        assert!(painter.native_painted.borrow().is_empty());
+
+        CompositorAdapter::unregister_content_callback(node);
     }
 
     #[test]
@@ -2458,9 +2690,12 @@ mod tests {
             &tracker,
             vec![OverlayStrokePass {
                 node_key: node,
-                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                tile_rect: portable_rect_from_egui(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0),
+                    egui::pos2(100.0, 60.0),
+                )),
                 rounding: 0.0,
-                stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                stroke: portable_stroke_from_egui(Stroke::new(2.0, egui::Color32::WHITE)),
                 glyph_overlays: Vec::new(),
                 style: OverlayAffordanceStyle::ChromeOnly,
                 render_mode: TileRenderMode::NativeOverlay,

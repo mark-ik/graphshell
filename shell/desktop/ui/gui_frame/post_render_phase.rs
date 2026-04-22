@@ -164,11 +164,17 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(crate) focused_node_hint: &'a mut Option<NodeKey>,
-    pub(crate) graph_surface_focused: bool,
-    pub(crate) focus_ring_node_key: &'a mut Option<NodeKey>,
-    pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
-    pub(crate) focus_ring_duration: Duration,
+    /// Focus mutation bundle carried in from the frame pipeline. Replaces
+    /// the prior per-field `focused_node_hint` / `focus_ring_node_key` /
+    /// `focus_ring_started_at` / `focus_ring_duration` fields. See
+    /// [`FocusAuthorityMut`](crate::shell::desktop::ui::gui_state::FocusAuthorityMut).
+    pub(crate) focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
+    /// Command-palette mutation bundle. Replaces the pre-M4 pattern of
+    /// stashing palette state inside `egui::Context::data_mut(...)`
+    /// persistent storage; the widget now reads/writes the runtime-
+    /// owned `CommandPaletteSession` through this bundle.
+    pub(crate) command_authority:
+        crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
     pub(crate) pending_webview_context_surface_requests:
         &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
@@ -207,11 +213,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         window_rendering_context,
         responsive_webviews,
         webview_creation_backpressure,
-        focused_node_hint,
-        graph_surface_focused,
-        focus_ring_node_key,
-        focus_ring_started_at,
-        focus_ring_duration,
+        mut focus,
+        mut command_authority,
         pending_webview_context_surface_requests,
         toasts,
         control_panel,
@@ -269,7 +272,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         );
     }
 
-    let focused_dialog_webview = if graph_surface_focused {
+    let focused_dialog_webview = if focus.graph_surface_focused() {
         None
     } else {
         window.explicit_dialog_webview_id()
@@ -317,6 +320,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         )
         .tokens
         .workbench_panel_background;
+        let focus_arg = focus.reborrow();
         egui::SidePanel::right("workbench_area")
             .resizable(true)
             .default_width(workbench_area_default_width(available_rect))
@@ -344,12 +348,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                         window_rendering_context,
                         responsive_webviews,
                         webview_creation_backpressure,
-                        focused_node_hint,
-                        graph_surface_focused,
+                        focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
-                        focus_ring_node_key,
-                        focus_ring_started_at,
-                        focus_ring_duration,
                         control_panel,
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,
@@ -365,6 +365,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     )
     .tokens
     .workbench_panel_background;
+    let focus_arg = focus.reborrow();
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(central_panel_bg))
         .show(ctx, |ui| {
@@ -389,12 +390,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                         window_rendering_context,
                         responsive_webviews,
                         webview_creation_backpressure,
-                        focused_node_hint,
-                        graph_surface_focused,
+                        focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
-                        focus_ring_node_key,
-                        focus_ring_started_at,
-                        focus_ring_duration,
                         control_panel,
                         #[cfg(feature = "diagnostics")]
                         diagnostics_state,
@@ -573,12 +570,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 window_rendering_context,
                                 responsive_webviews,
                                 webview_creation_backpressure,
-                                focused_node_hint,
-                                graph_surface_focused,
+                                focus: focus.reborrow(),
                                 suppress_runtime_side_effects: preview_mode_active,
-                                focus_ring_node_key,
-                                focus_ring_started_at,
-                                focus_ring_duration,
                                 control_panel,
                                 #[cfg(feature = "diagnostics")]
                                 diagnostics_state,
@@ -665,6 +658,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     render::render_command_palette_panel(
         ctx,
         graph_app,
+        command_authority.reborrow(),
         graph_app.workspace.graph_runtime.hovered_graph_node,
         focused_pane_node,
         active_node_pane_id,
@@ -680,8 +674,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         ctx,
         graph_app,
         tiles_tree,
-        graph_surface_focused,
-        *focused_node_hint,
+        focus.graph_surface_focused(),
+        focus.hint(),
     );
     crate::shell::desktop::ui::overview_plane::render_overview_plane(
         ctx,
@@ -723,7 +717,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             viewer_surfaces,
             tile_favicon_textures,
             webview_creation_backpressure,
-            focused_node_hint,
+            focus.focused_node_hint,
         );
     }
 

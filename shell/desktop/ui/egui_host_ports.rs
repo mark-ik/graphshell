@@ -30,6 +30,7 @@ use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
 };
+use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
 
@@ -74,8 +75,9 @@ impl<'a> HostInputPort for EguiHostPorts<'a> {
         Vec::new()
     }
 
-    fn pointer_hover_position(&self) -> Option<egui::Pos2> {
-        // todo(m4.5): read from egui::Context::input(|i| i.pointer.hover_pos()).
+    fn pointer_hover_position(&self) -> Option<PortablePoint> {
+        // todo(m4.5): read from egui::Context::input(|i| i.pointer.hover_pos())
+        // and convert via `portable_point_from_egui`.
         None
     }
 
@@ -130,43 +132,48 @@ impl<'a> HostPaintPort for EguiHostPorts<'a> {
     fn draw_overlay_stroke(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
         _rounding: f32,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_stroke.
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_stroke via
+        // egui_rect_from_portable / egui_stroke_from_portable.
     }
 
     fn draw_dashed_overlay_stroke(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_dashed_overlay_stroke.
+        // todo(m4.5): delegate to CompositorAdapter::draw_dashed_overlay_stroke
+        // via the boundary helpers.
     }
 
     fn draw_overlay_glyphs(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
+        _rect: PortableRect,
         _glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
-        _color: egui::Color32,
+        _color: graph_canvas::packet::Color,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_glyphs.
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_glyphs via
+        // the boundary helpers.
     }
 
     fn draw_overlay_chrome_markers(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_chrome_markers.
+        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_chrome_markers
+        // via the boundary helpers.
     }
 
-    fn draw_degraded_receipt(&mut self, _rect: egui::Rect, _message: &str) {
-        // todo(m4.5): implement via egui::Painter on a foreground layer.
+    fn draw_degraded_receipt(&mut self, _rect: PortableRect, _message: &str) {
+        // todo(m4.5): implement via egui::Painter on a foreground layer
+        // after converting via egui_rect_from_portable.
     }
 }
 

@@ -13,7 +13,6 @@
 //!   capture, and frame-scoped intent collection.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::{Receiver, Sender};
 
 use servo::WebViewId;
 
@@ -21,7 +20,6 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::gui_frame::{self, PreFrameIngestArgs};
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar_routing;
 
 pub(crate) struct PreFramePhaseOutput {
@@ -36,8 +34,7 @@ pub(crate) fn run_pre_frame_phase(
     state: &RunningAppState,
     window: &EmbedderWindow,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    thumbnail_capture_tx: &Sender<ThumbnailCaptureResult>,
-    thumbnail_capture_rx: &Receiver<ThumbnailCaptureResult>,
+    thumbnail_channel: &crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailChannel,
     thumbnail_capture_in_flight: &mut HashSet<WebViewId>,
     command_palette_toggle_requested: &mut bool,
 ) -> PreFramePhaseOutput {
@@ -54,8 +51,7 @@ pub(crate) fn run_pre_frame_phase(
             app_state: state,
             window,
             favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
+            thumbnail_channel,
             thumbnail_capture_in_flight,
         },
         &mut frame_intents,

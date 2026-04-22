@@ -17,11 +17,12 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::ui::gui_state::{LocalFocusTarget, RuntimeFocusAuthorityState};
-use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-    self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
+use crate::shell::desktop::ui::gui_state::{
+    LocalFocusTarget, RuntimeFocusAuthorityState, ToolbarAuthorityMut, ToolbarEditable,
 };
+use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
+use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::{self, ToolbarUiInput, ToolbarUiOutput};
 use crate::shell::desktop::ui::workbench_host::{self, WorkbenchLayerState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
@@ -37,9 +38,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) graph_surface_focused: bool,
     pub(crate) focus_authority: &'a RuntimeFocusAuthorityState,
     pub(crate) local_widget_focus: &'a mut Option<LocalFocusTarget>,
-    pub(crate) location: &'a mut String,
-    pub(crate) location_dirty: &'a mut bool,
-    pub(crate) location_submitted: &'a mut bool,
+    pub(crate) editable: &'a mut ToolbarEditable,
     pub(crate) focus_location_field_for_search: bool,
     pub(crate) show_clear_data_confirm: &'a mut bool,
     pub(crate) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
@@ -76,9 +75,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_surface_focused,
         focus_authority,
         local_widget_focus,
-        location,
-        location_dirty,
-        location_submitted,
+        editable,
         focus_location_field_for_search,
         show_clear_data_confirm,
         clear_data_confirm_deadline_secs,
@@ -137,12 +134,12 @@ pub(crate) fn handle_toolbar_dialog_phase(
                 focused_content_status: &focused_content_status,
                 runtime_focus_state: focus_authority.realized_focus_state.as_ref(),
                 local_widget_focus,
-                location,
-                location_dirty,
-                location_submitted,
+                toolbar_authority: ToolbarAuthorityMut {
+                    editable: &mut *editable,
+                    show_clear_data_confirm: &mut *show_clear_data_confirm,
+                    omnibar_search_session: &mut *omnibar_search_session,
+                },
                 focus_location_field_for_search,
-                show_clear_data_confirm,
-                omnibar_search_session,
                 frame_intents,
                 #[cfg(feature = "diagnostics")]
                 diagnostics_state,
@@ -178,8 +175,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         tile_favicon_textures,
         favicon_textures,
         frame_intents,
-        location_dirty,
-        location_submitted,
+        editable,
         show_clear_data_confirm,
         clear_data_confirm_deadline_secs,
         toasts,

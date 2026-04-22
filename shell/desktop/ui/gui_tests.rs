@@ -154,4 +154,225 @@ mod tests {
             "expected embedded focus reclaim diagnostics when host-side focus is reclaimed"
         );
     }
+
+    // ------------------------------------------------------------------
+    // FocusViewModel projection (M4.1 slice 1a)
+    //
+    // These pin the runtime-side projection of focus state into the
+    // host-neutral view model. Hosts — egui today, iced later — paint
+    // focus chrome off `FrameViewModel.focus` without reaching into
+    // `GraphshellRuntime` fields or re-deriving ring-alpha timing math.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn focus_view_model_reflects_runtime_focus_fields() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(42);
+
+        runtime.focused_node_hint = Some(focused);
+        runtime.graph_surface_focused = false;
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+
+        let view_model = runtime.project_view_model();
+        assert_eq!(view_model.focus.focused_node, Some(focused));
+        assert!(!view_model.focus.graph_surface_focused);
+        assert_eq!(view_model.active_pane, Some(focused));
+    }
+
+    #[test]
+    fn focus_view_model_publishes_focus_ring_when_latched() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+        use std::time::{Duration, Instant};
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(7);
+
+        // Simulate a just-latched focus transition: the ring animation
+        // is targeted at `focused` and the active pane is on the same
+        // node, so the host should see a positive alpha.
+        runtime.focused_node_hint = Some(focused);
+        runtime.focus_ring_node_key = Some(focused);
+        runtime.focus_ring_started_at = Some(Instant::now());
+        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+
+        let view_model = runtime.project_view_model();
+        let spec = view_model
+            .focus
+            .focus_ring
+            .expect("focus_ring populated when ring node latched");
+        assert_eq!(spec.node_key, focused);
+        assert!(
+            view_model.focus.focus_ring_alpha > 0.0,
+            "focus_ring_alpha should be > 0 immediately after the transition"
+        );
+        assert!(
+            view_model.focus.focus_ring_alpha <= 1.0,
+            "focus_ring_alpha should not exceed 1.0 (got {})",
+            view_model.focus.focus_ring_alpha
+        );
+    }
+
+    #[test]
+    fn focus_view_model_alpha_is_zero_when_ring_targets_different_node() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+        use std::time::{Duration, Instant};
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(3);
+        let stale_ring_target = NodeKey::new(99);
+
+        runtime.focused_node_hint = Some(focused);
+        runtime.focus_ring_node_key = Some(stale_ring_target);
+        runtime.focus_ring_started_at = Some(Instant::now());
+        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+
+        let view_model = runtime.project_view_model();
+        assert_eq!(
+            view_model.focus.focus_ring_alpha, 0.0,
+            "alpha should be 0 when ring target differs from focused pane"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // FocusRingSettings integration (M4.1 slice 1d)
+    //
+    // These pin the new user-configurable surface on
+    // `chrome_ui.focus_ring_settings`: the `enabled` kill switch, curve
+    // selection flowing through to projection, and the bugfix where
+    // `focus_ring: Option<FocusRingSpec>` no longer lingers `Some` after
+    // the animation has expired.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn focus_view_model_ring_cleared_when_alpha_expires() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+        use std::time::{Duration, Instant};
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(11);
+
+        runtime.focused_node_hint = Some(focused);
+        runtime.focus_ring_node_key = Some(focused);
+        // Started long before `now`; animation has elapsed.
+        runtime.focus_ring_started_at = Some(Instant::now() - Duration::from_secs(10));
+        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+
+        let view_model = runtime.project_view_model();
+        assert_eq!(view_model.focus.focus_ring_alpha, 0.0);
+        assert!(
+            view_model.focus.focus_ring.is_none(),
+            "focus_ring Option must clear once the animation has expired \
+             (hosts gating on is_some() would otherwise loop forever)"
+        );
+    }
+
+    #[test]
+    fn focus_view_model_honors_disabled_settings() {
+        use crate::app::FocusRingSettings;
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+        use std::time::{Duration, Instant};
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(17);
+
+        runtime.focused_node_hint = Some(focused);
+        runtime.focus_ring_node_key = Some(focused);
+        runtime.focus_ring_started_at = Some(Instant::now());
+        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+        runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {
+            enabled: false,
+            ..FocusRingSettings::default()
+        };
+
+        let view_model = runtime.project_view_model();
+        assert_eq!(
+            view_model.focus.focus_ring_alpha, 0.0,
+            "disabled ring must project alpha = 0 regardless of timing"
+        );
+        assert!(
+            view_model.focus.focus_ring.is_none(),
+            "disabled ring must drop the FocusRingSpec so hosts don't paint"
+        );
+    }
+
+    #[test]
+    fn focus_view_model_applies_step_curve() {
+        use crate::app::{FocusRingCurve, FocusRingSettings};
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+        use std::time::{Duration, Instant};
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(23);
+
+        runtime.focused_node_hint = Some(focused);
+        runtime.focus_ring_node_key = Some(focused);
+        // 250ms into a 1000ms animation: Linear would give ~0.75,
+        // Step must give exactly 1.0.
+        runtime.focus_ring_started_at = Some(Instant::now() - Duration::from_millis(250));
+        runtime.focus_ring_duration = Duration::from_millis(1000);
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+        runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {
+            curve: FocusRingCurve::Step,
+            ..FocusRingSettings::default()
+        };
+
+        let view_model = runtime.project_view_model();
+        assert!(
+            (view_model.focus.focus_ring_alpha - 1.0).abs() < 1e-3,
+            "step curve should hold full alpha mid-animation, got {}",
+            view_model.focus.focus_ring_alpha
+        );
+    }
+
+    #[test]
+    fn focus_ring_settings_setter_clamps_duration() {
+        use crate::app::{FocusRingCurve, FocusRingSettings};
+        use crate::app::GraphBrowserApp;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_focus_ring_settings(FocusRingSettings {
+            enabled: true,
+            duration_ms: 999_999, // out of range
+            curve: FocusRingCurve::Linear,
+            color_override: Some([10, 20, 30]),
+        });
+
+        let stored = app.focus_ring_settings();
+        assert_eq!(
+            stored.duration_ms,
+            FocusRingSettings::MAX_DURATION_MS,
+            "setter must clamp duration_ms to MAX_DURATION_MS"
+        );
+        assert_eq!(stored.color_override, Some([10, 20, 30]));
+    }
+
+    #[test]
+    fn focus_ring_settings_serde_roundtrip_with_defaults() {
+        // Old workspaces without this JSON blob must still
+        // deserialize cleanly into default settings (via #[serde(default)]).
+        use crate::app::FocusRingSettings;
+
+        let json = "{}";
+        let parsed: FocusRingSettings =
+            serde_json::from_str(json).expect("defaults must cover empty JSON");
+        assert_eq!(parsed, FocusRingSettings::default());
+    }
 }

@@ -269,11 +269,20 @@ pub struct GraphViewRuntimeState {
     pub canvas_interaction_engines:
         HashMap<GraphViewId, graph_canvas::engine::InteractionEngine<NodeKey>>,
 
-    /// Host-side NodeKey → PaneId mapping, populated by dual-write on pane open.
+    /// NodeKey → PaneId mapping, populated by dual-write on pane open.
     ///
     /// Eliminates the need to scan `egui_tiles::Tree` for PaneId lookup in the
     /// compositor, GraphTree layout path, and focus queries. Once egui_tiles is
-    /// fully retired, this becomes the sole PaneId authority.
+    /// fully retired (M7), this becomes the sole PaneId authority.
+    ///
+    /// Placement note (M4 §5 runtime boundary design): the pre-M4 comment
+    /// called this "host-side", but the map actually lives on
+    /// `workspace.graph_runtime` — the app-layer, host-neutral side of
+    /// the runtime/host boundary. That's correct: PaneId identities must
+    /// survive the eventual iced migration because both `GraphTree` layout
+    /// and pane-target lookups consume them. `TileId` is the egui_tiles-
+    /// specific identity that stays on the host and retires in M7; the
+    /// NodeKey↔PaneId mapping here does not depend on TileId.
     pub node_pane_ids: HashMap<NodeKey, crate::shell::desktop::workbench::pane_model::PaneId>,
 
     /// Host-side PaneId → TileRenderMode mapping, refreshed per frame alongside
@@ -701,6 +710,58 @@ pub struct ChromeUiState {
     /// Non-`@` omnibar ordering preset.
     pub omnibar_non_at_order: OmnibarNonAtOrderPreset,
 
+    /// Maximum omnibar dropdown rows shown before scrolling/truncating.
+    /// Clamped at load to `[3, 24]`.
+    pub omnibar_dropdown_max_rows: usize,
+
+    /// Fixed height of the top chrome command bar in device-independent
+    /// pixels. Clamped at load to `[24.0, 96.0]`.
+    pub toolbar_height_dp: f32,
+
+    /// Debounce window for external search-provider suggestion
+    /// requests, in milliseconds. Clamped at load to `[0, 2000]`.
+    /// A value of `0` disables debouncing (every keystroke issues a
+    /// request); the default of `140` matches the prior hardcoded
+    /// behavior. Larger values are useful on slow networks or when
+    /// conserving API quota.
+    pub omnibar_provider_debounce_ms: u64,
+
+    /// Default scope filter applied when the command palette opens
+    /// in search mode. The widget resets to this scope on every
+    /// open; mid-session changes are remembered within the session
+    /// but not persisted. Defaults to `Workbench`.
+    pub command_palette_default_scope:
+        crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
+
+    /// Soft cap on how many result rows the command palette shows per
+    /// category in search mode. Higher-ranked results surface first;
+    /// rows beyond the cap are truncated with a "…" affordance. A
+    /// value of `0` disables the cap (show all matches). Clamped at
+    /// load to `[0, 100]`.
+    pub command_palette_max_per_category: usize,
+
+    /// Ring of recently-executed command-palette actions, most-recent
+    /// first. When the palette opens in search mode with an empty
+    /// query, the top `command_palette_recents_depth` of this list is
+    /// surfaced as a "Recent" section above the categorized results.
+    /// Persisted across sessions as a JSON list via serde.
+    pub command_palette_recents: Vec<crate::render::action_registry::ActionId>,
+
+    /// Maximum number of recent commands to retain / surface in the
+    /// command palette's empty-query roster. `0` disables the
+    /// "Recent" section entirely. Clamped at load to `[0, 32]`.
+    pub command_palette_recents_depth: usize,
+
+    /// Persistent default Tier 1 category for contextual-palette mode.
+    /// When the palette opens in contextual mode and the runtime
+    /// session has no in-memory Tier 1 selection yet (first frame
+    /// post-restart), this value seeds the selection. Updated to the
+    /// user's chosen category every time they click a Tier 1 button,
+    /// so next-session the palette reopens on the last-used tier.
+    /// `None` means "fall back to the first available category".
+    pub command_palette_tier1_default_category:
+        Option<crate::render::action_registry::ActionCategory>,
+
     /// Global Wry backend enable toggle (disabled by default).
     pub wry_enabled: bool,
 
@@ -742,6 +803,16 @@ pub struct ChromeUiState {
 
     /// Whether form draft capture/replay metadata is enabled.
     pub(crate) form_draft_capture_enabled: bool,
+
+    /// User-configurable focus-ring visual settings (duration, curve,
+    /// enabled toggle, color override). Defaults reproduce the historical
+    /// 500 ms linear fade with theme-driven color.
+    pub focus_ring_settings: super::settings_persistence::FocusRingSettings,
+
+    /// User-configurable node-thumbnail capture settings (enabled kill
+    /// switch, target dimensions, resampling filter). Defaults reproduce
+    /// the historical 256×192 Triangle-filtered capture.
+    pub thumbnail_settings: super::settings_persistence::ThumbnailSettings,
 
     /// Persisted default registry lens id override for view lens resolution.
     pub(crate) default_registry_lens_id: Option<String>,

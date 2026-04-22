@@ -1,6 +1,6 @@
 # Graphshell Architectural Overview
 
-**Last Updated**: 2026-03-12
+**Last Updated**: 2026-04-22 (Focus and runtime-extraction rows refreshed for M4.1 slices 1a–1d and M4.4 thumbnail work; see iced-host migration plan §10 Progress Log 2026-04-22)
 **Status**: Canonical orientation doc — updated with subsystem status map and dependency topology
 **Purpose**: High-level orientation, subsystem status at a glance, and dependency map.
 Canonical model details live in subsystem and implementation-strategy specs.
@@ -102,7 +102,7 @@ Status legend: ✅ Done / 🔨 Active (current milestone) / 📋 Planned (spec e
 
 | Subsystem | Status | Summary | Canonical doc |
 | --- | --- | --- | --- |
-| **Focus** | 🔨 Active | Six-track taxonomy (SemanticRegion / PaneActivation / GraphView / LocalWidget / EmbeddedContent / ReturnCapture); F6 region cycle done; split-authority resolution in progress | `subsystem_focus/2026-03-08_unified_focus_architecture_plan.md` |
+| **Focus** | 🔨 Active | Six-track taxonomy (SemanticRegion / PaneActivation / GraphView / LocalWidget / EmbeddedContent / ReturnCapture); F6 region cycle done; `FocusAuthorityMut` transitional bundle + `FocusRingSettings` (duration / curve / enabled / color override) landed via M4.1 slices 1a–1d (2026-04-22); split-authority resolution ongoing | `subsystem_focus/2026-03-08_unified_focus_architecture_plan.md` |
 | **History** | ✅/📋 | Traversal capture, WAL logging, History Manager timeline done; temporal navigation / replay / time-travel preview spec-landed but runtime-pending | `subsystem_history/SUBSYSTEM_HISTORY.md` |
 | **Diagnostics** | 🔨 Active | ChannelRegistry; DiagnosticEvent ring; Diagnostics Inspector pane; channel severity (Error/Warn/Info); recovery affordance S5 active; AnalyzerRegistry + health summaries planned | `subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md` |
 | **Storage** | ✅/📋 | WAL append-only log; single-write-path invariant; frame save/load; workspace manifest done; AES-256-GCM at-rest encryption planned | `subsystem_storage/SUBSYSTEM_STORAGE.md` |

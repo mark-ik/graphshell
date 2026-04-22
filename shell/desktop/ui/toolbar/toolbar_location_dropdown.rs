@@ -95,7 +95,10 @@ pub fn render_omnibar_dropdown(
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_min_width(location_field.rect.width());
-                    let row_count = session.matches.len().min(OMNIBAR_DROPDOWN_MAX_ROWS);
+                    let row_count = session
+                        .matches
+                        .len()
+                        .min(graph_app.workspace.chrome_ui.omnibar_dropdown_max_rows);
                     for idx in 0..row_count {
                         let active = idx == session.active_index;
                         let selected = session.selected_indices.contains(&idx);

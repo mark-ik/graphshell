@@ -161,11 +161,11 @@ impl GraphBrowserApp {
         self.workspace
             .graph_runtime
             .pending_clip_inspector_highlight_clear = None;
+        // Close all other chrome modals (help/settings/scene as well —
+        // previously only palette + radial were closed, which let clip
+        // inspector stack over a visible settings overlay).
+        self.close_modal_surfaces_except(Some(crate::app::ModalSurface::ClipInspector));
         self.workspace.chrome_ui.show_clip_inspector = true;
-        self.workspace.chrome_ui.show_command_palette = false;
-        self.workspace.chrome_ui.show_context_palette = false;
-        self.workspace.chrome_ui.command_palette_contextual_mode = false;
-        self.workspace.chrome_ui.show_radial_menu = false;
         self.workspace.graph_runtime.clip_inspector_state = Some(ClipInspectorState {
             webview_id: first.webview_id,
             source_url: first.source_url.clone(),

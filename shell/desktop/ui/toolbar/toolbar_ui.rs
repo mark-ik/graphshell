@@ -7,18 +7,19 @@ use egui::text_edit::TextEditState;
 use egui::{Key, Modifiers, TopBottomPanel, Vec2};
 use egui_tiles::Tree;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
-use crate::shell::desktop::runtime::control_panel::{
-    ControlPanel, HostRequestMailbox, HostRequestPoll,
+use crate::shell::desktop::runtime::control_panel::{ControlPanel, HostRequestPoll};
+pub(crate) use crate::shell::desktop::ui::omnibar_state::{
+    HistoricalNodeMatch, OmnibarMatch, OmnibarSearchMode, OmnibarSearchSession, OmnibarSessionKind,
+    ProviderSuggestionError, ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,
+    ProviderSuggestionStatus, SearchProviderKind,
 };
 use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
 use crate::shell::desktop::ui::gui_state::{
-    FocusedContentStatus, LocalFocusTarget, RuntimeFocusState,
+    FocusedContentStatus, LocalFocusTarget, RuntimeFocusState, ToolbarAuthorityMut,
 };
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
@@ -69,89 +70,16 @@ use crate::shell::desktop::ui::navigator_context::NavigatorContextProjection;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const WORKSPACE_PIN_NAME: &str = "workspace:pin:space";
-const OMNIBAR_DROPDOWN_MAX_ROWS: usize = 8;
 const OMNIBAR_PROVIDER_MIN_QUERY_LEN: usize = 2;
 const OMNIBAR_CONNECTED_NON_AT_CAP: usize = 8;
 const OMNIBAR_GLOBAL_NODES_FALLBACK_CAP: usize = 3;
 const OMNIBAR_GLOBAL_TABS_FALLBACK_CAP: usize = 3;
-const OMNIBAR_PROVIDER_DEBOUNCE_MS: u64 = 140;
-/// Fixed height of the top chrome bar. All columns within the bar must fit within
-/// this budget; content that exceeds it is clipped rather than allowed to grow.
+/// Test-only fallback for the top chrome bar height. Live code reads
+/// `graph_app.workspace.chrome_ui.toolbar_height_dp` (settings-backed);
+/// this literal is kept for unit tests that construct an egui panel
+/// without a `GraphBrowserApp`.
+#[cfg(test)]
 const TOOLBAR_HEIGHT: f32 = 40.0;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OmnibarSessionKind {
-    Graph(OmnibarSearchMode),
-    SearchProvider(SearchProviderKind),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum SearchProviderKind {
-    DuckDuckGo,
-    Bing,
-    Google,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OmnibarSearchMode {
-    Mixed,
-    NodesLocal,
-    NodesAll,
-    TabsLocal,
-    TabsAll,
-    EdgesLocal,
-    EdgesAll,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct HistoricalNodeMatch {
-    pub(crate) url: String,
-    pub(crate) display_label: Option<String>,
-}
-
-impl HistoricalNodeMatch {
-    pub(crate) fn new(url: impl Into<String>, display_label: Option<String>) -> Self {
-        Self {
-            url: url.into(),
-            display_label,
-        }
-    }
-
-    pub(crate) fn without_label(url: impl Into<String>) -> Self {
-        Self::new(url, None)
-    }
-}
-
-impl PartialEq for HistoricalNodeMatch {
-    fn eq(&self, other: &Self) -> bool {
-        self.url == other.url
-    }
-}
-
-impl Eq for HistoricalNodeMatch {}
-
-impl Hash for HistoricalNodeMatch {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.url.hash(state);
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum OmnibarMatch {
-    Node(NodeKey),
-    NodeUrl(HistoricalNodeMatch),
-    SearchQuery {
-        query: String,
-        provider: SearchProviderKind,
-    },
-    Edge {
-        from: NodeKey,
-        to: NodeKey,
-    },
-    /// A durable graphlet peer of a warm node that is currently `Cold` (no live tile).
-    /// Shown with ○ in the `TabsLocal` empty-query roster; activating opens a tile via
-    /// graphlet routing.
-    ColdGraphletMember(NodeKey),
-}
 
 #[derive(Clone)]
 struct OmnibarSearchCandidate {
@@ -165,264 +93,60 @@ impl AsRef<str> for OmnibarSearchCandidate {
     }
 }
 
-pub(crate) struct OmnibarSearchSession {
-    kind: OmnibarSessionKind,
-    pub(crate) query: String,
-    pub(crate) matches: Vec<OmnibarMatch>,
-    pub(crate) active_index: usize,
-    selected_indices: HashSet<usize>,
-    anchor_index: Option<usize>,
-    provider_mailbox: ProviderSuggestionMailbox,
-}
-
-struct ProviderSuggestionMailbox {
-    request_query: Option<String>,
-    result_mailbox: HostRequestMailbox<ProviderSuggestionFetchOutcome>,
-    debounce_deadline: Option<Instant>,
-    status: ProviderSuggestionStatus,
-}
-
-impl ProviderSuggestionMailbox {
-    fn idle() -> Self {
-        Self {
-            request_query: None,
-            result_mailbox: HostRequestMailbox::idle(),
-            debounce_deadline: None,
-            status: ProviderSuggestionStatus::Idle,
-        }
-    }
-
-    fn debounced(request_query: String, debounce_deadline: Instant) -> Self {
-        Self {
-            request_query: Some(request_query),
-            result_mailbox: HostRequestMailbox::idle(),
-            debounce_deadline: Some(debounce_deadline),
-            status: ProviderSuggestionStatus::Loading,
-        }
-    }
-
-    fn ready() -> Self {
-        Self {
-            status: ProviderSuggestionStatus::Ready,
-            ..Self::idle()
-        }
-    }
-
-    fn clear_pending(&mut self) {
-        self.request_query = None;
-        self.result_mailbox.clear();
-        self.debounce_deadline = None;
-    }
-}
-
-impl OmnibarSearchSession {
-    fn new_graph(
-        kind: OmnibarSearchMode,
-        query: impl Into<String>,
-        matches: Vec<OmnibarMatch>,
-    ) -> Self {
-        Self {
-            kind: OmnibarSessionKind::Graph(kind),
-            query: query.into(),
-            matches,
-            active_index: 0,
-            selected_indices: HashSet::new(),
-            anchor_index: None,
-            provider_mailbox: ProviderSuggestionMailbox::idle(),
-        }
-    }
-
-    fn new_search_provider(
-        provider: SearchProviderKind,
-        query: impl Into<String>,
-        matches: Vec<OmnibarMatch>,
-        provider_mailbox: ProviderSuggestionMailbox,
-    ) -> Self {
-        Self {
-            kind: OmnibarSessionKind::SearchProvider(provider),
-            query: query.into(),
-            matches,
-            active_index: 0,
-            selected_indices: HashSet::new(),
-            anchor_index: None,
-            provider_mailbox,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CommandBarSemanticMetadata {
-    pub(crate) active_pane: Option<PaneId>,
-    pub(crate) focused_node: Option<NodeKey>,
-    pub(crate) location_focused: bool,
-    pub(crate) route_events: CommandRouteEventSequenceMetadata,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CommandRouteEventSequenceMetadata {
-    pub(crate) resolved: u64,
-    pub(crate) fallback: u64,
-    pub(crate) no_target: u64,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct OmnibarMailboxEventSequenceMetadata {
-    pub(crate) request_started: u64,
-    pub(crate) applied: u64,
-    pub(crate) failed: u64,
-    pub(crate) stale: u64,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CommandSurfaceEventSequenceMetadata {
-    pub(crate) route_events: CommandRouteEventSequenceMetadata,
-    pub(crate) omnibar_mailbox_events: OmnibarMailboxEventSequenceMetadata,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct OmnibarSemanticMetadata {
-    pub(crate) active: bool,
-    pub(crate) focused: bool,
-    pub(crate) query: Option<String>,
-    pub(crate) match_count: usize,
-    pub(crate) provider_status: Option<String>,
-    pub(crate) active_pane: Option<PaneId>,
-    pub(crate) focused_node: Option<NodeKey>,
-    pub(crate) mailbox_events: OmnibarMailboxEventSequenceMetadata,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PaletteSurfaceSemanticMetadata {
-    pub(crate) contextual_mode: bool,
-    pub(crate) return_target: Option<ToolSurfaceReturnTarget>,
-    pub(crate) pending_node_context_target: Option<NodeKey>,
-    pub(crate) pending_frame_context_target: Option<String>,
-    pub(crate) context_anchor_present: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct CommandSurfaceSemanticSnapshot {
-    pub(crate) command_bar: CommandBarSemanticMetadata,
-    pub(crate) omnibar: OmnibarSemanticMetadata,
-    pub(crate) command_palette: Option<PaletteSurfaceSemanticMetadata>,
-    pub(crate) context_palette: Option<PaletteSurfaceSemanticMetadata>,
-}
-
-static LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT: OnceLock<
-    Mutex<Option<CommandSurfaceSemanticSnapshot>>,
-> = OnceLock::new();
-static COMMAND_SURFACE_EVENT_SEQUENCES: OnceLock<Mutex<CommandSurfaceEventSequenceMetadata>> =
-    OnceLock::new();
-
-fn command_surface_snapshot_cache() -> &'static Mutex<Option<CommandSurfaceSemanticSnapshot>> {
-    LATEST_COMMAND_SURFACE_SEMANTIC_SNAPSHOT.get_or_init(|| Mutex::new(None))
-}
-
-fn command_surface_event_sequence_cache() -> &'static Mutex<CommandSurfaceEventSequenceMetadata> {
-    COMMAND_SURFACE_EVENT_SEQUENCES
-        .get_or_init(|| Mutex::new(CommandSurfaceEventSequenceMetadata::default()))
-}
-
-fn update_command_surface_event_sequences(
-    mutator: impl FnOnce(&mut CommandSurfaceEventSequenceMetadata),
-) {
-    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
-        mutator(&mut state);
-    }
-}
+// Telemetry shapes and the consolidated sink live in
+// `shell/desktop/ui/command_surface_telemetry.rs`. Re-exported here so
+// existing `pub(crate) use crate::shell::desktop::ui::toolbar::toolbar_ui::{...}`
+// imports in tests and `ux_probes` keep resolving unchanged.
+pub(crate) use crate::shell::desktop::ui::command_surface_telemetry::{
+    CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
+    CommandSurfaceEventSequenceMetadata, CommandSurfaceSemanticSnapshot, CommandSurfaceTelemetry,
+    OmnibarMailboxEventSequenceMetadata, OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
+};
 
 pub(crate) fn latest_command_surface_event_sequence_metadata() -> CommandSurfaceEventSequenceMetadata
 {
-    command_surface_event_sequence_cache()
-        .lock()
-        .map(|state| *state)
-        .unwrap_or_default()
+    CommandSurfaceTelemetry::global().latest_event_sequence_metadata()
 }
 
 pub(crate) fn note_command_surface_route_resolved() {
-    update_command_surface_event_sequences(|state| {
-        state.route_events.resolved = state.route_events.resolved.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_route_resolved();
 }
 
 pub(crate) fn note_command_surface_route_fallback() {
-    update_command_surface_event_sequences(|state| {
-        state.route_events.fallback = state.route_events.fallback.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_route_fallback();
 }
 
 pub(crate) fn note_command_surface_route_no_target() {
-    update_command_surface_event_sequences(|state| {
-        state.route_events.no_target = state.route_events.no_target.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_route_no_target();
 }
 
 #[cfg(test)]
 pub(crate) fn set_command_surface_event_sequence_metadata_for_tests(
     metadata: CommandSurfaceEventSequenceMetadata,
 ) {
-    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
-        *state = metadata;
-    }
+    CommandSurfaceTelemetry::global().set_event_sequence_metadata_for_tests(metadata);
 }
 
 #[cfg(test)]
 pub(crate) fn clear_command_surface_event_sequence_metadata() {
-    if let Ok(mut state) = command_surface_event_sequence_cache().lock() {
-        *state = CommandSurfaceEventSequenceMetadata::default();
-    }
+    CommandSurfaceTelemetry::global().clear_event_sequence_metadata();
 }
 
 pub(crate) fn publish_command_surface_semantic_snapshot(snapshot: CommandSurfaceSemanticSnapshot) {
-    if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
-        *slot = Some(snapshot);
-    }
+    CommandSurfaceTelemetry::global().publish_snapshot(snapshot);
 }
 
 pub(crate) fn latest_command_surface_semantic_snapshot() -> Option<CommandSurfaceSemanticSnapshot> {
-    command_surface_snapshot_cache()
-        .lock()
-        .ok()
-        .and_then(|slot| slot.clone())
+    CommandSurfaceTelemetry::global().latest_snapshot()
 }
 
 pub(crate) fn clear_command_surface_semantic_snapshot() {
-    if let Ok(mut slot) = command_surface_snapshot_cache().lock() {
-        *slot = None;
-    }
-    #[cfg(test)]
-    clear_command_surface_event_sequence_metadata();
+    CommandSurfaceTelemetry::global().clear_snapshot();
 }
-
-#[cfg(test)]
-static COMMAND_SURFACE_TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[cfg(test)]
 pub(crate) fn lock_command_surface_snapshot_tests() -> std::sync::MutexGuard<'static, ()> {
-    COMMAND_SURFACE_TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("command-surface snapshot test mutex poisoned")
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProviderSuggestionStatus {
-    Idle,
-    Loading,
-    Ready,
-    Failed(ProviderSuggestionError),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProviderSuggestionError {
-    Network,
-    HttpStatus(u16),
-    Parse,
-}
-
-struct ProviderSuggestionFetchOutcome {
-    matches: Vec<OmnibarMatch>,
-    status: ProviderSuggestionStatus,
+    CommandSurfaceTelemetry::global().lock_tests()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -459,12 +183,12 @@ pub(crate) struct Input<'a> {
     pub focused_content_status: &'a FocusedContentStatus,
     pub runtime_focus_state: Option<&'a RuntimeFocusState>,
     pub local_widget_focus: &'a mut Option<LocalFocusTarget>,
-    pub location: &'a mut String,
-    pub location_dirty: &'a mut bool,
-    pub location_submitted: &'a mut bool,
+    /// Host-facing mutation handle for the toolbar's editable surface,
+    /// clear-data arm flag, and omnibar session. Destructured into
+    /// individual refs inside `render_toolbar_ui` so sub-widgets keep
+    /// their existing raw-ref signatures.
+    pub toolbar_authority: ToolbarAuthorityMut<'a>,
     pub focus_location_field_for_search: bool,
-    pub show_clear_data_confirm: &'a mut bool,
-    pub omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub frame_intents: &'a mut Vec<GraphIntent>,
     #[cfg(feature = "diagnostics")]
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -636,12 +360,7 @@ fn command_surface_semantic_snapshot(
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
-    update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.request_started = state
-            .omnibar_mailbox_events
-            .request_started
-            .saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_omnibar_mailbox_request_started();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_REQUEST_STARTED,
@@ -651,10 +370,7 @@ pub(super) fn emit_omnibar_provider_mailbox_request_started(query: &str) {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_applied() {
-    update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.applied =
-            state.omnibar_mailbox_events.applied.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_omnibar_mailbox_applied();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_APPLIED,
@@ -664,9 +380,7 @@ pub(super) fn emit_omnibar_provider_mailbox_applied() {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_failed() {
-    update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.failed = state.omnibar_mailbox_events.failed.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_omnibar_mailbox_failed();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_FAILED,
@@ -676,9 +390,7 @@ pub(super) fn emit_omnibar_provider_mailbox_failed() {
 }
 
 pub(super) fn emit_omnibar_provider_mailbox_stale() {
-    update_command_surface_event_sequences(|state| {
-        state.omnibar_mailbox_events.stale = state.omnibar_mailbox_events.stale.saturating_add(1);
-    });
+    CommandSurfaceTelemetry::global().note_omnibar_mailbox_stale();
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UI_OMNIBAR_PROVIDER_MAILBOX_STALE,
@@ -863,16 +575,29 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         focused_content_status,
         runtime_focus_state,
         local_widget_focus,
-        location,
-        location_dirty,
-        location_submitted,
+        toolbar_authority,
         focus_location_field_for_search,
-        show_clear_data_confirm: _show_clear_data_confirm,
-        omnibar_search_session,
         frame_intents,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
     } = args;
+
+    // Destructure the toolbar-authority bundle into the raw refs the
+    // existing sub-widget call surface expects. The bundle is the
+    // host-facing shape (what `ToolbarDialogPhaseArgs` passes in); the
+    // individual refs are the widget-internal shape (what
+    // `render_location_search_panel` and `render_command_bar_right_column`
+    // still consume). `_show_clear_data_confirm` is threaded through
+    // `publish_command_surface_semantic_snapshot` but is otherwise read
+    // via the bundle's own accessors in follow-on slices.
+    let ToolbarAuthorityMut {
+        editable,
+        show_clear_data_confirm: _show_clear_data_confirm,
+        omnibar_search_session,
+    } = toolbar_authority;
+    let location = &mut editable.location;
+    let location_dirty = &mut editable.location_dirty;
+    let location_submitted = &mut editable.location_submitted;
 
     if winit_window.fullscreen().is_some() {
         clear_command_surface_semantic_snapshot();
@@ -893,12 +618,13 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
         WorkbenchLayerState::GraphOnly | WorkbenchLayerState::GraphOverlayActive
     );
     let has_node_panes = !is_graph_view;
+    let toolbar_height = graph_app.workspace.chrome_ui.toolbar_height_dp;
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
         .inner_margin(4.0);
     let command_bar_response = TopBottomPanel::top("shell_command_bar")
         .frame(frame)
-        .exact_height(TOOLBAR_HEIGHT)
+        .exact_height(toolbar_height)
         .show(ctx, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {

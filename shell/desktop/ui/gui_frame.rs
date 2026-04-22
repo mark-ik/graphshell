@@ -4,8 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use egui_tiles::{Container, Tile, TileId, Tiles, Tree};
 use euclid::Length;
@@ -94,8 +93,10 @@ pub(crate) struct PreFrameIngestArgs<'a> {
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    pub(crate) thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
-    pub(crate) thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
+    /// Consolidated tx/rx pair for async screenshot result delivery.
+    /// Replaces the separate `thumbnail_capture_tx`/`_rx` fields that
+    /// flowed through this struct pre-session-4-follow-ons.
+    pub(crate) thumbnail_channel: &'a thumbnail_pipeline::ThumbnailChannel,
     pub(crate) thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
 }
 
@@ -113,8 +114,7 @@ pub(crate) fn ingest_pre_frame(
         app_state,
         window,
         favicon_textures,
-        thumbnail_capture_tx,
-        thumbnail_capture_rx,
+        thumbnail_channel,
         thumbnail_capture_in_flight,
     } = args;
 
@@ -326,7 +326,7 @@ pub(crate) fn ingest_pre_frame(
     frame_intents.extend(thumbnail_pipeline::load_pending_thumbnail_results(
         graph_app,
         window,
-        thumbnail_capture_rx,
+        thumbnail_channel,
         thumbnail_capture_in_flight,
     ));
     let (semantic_events, pending_workbench_intents, responsive_webviews) =
@@ -344,7 +344,7 @@ pub(crate) fn ingest_pre_frame(
     thumbnail_pipeline::request_pending_thumbnail_captures(
         graph_app,
         window,
-        thumbnail_capture_tx,
+        thumbnail_channel,
         thumbnail_capture_in_flight,
     );
 

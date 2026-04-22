@@ -12,22 +12,36 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
+use crate::shell::desktop::ui::command_palette_state::CommandPaletteSession;
 use crate::shell::desktop::ui::frame_model::{
-    DialogsViewModel, FocusRingSpec, FocusViewModel, FrameHostInput, FrameViewModel,
-    ToolbarViewModel,
+    CommandPaletteViewModel, DialogsViewModel, FocusRingSpec, FocusViewModel, FrameHostInput,
+    FrameViewModel, GraphSearchViewModel, OmnibarProviderStatusView, OmnibarSessionKindView,
+    OmnibarViewModel, ToolbarViewModel,
 };
 use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
 use crate::shell::desktop::ui::host_ports::HostPorts;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::ui::omnibar_state::{
+    OmnibarSearchSession, OmnibarSessionKind, ProviderSuggestionError, ProviderSuggestionStatus,
+};
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use servo::{LoadStatus, WebViewId};
 
-pub(crate) struct ToolbarState {
+/// The editable subset of a toolbar input surface: the fields the user
+/// manipulates as they type and submit. Shared between the live
+/// [`ToolbarState`] (what the widget currently renders) and per-pane
+/// [`ToolbarDraft`]s (saved snapshots for panes that don't currently own
+/// the toolbar).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToolbarEditable {
     pub(crate) location: String,
     pub(crate) location_dirty: bool,
     pub(crate) location_submitted: bool,
+}
+
+pub(crate) struct ToolbarState {
+    pub(crate) editable: ToolbarEditable,
     pub(crate) show_clear_data_confirm: bool,
     pub(crate) load_status: LoadStatus,
     pub(crate) status_text: Option<String>,
@@ -35,12 +49,10 @@ pub(crate) struct ToolbarState {
     pub(crate) can_go_forward: bool,
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ToolbarDraft {
-    pub(crate) location: String,
-    pub(crate) location_dirty: bool,
-    pub(crate) location_submitted: bool,
-}
+/// Per-pane snapshot of the editable toolbar fields. A draft is
+/// structurally identical to [`ToolbarEditable`]; the alias preserves the
+/// `ToolbarDraft` name used by persistence sites and view-model fields.
+pub(crate) type ToolbarDraft = ToolbarEditable;
 
 pub(super) enum BookmarkImportDialogEvent {
     Continue,
@@ -87,22 +99,6 @@ impl BookmarkImportDialogState {
     }
 }
 
-impl ToolbarDraft {
-    pub(super) fn from_toolbar_state(toolbar_state: &ToolbarState) -> Self {
-        Self {
-            location: toolbar_state.location.clone(),
-            location_dirty: toolbar_state.location_dirty,
-            location_submitted: toolbar_state.location_submitted,
-        }
-    }
-
-    pub(super) fn apply_to_toolbar_state(&self, toolbar_state: &mut ToolbarState) {
-        toolbar_state.location = self.location.clone();
-        toolbar_state.location_dirty = self.location_dirty;
-        toolbar_state.location_submitted = self.location_submitted;
-    }
-}
-
 pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> egui::Id {
     egui::Id::new((
         "location_input",
@@ -122,6 +118,385 @@ pub(crate) struct RuntimeFocusAuthorityState {
     pub(super) transient_surface_return_target: Option<ToolSurfaceReturnTarget>,
     pub(crate) capture_stack: Vec<FocusCaptureEntry>,
     pub(crate) realized_focus_state: Option<RuntimeFocusState>,
+}
+
+/// Host-facing mutation handle bundling the focus fields the render /
+/// compositor path touches each frame. Replaces the four individual
+/// `&mut`-field parameters (`focused_node_hint`, `focus_ring_node_key`,
+/// `focus_ring_started_at`, `focus_ring_duration`) that `TileRenderPassArgs`
+/// and `PostRenderPhaseArgs` used to carry.
+///
+/// Per the M3.5 runtime boundary design (§3.1 Focus authority), focus
+/// policy truth belongs on `GraphshellRuntime`. M4.1 slice 1b introduces
+/// this bundle as the transitional seam: callers destructure
+/// `GraphshellRuntime` at the host boundary, assemble a
+/// `FocusAuthorityMut`, and pass it down. The render path calls named
+/// methods (`clear_hint`, `set_hint`, `latch_ring`, …) instead of
+/// dereferencing raw refs. A follow-on slice will replace the bundle
+/// with `&mut GraphshellRuntime` once the surrounding destructure
+/// collapses.
+pub(crate) struct FocusAuthorityMut<'a> {
+    pub(crate) focused_node_hint: &'a mut Option<NodeKey>,
+    /// Whether the graph canvas currently owns focus. Read-only this
+    /// frame — the value is produced upstream by the focus-authority
+    /// projection.
+    pub(crate) graph_surface_focused: bool,
+    pub(crate) focus_ring_node_key: &'a mut Option<NodeKey>,
+    pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
+    pub(crate) focus_ring_duration: Duration,
+}
+
+impl<'a> FocusAuthorityMut<'a> {
+    /// Reborrow the bundle with a shorter lifetime. Needed when the
+    /// bundle flows through multiple call sites the borrow checker
+    /// can't statically prove are mutually exclusive (e.g., separate
+    /// `if matches!(layer_state, …)` branches against `WorkbenchChromeProjection`).
+    pub(crate) fn reborrow(&mut self) -> FocusAuthorityMut<'_> {
+        FocusAuthorityMut {
+            focused_node_hint: &mut *self.focused_node_hint,
+            graph_surface_focused: self.graph_surface_focused,
+            focus_ring_node_key: &mut *self.focus_ring_node_key,
+            focus_ring_started_at: &mut *self.focus_ring_started_at,
+            focus_ring_duration: self.focus_ring_duration,
+        }
+    }
+
+    /// Current focus hint (the node a pane wants to own focus on this
+    /// frame, or `None` when the hint has been cleared).
+    pub(crate) fn hint(&self) -> Option<NodeKey> {
+        *self.focused_node_hint
+    }
+
+    /// Whether the graph canvas surface currently owns focus. When
+    /// true, pane-level focus mutations should reset the node hint so
+    /// the canvas retains input routing.
+    pub(crate) fn graph_surface_focused(&self) -> bool {
+        self.graph_surface_focused
+    }
+
+    /// Replace the focus hint with `value`.
+    pub(crate) fn set_hint(&mut self, value: Option<NodeKey>) {
+        *self.focused_node_hint = value;
+    }
+
+    /// Clear the focus hint unconditionally.
+    pub(crate) fn clear_hint(&mut self) {
+        *self.focused_node_hint = None;
+    }
+
+    /// Clear the focus hint if it currently points at `node_key`.
+    /// Returns `true` when the clear fired (the caller can use this as
+    /// a hook for diagnostics or logging).
+    pub(crate) fn clear_hint_if_matches(&mut self, node_key: NodeKey) -> bool {
+        if *self.focused_node_hint == Some(node_key) {
+            *self.focused_node_hint = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Latch a new focus-ring animation from a focus transition delta.
+    /// Called once per frame after the active-pane focused-node is
+    /// resolved; a no-op when `delta.changed_this_frame` is false so
+    /// the ring keeps fading toward its current target.
+    pub(crate) fn latch_ring(
+        &mut self,
+        changed_this_frame: bool,
+        new_focused_node: Option<NodeKey>,
+    ) {
+        if !changed_this_frame {
+            return;
+        }
+        *self.focus_ring_node_key = new_focused_node;
+        *self.focus_ring_started_at = new_focused_node.map(|_| Instant::now());
+    }
+
+    /// Compute the paint alpha for the focus ring using the default
+    /// linear curve. Thin wrapper over [`Self::ring_alpha_with_curve`];
+    /// preserved so pre-M4.1 call sites that don't consult settings
+    /// still compile unchanged.
+    pub(crate) fn ring_alpha(&self, focused_node: Option<NodeKey>, now: Instant) -> f32 {
+        self.ring_alpha_with_curve(focused_node, now, crate::app::FocusRingCurve::Linear)
+    }
+
+    /// Compute the paint alpha applying the supplied fade reshape.
+    /// Returns 0.0 when the ring target, clock, or stored start-time
+    /// precludes any ring; otherwise delegates to
+    /// [`FocusRingSpec::alpha_at_with_curve`] so the render path and
+    /// the view-model projection share one implementation.
+    pub(crate) fn ring_alpha_with_curve(
+        &self,
+        focused_node: Option<NodeKey>,
+        now: Instant,
+        curve: crate::app::FocusRingCurve,
+    ) -> f32 {
+        let Some(node_key) = *self.focus_ring_node_key else {
+            return 0.0;
+        };
+        let Some(started_at) = *self.focus_ring_started_at else {
+            return 0.0;
+        };
+        crate::shell::desktop::ui::frame_model::FocusRingSpec {
+            node_key,
+            started_at,
+            duration: self.focus_ring_duration,
+        }
+        .alpha_at_with_curve(focused_node, now, curve)
+    }
+}
+
+/// Host-facing mutation handle for toolbar / omnibar session state.
+///
+/// Per the M4 runtime extraction (§3.3 Toolbar / omnibar session state),
+/// toolbar and omnibar state live on `GraphshellRuntime` and are host-
+/// neutral. The widget receives this bundle in place of the five
+/// individual `&mut` fields (`location`, `location_dirty`,
+/// `location_submitted`, `show_clear_data_confirm`, `omnibar_search_session`)
+/// that the `Input` surface used to carry, and calls named methods
+/// (`set_location`, `mark_dirty`, `clear_omnibar_session`, …) instead of
+/// poking raw fields.
+///
+/// Follows the `FocusAuthorityMut` pattern: callers destructure
+/// `GraphshellRuntime` at the host boundary, assemble the bundle, and
+/// pass it down. Fields are `pub(crate)` so deep call stacks that still
+/// expect raw refs (egui TextEdit callbacks wanting `&mut String`) can
+/// reach them without forcing a method signature rewrite.
+pub(crate) struct ToolbarAuthorityMut<'a> {
+    pub(crate) editable: &'a mut ToolbarEditable,
+    pub(crate) show_clear_data_confirm: &'a mut bool,
+    pub(crate) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+}
+
+impl<'a> ToolbarAuthorityMut<'a> {
+    /// Reborrow the bundle with a shorter lifetime so it can be threaded
+    /// through sub-functions without moving out of the outer bundle.
+    pub(crate) fn reborrow(&mut self) -> ToolbarAuthorityMut<'_> {
+        ToolbarAuthorityMut {
+            editable: &mut *self.editable,
+            show_clear_data_confirm: &mut *self.show_clear_data_confirm,
+            omnibar_search_session: &mut *self.omnibar_search_session,
+        }
+    }
+
+    pub(crate) fn location(&self) -> &str {
+        &self.editable.location
+    }
+
+    pub(crate) fn location_mut(&mut self) -> &mut String {
+        &mut self.editable.location
+    }
+
+    pub(crate) fn set_location(&mut self, value: impl Into<String>) {
+        self.editable.location = value.into();
+    }
+
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.editable.location_dirty
+    }
+
+    pub(crate) fn set_dirty(&mut self, value: bool) {
+        self.editable.location_dirty = value;
+    }
+
+    pub(crate) fn mark_dirty(&mut self) {
+        self.editable.location_dirty = true;
+    }
+
+    pub(crate) fn clear_dirty(&mut self) {
+        self.editable.location_dirty = false;
+    }
+
+    pub(crate) fn submitted(&self) -> bool {
+        self.editable.location_submitted
+    }
+
+    pub(crate) fn set_submitted(&mut self, value: bool) {
+        self.editable.location_submitted = value;
+    }
+
+    pub(crate) fn mark_submitted(&mut self) {
+        self.editable.location_submitted = true;
+    }
+
+    pub(crate) fn clear_submitted(&mut self) {
+        self.editable.location_submitted = false;
+    }
+
+    pub(crate) fn clear_data_confirm_armed(&self) -> bool {
+        *self.show_clear_data_confirm
+    }
+
+    pub(crate) fn set_clear_data_confirm(&mut self, value: bool) {
+        *self.show_clear_data_confirm = value;
+    }
+
+    pub(crate) fn omnibar_session(&self) -> Option<&OmnibarSearchSession> {
+        self.omnibar_search_session.as_ref()
+    }
+
+    pub(crate) fn omnibar_session_mut(&mut self) -> Option<&mut OmnibarSearchSession> {
+        self.omnibar_search_session.as_mut()
+    }
+
+    pub(crate) fn set_omnibar_session(&mut self, session: Option<OmnibarSearchSession>) {
+        *self.omnibar_search_session = session;
+    }
+
+    pub(crate) fn clear_omnibar_session(&mut self) -> Option<OmnibarSearchSession> {
+        self.omnibar_search_session.take()
+    }
+}
+
+/// Host-facing mutation handle for graph-search session state.
+///
+/// Bundles the five `graph_search_*` fields on `GraphshellRuntime`
+/// (`open`, `query`, `filter_mode`, `matches`, `active_match_index`)
+/// that previously flowed through `ExecuteUpdateFrameArgs` as
+/// individual `&mut` parameters. Callers use `close()` / `open()` /
+/// `set_query(…)` instead of field pokes.
+pub(crate) struct GraphSearchAuthorityMut<'a> {
+    pub(crate) open: &'a mut bool,
+    pub(crate) query: &'a mut String,
+    pub(crate) filter_mode: &'a mut bool,
+    pub(crate) matches: &'a mut Vec<NodeKey>,
+    pub(crate) active_match_index: &'a mut Option<usize>,
+}
+
+impl<'a> GraphSearchAuthorityMut<'a> {
+    pub(crate) fn reborrow(&mut self) -> GraphSearchAuthorityMut<'_> {
+        GraphSearchAuthorityMut {
+            open: &mut *self.open,
+            query: &mut *self.query,
+            filter_mode: &mut *self.filter_mode,
+            matches: &mut *self.matches,
+            active_match_index: &mut *self.active_match_index,
+        }
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        *self.open
+    }
+
+    pub(crate) fn set_open(&mut self, value: bool) {
+        *self.open = value;
+    }
+
+    /// Close the graph-search panel and reset its transient state. The
+    /// query text is preserved so a subsequent `open()` restores it.
+    pub(crate) fn close(&mut self) {
+        *self.open = false;
+        self.matches.clear();
+        *self.active_match_index = None;
+    }
+
+    pub(crate) fn query(&self) -> &str {
+        self.query.as_str()
+    }
+
+    pub(crate) fn query_mut(&mut self) -> &mut String {
+        &mut *self.query
+    }
+
+    pub(crate) fn set_query(&mut self, value: impl Into<String>) {
+        *self.query = value.into();
+    }
+
+    pub(crate) fn filter_mode_active(&self) -> bool {
+        *self.filter_mode
+    }
+
+    pub(crate) fn set_filter_mode(&mut self, value: bool) {
+        *self.filter_mode = value;
+    }
+
+    pub(crate) fn toggle_filter_mode(&mut self) {
+        *self.filter_mode = !*self.filter_mode;
+    }
+
+    pub(crate) fn matches(&self) -> &[NodeKey] {
+        self.matches.as_slice()
+    }
+
+    pub(crate) fn set_matches(&mut self, matches: Vec<NodeKey>) {
+        *self.matches = matches;
+    }
+
+    pub(crate) fn active_match_index(&self) -> Option<usize> {
+        *self.active_match_index
+    }
+
+    pub(crate) fn set_active_match_index(&mut self, value: Option<usize>) {
+        *self.active_match_index = value;
+    }
+}
+
+/// Host-facing mutation handle for runtime-owned command-palette state.
+///
+/// Per the M4 runtime extraction (§3.2 Command routing), the palette's
+/// toggle request and its session state (search query, scope filter,
+/// selection cursor, focus-on-open flag) live on `GraphshellRuntime`.
+/// The widget mutates them through this bundle instead of stashing
+/// search state in `egui::Context::data_mut(...)` persistent storage,
+/// the pre-M4 pattern that did not survive a host migration.
+///
+/// The palette's **open flag** (`show_command_palette`) deliberately
+/// stays on `graph_app.workspace.chrome_ui`, not on the runtime, and
+/// is NOT a member of this bundle. It's one of eight mutually-
+/// exclusive modal flags (`show_help_panel`, `show_settings_overlay`,
+/// `show_scene_overlay`, `show_radial_menu`, `show_context_palette`,
+/// `command_palette_contextual_mode`, `show_clip_inspector`,
+/// `show_command_palette`) that `app::ux_navigation` manages as a
+/// coordinated cluster at ~15 call sites. Lifting any one flag in
+/// isolation would split the cluster and force ux_navigation to
+/// coordinate across layer boundaries. Future work: a "modal surface
+/// extraction" session lifts the whole cluster to the runtime as a
+/// coherent bundle; until then the widget and callers continue to
+/// read/write the open flag directly through `graph_app`.
+///
+/// Follows the `ToolbarAuthorityMut` / `GraphSearchAuthorityMut`
+/// pattern: callers assemble the bundle inline at the phase boundary
+/// and pass it down.
+pub(crate) struct CommandAuthorityMut<'a> {
+    pub(crate) toggle_requested: &'a mut bool,
+    pub(crate) session: &'a mut CommandPaletteSession,
+}
+
+impl<'a> CommandAuthorityMut<'a> {
+    pub(crate) fn reborrow(&mut self) -> CommandAuthorityMut<'_> {
+        CommandAuthorityMut {
+            toggle_requested: &mut *self.toggle_requested,
+            session: &mut *self.session,
+        }
+    }
+
+    pub(crate) fn toggle_requested(&self) -> bool {
+        *self.toggle_requested
+    }
+
+    pub(crate) fn clear_toggle_request(&mut self) {
+        *self.toggle_requested = false;
+    }
+
+    /// Arm the session for a fresh open: reset query/scope/selection
+    /// and request keyboard focus for the search field on the next
+    /// frame. The palette's visibility flag (`show_command_palette`)
+    /// lives on workspace state and is flipped by the caller; this
+    /// method only touches runtime-owned session state.
+    pub(crate) fn prime_fresh_open(
+        &mut self,
+        default_scope: crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
+    ) {
+        self.session.open_fresh(default_scope);
+    }
+
+    pub(crate) fn session(&self) -> &CommandPaletteSession {
+        self.session
+    }
+
+    pub(crate) fn session_mut(&mut self) -> &mut CommandPaletteSession {
+        self.session
+    }
 }
 
 /// Host-neutral runtime state for the Graphshell shell.
@@ -164,6 +539,14 @@ pub(crate) struct GraphshellRuntime {
     /// Runtime backpressure state for tile-driven viewer creation retries.
     pub(crate) webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
 
+    /// Runtime viewers with an in-flight thumbnail capture request. This
+    /// is pure runtime tracking (per M3.5 design §3.5, "thumbnail
+    /// request tracking → Runtime") — the paired `tx`/`rx` channels
+    /// stay on the host adapter until the render-backend boundary is
+    /// formalized, but the set of pending WebViewIds lives here so
+    /// iced will inherit it for free.
+    pub(crate) thumbnail_capture_in_flight: std::collections::HashSet<WebViewId>,
+
     /// Typed frame-bound relay set for Shell-facing async signal bridges.
     pub(crate) frame_inbox: GuiFrameInbox,
 
@@ -182,6 +565,12 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) focus_authority: RuntimeFocusAuthorityState,
     pub(crate) toolbar_drafts: HashMap<PaneId, ToolbarDraft>,
     pub(crate) command_palette_toggle_requested: bool,
+    /// Command-palette session state (search query, scope filter,
+    /// selection cursor, focus-on-open flag). Previously stashed in
+    /// `egui::Context::data_mut(...)` persistent storage inside
+    /// `render::command_palette`; moved here in M4 session 3 so it
+    /// survives host migration.
+    pub(crate) command_palette_session: CommandPaletteSession,
     pub(crate) pending_webview_context_surface_requests: Vec<PendingWebviewContextSurfaceRequest>,
     /// Two-step "clear graph and saved data" confirm deadline (unix
     /// seconds). `None` when not armed. Previously lived inside egui's
@@ -324,11 +713,63 @@ impl GraphshellRuntime {
     /// phases that have not yet migrated onto the tick path.
     pub(crate) fn project_view_model(&self) -> FrameViewModel {
         let chrome_ui = &self.graph_app.workspace.chrome_ui;
-        let focus_ring = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
+        let focus_ring_settings = chrome_ui.focus_ring_settings;
+        // Source the fade-out duration from user settings so
+        // runtime-scoped `focus_ring_duration` stays a harmless
+        // legacy field while the view model reflects the setting the
+        // user actually chose. Slice 1d moves the paint path onto
+        // settings.duration() exclusively.
+        let effective_duration = focus_ring_settings.duration();
+        let ring_spec_candidate = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
             node_key,
             started_at: self.focus_ring_started_at.unwrap_or_else(Instant::now),
-            duration: self.focus_ring_duration,
+            duration: effective_duration,
         });
+        // Derive the active pane's focused node by correlating the
+        // focus-authority's tracked pane activation with the rect
+        // roster. Falls back to the first rendered pane when no pane
+        // activation is set — maintains the pre-M4 behavior for
+        // startup frames and when the user clicks the graph canvas
+        // without targeting a pane.
+        //
+        // Previously this was `active_pane_rects.first()` which ignored
+        // focus authority entirely, so the "active" pane reported in
+        // the view-model could lag the user's actual selection by one
+        // frame when pane activation changed via keyboard.
+        let pane_rects = &self.graph_app.workspace.graph_runtime.active_pane_rects;
+        let active_pane_focused_node = self
+            .focus_authority
+            .pane_activation
+            .and_then(|active_id| {
+                pane_rects
+                    .iter()
+                    .find(|(pane_id, _, _)| *pane_id == active_id)
+                    .map(|(_, node_key, _)| *node_key)
+            })
+            .or_else(|| pane_rects.first().map(|(_, node_key, _)| *node_key));
+        // Evaluate alpha honoring the user-chosen curve; gate hard on
+        // the enabled toggle so reduced-motion preferences get an
+        // instantly-zero ring regardless of timing state.
+        let focus_ring_alpha = if focus_ring_settings.enabled {
+            ring_spec_candidate
+                .as_ref()
+                .map(|spec| {
+                    spec.alpha_at_with_curve(
+                        active_pane_focused_node,
+                        Instant::now(),
+                        focus_ring_settings.curve,
+                    )
+                })
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        // Bugfix (slice 1d): the raw `focus_ring_node_key` is latched on
+        // every transition but never cleared when a ring expires, so a
+        // direct projection kept `focus_ring: Some(..)` forever. Hosts
+        // that gate on `focus_ring.is_some()` would loop repainting.
+        // Only publish the spec while the ring is actually painting.
+        let focus_ring = ring_spec_candidate.filter(|_| focus_ring_alpha > 0.0);
 
         FrameViewModel {
             active_pane_rects: self
@@ -336,6 +777,26 @@ impl GraphshellRuntime {
                 .workspace
                 .graph_runtime
                 .active_pane_rects
+                .iter()
+                .map(|(pane_id, node_key, rect)| {
+                    (
+                        *pane_id,
+                        *node_key,
+                        crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui(*rect),
+                    )
+                })
+                .collect(),
+            pane_render_modes: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .pane_render_modes
+                .clone(),
+            pane_viewer_ids: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .pane_viewer_ids
                 .clone(),
             tree_rows: self
                 .graph_app
@@ -355,27 +816,42 @@ impl GraphshellRuntime {
                 .graph_runtime
                 .cached_split_boundaries
                 .clone(),
-            active_pane: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .active_pane_rects
-                .first()
-                .map(|(_, node_key, _)| *node_key),
+            active_pane: active_pane_focused_node,
             focus: FocusViewModel {
                 focused_node: self.focused_node_hint,
                 graph_surface_focused: self.graph_surface_focused,
                 focus_ring,
+                focus_ring_alpha,
             },
             toolbar: ToolbarViewModel {
-                location: self.toolbar_state.location.clone(),
-                location_dirty: self.toolbar_state.location_dirty,
-                location_submitted: self.toolbar_state.location_submitted,
+                location: self.toolbar_state.editable.location.clone(),
+                location_dirty: self.toolbar_state.editable.location_dirty,
+                location_submitted: self.toolbar_state.editable.location_submitted,
                 load_status: Some(self.toolbar_state.load_status),
                 status_text: self.toolbar_state.status_text.clone(),
                 can_go_back: self.toolbar_state.can_go_back,
                 can_go_forward: self.toolbar_state.can_go_forward,
-                per_pane_drafts: self.toolbar_drafts.clone(),
+                active_pane_draft: self.focus_authority.pane_activation.and_then(|pane| {
+                    self.toolbar_drafts
+                        .get(&pane)
+                        .map(|draft| (pane, draft.clone()))
+                }),
+            },
+            omnibar: self.omnibar_search_session.as_ref().map(project_omnibar),
+            graph_search: GraphSearchViewModel {
+                open: self.graph_search_open,
+                query: self.graph_search_query.clone(),
+                filter_mode: self.graph_search_filter_mode,
+                match_count: self.graph_search_matches.len(),
+                active_match_index: self.graph_search_active_match_index,
+            },
+            command_palette: CommandPaletteViewModel {
+                open: chrome_ui.show_command_palette,
+                contextual_mode: chrome_ui.command_palette_contextual_mode,
+                query: self.command_palette_session.query.clone(),
+                scope: project_palette_scope(self.command_palette_session.scope),
+                selected_index: self.command_palette_session.selected_index,
+                toggle_requested: self.command_palette_toggle_requested,
             },
             overlays: Vec::new(),
             dialogs: DialogsViewModel {
@@ -394,7 +870,51 @@ impl GraphshellRuntime {
             toasts: Vec::new(),
             surfaces_to_present: Vec::new(),
             degraded_receipts: Vec::new(),
+            captures_in_flight: self.thumbnail_capture_in_flight.len(),
         }
+    }
+}
+
+/// Project an active omnibar session onto its host-neutral view-model.
+/// Project the runtime's `SearchPaletteScope` onto the host-neutral
+/// view-model enum.
+fn project_palette_scope(
+    scope: crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
+) -> crate::shell::desktop::ui::frame_model::CommandPaletteScopeView {
+    use crate::shell::desktop::ui::command_palette_state::SearchPaletteScope;
+    use crate::shell::desktop::ui::frame_model::CommandPaletteScopeView;
+    match scope {
+        SearchPaletteScope::CurrentTarget => CommandPaletteScopeView::CurrentTarget,
+        SearchPaletteScope::ActivePane => CommandPaletteScopeView::ActivePane,
+        SearchPaletteScope::ActiveGraph => CommandPaletteScopeView::ActiveGraph,
+        SearchPaletteScope::Workbench => CommandPaletteScopeView::Workbench,
+    }
+}
+
+fn project_omnibar(session: &OmnibarSearchSession) -> OmnibarViewModel {
+    OmnibarViewModel {
+        kind: match session.kind {
+            OmnibarSessionKind::Graph(_) => OmnibarSessionKindView::Graph,
+            OmnibarSessionKind::SearchProvider(_) => OmnibarSessionKindView::SearchProvider,
+        },
+        query: session.query.clone(),
+        match_count: session.matches.len(),
+        active_match_index: session.active_index,
+        selected_index_count: session.selected_indices.len(),
+        provider_status: match session.provider_mailbox.status {
+            ProviderSuggestionStatus::Idle => OmnibarProviderStatusView::Idle,
+            ProviderSuggestionStatus::Loading => OmnibarProviderStatusView::Loading,
+            ProviderSuggestionStatus::Ready => OmnibarProviderStatusView::Ready,
+            ProviderSuggestionStatus::Failed(ProviderSuggestionError::Network) => {
+                OmnibarProviderStatusView::FailedNetwork
+            }
+            ProviderSuggestionStatus::Failed(ProviderSuggestionError::HttpStatus(code)) => {
+                OmnibarProviderStatusView::FailedHttp(code)
+            }
+            ProviderSuggestionStatus::Failed(ProviderSuggestionError::Parse) => {
+                OmnibarProviderStatusView::FailedParse
+            }
+        },
     }
 }
 
@@ -422,9 +942,7 @@ impl GraphshellRuntime {
             ),
             workbench_view_id: GraphViewId::new(),
             toolbar_state: ToolbarState {
-                location: String::new(),
-                location_dirty: false,
-                location_submitted: false,
+                editable: ToolbarEditable::default(),
                 show_clear_data_confirm: false,
                 load_status: servo::LoadStatus::Complete,
                 status_text: None,
@@ -437,6 +955,7 @@ impl GraphshellRuntime {
             tokio_runtime,
             viewer_surfaces: ViewerSurfaceRegistry::new(),
             webview_creation_backpressure: HashMap::new(),
+            thumbnail_capture_in_flight: std::collections::HashSet::new(),
             frame_inbox,
             graph_search_open: false,
             graph_search_query: String::new(),
@@ -452,6 +971,7 @@ impl GraphshellRuntime {
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
+            command_palette_session: CommandPaletteSession::default(),
             pending_webview_context_surface_requests: Vec::new(),
             clear_data_confirm_deadline_secs: None,
         }

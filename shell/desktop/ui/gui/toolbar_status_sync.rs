@@ -16,8 +16,8 @@ pub(super) fn update_location_in_toolbar(
     let chrome_projection_node =
         nav_targeting::chrome_projection_node(graph_app, window).or(focused_node_key);
     webview_status_sync::update_location_in_toolbar(
-        toolbar_state.location_dirty,
-        &mut toolbar_state.location,
+        toolbar_state.editable.location_dirty,
+        &mut toolbar_state.editable.location,
         has_node_panes,
         selected_node_url_for_toolbar(graph_app),
         chrome_projection_node,
@@ -49,7 +49,7 @@ fn sync_toolbar_load_status(
 ) -> bool {
     webview_status_sync::update_load_status(
         &mut toolbar_state.load_status,
-        &mut toolbar_state.location_dirty,
+        &mut toolbar_state.editable.location_dirty,
         focused_content_status,
     )
 }

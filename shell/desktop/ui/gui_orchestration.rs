@@ -49,7 +49,7 @@ use crate::shell::desktop::ui::gui_state::{
     LocalFocusTarget, RuntimeFocusAuthorityState, ToolbarState,
 };
 use crate::shell::desktop::ui::nav_targeting;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;

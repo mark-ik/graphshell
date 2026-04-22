@@ -5,7 +5,7 @@
 use super::*;
 
 pub(super) fn should_skip_toolbar_location_sync(toolbar_state: &ToolbarState) -> bool {
-    toolbar_state.location.trim_start().starts_with('@')
+    toolbar_state.editable.location.trim_start().starts_with('@')
 }
 
 pub(super) fn has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {

@@ -45,11 +45,12 @@ fn outcome_from_cached_suggestions(
 fn provider_mailbox_for_query(
     request_query: impl Into<String>,
     should_fetch_provider: bool,
+    debounce_ms: u64,
 ) -> ProviderSuggestionMailbox {
     if should_fetch_provider {
         ProviderSuggestionMailbox::debounced(
             request_query.into(),
-            Instant::now() + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS),
+            Instant::now() + Duration::from_millis(debounce_ms),
         )
     } else {
         ProviderSuggestionMailbox::ready()
@@ -62,12 +63,13 @@ fn search_provider_session(
     matches: Vec<OmnibarMatch>,
     request_query: impl Into<String>,
     should_fetch_provider: bool,
+    debounce_ms: u64,
 ) -> OmnibarSearchSession {
     OmnibarSearchSession::new_search_provider(
         provider,
         query,
         matches,
-        provider_mailbox_for_query(request_query, should_fetch_provider),
+        provider_mailbox_for_query(request_query, should_fetch_provider, debounce_ms),
     )
 }
 
@@ -280,6 +282,7 @@ pub(super) fn render_location_search_panel(
                             }],
                             query,
                             true,
+                            graph_app.workspace.chrome_ui.omnibar_provider_debounce_ms,
                         ));
                     }
                 }
@@ -328,6 +331,7 @@ pub(super) fn render_location_search_panel(
                     initial_matches,
                     trimmed_location,
                     should_fetch_provider,
+                    graph_app.workspace.chrome_ui.omnibar_provider_debounce_ms,
                 ));
             }
         } else if trimmed_location.is_empty() {

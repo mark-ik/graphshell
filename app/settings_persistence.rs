@@ -88,6 +88,327 @@ pub struct WorkspaceUserStylesheetSetting {
     pub enabled: bool,
 }
 
+/// Shape of the focus-ring fade-out curve the runtime applies between a
+/// freshly-latched focus transition and the ring's expiry.
+///
+/// `Linear` is the historical default (constant-rate fade). `EaseOut`
+/// gives a slower fade at first that accelerates toward zero — makes the
+/// ring feel like it's "settling in" before fading. `Step` skips the
+/// animation entirely (ring is either fully lit or fully off), which is
+/// the right choice for reduced-motion accessibility profiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusRingCurve {
+    /// alpha = 1 − t/d (default).
+    #[default]
+    Linear,
+    /// alpha = 1 − (t/d)² — slow at start, fast at end.
+    EaseOut,
+    /// alpha = 1 while t < d, else 0 — instant cutoff, no fade.
+    Step,
+}
+
+impl_display_from_str!(FocusRingCurve {
+    FocusRingCurve::Linear => "linear",
+    FocusRingCurve::EaseOut => "ease_out",
+    FocusRingCurve::Step => "step",
+});
+
+impl FocusRingCurve {
+    /// Reshape a normalized fade progress in `[0.0, 1.0]` (0 = just
+    /// latched, 1 = animation complete) into a visual alpha value in
+    /// `[0.0, 1.0]`.
+    pub fn alpha_from_progress(self, progress: f32) -> f32 {
+        let p = progress.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => 1.0 - p,
+            Self::EaseOut => {
+                let remaining = 1.0 - p;
+                remaining * remaining
+            }
+            Self::Step => {
+                if p >= 1.0 {
+                    0.0
+                } else {
+                    1.0
+                }
+            }
+        }
+    }
+}
+
+/// User-configurable focus-ring behavior. Lives on
+/// `ChromeUiState::focus_ring_settings`; defaults match the historical
+/// hardcoded behavior (500 ms linear fade, theme color).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FocusRingSettings {
+    /// Whether to paint the focus ring at all. Set to `false` for
+    /// reduced-motion preferences; render paths will treat
+    /// `focus_ring_alpha` as `0.0`.
+    #[serde(default = "FocusRingSettings::default_enabled")]
+    pub enabled: bool,
+
+    /// Duration of the fade-out animation in milliseconds. Clamped to
+    /// [`FocusRingSettings::MIN_DURATION_MS`]..=[`FocusRingSettings::MAX_DURATION_MS`]
+    /// by the setter.
+    #[serde(default = "FocusRingSettings::default_duration_ms")]
+    pub duration_ms: u32,
+
+    /// Reshape applied to the linear fade-out progress. See
+    /// [`FocusRingCurve`].
+    #[serde(default)]
+    pub curve: FocusRingCurve,
+
+    /// Optional user-chosen ring color (RGB). `None` (default) means
+    /// inherit the active presentation theme's `focus_ring` color.
+    /// `Some([r, g, b])` overrides it — alpha is still modulated by
+    /// the ring animation.
+    #[serde(default)]
+    pub color_override: Option<[u8; 3]>,
+}
+
+impl FocusRingSettings {
+    pub const MIN_DURATION_MS: u32 = 0;
+    pub const MAX_DURATION_MS: u32 = 5_000;
+    pub const DEFAULT_DURATION_MS: u32 = 500;
+
+    fn default_enabled() -> bool {
+        true
+    }
+
+    fn default_duration_ms() -> u32 {
+        Self::DEFAULT_DURATION_MS
+    }
+
+    pub fn duration(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(u64::from(self.duration_ms))
+    }
+}
+
+impl Default for FocusRingSettings {
+    fn default() -> Self {
+        Self {
+            enabled: Self::default_enabled(),
+            duration_ms: Self::default_duration_ms(),
+            curve: FocusRingCurve::Linear,
+            color_override: None,
+        }
+    }
+}
+
+/// Resampling filter applied when the thumbnail pipeline scales a
+/// captured screenshot down to the configured width / height. Maps 1:1
+/// onto `image::imageops::FilterType`.
+///
+/// Quality/speed tradeoff:
+/// - [`Nearest`](ThumbnailFilter::Nearest) — fastest, chunky (pixelated look); acceptable
+///   for tiny thumbnails where speed dominates.
+/// - [`Triangle`](ThumbnailFilter::Triangle) — default; reasonable quality at moderate
+///   cost (linear interpolation).
+/// - [`CatmullRom`](ThumbnailFilter::CatmullRom) — cubic, smoother edges than Triangle.
+/// - [`Gaussian`](ThumbnailFilter::Gaussian) — soft, good for screenshots with fine text.
+/// - [`Lanczos3`](ThumbnailFilter::Lanczos3) — highest quality, slowest; best for hi-DPI
+///   display thumbnails where sharpness matters.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum ThumbnailFilter {
+    Nearest,
+    #[default]
+    Triangle,
+    CatmullRom,
+    Gaussian,
+    Lanczos3,
+}
+
+impl_display_from_str!(ThumbnailFilter {
+    ThumbnailFilter::Nearest => "nearest",
+    ThumbnailFilter::Triangle => "triangle",
+    ThumbnailFilter::CatmullRom => "catmull_rom",
+    ThumbnailFilter::Gaussian => "gaussian",
+    ThumbnailFilter::Lanczos3 => "lanczos3",
+});
+
+/// Encoded format for cached thumbnail bytes. PNG is lossless and
+/// larger; JPEG is lossy and smaller, with a quality knob on
+/// [`ThumbnailSettings::jpeg_quality`]. Downstream decoders use
+/// `image::load_from_memory` (magic-byte detection) so caches mixed
+/// across format toggles coexist cleanly — stale PNG bytes stay
+/// decodable after the user switches to JPEG and vice versa; they
+/// just get replaced at the next re-capture.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum ThumbnailFormat {
+    /// Lossless PNG (default). Bigger files, crisp at any zoom.
+    #[default]
+    Png,
+    /// Lossy JPEG. Smaller files; alpha is composited to opaque before
+    /// encoding because JPEG has no alpha channel.
+    Jpeg,
+    /// Lossless WebP. Typically ~20–30% smaller than PNG at the same
+    /// visual fidelity on screenshot content. Preserves alpha.
+    ///
+    /// No quality knob is exposed because this variant is
+    /// deliberately lossless. Pure-Rust lossy WebP encoding does not
+    /// exist in the ecosystem as of this codebase's dependencies — the
+    /// options are FFI-to-libwebp (native dependency, build-system
+    /// cost, platform-specific fallout) or vendored C. At thumbnail
+    /// scale (≤1024×1024) the filesize/quality win of lossy WebP over
+    /// JPEG at matched quality is typically single-digit percent, so
+    /// users who want small lossy thumbnails should pick `Jpeg` with a
+    /// quality slider; those who want small + alpha pick this variant.
+    /// If the tradeoff ever shifts (pure-Rust lossy WebP lands, or
+    /// thumbnail sizes grow to where the compression delta matters),
+    /// revisit — the encoder dispatch in
+    /// `thumbnail_pipeline::encode_thumbnail` is the only site that
+    /// needs to grow a fourth arm.
+    WebP,
+}
+
+impl_display_from_str!(ThumbnailFormat {
+    ThumbnailFormat::Png => "png",
+    ThumbnailFormat::Jpeg => "jpeg",
+    ThumbnailFormat::WebP => "webp",
+});
+
+/// Aspect-ratio policy applied when scaling a captured screenshot
+/// down to the target thumbnail size. Changes which variant of the
+/// `image::imageops::FilterType` resize path the pipeline picks
+/// (`resize_to_fill` for crop-to-box, `resize` for preserve-aspect).
+///
+/// - [`Fixed`](ThumbnailAspect::Fixed) — historical behavior; use `width × height`
+///   verbatim, crop the source to match (may letterbox-style lose
+///   pixels when source aspect ≠ target aspect).
+/// - [`MatchSource`](ThumbnailAspect::MatchSource) — preserve the source's aspect
+///   ratio; the longer side is scaled to `max(width, height)`. Good
+///   for mixed-aspect browsing (phones portrait, monitors landscape).
+/// - [`Square`](ThumbnailAspect::Square) — force square output using `width`
+///   for both dimensions. Matches tile grids that expect 1:1.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum ThumbnailAspect {
+    #[default]
+    Fixed,
+    MatchSource,
+    Square,
+}
+
+impl_display_from_str!(ThumbnailAspect {
+    ThumbnailAspect::Fixed => "fixed",
+    ThumbnailAspect::MatchSource => "match_source",
+    ThumbnailAspect::Square => "square",
+});
+
+/// User-configurable node-thumbnail capture behavior. Lives on
+/// `ChromeUiState::thumbnail_settings`; defaults match the historical
+/// hardcoded behavior (enabled, 256×192, Triangle filter, PNG format).
+///
+/// Cadence note: refresh intervals for active vs warm preview
+/// thumbnails live on the sibling [`ChromeUiState`] fields
+/// `webview_preview_active_refresh_secs` and
+/// `webview_preview_warm_refresh_secs`. They're deliberately separate
+/// from `ThumbnailSettings` because the capture pipeline doesn't read
+/// them — the window's preview scheduler does. Present them together
+/// in a single UI panel; keep them separate at the data model level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ThumbnailSettings {
+    /// Master kill switch. When `false`, the thumbnail pipeline skips
+    /// new captures entirely — useful for privacy (no page-content
+    /// screenshots cached), low-memory devices, or slow GPUs.
+    /// In-flight captures still complete and drain normally.
+    #[serde(default = "ThumbnailSettings::default_enabled")]
+    pub enabled: bool,
+
+    /// Thumbnail target width in pixels. Clamped to
+    /// [`ThumbnailSettings::MIN_DIMENSION`]..=[`ThumbnailSettings::MAX_DIMENSION`]
+    /// by the setter. Aspect is preserved against `height`; capture uses
+    /// `resize_to_fill` which crops to match.
+    #[serde(default = "ThumbnailSettings::default_width")]
+    pub width: u32,
+
+    /// Thumbnail target height in pixels. See [`Self::width`].
+    #[serde(default = "ThumbnailSettings::default_height")]
+    pub height: u32,
+
+    /// Resampling filter for the downscale pass. See [`ThumbnailFilter`]
+    /// for quality/speed tradeoffs.
+    #[serde(default)]
+    pub filter: ThumbnailFilter,
+
+    /// Encoded format. Default is [`ThumbnailFormat::Png`] (historical
+    /// behavior). [`ThumbnailFormat::Jpeg`] uses the [`Self::jpeg_quality`]
+    /// knob to trade filesize for quality.
+    #[serde(default)]
+    pub format: ThumbnailFormat,
+
+    /// Encoder quality for JPEG output, on a 1..=100 scale. Clamped
+    /// into range by [`Self::clamp_dimensions`]. Ignored when
+    /// `format != ThumbnailFormat::Jpeg`. Default 85 is a common
+    /// sweet-spot for UI thumbnails (near-visually-lossless at roughly
+    /// a third the size of the PNG equivalent for typical screenshots).
+    #[serde(default = "ThumbnailSettings::default_jpeg_quality")]
+    pub jpeg_quality: u8,
+
+    /// Aspect-ratio policy for the downscale pass. See
+    /// [`ThumbnailAspect`]. Default [`ThumbnailAspect::Fixed`]
+    /// preserves the pre-M4.1 behavior (crop-to-box at `width × height`).
+    #[serde(default)]
+    pub aspect: ThumbnailAspect,
+}
+
+impl ThumbnailSettings {
+    pub const MIN_DIMENSION: u32 = 64;
+    pub const MAX_DIMENSION: u32 = 1024;
+    pub const DEFAULT_WIDTH: u32 = 256;
+    pub const DEFAULT_HEIGHT: u32 = 192;
+    pub const MIN_JPEG_QUALITY: u8 = 1;
+    pub const MAX_JPEG_QUALITY: u8 = 100;
+    pub const DEFAULT_JPEG_QUALITY: u8 = 85;
+
+    fn default_enabled() -> bool {
+        true
+    }
+
+    fn default_width() -> u32 {
+        Self::DEFAULT_WIDTH
+    }
+
+    fn default_height() -> u32 {
+        Self::DEFAULT_HEIGHT
+    }
+
+    fn default_jpeg_quality() -> u8 {
+        Self::DEFAULT_JPEG_QUALITY
+    }
+
+    /// Normalize `width`/`height` and `jpeg_quality` into their
+    /// supported ranges. Idempotent. Setter plumbing calls this so UI
+    /// sliders can pass raw values without separately validating.
+    pub fn clamp_dimensions(mut self) -> Self {
+        self.width = self.width.clamp(Self::MIN_DIMENSION, Self::MAX_DIMENSION);
+        self.height = self.height.clamp(Self::MIN_DIMENSION, Self::MAX_DIMENSION);
+        self.jpeg_quality = self
+            .jpeg_quality
+            .clamp(Self::MIN_JPEG_QUALITY, Self::MAX_JPEG_QUALITY);
+        self
+    }
+}
+
+impl Default for ThumbnailSettings {
+    fn default() -> Self {
+        Self {
+            enabled: Self::default_enabled(),
+            width: Self::default_width(),
+            height: Self::default_height(),
+            filter: ThumbnailFilter::Triangle,
+            format: ThumbnailFormat::Png,
+            jpeg_quality: Self::default_jpeg_quality(),
+            aspect: ThumbnailAspect::Fixed,
+        }
+    }
+}
+
 impl GraphBrowserApp {
     pub(crate) const SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME: &str =
         "settings.default_web_viewer_backend";
@@ -95,6 +416,8 @@ impl GraphBrowserApp {
         "settings.wry_render_mode_preference";
     pub(crate) const SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME: &str =
         "settings.workspace_user_stylesheets";
+    pub(crate) const SETTINGS_FOCUS_RING_SETTINGS_NAME: &str = "settings.focus_ring_settings";
+    pub(crate) const SETTINGS_THUMBNAIL_SETTINGS_NAME: &str = "settings.thumbnail_settings";
     pub fn is_reserved_workspace_layout_name(name: &str) -> bool {
         name == "latest"
             || name == Self::SESSION_WORKSPACE_LAYOUT_NAME
@@ -111,10 +434,20 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_INPUT_BINDING_REMAPS_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
+            || name == Self::SETTINGS_OMNIBAR_DROPDOWN_MAX_ROWS_NAME
+            || name == Self::SETTINGS_TOOLBAR_HEIGHT_DP_NAME
+            || name == Self::SETTINGS_OMNIBAR_PROVIDER_DEBOUNCE_MS_NAME
+            || name == Self::SETTINGS_COMMAND_PALETTE_DEFAULT_SCOPE_NAME
+            || name == Self::SETTINGS_COMMAND_PALETTE_MAX_PER_CATEGORY_NAME
+            || name == Self::SETTINGS_COMMAND_PALETTE_RECENTS_DEPTH_NAME
+            || name == Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME
+            || name == Self::SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
             || name == Self::SETTINGS_DEFAULT_WEB_VIEWER_BACKEND_NAME
             || name == Self::SETTINGS_WRY_RENDER_MODE_PREFERENCE_NAME
             || name == Self::SETTINGS_WORKSPACE_USER_STYLESHEETS_NAME
+            || name == Self::SETTINGS_FOCUS_RING_SETTINGS_NAME
+            || name == Self::SETTINGS_THUMBNAIL_SETTINGS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_ACTIVE_REFRESH_SECS_NAME
             || name == Self::SETTINGS_WEBVIEW_PREVIEW_WARM_REFRESH_SECS_NAME
             || name == Self::SETTINGS_NAVIGATOR_SIDEBAR_SIDE_NAME
@@ -187,6 +520,57 @@ impl GraphBrowserApp {
     ) {
         self.workspace.chrome_ui.context_command_surface_preference = preference;
         self.save_context_command_surface_preference();
+    }
+
+    pub fn focus_ring_settings(&self) -> FocusRingSettings {
+        self.workspace.chrome_ui.focus_ring_settings
+    }
+
+    /// Update the focus-ring settings. Duration is clamped into the
+    /// supported range; color override is accepted verbatim. The
+    /// updated settings are persisted via
+    /// [`Self::SETTINGS_FOCUS_RING_SETTINGS_NAME`].
+    pub fn set_focus_ring_settings(&mut self, mut settings: FocusRingSettings) {
+        settings.duration_ms = settings
+            .duration_ms
+            .clamp(FocusRingSettings::MIN_DURATION_MS, FocusRingSettings::MAX_DURATION_MS);
+        self.workspace.chrome_ui.focus_ring_settings = settings;
+        self.save_focus_ring_settings();
+    }
+
+    fn save_focus_ring_settings(&mut self) {
+        let json = match serde_json::to_string(&self.workspace.chrome_ui.focus_ring_settings) {
+            Ok(s) => s,
+            Err(error) => {
+                warn!("Failed to serialize focus ring settings for persistence: {error}");
+                return;
+            }
+        };
+        self.save_workspace_layout_json(Self::SETTINGS_FOCUS_RING_SETTINGS_NAME, &json);
+    }
+
+    pub fn thumbnail_settings(&self) -> ThumbnailSettings {
+        self.workspace.chrome_ui.thumbnail_settings
+    }
+
+    /// Update thumbnail capture settings. Width/height are clamped into
+    /// the supported range by [`ThumbnailSettings::clamp_dimensions`] so
+    /// callers can pass raw slider values without separately validating.
+    /// Persisted via [`Self::SETTINGS_THUMBNAIL_SETTINGS_NAME`].
+    pub fn set_thumbnail_settings(&mut self, settings: ThumbnailSettings) {
+        self.workspace.chrome_ui.thumbnail_settings = settings.clamp_dimensions();
+        self.save_thumbnail_settings();
+    }
+
+    fn save_thumbnail_settings(&mut self) {
+        let json = match serde_json::to_string(&self.workspace.chrome_ui.thumbnail_settings) {
+            Ok(s) => s,
+            Err(error) => {
+                warn!("Failed to serialize thumbnail settings for persistence: {error}");
+                return;
+            }
+        };
+        self.save_workspace_layout_json(Self::SETTINGS_THUMBNAIL_SETTINGS_NAME, &json);
     }
 
     pub fn keyboard_pan_step(&self) -> f32 {
@@ -467,6 +851,209 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME,
             &self.workspace.chrome_ui.omnibar_non_at_order.to_string(),
+        );
+    }
+
+    pub fn omnibar_dropdown_max_rows(&self) -> usize {
+        self.workspace.chrome_ui.omnibar_dropdown_max_rows
+    }
+
+    pub fn set_omnibar_dropdown_max_rows(&mut self, rows: usize) {
+        self.workspace.chrome_ui.omnibar_dropdown_max_rows = rows.clamp(3, 24);
+        self.save_omnibar_dropdown_max_rows();
+    }
+
+    fn save_omnibar_dropdown_max_rows(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_OMNIBAR_DROPDOWN_MAX_ROWS_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .omnibar_dropdown_max_rows
+                .to_string(),
+        );
+    }
+
+    pub fn toolbar_height_dp(&self) -> f32 {
+        self.workspace.chrome_ui.toolbar_height_dp
+    }
+
+    pub fn set_toolbar_height_dp(&mut self, height: f32) {
+        self.workspace.chrome_ui.toolbar_height_dp = height.clamp(24.0, 96.0);
+        self.save_toolbar_height_dp();
+    }
+
+    fn save_toolbar_height_dp(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_TOOLBAR_HEIGHT_DP_NAME,
+            &self.workspace.chrome_ui.toolbar_height_dp.to_string(),
+        );
+    }
+
+    pub fn omnibar_provider_debounce_ms(&self) -> u64 {
+        self.workspace.chrome_ui.omnibar_provider_debounce_ms
+    }
+
+    pub fn set_omnibar_provider_debounce_ms(&mut self, ms: u64) {
+        self.workspace.chrome_ui.omnibar_provider_debounce_ms = ms.min(2000);
+        self.save_omnibar_provider_debounce_ms();
+    }
+
+    fn save_omnibar_provider_debounce_ms(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_OMNIBAR_PROVIDER_DEBOUNCE_MS_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .omnibar_provider_debounce_ms
+                .to_string(),
+        );
+    }
+
+    pub fn command_palette_default_scope(
+        &self,
+    ) -> crate::shell::desktop::ui::command_palette_state::SearchPaletteScope {
+        self.workspace.chrome_ui.command_palette_default_scope
+    }
+
+    pub fn set_command_palette_default_scope(
+        &mut self,
+        scope: crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
+    ) {
+        self.workspace.chrome_ui.command_palette_default_scope = scope;
+        self.save_command_palette_default_scope();
+    }
+
+    fn save_command_palette_default_scope(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_COMMAND_PALETTE_DEFAULT_SCOPE_NAME,
+            &self.workspace.chrome_ui.command_palette_default_scope.to_string(),
+        );
+    }
+
+    pub fn command_palette_max_per_category(&self) -> usize {
+        self.workspace.chrome_ui.command_palette_max_per_category
+    }
+
+    pub fn set_command_palette_max_per_category(&mut self, cap: usize) {
+        self.workspace.chrome_ui.command_palette_max_per_category = cap.min(100);
+        self.save_command_palette_max_per_category();
+    }
+
+    fn save_command_palette_max_per_category(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_COMMAND_PALETTE_MAX_PER_CATEGORY_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .command_palette_max_per_category
+                .to_string(),
+        );
+    }
+
+    pub fn command_palette_recents_depth(&self) -> usize {
+        self.workspace.chrome_ui.command_palette_recents_depth
+    }
+
+    pub fn set_command_palette_recents_depth(&mut self, depth: usize) {
+        let clamped = depth.min(32);
+        self.workspace.chrome_ui.command_palette_recents_depth = clamped;
+        if self.workspace.chrome_ui.command_palette_recents.len() > clamped {
+            self.workspace
+                .chrome_ui
+                .command_palette_recents
+                .truncate(clamped);
+            self.save_command_palette_recents();
+        }
+        self.save_command_palette_recents_depth();
+    }
+
+    fn save_command_palette_recents_depth(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_COMMAND_PALETTE_RECENTS_DEPTH_NAME,
+            &self
+                .workspace
+                .chrome_ui
+                .command_palette_recents_depth
+                .to_string(),
+        );
+    }
+
+    /// Bump `action_id` to the head of the recents ring. De-duplicates
+    /// (removing any prior occurrence), then truncates to the current
+    /// `command_palette_recents_depth`. No-op when depth is `0`.
+    pub fn record_command_palette_recent(
+        &mut self,
+        action_id: crate::render::action_registry::ActionId,
+    ) {
+        let depth = self.workspace.chrome_ui.command_palette_recents_depth;
+        if depth == 0 {
+            if !self.workspace.chrome_ui.command_palette_recents.is_empty() {
+                self.workspace.chrome_ui.command_palette_recents.clear();
+                self.save_command_palette_recents();
+            }
+            return;
+        }
+        let recents = &mut self.workspace.chrome_ui.command_palette_recents;
+        recents.retain(|existing| *existing != action_id);
+        recents.insert(0, action_id);
+        if recents.len() > depth {
+            recents.truncate(depth);
+        }
+        self.save_command_palette_recents();
+    }
+
+    /// Drop the recents ring entirely (e.g. "Forget recent commands").
+    pub fn clear_command_palette_recents(&mut self) {
+        if !self.workspace.chrome_ui.command_palette_recents.is_empty() {
+            self.workspace.chrome_ui.command_palette_recents.clear();
+            self.save_command_palette_recents();
+        }
+    }
+
+    fn save_command_palette_recents(&mut self) {
+        let encoded = match serde_json::to_string(
+            &self.workspace.chrome_ui.command_palette_recents,
+        ) {
+            Ok(s) => s,
+            Err(error) => {
+                warn!("Failed to serialize command palette recents: {error}");
+                return;
+            }
+        };
+        self.save_workspace_layout_json(
+            Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME,
+            &encoded,
+        );
+    }
+
+    pub fn command_palette_tier1_default_category(
+        &self,
+    ) -> Option<crate::render::action_registry::ActionCategory> {
+        self.workspace.chrome_ui.command_palette_tier1_default_category
+    }
+
+    pub fn set_command_palette_tier1_default_category(
+        &mut self,
+        category: Option<crate::render::action_registry::ActionCategory>,
+    ) {
+        if self.workspace.chrome_ui.command_palette_tier1_default_category == category {
+            return;
+        }
+        self.workspace.chrome_ui.command_palette_tier1_default_category = category;
+        self.save_command_palette_tier1_default_category();
+    }
+
+    fn save_command_palette_tier1_default_category(&mut self) {
+        let encoded = match self.workspace.chrome_ui.command_palette_tier1_default_category {
+            Some(category) => {
+                crate::render::action_registry::category_persisted_name(category).to_string()
+            }
+            None => String::new(),
+        };
+        self.save_workspace_layout_json(
+            Self::SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME,
+            &encoded,
         );
     }
 
@@ -1033,11 +1620,107 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted omnibar non-@ order preset: '{raw}'");
             }
         }
+        self.workspace.chrome_ui.omnibar_dropdown_max_rows = self
+            .load_workspace_layout_json(Self::SETTINGS_OMNIBAR_DROPDOWN_MAX_ROWS_NAME)
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            .map(|rows| rows.clamp(3, 24))
+            .unwrap_or(Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS);
+        self.workspace.chrome_ui.toolbar_height_dp = self
+            .load_workspace_layout_json(Self::SETTINGS_TOOLBAR_HEIGHT_DP_NAME)
+            .and_then(|raw| raw.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(24.0, 96.0))
+            .unwrap_or(Self::DEFAULT_TOOLBAR_HEIGHT_DP);
+        self.workspace.chrome_ui.omnibar_provider_debounce_ms = self
+            .load_workspace_layout_json(Self::SETTINGS_OMNIBAR_PROVIDER_DEBOUNCE_MS_NAME)
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .map(|ms| ms.min(2000))
+            .unwrap_or(Self::DEFAULT_OMNIBAR_PROVIDER_DEBOUNCE_MS);
+        self.workspace.chrome_ui.command_palette_default_scope = self
+            .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_DEFAULT_SCOPE_NAME)
+            .and_then(|raw| {
+                raw.parse::<crate::shell::desktop::ui::command_palette_state::SearchPaletteScope>()
+                    .ok()
+            })
+            .unwrap_or_default();
+        self.workspace.chrome_ui.command_palette_max_per_category = self
+            .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_MAX_PER_CATEGORY_NAME)
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            .map(|cap| cap.min(100))
+            .unwrap_or(Self::DEFAULT_COMMAND_PALETTE_MAX_PER_CATEGORY);
+        self.workspace.chrome_ui.command_palette_recents_depth = self
+            .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_RECENTS_DEPTH_NAME)
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            .map(|depth| depth.min(32))
+            .unwrap_or(Self::DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH);
+        self.workspace.chrome_ui.command_palette_recents = self
+            .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME)
+            .and_then(|raw| {
+                serde_json::from_str::<
+                    Vec<crate::render::action_registry::ActionId>,
+                >(&raw)
+                .map_err(|error| {
+                    warn!(
+                        "Ignoring invalid persisted command palette recents: {error}"
+                    );
+                    error
+                })
+                .ok()
+            })
+            .map(|mut recents| {
+                let depth = self.workspace.chrome_ui.command_palette_recents_depth;
+                if recents.len() > depth {
+                    recents.truncate(depth);
+                }
+                recents
+            })
+            .unwrap_or_default();
+        self.workspace.chrome_ui.command_palette_tier1_default_category = self
+            .load_workspace_layout_json(
+                Self::SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME,
+            )
+            .and_then(|raw| {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    crate::render::action_registry::category_from_persisted_name(trimmed)
+                }
+            });
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_WRY_ENABLED_NAME) {
             match raw.trim().to_ascii_lowercase().as_str() {
                 "true" | "1" | "yes" | "on" => self.workspace.chrome_ui.wry_enabled = true,
                 "false" | "0" | "no" | "off" => self.workspace.chrome_ui.wry_enabled = false,
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_FOCUS_RING_SETTINGS_NAME)
+        {
+            match serde_json::from_str::<FocusRingSettings>(&raw) {
+                Ok(mut settings) => {
+                    settings.duration_ms = settings.duration_ms.clamp(
+                        FocusRingSettings::MIN_DURATION_MS,
+                        FocusRingSettings::MAX_DURATION_MS,
+                    );
+                    self.workspace.chrome_ui.focus_ring_settings = settings;
+                }
+                Err(error) => {
+                    warn!("Ignoring invalid persisted focus ring settings: {error}")
+                }
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_THUMBNAIL_SETTINGS_NAME)
+        {
+            match serde_json::from_str::<ThumbnailSettings>(&raw) {
+                Ok(settings) => {
+                    self.workspace.chrome_ui.thumbnail_settings =
+                        settings.clamp_dimensions();
+                }
+                Err(error) => {
+                    warn!("Ignoring invalid persisted thumbnail settings: {error}")
+                }
             }
         }
         if let Some(raw) =
@@ -1375,5 +2058,177 @@ mod tests {
                 .chrome_ui
                 .workspace_user_stylesheets_runtime_synced
         );
+    }
+
+    // -------------------------------------------------------------------
+    // ThumbnailSettings (M4.1 session 4 customization)
+    //
+    // Pin the user-configurable surface on `chrome_ui.thumbnail_settings`:
+    // setter-side clamping, serde-roundtrip with defaults, and
+    // FilterType enum roundtrip.
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn thumbnail_settings_setter_clamps_dimensions_and_quality() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_thumbnail_settings(ThumbnailSettings {
+            enabled: true,
+            width: 10,        // below MIN_DIMENSION (64)
+            height: 10_000,   // above MAX_DIMENSION (1024)
+            filter: ThumbnailFilter::Lanczos3,
+            format: ThumbnailFormat::Jpeg,
+            jpeg_quality: 200, // above MAX_JPEG_QUALITY (100)
+            aspect: ThumbnailAspect::MatchSource,
+        });
+
+        let stored = app.thumbnail_settings();
+        assert_eq!(stored.width, ThumbnailSettings::MIN_DIMENSION);
+        assert_eq!(stored.height, ThumbnailSettings::MAX_DIMENSION);
+        assert_eq!(stored.filter, ThumbnailFilter::Lanczos3);
+        assert_eq!(stored.format, ThumbnailFormat::Jpeg);
+        assert_eq!(stored.jpeg_quality, ThumbnailSettings::MAX_JPEG_QUALITY);
+        assert_eq!(stored.aspect, ThumbnailAspect::MatchSource);
+        assert!(stored.enabled);
+    }
+
+    #[test]
+    fn thumbnail_settings_setter_clamps_zero_quality_to_min() {
+        // Quality of 0 is invalid JPEG; must clamp up to MIN (1).
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.set_thumbnail_settings(ThumbnailSettings {
+            jpeg_quality: 0,
+            ..ThumbnailSettings::default()
+        });
+        assert_eq!(
+            app.thumbnail_settings().jpeg_quality,
+            ThumbnailSettings::MIN_JPEG_QUALITY
+        );
+    }
+
+    #[test]
+    fn thumbnail_format_display_from_str_roundtrip() {
+        use std::str::FromStr;
+        for variant in [
+            ThumbnailFormat::Png,
+            ThumbnailFormat::Jpeg,
+            ThumbnailFormat::WebP,
+        ] {
+            let rendered = variant.to_string();
+            let parsed = ThumbnailFormat::from_str(&rendered)
+                .unwrap_or_else(|_| panic!("'{rendered}' should parse back"));
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn thumbnail_aspect_display_from_str_roundtrip() {
+        use std::str::FromStr;
+        for variant in [
+            ThumbnailAspect::Fixed,
+            ThumbnailAspect::MatchSource,
+            ThumbnailAspect::Square,
+        ] {
+            let rendered = variant.to_string();
+            let parsed = ThumbnailAspect::from_str(&rendered)
+                .unwrap_or_else(|_| panic!("'{rendered}' should parse back"));
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn thumbnail_settings_serde_roundtrip_with_defaults() {
+        // Empty JSON must deserialize cleanly via `#[serde(default)]`
+        // so old workspaces without the blob keep working.
+        let parsed: ThumbnailSettings =
+            serde_json::from_str("{}").expect("defaults must cover empty JSON");
+        assert_eq!(parsed, ThumbnailSettings::default());
+    }
+
+    #[test]
+    fn thumbnail_filter_display_from_str_roundtrip() {
+        use std::str::FromStr;
+
+        for variant in [
+            ThumbnailFilter::Nearest,
+            ThumbnailFilter::Triangle,
+            ThumbnailFilter::CatmullRom,
+            ThumbnailFilter::Gaussian,
+            ThumbnailFilter::Lanczos3,
+        ] {
+            let rendered = variant.to_string();
+            let parsed = ThumbnailFilter::from_str(&rendered)
+                .unwrap_or_else(|_| panic!("'{rendered}' should parse back"));
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn disabled_thumbnail_settings_serde_roundtrip() {
+        // Make sure an intentionally-disabled settings value survives
+        // a full JSON roundtrip (privacy-preference use case).
+        let original = ThumbnailSettings {
+            enabled: false,
+            width: 512,
+            height: 512,
+            filter: ThumbnailFilter::Lanczos3,
+            format: ThumbnailFormat::Jpeg,
+            jpeg_quality: 70,
+            aspect: ThumbnailAspect::Square,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: ThumbnailSettings =
+            serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn thumbnail_settings_legacy_json_defaults_aspect_and_webp_not_required() {
+        // Pre-backlog persisted blobs lack `aspect`; `#[serde(default)]`
+        // must supply the historical Fixed mode. WebP format value
+        // ("WebP") must also round-trip through a settings blob.
+        let legacy_no_aspect = r#"{
+            "enabled": true,
+            "width": 256,
+            "height": 192,
+            "filter": "Triangle",
+            "format": "Png",
+            "jpeg_quality": 85
+        }"#;
+        let parsed: ThumbnailSettings =
+            serde_json::from_str(legacy_no_aspect).expect("legacy blob deserializes");
+        assert_eq!(parsed.aspect, ThumbnailAspect::default());
+
+        // WebP settings must also survive a full roundtrip.
+        let webp = ThumbnailSettings {
+            format: ThumbnailFormat::WebP,
+            ..ThumbnailSettings::default()
+        };
+        let json = serde_json::to_string(&webp).expect("serialize");
+        let restored: ThumbnailSettings =
+            serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.format, ThumbnailFormat::WebP);
+    }
+
+    #[test]
+    fn thumbnail_settings_partial_json_inherits_defaults_for_new_fields() {
+        // Existing persisted blobs (pre-session-4 follow-ons) lack
+        // `format` and `jpeg_quality`. `#[serde(default)]` must cover
+        // both so old workspaces deserialize cleanly.
+        let legacy_json = r#"{
+            "enabled": true,
+            "width": 256,
+            "height": 192,
+            "filter": "Triangle"
+        }"#;
+        // Note: filter uses the default serde representation of the enum
+        // (variant name), not the Display string, because
+        // `#[derive(Deserialize)]` on an enum with no custom attrs uses
+        // the variant name. We want to pin both the field-defaulting
+        // and the fact that parsing works, so we supply a filter that
+        // `Deserialize` will accept.
+        let parsed: ThumbnailSettings =
+            serde_json::from_str(legacy_json).expect("legacy blob deserializes");
+        assert_eq!(parsed.format, ThumbnailFormat::default());
+        assert_eq!(parsed.jpeg_quality, ThumbnailSettings::DEFAULT_JPEG_QUALITY);
     }
 }

@@ -33,16 +33,10 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         window_rendering_context,
         webview_creation_backpressure,
         focus_authority,
-        focused_node_hint,
-        graph_surface_focused,
-        focus_ring_node_key,
-        focus_ring_started_at,
-        focus_ring_duration,
+        focus,
         pending_webview_context_surface_requests,
-        graph_search_query,
-        graph_search_matches,
-        graph_search_active_match_index,
-        graph_search_filter_mode,
+        graph_search,
+        command_authority,
         toasts,
         registry_runtime: _,
         control_panel,
@@ -52,6 +46,17 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         open_node_tile_after_intents,
         frame_intents,
     } = args;
+
+    // This phase only reads 4 of the bundle's 5 refs; `open` flows
+    // through to remain consistent with upstream phase-arg shapes but
+    // is not consulted here.
+    let GraphSearchAuthorityMut {
+        open: _,
+        query: graph_search_query,
+        filter_mode: graph_search_filter_mode,
+        matches: graph_search_matches,
+        active_match_index: graph_search_active_match_index,
+    } = graph_search;
 
     run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
         graph_app,
@@ -82,6 +87,10 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         false,
     ));
 
+    // M4.1 slice 1c: the focus mutation bundle (`FocusAuthorityMut`) is
+    // assembled upstream in `execute_update_frame` and flows through
+    // `SemanticAndPostRenderPhaseArgs::focus`. The post-render / tile-
+    // render path consumes it directly; no local reassembly needed.
     gui_frame::run_post_render_phase(
         gui_frame::PostRenderPhaseArgs {
             ctx,
@@ -105,11 +114,8 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
-            focused_node_hint,
-            graph_surface_focused: *graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration: *focus_ring_duration,
+            focus,
+            command_authority,
             pending_webview_context_surface_requests,
             toasts,
             control_panel,

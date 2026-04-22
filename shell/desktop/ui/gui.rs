@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
@@ -29,9 +28,10 @@ use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
 use super::gui_state::{
-    BookmarkImportDialogState, GraphshellRuntime, LocalFocusTarget, PaneRegionHint,
-    PendingWebviewContextSurfaceRequest, RuntimeFocusAuthorityState, RuntimeFocusInputs,
-    RuntimeFocusInspector, RuntimeFocusState, ToolbarState,
+    BookmarkImportDialogState, CommandAuthorityMut, GraphSearchAuthorityMut, GraphshellRuntime,
+    LocalFocusTarget, PaneRegionHint, PendingWebviewContextSurfaceRequest,
+    RuntimeFocusAuthorityState, RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState,
+    ToolbarEditable, ToolbarState,
 };
 use super::persistence_ops;
 #[cfg(test)]
@@ -68,7 +68,7 @@ use crate::shell::desktop::runtime::registries::{
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
 };
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -175,14 +175,19 @@ pub struct EguiHost {
     /// Per-node favicon textures for egui_tiles tab rendering.
     tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)>,
 
-    /// Sender for asynchronous runtime viewer thumbnail capture results.
-    thumbnail_capture_tx: Sender<ThumbnailCaptureResult>,
+    /// Consolidated tx/rx pair for async runtime-viewer thumbnail
+    /// capture results. Replaces the former separate
+    /// `thumbnail_capture_tx` / `thumbnail_capture_rx` fields. Stays on
+    /// the host (render-backend shared infra per M3.5 §3.5); a future
+    /// slice can hoist it behind a `BackendThumbnailPort` trait if we
+    /// need runtime-side dispatch.
+    thumbnail_channel: thumbnail_pipeline::ThumbnailChannel,
 
-    /// Receiver for asynchronous runtime viewer thumbnail capture results.
-    thumbnail_capture_rx: Receiver<ThumbnailCaptureResult>,
-
-    /// Runtime viewers with an in-flight thumbnail request.
-    thumbnail_capture_in_flight: HashSet<WebViewId>,
+    // NOTE (M4.1 slice "session 4"): `thumbnail_capture_in_flight` moved
+    // to `GraphshellRuntime::thumbnail_capture_in_flight` — it's pure
+    // runtime state (tracks which WebViewIds have async captures
+    // pending) and iced will share it. The paired `tx`/`rx` above stay
+    // host-side because they are render-backend shared infra.
 
     /// Pending accessibility tree updates received from runtime viewers that have
     /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
@@ -257,10 +262,13 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
             events,
         )
     });
+    use crate::shell::desktop::workbench::compositor_adapter::{
+        portable_point_from_egui, portable_size_from_egui,
+    };
     FrameHostInput {
         events,
-        pointer_hover,
-        viewport_size: ctx.screen_rect().size(),
+        pointer_hover: pointer_hover.map(portable_point_from_egui),
+        viewport_size: portable_size_from_egui(ctx.screen_rect().size()),
         wants_keyboard: ctx.wants_keyboard_input(),
         wants_pointer: ctx.wants_pointer_input(),
         modifiers,
@@ -360,7 +368,7 @@ impl EguiHost {
                 &initial_url,
                 graph_snapshot_interval_secs,
             );
-        let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
+        let thumbnail_channel = thumbnail_pipeline::ThumbnailChannel::new();
 
         // Create tokio runtime for background workers
         let tokio_runtime = tokio::runtime::Runtime::new()
@@ -397,9 +405,11 @@ impl EguiHost {
             // Placeholder; overwritten immediately below once persistence is consulted.
             workbench_view_id: crate::app::GraphViewId::new(),
             toolbar_state: ToolbarState {
-                location: initial_url.to_string(),
-                location_dirty: false,
-                location_submitted: false,
+                editable: ToolbarEditable {
+                    location: initial_url.to_string(),
+                    location_dirty: false,
+                    location_submitted: false,
+                },
                 show_clear_data_confirm: false,
                 load_status: LoadStatus::Complete,
                 status_text: None,
@@ -413,6 +423,7 @@ impl EguiHost {
             viewer_surfaces:
                 crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             webview_creation_backpressure: HashMap::new(),
+            thumbnail_capture_in_flight: HashSet::new(),
             frame_inbox,
             graph_search_open: false,
             graph_search_query: String::new(),
@@ -428,6 +439,8 @@ impl EguiHost {
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: HashMap::new(),
             command_palette_toggle_requested: false,
+            command_palette_session:
+                crate::shell::desktop::ui::command_palette_state::CommandPaletteSession::default(),
             pending_webview_context_surface_requests: Vec::new(),
             clear_data_confirm_deadline_secs: None,
         };
@@ -444,9 +457,7 @@ impl EguiHost {
             clipboard: Clipboard::new().ok(),
             renderer_favicon_textures: Default::default(),
             tile_favicon_textures: HashMap::new(),
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
-            thumbnail_capture_in_flight: HashSet::new(),
+            thumbnail_channel,
             pending_webview_a11y_updates: HashMap::new(),
             pending_accesskit_focus_requests: Vec::new(),
             state: None,
@@ -883,9 +894,7 @@ impl EguiHost {
             clipboard,
             renderer_favicon_textures,
             tile_favicon_textures,
-            thumbnail_capture_tx,
-            thumbnail_capture_rx,
-            thumbnail_capture_in_flight,
+            thumbnail_channel,
             pending_webview_a11y_updates,
             state: app_state,
             runtime:
@@ -901,6 +910,7 @@ impl EguiHost {
                     tokio_runtime: _,
                     viewer_surfaces,
                     webview_creation_backpressure,
+                    thumbnail_capture_in_flight,
                     frame_inbox: _,
                     graph_search_open,
                     graph_search_query,
@@ -916,6 +926,7 @@ impl EguiHost {
                     focus_authority,
                     toolbar_drafts: _,
                     command_palette_toggle_requested,
+                    command_palette_session,
                     pending_webview_context_surface_requests,
                 },
             #[cfg(feature = "diagnostics")]
@@ -948,24 +959,28 @@ impl EguiHost {
                 favicon_textures: renderer_favicon_textures,
                 viewer_surfaces,
                 tile_favicon_textures,
-                thumbnail_capture_tx,
-                thumbnail_capture_rx,
+                thumbnail_channel,
                 thumbnail_capture_in_flight,
                 webview_creation_backpressure,
                 app_state,
-                graph_search_open,
-                graph_search_query,
-                graph_search_filter_mode,
-                graph_search_matches,
-                graph_search_active_match_index,
+                graph_search: GraphSearchAuthorityMut {
+                    open: graph_search_open,
+                    query: graph_search_query,
+                    filter_mode: graph_search_filter_mode,
+                    matches: graph_search_matches,
+                    active_match_index: graph_search_active_match_index,
+                },
                 focus_authority,
                 focused_node_hint,
-                graph_surface_focused,
+                graph_surface_focused: *graph_surface_focused,
                 focus_ring_node_key,
                 focus_ring_started_at,
-                focus_ring_duration,
+                focus_ring_duration: *focus_ring_duration,
                 omnibar_search_session,
-                command_palette_toggle_requested,
+                command_authority: CommandAuthorityMut {
+                    toggle_requested: command_palette_toggle_requested,
+                    session: command_palette_session,
+                },
                 pending_webview_context_surface_requests,
                 bookmark_import_dialog,
                 rendering_context,

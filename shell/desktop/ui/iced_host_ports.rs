@@ -25,6 +25,7 @@ use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
 };
+use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
 
@@ -48,11 +49,10 @@ impl HostInputPort for IcedHostPorts {
         Vec::new()
     }
 
-    fn pointer_hover_position(&self) -> Option<egui::Pos2> {
-        // todo(m5): read from iced's cursor tracking. (Note: the port
-        // signature still leaks `egui::Pos2`; the M3.5 design flagged
-        // this as a cosmetic leak iced will satisfy via a trivial
-        // `iced::Point -> egui::Pos2` conversion.)
+    fn pointer_hover_position(&self) -> Option<PortablePoint> {
+        // todo(m5): read from iced's cursor tracking and convert iced's
+        // native `Point` into `PortablePoint` (euclid) directly — no
+        // egui intermediary.
         None
     }
 
@@ -109,20 +109,20 @@ impl HostPaintPort for IcedHostPorts {
     fn draw_overlay_stroke(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
         _rounding: f32,
     ) {
-        // todo(m5): route to iced's canvas/primitive stack. Per M3.5
-        // design the egui::* overlay descriptors survive as a "cosmetic
-        // leak" iced converts at the boundary.
+        // todo(m5): route to iced's canvas/primitive stack using the
+        // portable rect + stroke directly (no egui conversion needed
+        // post-M3.6).
     }
 
     fn draw_dashed_overlay_stroke(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
     ) {
         // todo(m5): dashed-stroke equivalent on iced.
     }
@@ -130,9 +130,9 @@ impl HostPaintPort for IcedHostPorts {
     fn draw_overlay_glyphs(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
+        _rect: PortableRect,
         _glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
-        _color: egui::Color32,
+        _color: graph_canvas::packet::Color,
     ) {
         // todo(m5): glyph overlay on iced's text primitive.
     }
@@ -140,13 +140,13 @@ impl HostPaintPort for IcedHostPorts {
     fn draw_overlay_chrome_markers(
         &mut self,
         _node_key: NodeKey,
-        _rect: egui::Rect,
-        _stroke: egui::Stroke,
+        _rect: PortableRect,
+        _stroke: graph_canvas::packet::Stroke,
     ) {
         // todo(m5): tile-edge chrome markers on iced.
     }
 
-    fn draw_degraded_receipt(&mut self, _rect: egui::Rect, _message: &str) {
+    fn draw_degraded_receipt(&mut self, _rect: PortableRect, _message: &str) {
         // todo(m5): in-tile receipt banner via iced text layer.
     }
 }
@@ -245,3 +245,83 @@ impl HostAccessibilityPort for IcedHostPorts {
 // type). Call sites needing texture access bound `T: HostPorts +
 // HostTexturePort` explicitly.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Narrow painter-trait stubs (M3.5 slice 3)
+// ---------------------------------------------------------------------------
+//
+// The compositor exposes two narrow painter traits alongside the broader
+// `HostPaintPort`: `OverlayAffordancePainter` (overlay strokes/glyphs) and
+// `ContentPassPainter` (content-layer callback registration + native-texture
+// placement). These traits consume portable descriptor types (`PortableRect`
+// = `euclid::default::Rect<f32>`, `graph_canvas::packet::Stroke`) so iced
+// can implement them without egui type conversion at the caller boundary.
+//
+// These stubs are log-and-count only — they validate the trait surface
+// compiles against an iced-side impl and let parity tests flow overlay /
+// content descriptors through a non-egui painter before iced's painting
+// APIs are wired. Production painting wiring lands with M5 full bring-up.
+
+use crate::shell::desktop::render_backend::BackendCustomPass;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    ContentPassPainter, OverlayAffordancePainter, OverlayStrokePass, PortableRect,
+};
+
+/// iced-side stub for `OverlayAffordancePainter`. Records the descriptors
+/// it receives so parity tests can observe that overlay-pass descriptors
+/// flow through the host-neutral trait boundary. No pixels drawn.
+///
+/// Production impl lands with M5 — will dispatch `OverlayStrokePass` into
+/// iced's canvas/primitive stack using the portable `Rect<f32>` and
+/// `graph_canvas::packet::Stroke` types directly.
+#[derive(Default)]
+pub(crate) struct IcedOverlayAffordancePainter {
+    pub(crate) seen_count: usize,
+}
+
+impl OverlayAffordancePainter for IcedOverlayAffordancePainter {
+    fn paint(&mut self, _overlay: &OverlayStrokePass) {
+        // todo(m5): dispatch into iced's canvas primitive stack using the
+        // portable rect + stroke directly (no egui conversion needed since
+        // OverlayStrokePass is fully portable post-slice-2).
+        self.seen_count += 1;
+    }
+}
+
+/// iced-side stub for `ContentPassPainter`. Records callback-registration
+/// and native-texture-paint calls so parity tests can observe content-pass
+/// descriptors flowing through the host-neutral trait boundary.
+///
+/// Production impl lands with M5 — will register the `BackendCustomPass`
+/// callback against iced's compositor and paint native textures via iced's
+/// image/texture primitive.
+#[derive(Default)]
+pub(crate) struct IcedContentPassPainter {
+    pub(crate) registered_count: usize,
+    pub(crate) native_painted_count: usize,
+}
+
+impl ContentPassPainter for IcedContentPassPainter {
+    fn register_content_callback_on_layer(
+        &mut self,
+        _node_key: NodeKey,
+        _tile_rect: PortableRect,
+        _callback: BackendCustomPass,
+    ) {
+        // todo(m5): store `_callback` against iced's compositor for the
+        // node's content layer, keyed by `_node_key`, positioned at
+        // `_tile_rect`.
+        self.registered_count += 1;
+    }
+
+    fn paint_native_content_texture(
+        &mut self,
+        _node_key: NodeKey,
+        _tile_rect: PortableRect,
+        _texture_token: crate::shell::desktop::render_backend::BackendTextureToken,
+    ) {
+        // todo(m5): paint the shared-wgpu texture via iced's image
+        // primitive at the node's content layer.
+        self.native_painted_count += 1;
+    }
+}

@@ -739,6 +739,19 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.omnibar_preferred_scope = OmnibarPreferredScope::Auto;
         self.workspace.chrome_ui.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
+        self.workspace.chrome_ui.omnibar_dropdown_max_rows =
+            Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS;
+        self.workspace.chrome_ui.toolbar_height_dp = Self::DEFAULT_TOOLBAR_HEIGHT_DP;
+        self.workspace.chrome_ui.omnibar_provider_debounce_ms =
+            Self::DEFAULT_OMNIBAR_PROVIDER_DEBOUNCE_MS;
+        self.workspace.chrome_ui.command_palette_default_scope =
+            crate::shell::desktop::ui::command_palette_state::SearchPaletteScope::Workbench;
+        self.workspace.chrome_ui.command_palette_max_per_category =
+            Self::DEFAULT_COMMAND_PALETTE_MAX_PER_CATEGORY;
+        self.workspace.chrome_ui.command_palette_recents.clear();
+        self.workspace.chrome_ui.command_palette_recents_depth =
+            Self::DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH;
+        self.workspace.chrome_ui.command_palette_tier1_default_category = None;
         self.workspace.chrome_ui.wry_enabled = true;
         self.workspace.chrome_ui.navigator_sidebar_side_preference =
             super::settings_persistence::NavigatorSidebarSidePreference::Left;

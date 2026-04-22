@@ -162,7 +162,9 @@ pub fn rank_categories_for_context(
 /// (label, category, enabled state) is resolved at runtime via
 /// [`list_actions_for_context`] so that control surfaces remain free of
 /// hardcoded dispatch tables.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum ActionId {
     // Node actions
     NodeNew,

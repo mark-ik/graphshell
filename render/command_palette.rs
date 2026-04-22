@@ -23,9 +23,8 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_from_persisted_name,
-    category_persisted_name, default_category_order, list_actions_for_context,
-    rank_categories_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, default_category_order,
+    list_actions_for_context, rank_categories_for_context,
 };
 use crate::render::command_profile::{
     load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
@@ -33,6 +32,7 @@ use crate::render::command_profile::{
 use crate::shell::desktop::runtime::registries::{
     self, action as runtime_action, workflow as runtime_workflow,
 };
+use crate::shell::desktop::ui::command_palette_state::{CommandPaletteSession, SearchPaletteScope};
 use crate::shell::desktop::ui::{toolbar::toolbar_ui::CommandBarFocusTarget, toolbar_routing};
 #[cfg(test)]
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -86,32 +86,6 @@ fn resolve_frame_context_suppressed(app: &GraphBrowserApp, frame_name: &str) -> 
         .unwrap_or(false)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-enum SearchPaletteScope {
-    CurrentTarget,
-    ActivePane,
-    ActiveGraph,
-    Workbench,
-}
-
-impl SearchPaletteScope {
-    const ALL: [Self; 4] = [
-        Self::CurrentTarget,
-        Self::ActivePane,
-        Self::ActiveGraph,
-        Self::Workbench,
-    ];
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::CurrentTarget => "Current Target",
-            Self::ActivePane => "Active Pane",
-            Self::ActiveGraph => "Active Graph",
-            Self::Workbench => "Workbench",
-        }
-    }
-}
-
 fn scope_ready(scope: SearchPaletteScope, action_context: &ActionContext) -> bool {
     match scope {
         SearchPaletteScope::CurrentTarget => {
@@ -157,26 +131,48 @@ fn scope_allows_action(
     }
 }
 
-fn search_matches(entry: &ActionEntry, query: &str) -> bool {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return true;
-    }
-    let q = trimmed.to_ascii_lowercase();
-    entry.id.label().to_ascii_lowercase().contains(&q)
-        || entry.id.short_label().to_ascii_lowercase().contains(&q)
-}
-
+/// Filter `actions` by scope, then — when the query is non-empty —
+/// rank the survivors by fuzzy-match quality using the shared nucleo
+/// matcher in `services::search`. Previously used a case-insensitive
+/// substring match on `label` ∪ `short_label`; the switch to nucleo
+/// brings the palette in line with the omnibar's matching behavior so
+/// "gca" finds "Graph Canvas Actions" in both surfaces.
 fn filter_actions_for_search<'a>(
     actions: &'a [ActionEntry],
     query: &str,
     scope: SearchPaletteScope,
     action_context: &ActionContext,
 ) -> Vec<&'a ActionEntry> {
-    actions
+    let scope_filtered: Vec<&ActionEntry> = actions
         .iter()
         .filter(|entry| scope_allows_action(entry, scope, action_context))
-        .filter(|entry| search_matches(entry, query))
+        .collect();
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return scope_filtered;
+    }
+
+    #[derive(Clone)]
+    struct SearchItem<'a> {
+        entry: &'a ActionEntry,
+        text: String,
+    }
+    impl AsRef<str> for SearchItem<'_> {
+        fn as_ref(&self) -> &str {
+            &self.text
+        }
+    }
+
+    let items: Vec<SearchItem<'_>> = scope_filtered
+        .iter()
+        .map(|entry| SearchItem {
+            entry,
+            text: format!("{} {}", entry.id.label(), entry.id.short_label()),
+        })
+        .collect();
+    crate::services::search::fuzzy_match_items(items, trimmed)
+        .into_iter()
+        .map(|item| item.entry)
         .collect()
 }
 
@@ -407,12 +403,21 @@ fn render_action_entry_button(
 pub fn render_command_palette_panel(
     ctx: &egui::Context,
     app: &mut GraphBrowserApp,
+    mut command_authority: crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'_>,
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
     let was_open = app.workspace.chrome_ui.show_command_palette
         || app.workspace.chrome_ui.show_context_palette;
+
+    // Track closed→open transitions even when we're about to early-
+    // return so the "just opened" detection below fires on the next
+    // open. Also fall-through when `was_open` is false and the prior
+    // frame also had it closed — no bookkeeping cost there.
+    let just_opened = was_open && !command_authority.session().was_open_last_frame;
+    command_authority.session_mut().was_open_last_frame = was_open;
+
     if !was_open {
         return;
     }
@@ -432,8 +437,6 @@ pub fn render_command_palette_panel(
         || app.pending_node_context_target().is_some()
         || frame_context.is_some();
     let contextual_anchor = app.workspace.chrome_ui.context_palette_anchor;
-    let search_query_id = egui::Id::new("command_palette_search_query");
-    let search_scope_id = egui::Id::new("command_palette_search_scope");
     let layout_host_state_id = egui::Id::new("command_palette_layout_surface_host");
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -441,6 +444,23 @@ pub fn render_command_palette_panel(
     }
 
     let window_title = palette_window_title(contextual_mode);
+
+    // Pull out the runtime-owned session so the rendering closure can
+    // read / mutate its fields directly. The bundle's `toggle_requested`
+    // is not read in this path (it's cleared by the pre-frame phase in
+    // the following frame). If the palette just opened this frame,
+    // prime a fresh session once — resets query, clears selection,
+    // and arms the "focus search field next frame" flag.
+    let session: &mut CommandPaletteSession = command_authority.session_mut();
+    if just_opened {
+        let default_scope = app.workspace.chrome_ui.command_palette_default_scope;
+        session.open_fresh(default_scope);
+        // Seed the Tier 1 selection (contextual mode) from the
+        // persisted default so the palette reopens on the user's
+        // last-used category. Subsequent clicks update both the
+        // session and the persisted default.
+        session.tier1_category = app.workspace.chrome_ui.command_palette_tier1_default_category;
+    }
 
     let mut render_palette_contents = |ui: &mut egui::Ui| {
         let visible_layout_surface_hosts = app.visible_navigator_surface_hosts();
@@ -595,10 +615,16 @@ pub fn render_command_palette_panel(
                     // Context Palette Mode: two-tier scaffold.
                     // Tier 1 selects a category; Tier 2 lists actions for that category.
                     if contextual_mode {
-                        let category_state_id = egui::Id::new("command_palette_tier1_category");
-                        let mut selected_category = ctx
-                            .data_mut(|d| d.get_persisted::<String>(category_state_id))
-                            .and_then(|raw| category_from_persisted_name(&raw))
+                        // Tier 1 selection lives on the runtime session
+                        // (`CommandPaletteSession::tier1_category`);
+                        // previously stashed in
+                        // `ctx.data_mut(...persisted)` which did not
+                        // survive host migration. Fall back to the
+                        // first ordered category when the persisted
+                        // choice is no longer available in the current
+                        // context.
+                        let mut selected_category = session
+                            .tier1_category
                             .filter(|category| ordered_categories.contains(category))
                             .unwrap_or_else(|| {
                                 ordered_categories
@@ -607,6 +633,7 @@ pub fn render_command_palette_panel(
                                     .unwrap_or(ActionCategory::Graph)
                             });
 
+                        let mut user_changed_tier1 = false;
                         ui.horizontal_wrapped(|ui| {
                             ui.label("Tier 1:");
                             for category in ordered_categories.iter().copied() {
@@ -618,6 +645,9 @@ pub fn render_command_palette_panel(
                                         )
                                         .clicked()
                                     {
+                                        if selected_category != category {
+                                            user_changed_tier1 = true;
+                                        }
                                         selected_category = category;
                                     }
                                     let pinned = load_pinned_categories(ui.ctx()).contains(&category);
@@ -628,12 +658,15 @@ pub fn render_command_palette_panel(
                                 });
                             }
                         });
-                        ctx.data_mut(|d| {
-                            d.insert_persisted(
-                                category_state_id,
-                                category_persisted_name(selected_category).to_string(),
-                            )
-                        });
+                        session.tier1_category = Some(selected_category);
+                        // Persist the user's choice as the default for
+                        // next palette open. Only fires on explicit
+                        // click (not on the opening-frame seed) so we
+                        // don't thrash the setting when the session
+                        // value matches the persisted one.
+                        if user_changed_tier1 {
+                            app.set_command_palette_tier1_default_category(Some(selected_category));
+                        }
 
                         ui.add_space(4.0);
                         let tier2_actions: Vec<_> = actions
@@ -659,53 +692,202 @@ pub fn render_command_palette_panel(
                             }
                         }
                     } else {
-                        // Search Palette Mode scaffold: grouped category list.
-                        let mut search_query = ctx
-                            .data_mut(|d| d.get_persisted::<String>(search_query_id))
-                            .unwrap_or_default();
-                        let mut search_scope = ctx
-                            .data_mut(|d| d.get_persisted::<SearchPaletteScope>(search_scope_id))
-                            .unwrap_or(SearchPaletteScope::Workbench);
+                        // Search Palette Mode. Session state (query, scope,
+                        // selection cursor, focus-on-open flag) lives on
+                        // `GraphshellRuntime::command_palette_session` and
+                        // is accessed through the `CommandAuthorityMut`
+                        // bundle captured in `session`. Previously stashed
+                        // in `ctx.data_mut(...persisted)` which did not
+                        // survive the iced host migration.
+                        let search_field_id =
+                            egui::Id::new("command_palette_search_field");
 
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label("Search:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut search_query)
-                                    .desired_width(160.0)
-                                    .hint_text("Type action name..."),
-                            );
-                            egui::ComboBox::from_id_salt("command_palette_scope_dropdown")
-                                .selected_text(search_scope.label())
+                        let text_edit_response = ui
+                            .horizontal_wrapped(|ui| {
+                                ui.label("Search:");
+                                let resp = ui.add(
+                                    egui::TextEdit::singleline(&mut session.query)
+                                        .id(search_field_id)
+                                        .desired_width(160.0)
+                                        .hint_text("Type action name..."),
+                                );
+                                let mut scope_local = session.scope;
+                                egui::ComboBox::from_id_salt(
+                                    "command_palette_scope_dropdown",
+                                )
+                                .selected_text(scope_local.label())
                                 .show_ui(ui, |ui| {
                                     for candidate in SearchPaletteScope::ALL {
                                         ui.selectable_value(
-                                            &mut search_scope,
+                                            &mut scope_local,
                                             candidate,
                                             candidate.label(),
                                         );
                                     }
                                 });
-                        });
-                        ctx.data_mut(|d| {
-                            d.insert_persisted(search_query_id, search_query.clone());
-                            d.insert_persisted(search_scope_id, search_scope);
-                        });
+                                if scope_local != session.scope {
+                                    session.scope = scope_local;
+                                    session.selected_index = None;
+                                }
+                                resp
+                            })
+                            .inner;
 
-                        if !scope_ready(search_scope, &action_context) {
+                        // Auto-focus the search field when the palette
+                        // was just opened (toggle flush arms
+                        // `focus_search_on_next_frame`). Clear the flag
+                        // after grabbing focus so subsequent frames
+                        // don't steal focus from sub-widgets.
+                        if session.focus_search_on_next_frame {
+                            text_edit_response.request_focus();
+                            session.focus_search_on_next_frame = false;
+                        }
+
+                        if !scope_ready(session.scope, &action_context) {
                             ui.small(
                                 "Selected scope is unavailable in current context. Choose Workbench or Current Target.",
                             );
                         }
 
-                        let filtered =
-                            filter_actions_for_search(&actions, &search_query, search_scope, &action_context);
+                        let filtered = filter_actions_for_search(
+                            &actions,
+                            &session.query,
+                            session.scope,
+                            &action_context,
+                        );
 
+                        // Assemble the "Recent" section when the user
+                        // hasn't typed a query yet. Recents are
+                        // scope-filtered and deduped against what
+                        // follows in the categorized list.
+                        let query_is_empty = session.query.trim().is_empty();
+                        let recents_depth =
+                            app.workspace.chrome_ui.command_palette_recents_depth;
+                        let recents_visible: Vec<&ActionEntry> = if query_is_empty
+                            && recents_depth > 0
+                        {
+                            app.workspace
+                                .chrome_ui
+                                .command_palette_recents
+                                .iter()
+                                .take(recents_depth)
+                                .filter_map(|id| {
+                                    actions.iter().find(|entry| entry.id == *id)
+                                })
+                                .filter(|entry| {
+                                    scope_allows_action(entry, session.scope, &action_context)
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        // Filter the categorized list so recents don't
+                        // appear twice. The borrow on `recents_visible`
+                        // is released after this collect.
+                        let filtered_no_recents: Vec<&ActionEntry> = filtered
+                            .iter()
+                            .copied()
+                            .filter(|entry| {
+                                !recents_visible.iter().any(|r| r.id == entry.id)
+                            })
+                            .collect();
+                        let total_rows = recents_visible.len() + filtered_no_recents.len();
+
+                        // Keyboard navigation: Up/Down cycle the
+                        // selection cursor across recents + categorized
+                        // rows as one flat list; Enter activates.
+                        if text_edit_response.has_focus() {
+                            let (down, up, enter) = ui.input(|i| {
+                                (
+                                    i.key_pressed(egui::Key::ArrowDown),
+                                    i.key_pressed(egui::Key::ArrowUp),
+                                    i.key_pressed(egui::Key::Enter),
+                                )
+                            });
+                            if down {
+                                session.step_selection(1, total_rows);
+                            }
+                            if up {
+                                session.step_selection(-1, total_rows);
+                            }
+                            if enter && let Some(idx) = session.selected_index {
+                                let entry = if idx < recents_visible.len() {
+                                    Some(recents_visible[idx])
+                                } else {
+                                    filtered_no_recents.get(idx - recents_visible.len()).copied()
+                                };
+                                if let Some(entry) = entry
+                                    && entry.enabled
+                                {
+                                    execute_action(
+                                        app,
+                                        entry.id,
+                                        pair_context,
+                                        source_context,
+                                        &mut intents,
+                                        focused_pane_node,
+                                        focused_pane_id,
+                                    );
+                                    should_close = true;
+                                }
+                            }
+                        }
+
+                        // Clamp selection into the combined row range
+                        // when the query / scope change shrinks results.
+                        if let Some(idx) = session.selected_index {
+                            if total_rows == 0 {
+                                session.selected_index = None;
+                            } else if idx >= total_rows {
+                                session.selected_index = Some(total_rows - 1);
+                            }
+                        }
+
+                        // Render the "Recent" section. Rows 0..recents_visible.len()
+                        // of the selection cursor map into this block.
+                        if !recents_visible.is_empty() {
+                            ui.label(
+                                egui::RichText::new("Recent")
+                                    .small()
+                                    .color(theme_tokens.radial_chrome_text),
+                            );
+                            for (local_idx, entry) in recents_visible.iter().enumerate() {
+                                let is_selected = session.selected_index == Some(local_idx);
+                                let row = ui.scope(|ui| {
+                                    if is_selected {
+                                        ui.visuals_mut().override_text_color =
+                                            Some(theme_tokens.command_notice);
+                                    }
+                                    render_action_entry_button(
+                                        ui,
+                                        app,
+                                        entry,
+                                        &action_context,
+                                        pair_context,
+                                        source_context,
+                                        &mut intents,
+                                        focused_pane_node,
+                                        focused_pane_id,
+                                        &mut should_close,
+                                    );
+                                });
+                                if is_selected {
+                                    row.response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                            }
+                            ui.separator();
+                        }
+
+                        let per_category_cap =
+                            app.workspace.chrome_ui.command_palette_max_per_category;
+                        let recents_offset = recents_visible.len();
                         let mut first_category = true;
                         for category in ordered_categories.iter().copied() {
-                            let cat_actions: Vec<_> = filtered
+                            let cat_actions: Vec<(usize, &ActionEntry)> = filtered_no_recents
                                 .iter()
-                                .filter(|e| e.id.category() == category)
-                                .copied()
+                                .enumerate()
+                                .filter(|(_, e)| e.id.category() == category)
+                                .map(|(i, e)| (i, *e))
                                 .collect();
                             if cat_actions.is_empty() {
                                 continue;
@@ -714,23 +896,46 @@ pub fn render_command_palette_panel(
                                 ui.separator();
                             }
                             first_category = false;
-                            for entry in &cat_actions {
-                                render_action_entry_button(
-                                    ui,
-                                    app,
-                                    entry,
-                                    &action_context,
-                                    pair_context,
-                                    source_context,
-                                    &mut intents,
-                                    focused_pane_node,
-                                    focused_pane_id,
-                                    &mut should_close,
-                                );
+                            let visible_cap = if per_category_cap == 0 {
+                                cat_actions.len()
+                            } else {
+                                per_category_cap.min(cat_actions.len())
+                            };
+                            for (idx, entry) in cat_actions.iter().take(visible_cap) {
+                                let global_idx = recents_offset + *idx;
+                                let is_selected = session.selected_index == Some(global_idx);
+                                let row = ui.scope(|ui| {
+                                    if is_selected {
+                                        ui.visuals_mut().override_text_color =
+                                            Some(theme_tokens.command_notice);
+                                    }
+                                    render_action_entry_button(
+                                        ui,
+                                        app,
+                                        entry,
+                                        &action_context,
+                                        pair_context,
+                                        source_context,
+                                        &mut intents,
+                                        focused_pane_node,
+                                        focused_pane_id,
+                                        &mut should_close,
+                                    );
+                                });
+                                if is_selected {
+                                    row.response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                            }
+                            if cat_actions.len() > visible_cap {
+                                ui.small(format!(
+                                    "… {} more in {} (raise the per-category cap in Settings)",
+                                    cat_actions.len() - visible_cap,
+                                    category.label()
+                                ));
                             }
                         }
 
-                        if filtered.is_empty() {
+                        if total_rows == 0 {
                             ui.small("No actions match the current search/scope filters.");
                         }
                     }
@@ -806,6 +1011,11 @@ pub(crate) fn execute_action(
     focused_pane_node: Option<NodeKey>,
     focused_pane_id: Option<PaneId>,
 ) {
+    // Record the dispatch in the palette's recents ring before the
+    // action runs so an action that closes the palette still leaves
+    // a breadcrumb. `record_command_palette_recent` is a no-op when
+    // the recents depth is zero.
+    app.record_command_palette_recent(action_id);
     execute_action_with_layout_target(
         app,
         action_id,
@@ -2229,16 +2439,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn search_matches_uses_case_insensitive_label_matching() {
-        let entry = ActionEntry {
-            id: ActionId::NodeDelete,
-            enabled: true,
-        };
-        assert!(search_matches(&entry, "delete"));
-        assert!(search_matches(&entry, "NoDe"));
-        assert!(!search_matches(&entry, "physics"));
-    }
+    // Note: the pre-M4 `search_matches_uses_case_insensitive_label_matching`
+    // test was removed when palette matching switched from plain
+    // substring match to nucleo fuzzy match (§f). Fuzzy-match semantics
+    // are exercised by the `fuzzy_match_items` tests in
+    // `services::search` and by
+    // `filter_actions_for_search_respects_scope_and_query` below.
 
     #[test]
     fn scope_ready_requires_target_for_current_target_scope() {

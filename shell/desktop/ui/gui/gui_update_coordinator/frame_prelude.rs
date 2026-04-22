@@ -46,12 +46,16 @@ pub(super) fn run_pre_frame_and_initialize_intents(
         state,
         window,
         favicon_textures,
-        thumbnail_capture_tx,
-        thumbnail_capture_rx,
+        thumbnail_channel,
         thumbnail_capture_in_flight,
-        command_palette_toggle_requested,
+        command_authority,
         control_panel,
     } = args;
+
+    let CommandAuthorityMut {
+        toggle_requested: command_palette_toggle_requested,
+        session: _command_palette_session,
+    } = command_authority;
 
     let pre_frame = gui_orchestration::run_pre_frame_phase(
         ctx,
@@ -59,8 +63,7 @@ pub(super) fn run_pre_frame_and_initialize_intents(
         state,
         window,
         favicon_textures,
-        thumbnail_capture_tx,
-        thumbnail_capture_rx,
+        thumbnail_channel,
         thumbnail_capture_in_flight,
         command_palette_toggle_requested,
     );

@@ -36,7 +36,7 @@ use crate::shell::desktop::ui::gui_frame::{self, ToolbarDialogPhaseArgs};
 use crate::shell::desktop::ui::gui_state::{
     LocalFocusTarget, RuntimeFocusAuthorityState, ToolbarState,
 };
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{TileOpenMode, ToggleTileViewArgs};
@@ -161,9 +161,7 @@ pub(crate) fn run_toolbar_phase(
             graph_surface_focused,
             focus_authority,
             local_widget_focus,
-            location: &mut toolbar_state.location,
-            location_dirty: &mut toolbar_state.location_dirty,
-            location_submitted: &mut toolbar_state.location_submitted,
+            editable: &mut toolbar_state.editable,
             focus_location_field_for_search,
             show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
             clear_data_confirm_deadline_secs,

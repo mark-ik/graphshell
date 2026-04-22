@@ -85,7 +85,7 @@ pub(super) fn location_has_focus(gui: &EguiHost) -> bool {
 }
 
 pub(super) fn request_location_submit(gui: &mut EguiHost) {
-    gui.runtime.toolbar_state.location_submitted = true;
+    gui.runtime.toolbar_state.editable.location_submitted = true;
 }
 
 pub(super) fn request_command_palette_toggle(gui: &mut EguiHost) {

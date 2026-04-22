@@ -11,7 +11,7 @@
 //! `GraphshellRuntime` state and a `next_active_pane` hint (which the
 //! host resolves from its window/focus system).
 
-use crate::shell::desktop::ui::gui_state::{GraphshellRuntime, ToolbarDraft};
+use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
 /// Snapshot the current toolbar state into the active pane's draft slot.
@@ -22,10 +22,9 @@ pub(crate) fn persist_active_toolbar_draft(runtime: &mut GraphshellRuntime) {
     let Some(active_pane) = runtime.focus_authority.pane_activation else {
         return;
     };
-    runtime.toolbar_drafts.insert(
-        active_pane,
-        ToolbarDraft::from_toolbar_state(&runtime.toolbar_state),
-    );
+    runtime
+        .toolbar_drafts
+        .insert(active_pane, runtime.toolbar_state.editable.clone());
 }
 
 /// Switch the live toolbar state to the draft belonging to
@@ -50,7 +49,7 @@ pub(crate) fn sync_active_toolbar_draft(
     let draft = runtime
         .toolbar_drafts
         .entry(active_pane)
-        .or_insert_with(|| ToolbarDraft::from_toolbar_state(&runtime.toolbar_state))
+        .or_insert_with(|| runtime.toolbar_state.editable.clone())
         .clone();
-    draft.apply_to_toolbar_state(&mut runtime.toolbar_state);
+    runtime.toolbar_state.editable = draft;
 }

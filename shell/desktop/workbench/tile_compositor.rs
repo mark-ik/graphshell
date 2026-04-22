@@ -49,8 +49,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
-    CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
-    OverlayStrokePass,
+    portable_rect_from_egui, portable_stroke_from_egui, CompositedContentPassOutcome,
+    CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle, OverlayStrokePass,
 };
 use crate::shell::desktop::workbench::interaction_policy::{
     InteractionUiState, OverlaySuppressionReason,
@@ -1040,7 +1040,21 @@ pub(crate) fn composite_active_node_pane_webviews(
     );
     let retained_node_keys = retained_node_keys_for_active_tile_rects(active_tile_rects);
     CompositorAdapter::retire_stale_content_resources(ui_render_backend, &retained_node_keys);
-    let presentation = active_presentation_profile(graph_app);
+    let mut presentation = active_presentation_profile(graph_app);
+    // M4.1 slice 1d: honor the user's focus-ring color override if set.
+    // We clone the resolved profile (already owned) and swap only its
+    // `focus_ring` slot so downstream overlay builders don't have to
+    // know about the settings layer — they consume the profile as
+    // before.
+    if let Some([r, g, b]) = graph_app
+        .workspace
+        .chrome_ui
+        .focus_ring_settings
+        .color_override
+    {
+        presentation.focus_ring =
+            crate::registries::domain::presentation::PresentationColor::rgb(r, g, b);
+    }
     let mut pass_tracker = CompositorPassTracker::new();
     let mut pending_overlay_passes: Vec<OverlayStrokePass> = Vec::new();
     let mut degraded_receipts: Vec<DegradedReceipt> = Vec::new();
@@ -1725,9 +1739,9 @@ fn focus_overlay_for_mode(
 
     OverlayStrokePass {
         node_key: semantic.node_key,
-        tile_rect,
+        tile_rect: portable_rect_from_egui(tile_rect),
         rounding: policy.rounding,
-        stroke,
+        stroke: portable_stroke_from_egui(stroke),
         glyph_overlays: Vec::new(),
         style: policy.style,
         render_mode,
@@ -1755,9 +1769,9 @@ fn selection_overlay_for_mode(
 
     OverlayStrokePass {
         node_key: semantic.node_key,
-        tile_rect: tile_rect.shrink(3.0),
+        tile_rect: portable_rect_from_egui(tile_rect.shrink(3.0)),
         rounding: policy.rounding,
-        stroke,
+        stroke: portable_stroke_from_egui(stroke),
         glyph_overlays: Vec::new(),
         style: policy.style,
         render_mode: semantic.render_mode,
@@ -1784,9 +1798,9 @@ fn hover_overlay_for_mode(
 
     OverlayStrokePass {
         node_key: semantic.node_key,
-        tile_rect,
+        tile_rect: portable_rect_from_egui(tile_rect),
         rounding: policy.rounding,
-        stroke,
+        stroke: portable_stroke_from_egui(stroke),
         glyph_overlays: Vec::new(),
         style: policy.style,
         render_mode,
@@ -1856,9 +1870,9 @@ fn semantic_overlay_for_mode(
 
     OverlayStrokePass {
         node_key: semantic.node_key,
-        tile_rect,
+        tile_rect: portable_rect_from_egui(tile_rect),
         rounding: policy.rounding,
-        stroke,
+        stroke: portable_stroke_from_egui(stroke),
         glyph_overlays,
         style,
         render_mode: semantic.render_mode,
@@ -2697,10 +2711,15 @@ mod tests {
             &presentation,
         );
 
-        assert_eq!(
-            overlay.stroke.color,
-            presentation.crash_blocked.to_color32()
-        );
+        // `overlay.stroke.color` is now the portable `graph_canvas::packet::Color`
+        // (post-euclid-descriptor conversion, 2026-04-21). Convert the expected
+        // egui color through the same boundary helper used by producers so the
+        // round-trip through `portable_stroke_from_egui` is exercised intact.
+        let expected = crate::shell::desktop::workbench::compositor_adapter::portable_stroke_from_egui(
+            egui::Stroke::new(1.0, presentation.crash_blocked.to_color32()),
+        )
+        .color;
+        assert_eq!(overlay.stroke.color, expected);
     }
 
     #[test]
