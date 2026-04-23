@@ -347,7 +347,7 @@ model: on native hosts, `spawn_supervised` kicks off a concurrent
 task that runs until it completes or is cancelled.
 
 **On wasm32, "concurrent background task" doesn't exist** (single
-threaded event loop, no preemption). Three product-shape options:
+threaded event loop, no preemption). Four product-shape options:
 
 **(a) Cooperative / frame-driven workers.** Rewrite workers from
 "spawn and forget" to "poll from the frame loop each tick."
@@ -364,21 +364,84 @@ fastest path; costs product functionality on browser.
 **(c) Dedicated Web Workers per service.** Each Tier-1 worker
 (iroh, Nostr) runs in its own `Worker` with its own wasm instance;
 main thread messages through `postMessage` or SharedArrayBuffer.
-Architecturally close to what native does, but requires upstream
-wasm32 support from iroh, Nostr client libs, and the
-`async-tungstenite`-like stack. COOP/COEP headers on the hosting
-site. `wasm_bindgen_rayon` is a different tool — suitable for data-
+Architecturally close to what native does. Requires COOP/COEP
+headers on the hosting site (`Cross-Origin-Opener-Policy: same-origin`
+plus `Cross-Origin-Embedder-Policy: require-corp`) — real deployment
+commitment, breaks embedded iframes and some third-party resources.
+Requires upstream wasm32 support from each worker's crate stack.
+`wasm_bindgen_rayon` is a **different tool** — suitable for data-
 parallel bursts (physics, layout), NOT for long-lived I/O services.
-Rayon-on-wasm requires `SharedArrayBuffer`, nightly Rust,
-`-Z build-std` flags, and adds build complexity; worth evaluating
-independently if layout/physics becomes a CPU bottleneck.
-**Multi-month**, mostly in upstream dep-compat work, not runtime
-refactoring.
+Rayon-on-wasm needs `SharedArrayBuffer`, nightly Rust,
+`-Z build-std`, target-feature flags; evaluate independently if
+layout/physics becomes a CPU bottleneck.
 
-**Recommended order**: land M5b (this slice), ship iced-native (M5a),
-decide (a)/(b)/(c) at the point wasm32 is committed. Traits alone
-don't commit to any option — they just remove the hard blockers so
-the decision can be made without rework.
+**(a+c) Hybrid — cooperative for simple workers, dedicated Web
+Worker for heavyweight I/O services (recommended).** See §6a for the
+per-worker classification. This is the realistic path now that
+iroh 0.33 + nostr-sdk both have browser-compatible builds.
+
+### 6a. Per-worker wasm classification (April 2026 ecosystem status)
+
+| Worker | Current stack | Wasm path | Notes |
+|--------|---------------|-----------|-------|
+| **P2P sync (iroh)** | `iroh` 0.33+ | **(c) dedicated Web Worker** | [iroh 0.33 browser support](https://docs.iroh.computer/deployment/wasm-browser-support) — relay-based connections only (no hole-punching, no DHT, no local discovery — browser sandbox prohibits raw UDP). E2E encryption intact. Build with `default-features = false`. 0.34 planned to expand capabilities. |
+| **Nostr relay pool** | `nostr-sdk` | **(c) dedicated Web Worker** | [`nostr-sdk-wasm-example`](https://github.com/rust-nostr/nostr-sdk-wasm-example) demonstrates wasm32 build. NIP-03 gated off on wasm. `WebSocket` is worker-available natively, no proxy needed. Library is ALPHA — expect breaking API changes. |
+| **Memory monitor** | `sysinfo` | **stub to `Normal`** | [`sysinfo` doesn't target wasm32](https://crates.io/crates/sysinfo). Browser memory pressure is unreliable (`performance.memory` is Chromium-only and coarse). The memory-pressure level drives tier throttling for workers we won't have in the browser anyway — stubbing to `Normal` preserves semantics cleanly. |
+| **Mod loader** | Filesystem walk via `fs::read_dir` | **(a) cooperative + remote fetch** | No wasm filesystem. Mod discovery in browser routes through `fetch()` to a remote manifest or through `OPFS` for user-imported mods. Cooperative (main-thread) fetch is fine — mod discovery isn't performance-critical. |
+| **Prefetch scheduler** | Tokio timer-based | **(a) cooperative** | Schedule-driven, not throughput-critical. Poll from frame loop on wasm; lose sub-frame precision but prefetch is heuristic anyway. |
+| **Nostr relay worker (NostrRelayWorker)** | Same as Nostr relay pool | **(c) dedicated Web Worker** | Shares the Nostr Web Worker instance. |
+| **Shell signal relay** | Tokio mpsc bridge | **(a) cooperative** | Already coalesced into `GuiFrameInbox`; drain per-frame is the natural model on wasm. |
+
+**Cost breakdown for (a+c) hybrid**:
+
+- Trait extraction (this M5b slice): **~1 week**.
+- Cooperative refactor for mod loader + prefetch + shell signal
+  relay: **~1 week** (small, well-defined worker surfaces).
+- iroh Web Worker bring-up: **~1–2 weeks** (wire postMessage bridge,
+  handle `Send` bounds, graceful shutdown).
+- Nostr Web Worker bring-up: **~1–2 weeks** (shares infrastructure
+  with iroh worker; faster if done second).
+- `sysinfo` wasm stub: **~1 day**.
+- COOP/COEP deployment: **hosting-configuration work**, not code.
+
+**Total (a+c) estimate**: ~4–6 weeks beyond M5b, spread across the
+wasm32 bring-up milestone. Compared to option (b) "gate everything
+off" at ~1 week, the hybrid preserves P2P + Nostr functionality on
+browser at a 3–5 week premium.
+
+### 6b. Rust wasm threading toolchain status
+
+As of April 2026 (Rust ≈ 1.95): **wasm threading still requires
+nightly**. [Tracking issue #77839](https://github.com/rust-lang/rust/issues/77839)
+for WebAssembly atomics is open; `target_feature = "atomics"` and
+`-Z build-std` are both unstable. `wasm32-wasip1-threads` is an
+experimental target.
+
+Consequences for Graphshell:
+
+- If we want `wasm_bindgen_rayon` (shared-memory threading) for
+  data-parallel layout/physics: **nightly toolchain required** for
+  the wasm build. Acceptable for a sub-target; not ideal.
+- If we stick to dedicated Web Workers + `postMessage` (separate
+  wasm instances per worker, no shared memory): **stable toolchain
+  works**. This is another reason option (c) dedicated Web Workers
+  is a better fit than the rayon path — it avoids the
+  SharedArrayBuffer + nightly-Rust complexity entirely.
+
+### 6c. Recommended order
+
+1. **M5b traits** (this slice, ~1 week).
+2. **M5a iced-native** (already planned, 2–3 weeks).
+3. **Wasm-prep**: cooperative refactor for mod loader + prefetch +
+   signal relay. Lands in native first (testable), then applies on
+   wasm unchanged. ~1 week.
+4. **Sysinfo wasm stub + iroh + nostr Web Worker bring-up**.
+   Parallel-izable across contributors. ~3–5 weeks aggregate.
+5. **M6 wasm bring-up proper** — iced-web host, Canvas rendering,
+   surface-registry no-ops.
+
+Traits (step 1) alone don't commit to any option — they just remove
+the hard blockers so the decision can land when wasm32 commits.
 
 ---
 
