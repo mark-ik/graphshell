@@ -10,6 +10,9 @@ use std::collections::HashSet;
 
 use servo::WebViewId;
 
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    renderer_id_from_servo, servo_webview_id_from_renderer,
+};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
@@ -78,24 +81,22 @@ impl WindowProjectionState {
             .borrow()
             .iter()
             .filter_map(|pane_id| registries::phase1_renderer_attachment_for_pane(*pane_id))
-            .filter_map(|attachment| {
-                seen.insert(attachment.renderer_id)
-                    .then_some(attachment.renderer_id)
-            })
+            .filter_map(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
+            .filter_map(|webview_id| seen.insert(webview_id).then_some(webview_id))
             .collect()
     }
 
     pub(super) fn explicit_input_webview_id(&self) -> Option<WebViewId> {
         match self.input_target() {
             Some(InputTarget::Host) => None,
-            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
+            Some(InputTarget::Renderer(renderer_id)) => servo_webview_id_from_renderer(renderer_id),
             Some(InputTarget::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
+                    .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
             }
             None => self.focused_pane().and_then(|pane_id| {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
+                    .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
             }),
         }
     }
@@ -103,10 +104,10 @@ impl WindowProjectionState {
     pub(super) fn targeted_input_webview_id(&self) -> Option<WebViewId> {
         match self.input_target() {
             Some(InputTarget::Host) => None,
-            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
+            Some(InputTarget::Renderer(renderer_id)) => servo_webview_id_from_renderer(renderer_id),
             Some(InputTarget::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
+                    .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
             }
             None => None,
         }
@@ -114,10 +115,10 @@ impl WindowProjectionState {
 
     pub(super) fn explicit_dialog_webview_id(&self) -> Option<WebViewId> {
         match self.dialog_owner() {
-            Some(DialogOwner::Renderer(renderer_id)) => Some(renderer_id),
+            Some(DialogOwner::Renderer(renderer_id)) => servo_webview_id_from_renderer(renderer_id),
             Some(DialogOwner::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
+                    .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
             }
             None => None,
         }
@@ -125,26 +126,28 @@ impl WindowProjectionState {
 
     pub(super) fn explicit_chrome_webview_id(&self) -> Option<WebViewId> {
         match self.chrome_projection_source() {
-            Some(ChromeProjectionSource::Renderer(renderer_id)) => Some(renderer_id),
+            Some(ChromeProjectionSource::Renderer(renderer_id)) => servo_webview_id_from_renderer(renderer_id),
             Some(ChromeProjectionSource::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
-                    .map(|attachment| attachment.renderer_id)
+                    .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))
             }
             None => None,
         }
     }
 
     pub(super) fn dialog_owner_for_webview(&self, webview_id: WebViewId) -> DialogOwner {
-        registries::phase1_pane_for_renderer(webview_id)
+        let renderer_id = renderer_id_from_servo(webview_id);
+        registries::phase1_pane_for_renderer(renderer_id)
             .map(DialogOwner::Pane)
-            .unwrap_or(DialogOwner::Renderer(webview_id))
+            .unwrap_or(DialogOwner::Renderer(renderer_id))
     }
 
     pub(super) fn sync_explicit_targets_for_webview(&self, webview_id: WebViewId) {
-        let pane_id = registries::phase1_pane_for_renderer(webview_id);
+        let renderer_id = renderer_id_from_servo(webview_id);
+        let pane_id = registries::phase1_pane_for_renderer(renderer_id);
         self.set_focused_pane(pane_id);
-        self.set_input_target(Some(InputTarget::Renderer(webview_id)));
-        self.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(webview_id)));
+        self.set_input_target(Some(InputTarget::Renderer(renderer_id)));
+        self.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(renderer_id)));
         self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
     }
 
@@ -153,13 +156,14 @@ impl WindowProjectionState {
         webview_id: WebViewId,
         detached_pane_id: Option<PaneId>,
     ) {
+        let renderer_id = renderer_id_from_servo(webview_id);
         if self.focused_pane() == detached_pane_id {
             self.set_focused_pane(None);
         }
 
         if matches!(
             self.input_target(),
-            Some(InputTarget::Renderer(renderer_id)) if renderer_id == webview_id
+            Some(InputTarget::Renderer(active_renderer_id)) if active_renderer_id == renderer_id
         ) || matches!(
             (self.input_target(), detached_pane_id),
             (Some(InputTarget::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
@@ -169,7 +173,7 @@ impl WindowProjectionState {
 
         if matches!(
             self.chrome_projection_source(),
-            Some(ChromeProjectionSource::Renderer(renderer_id)) if renderer_id == webview_id
+            Some(ChromeProjectionSource::Renderer(active_renderer_id)) if active_renderer_id == renderer_id
         ) || matches!(
             (self.chrome_projection_source(), detached_pane_id),
             (Some(ChromeProjectionSource::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
@@ -179,7 +183,7 @@ impl WindowProjectionState {
 
         if matches!(
             self.dialog_owner(),
-            Some(DialogOwner::Renderer(renderer_id)) if renderer_id == webview_id
+            Some(DialogOwner::Renderer(active_renderer_id)) if active_renderer_id == renderer_id
         ) || matches!(
             (self.dialog_owner(), detached_pane_id),
             (Some(DialogOwner::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id

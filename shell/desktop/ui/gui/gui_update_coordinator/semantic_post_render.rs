@@ -16,6 +16,7 @@ pub(super) fn finalize_update_frame(
 pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPhaseArgs<'_>) {
     let SemanticAndPostRenderPhaseArgs {
         ctx,
+        root_ui,
         ui_render_backend,
         graph_app,
         bookmark_import_dialog,
@@ -26,6 +27,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         modal_surface_active,
         toolbar_height,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         app_state,
@@ -70,6 +72,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -96,6 +99,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
     gui_frame::run_post_render_phase(
         gui_frame::PostRenderPhaseArgs {
             ctx,
+            root_ui,
             ui_render_backend,
             graph_app,
             bookmark_import_dialog,
@@ -104,6 +108,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             tiles_tree,
             graph_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             toolbar_height,
@@ -147,6 +152,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -167,6 +173,7 @@ pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>)
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,

@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::app::{RuntimeEvent, WorkbenchIntent};
 use crate::shell::desktop::host::window::{WebViewLifecycleEvent, WebViewLifecycleEventKind};
+use crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer;
 
 pub(crate) fn runtime_events_from_semantic_events(
     events: Vec<WebViewLifecycleEvent>,
@@ -122,7 +123,9 @@ pub(crate) fn runtime_events_and_responsive_from_events(
             WebViewLifecycleEventKind::UrlChanged { webview_id, .. }
             | WebViewLifecycleEventKind::HistoryChanged { webview_id, .. }
             | WebViewLifecycleEventKind::PageTitleChanged { webview_id, .. } => {
-                responsive_webviews.insert(*webview_id);
+                if let Some(servo_webview_id) = servo_webview_id_from_renderer(*webview_id) {
+                    responsive_webviews.insert(servo_webview_id);
+                }
             }
             WebViewLifecycleEventKind::WebViewCrashed { .. }
             | WebViewLifecycleEventKind::HostOpenRequest { .. }

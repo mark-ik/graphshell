@@ -7,7 +7,11 @@ pub(super) fn reconcile_mappings_and_selection(
 ) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     if let Some(active_wv_id) = active_webview
-        && let Some(active_node_key) = app.get_node_for_webview(active_wv_id)
+        && let Some(active_node_key) = app.get_node_for_webview(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                active_wv_id,
+            ),
+        )
         && app.focused_selection().primary().is_none()
     {
         intents.push(GraphIntent::SelectNode {
@@ -16,10 +20,14 @@ pub(super) fn reconcile_mappings_and_selection(
         });
     }
 
-    let old_webviews: Vec<WebViewId> = app
+    let old_webviews: Vec<_> = app
         .webview_node_mappings()
-        .filter(|(wv_id, _)| !seen_webviews.contains(wv_id))
-        .map(|(wv_id, _)| wv_id)
+        .filter_map(|(renderer_id, _)| {
+            match crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer(renderer_id) {
+                Some(wv_id) if seen_webviews.contains(&wv_id) => None,
+                _ => Some(renderer_id),
+            }
+        })
         .collect();
 
     for wv_id in old_webviews {
@@ -33,5 +41,6 @@ pub(super) fn resolve_active_webview_for_sync(
     window_active_webview: Option<WebViewId>,
 ) -> Option<WebViewId> {
     app.embedded_content_focus_webview()
+        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
         .or(window_active_webview)
 }

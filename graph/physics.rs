@@ -13,9 +13,10 @@ use petgraph::visit::{EdgeRef as PetgraphEdgeRef, IntoEdgeReferences};
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::registries::atomic::knowledge::SemanticClassVector;
-use crate::util::CoordBridge;
 
-pub use graph_canvas::layout::{ForceDirected as GraphPhysicsLayout, ForceDirectedState as GraphPhysicsState, Layout, LayoutExtras};
+#[allow(unused_imports)]
+pub use graph_canvas::layout::ForceDirected as GraphPhysicsLayout;
+pub use graph_canvas::layout::{ForceDirectedState as GraphPhysicsState, Layout, LayoutExtras};
 
 /// Build a minimal `CanvasSceneInput` from the app's domain graph for use
 /// with graph-canvas layout passes. Physics extras only read positions and
@@ -43,7 +44,7 @@ fn scene_input_for_physics(app: &GraphBrowserApp) -> CanvasSceneInput<NodeKey> {
     let graph = app.domain_graph();
     let nodes: Vec<CanvasNode<NodeKey>> = graph
         .nodes()
-        .filter_map(|(key, node)| {
+        .filter_map(|(key, _node)| {
             graph.node_projected_position(key).map(|pos| CanvasNode {
                 id: key,
                 position: pos,

@@ -7,7 +7,7 @@
 //! The portable state (`ProviderSuggestionMailbox` in `omnibar_state`)
 //! carries an [`AsyncRequestState<T>`] with no threading primitives.
 //! This module owns the concrete
-//! [`crossbeam_channel::Receiver<ProviderSuggestionFetchOutcome>`]
+//! [`BlockingTaskReceiver<ProviderSuggestionFetchOutcome>`]
 //! that the portable state's [`AsyncRequestState`] is driven by.
 //!
 //! At each frame, [`drive_provider_suggestion_bridge`] is called before
@@ -19,7 +19,7 @@
 //! the mailbox; see [`ProviderSuggestionMailbox::arm_new_request`]).
 //!
 //! The driver itself is not portable — it holds a concrete
-//! crossbeam receiver. It will stay in the shell crate when the
+//! host-side blocking-task receiver. It will stay in the shell crate when the
 //! `ProviderSuggestionMailbox` eventually moves to
 //! `graphshell_core::shell_state::omnibar`.
 //!
@@ -27,7 +27,9 @@
 //! [`AsyncRequestState`]: graphshell_core::async_request::AsyncRequestState
 //! [`ProviderSuggestionMailbox::arm_new_request`]: crate::shell::desktop::ui::omnibar_state::ProviderSuggestionMailbox::arm_new_request
 
-use crossbeam_channel::{Receiver, TryRecvError};
+use graphshell_core::async_host::{BlockingTaskReceiver, BlockingTryRecvError};
+#[cfg(test)]
+use graphshell_core::async_host::ErasedBlockingResult;
 
 use crate::shell::desktop::ui::omnibar_state::{
     ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,
@@ -42,11 +44,14 @@ use crate::shell::desktop::ui::omnibar_state::{
 /// re-armed to a newer generation, the old result is dropped as stale.
 pub(crate) struct ProviderSuggestionDriver {
     generation: u64,
-    rx: Receiver<ProviderSuggestionFetchOutcome>,
+    rx: BlockingTaskReceiver<ProviderSuggestionFetchOutcome>,
 }
 
 impl ProviderSuggestionDriver {
-    pub(crate) fn new(generation: u64, rx: Receiver<ProviderSuggestionFetchOutcome>) -> Self {
+    pub(crate) fn new(
+        generation: u64,
+        rx: BlockingTaskReceiver<ProviderSuggestionFetchOutcome>,
+    ) -> Self {
         Self { generation, rx }
     }
 }
@@ -74,7 +79,7 @@ pub(crate) fn drive_provider_suggestion_bridge(
             // is the correct cleanup.
             *driver_slot = None;
         }
-        Err(TryRecvError::Disconnected) => {
+        Err(BlockingTryRecvError::Disconnected) => {
             // Worker went away without delivering a value (cancellation,
             // panic, ControlPanel shutdown). Mark the portable state
             // as interrupted so the consumer can synthesize a
@@ -82,9 +87,13 @@ pub(crate) fn drive_provider_suggestion_bridge(
             mailbox.result.interrupt();
             *driver_slot = None;
         }
-        Err(TryRecvError::Empty) => {
+        Err(BlockingTryRecvError::Empty) => {
             // Still in flight — leave the driver and the Pending state
             // alone for another frame.
+        }
+        Err(BlockingTryRecvError::TypeMismatch) => {
+            mailbox.result.interrupt();
+            *driver_slot = None;
         }
     }
 }
@@ -108,10 +117,12 @@ mod tests {
     fn bridge_delivers_result_and_retires_driver() {
         let mut mailbox = ProviderSuggestionMailbox::idle();
         let generation = mailbox.arm_new_request();
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = crossbeam_channel::bounded::<ErasedBlockingResult>(1);
+        let rx = BlockingTaskReceiver::new(rx);
         let mut driver_slot = Some(ProviderSuggestionDriver::new(generation, rx));
 
-        tx.send(sample_outcome()).expect("send sample outcome");
+        tx.send(Box::new(sample_outcome()) as ErasedBlockingResult)
+            .expect("send sample outcome");
         drive_provider_suggestion_bridge(&mut driver_slot, &mut mailbox);
 
         assert!(driver_slot.is_none(), "driver should retire after delivery");
@@ -122,7 +133,8 @@ mod tests {
     fn bridge_interrupts_when_sender_dropped_without_value() {
         let mut mailbox = ProviderSuggestionMailbox::idle();
         let generation = mailbox.arm_new_request();
-        let (tx, rx) = crossbeam_channel::bounded::<ProviderSuggestionFetchOutcome>(1);
+        let (tx, rx) = crossbeam_channel::bounded::<ErasedBlockingResult>(1);
+        let rx = BlockingTaskReceiver::new(rx);
         let mut driver_slot = Some(ProviderSuggestionDriver::new(generation, rx));
 
         drop(tx);
@@ -136,8 +148,8 @@ mod tests {
     fn bridge_leaves_pending_when_receiver_is_empty() {
         let mut mailbox = ProviderSuggestionMailbox::idle();
         let generation = mailbox.arm_new_request();
-        let (_tx_keep_alive, rx) =
-            crossbeam_channel::bounded::<ProviderSuggestionFetchOutcome>(1);
+        let (_tx_keep_alive, rx) = crossbeam_channel::bounded::<ErasedBlockingResult>(1);
+        let rx = BlockingTaskReceiver::new(rx);
         let mut driver_slot = Some(ProviderSuggestionDriver::new(generation, rx));
 
         drive_provider_suggestion_bridge(&mut driver_slot, &mut mailbox);
@@ -156,7 +168,8 @@ mod tests {
         // see the stale generation, refuse to deposit, and clean up.
         let mut mailbox = ProviderSuggestionMailbox::idle();
         let gen1 = mailbox.arm_new_request();
-        let (tx1, rx1) = crossbeam_channel::bounded(1);
+        let (tx1, rx1) = crossbeam_channel::bounded::<ErasedBlockingResult>(1);
+        let rx1 = BlockingTaskReceiver::new(rx1);
         let mut driver_slot = Some(ProviderSuggestionDriver::new(gen1, rx1));
 
         // Caller supersedes: arm a fresh gen. The mailbox is now at
@@ -167,7 +180,8 @@ mod tests {
         assert_ne!(gen1, gen2);
 
         // Now gen-1's worker finishes and pushes.
-        tx1.send(sample_outcome()).expect("send gen1 result");
+        tx1.send(Box::new(sample_outcome()) as ErasedBlockingResult)
+            .expect("send gen1 result");
         drive_provider_suggestion_bridge(&mut driver_slot, &mut mailbox);
 
         assert!(driver_slot.is_none(), "stale driver should be dropped");

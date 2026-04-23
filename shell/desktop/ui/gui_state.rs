@@ -5,12 +5,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use graphshell_core::async_host::AsyncSpawner;
 use crate::app::{GraphBrowserApp, GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
+#[cfg(any(test, feature = "iced-host"))]
+use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::ui::command_palette_state::CommandPaletteSession;
 use crate::shell::desktop::ui::frame_model::{
@@ -27,6 +30,10 @@ use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
+use graphshell_core::signal_router::SignalRouter;
+use graphshell_core::viewer_host::ViewerSurfaceHost;
+#[cfg(any(test, feature = "iced-host"))]
+use verso_host::{NoopViewerSurfaceHost, TokioAsyncSpawner};
 
 // Toolbar session types moved to `graphshell_core::shell_state::toolbar`
 // in M4 slice 2 (2026-04-22). Re-exported here so existing call sites
@@ -265,8 +272,14 @@ pub(crate) struct GraphshellRuntime {
     /// Async worker supervision and intent queue.
     pub(crate) control_panel: ControlPanel,
 
+    /// Host-provided async task spawner.
+    pub(crate) async_spawner: Arc<dyn AsyncSpawner>,
+
     /// Registry runtime for semantic services.
     pub(crate) registry_runtime: Arc<RegistryRuntime>,
+
+    /// Host-provided signal router for frame-bound inbox subscriptions.
+    pub(crate) signal_router: Arc<dyn SignalRouter>,
 
     /// Tokio runtime for async background workers.
     pub(crate) tokio_runtime: tokio::runtime::Runtime,
@@ -274,6 +287,9 @@ pub(crate) struct GraphshellRuntime {
     /// Phase D unified viewer surface registry keyed by NodeKey. Single
     /// authority for per-node content surface state.
     pub(crate) viewer_surfaces: ViewerSurfaceRegistry,
+
+    /// Host-owned viewer surface allocator/retirer.
+    pub(crate) viewer_surface_host: Box<dyn ViewerSurfaceHost<ViewerSurfaceRegistry>>,
 
     /// Runtime backpressure state for tile-driven viewer creation retries.
     pub(crate) webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -688,9 +704,12 @@ impl GraphshellRuntime {
     pub(crate) fn new_minimal() -> Self {
         let tokio_runtime = tokio::runtime::Runtime::new()
             .expect("failed to create tokio runtime for test GraphshellRuntime");
+        let async_spawner: Arc<dyn AsyncSpawner> =
+            Arc::new(TokioAsyncSpawner::new(Some(tokio_runtime.handle().clone())));
+        let signal_router: Arc<dyn SignalRouter> = Arc::new(RegistrySignalRouter);
         let mut control_panel =
-            ControlPanel::new_with_runtime(None, tokio_runtime.handle().clone());
-        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
+            ControlPanel::new_with_async_spawner(None, Arc::clone(&async_spawner));
+        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel, Arc::clone(&signal_router));
         Self {
             graph_app: GraphBrowserApp::new_for_testing(),
             graph_tree: graph_tree::GraphTree::new(
@@ -701,9 +720,12 @@ impl GraphshellRuntime {
             toolbar_state: ToolbarState::with_initial_location(""),
             bookmark_import_dialog: None,
             control_panel,
+            async_spawner,
             registry_runtime: Arc::new(RegistryRuntime::default()),
+            signal_router,
             tokio_runtime,
             viewer_surfaces: ViewerSurfaceRegistry::new(),
+            viewer_surface_host: Box::new(NoopViewerSurfaceHost),
             webview_creation_backpressure: HashMap::new(),
             thumbnail_capture_in_flight: std::collections::HashSet::new(),
             frame_inbox,
@@ -741,7 +763,7 @@ impl GraphshellRuntime {
 /// `webview_id` is a `ViewerInstanceId`; boundary sites convert from
 /// `servo::WebViewId` via `viewer_instance_id_from_servo(...)` and
 /// consumers unwrap via `servo_webview_id_from_viewer_instance(...)`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PendingWebviewContextSurfaceRequest {
     pub(crate) webview_id: ViewerInstanceId,
     pub(crate) anchor: [f32; 2],

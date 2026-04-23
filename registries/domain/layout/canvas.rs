@@ -106,6 +106,12 @@ impl_display_from_str!(CanvasLassoBinding {
     CanvasLassoBinding::ShiftLeftDrag => "shift-left-drag",
 });
 
+impl Default for CanvasLassoBinding {
+    fn default() -> Self {
+        Self::ShiftLeftDrag
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasInteractionPolicy {
     pub(crate) dragging_enabled: bool,
@@ -240,7 +246,7 @@ impl Default for CanvasRegistry {
                     dragging_enabled: true,
                     node_selection_enabled: true,
                     node_clicking_enabled: true,
-                    lasso_binding: CanvasLassoBinding::RightDrag,
+                    lasso_binding: CanvasLassoBinding::default(),
                 },
                 style: CanvasStylePolicy {
                     labels_always: true,
@@ -273,6 +279,10 @@ mod tests {
         assert_eq!(
             resolution.profile.layout_algorithm.algorithm_id,
             "graph_layout:force_directed"
+        );
+        assert_eq!(
+            resolution.profile.interaction.lasso_binding,
+            CanvasLassoBinding::ShiftLeftDrag
         );
         assert!(resolution.profile.navigation.zoom_and_pan_enabled);
         assert!(resolution.profile.performance.viewport_culling_enabled);
@@ -340,7 +350,7 @@ mod tests {
                     dragging_enabled: true,
                     node_selection_enabled: true,
                     node_clicking_enabled: true,
-                    lasso_binding: CanvasLassoBinding::RightDrag,
+                    lasso_binding: CanvasLassoBinding::default(),
                 },
                 style: CanvasStylePolicy {
                     labels_always: false,
@@ -441,7 +451,7 @@ mod tests {
                     dragging_enabled: true,
                     node_selection_enabled: true,
                     node_clicking_enabled: true,
-                    lasso_binding: CanvasLassoBinding::RightDrag,
+                    lasso_binding: CanvasLassoBinding::default(),
                 },
                 style: CanvasStylePolicy {
                     labels_always: true,

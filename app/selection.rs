@@ -152,6 +152,18 @@ impl SelectionState {
         }
     }
 
+    pub fn promote_primary(&mut self, key: NodeKey) -> bool {
+        if !self.nodes.contains(&key) || self.primary == Some(key) {
+            return false;
+        }
+
+        self.order.retain(|existing| *existing != key);
+        self.order.push(key);
+        self.primary = Some(key);
+        self.revision = self.revision.saturating_add(1);
+        true
+    }
+
     pub fn retain_nodes<F>(&mut self, mut keep: F)
     where
         F: FnMut(NodeKey) -> bool,
@@ -189,5 +201,42 @@ impl Deref for SelectionState {
 
     fn deref(&self) -> &Self::Target {
         &self.nodes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn promote_primary_reorders_existing_selection_without_dropping_nodes() {
+        let first = NodeKey::new(1);
+        let second = NodeKey::new(2);
+        let third = NodeKey::new(3);
+        let mut selection = SelectionState::new();
+
+        selection.update_many(vec![first, second, third], SelectionUpdateMode::Replace);
+
+        assert!(selection.promote_primary(second));
+        assert!(selection.contains(&first));
+        assert!(selection.contains(&second));
+        assert!(selection.contains(&third));
+        assert_eq!(selection.primary(), Some(second));
+    }
+
+    #[test]
+    fn promote_primary_ignores_missing_or_current_primary_nodes() {
+        let first = NodeKey::new(1);
+        let second = NodeKey::new(2);
+        let missing = NodeKey::new(3);
+        let mut selection = SelectionState::new();
+
+        selection.update_many(vec![first, second], SelectionUpdateMode::Replace);
+        let original_revision = selection.revision();
+
+        assert!(!selection.promote_primary(second));
+        assert!(!selection.promote_primary(missing));
+        assert_eq!(selection.primary(), Some(second));
+        assert_eq!(selection.revision(), original_revision);
     }
 }

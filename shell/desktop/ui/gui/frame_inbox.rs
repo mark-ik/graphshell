@@ -3,12 +3,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+
+use futures_util::StreamExt;
+use graphshell_core::signal_router::{
+    LifecycleSignal, RegistrySignal, SignalEnvelope, SignalRouter, SignalTopic,
+};
 
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::runtime::registries::phase3_subscribe_signal_async;
-use crate::shell::desktop::runtime::registries::signal_routing::{
-    LifecycleSignal, RegistryEventSignal, SignalKind, SignalTopic,
-};
 
 /// Typed frame-bound relay set for Shell-facing async signals.
 ///
@@ -24,44 +26,45 @@ pub(crate) struct GuiFrameInbox {
 }
 
 impl GuiFrameInbox {
-    pub(crate) fn spawn(control_panel: &mut ControlPanel) -> Self {
+    pub(crate) fn spawn(
+        control_panel: &mut ControlPanel,
+        signal_router: Arc<dyn SignalRouter>,
+    ) -> Self {
         let (semantic_index_updates_tx, semantic_index_updates_rx) = std::sync::mpsc::channel();
         let (workbench_projection_refreshes_tx, workbench_projection_refreshes_rx) =
             std::sync::mpsc::channel();
         let (settings_route_requests_tx, settings_route_requests_rx) = std::sync::mpsc::channel();
         let (profile_invalidations_tx, profile_invalidations_rx) = std::sync::mpsc::channel();
 
+        let lifecycle_router = Arc::clone(&signal_router);
         control_panel.spawn_shell_signal_relay("shell_frame_inbox_lifecycle", async move {
-            let mut subscription = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
-            while let Some(signal) = subscription.recv().await {
-                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
-                    indexed_nodes,
-                }) = signal.kind
-                {
+            let mut subscription = lifecycle_router.subscribe(SignalTopic::Lifecycle);
+            while let Some(signal) = subscription.next().await {
+                if let SignalEnvelope::Lifecycle(LifecycleSignal::SemanticIndexUpdated { indexed_nodes }) = signal {
                     let _ = semantic_index_updates_tx.send(indexed_nodes);
                 }
             }
         });
 
+        let registry_router = Arc::clone(&signal_router);
         control_panel.spawn_shell_signal_relay("shell_frame_inbox_registry", async move {
-            let mut subscription = phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
-            while let Some(signal) = subscription.recv().await {
-                if let SignalKind::RegistryEvent(registry_signal) = signal.kind {
+            let mut subscription = registry_router.subscribe(SignalTopic::RegistryEvent);
+            while let Some(signal) = subscription.next().await {
+                if let SignalEnvelope::RegistryEvent(registry_signal) = signal {
                     match registry_signal {
-                        RegistryEventSignal::WorkbenchProjectionRefreshRequested { .. } => {
+                        RegistrySignal::WorkbenchProjectionRefreshRequested => {
                             let _ = workbench_projection_refreshes_tx.send(());
                         }
-                        RegistryEventSignal::SettingsRouteRequested { url } => {
+                        RegistrySignal::SettingsRouteRequested { url } => {
                             let _ = settings_route_requests_tx.send(url);
                         }
-                        RegistryEventSignal::ThemeChanged { .. }
-                        | RegistryEventSignal::LensChanged { .. }
-                        | RegistryEventSignal::PhysicsProfileChanged { .. }
-                        | RegistryEventSignal::CanvasProfileChanged { .. }
-                        | RegistryEventSignal::WorkbenchSurfaceChanged { .. } => {
+                        RegistrySignal::ThemeChanged
+                        | RegistrySignal::LensChanged
+                        | RegistrySignal::PhysicsProfileChanged
+                        | RegistrySignal::CanvasProfileChanged
+                        | RegistrySignal::WorkbenchSurfaceChanged => {
                             let _ = profile_invalidations_tx.send(());
                         }
-                        _ => {}
                     }
                 }
             }
@@ -138,6 +141,7 @@ mod tests {
     use std::sync::mpsc::channel;
 
     use crate::shell::desktop::runtime::control_panel::{ControlPanel, WorkerTier};
+    use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 
     #[test]
     fn frame_inbox_coalesces_flag_relays_per_frame() {
@@ -194,8 +198,9 @@ mod tests {
     fn frame_inbox_spawn_uses_control_panel_runtime_handle_outside_ambient_context() {
         let runtime = tokio::runtime::Runtime::new().expect("runtime should initialize");
         let mut panel = ControlPanel::new_with_runtime(None, runtime.handle().clone());
+        let signal_router = Arc::new(RegistrySignalRouter);
 
-        let _inbox = GuiFrameInbox::spawn(&mut panel);
+        let _inbox = GuiFrameInbox::spawn(&mut panel, signal_router);
 
         assert_eq!(panel.worker_count(), 2);
         assert_eq!(

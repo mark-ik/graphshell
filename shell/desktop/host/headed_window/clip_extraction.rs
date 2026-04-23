@@ -380,7 +380,9 @@ fn clip_capture_data_from_value(
     };
 
     Ok(ClipCaptureData {
-        webview_id,
+        webview_id: crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+            webview_id,
+        ),
         source_url: required("source_url")?,
         page_title: value
             .get("page_title")

@@ -114,7 +114,7 @@ impl GraphBrowserApp {
         let Some(tx) = self.services.sync_command_tx.clone() else {
             return Err("sync worker command channel unavailable".to_string());
         };
-        let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
+        let peers = crate::app::runtime_ports::registries::phase3_trusted_peers();
         let mut enqueued = 0usize;
         for peer in peers {
             if tx
@@ -340,7 +340,7 @@ impl GraphBrowserApp {
         if self.pending_frame_context_target() == Some(name) {
             self.set_pending_frame_context_target(None);
         }
-        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested(
             "frame_snapshot_deleted",
         );
         Ok(())
@@ -420,7 +420,7 @@ impl GraphBrowserApp {
                 .session_dismissed_frame_split_offers
                 .insert(to.to_string());
         }
-        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested(
             "frame_snapshot_renamed",
         );
         Ok(())

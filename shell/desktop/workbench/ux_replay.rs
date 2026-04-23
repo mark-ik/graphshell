@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use serde::{Deserialize, Serialize};
-
 use super::ux_tree::UxTreeSnapshot;
 
 // HostEvent + PointerButton + ModifiersState moved to
@@ -23,67 +21,62 @@ pub(crate) struct UxReplaySession {
     pub(crate) expected_final_snapshot: Option<UxTreeSnapshot>,
 }
 
-impl PointerButton {
-    pub(crate) fn to_egui(self) -> Option<egui::PointerButton> {
-        match self {
-            Self::Primary => Some(egui::PointerButton::Primary),
-            Self::Secondary => Some(egui::PointerButton::Secondary),
-            Self::Middle => Some(egui::PointerButton::Middle),
-            Self::Back => Some(egui::PointerButton::Extra1),
-            Self::Forward => Some(egui::PointerButton::Extra2),
-            Self::Other(_) => None,
-        }
-    }
-
-    pub(crate) fn from_egui(button: egui::PointerButton) -> Self {
-        match button {
-            egui::PointerButton::Primary => Self::Primary,
-            egui::PointerButton::Secondary => Self::Secondary,
-            egui::PointerButton::Middle => Self::Middle,
-            egui::PointerButton::Extra1 => Self::Back,
-            egui::PointerButton::Extra2 => Self::Forward,
-        }
+pub(crate) fn pointer_button_to_egui(button: PointerButton) -> Option<egui::PointerButton> {
+    match button {
+        PointerButton::Primary => Some(egui::PointerButton::Primary),
+        PointerButton::Secondary => Some(egui::PointerButton::Secondary),
+        PointerButton::Middle => Some(egui::PointerButton::Middle),
+        PointerButton::Back => Some(egui::PointerButton::Extra1),
+        PointerButton::Forward => Some(egui::PointerButton::Extra2),
+        PointerButton::Other(_) => None,
     }
 }
 
-impl ModifiersState {
-    pub(crate) fn to_egui(self) -> egui::Modifiers {
-        egui::Modifiers {
-            alt: self.alt,
-            ctrl: self.ctrl,
-            shift: self.shift,
-            mac_cmd: self.mac_cmd,
-            command: self.command,
-        }
-    }
-
-    pub(crate) fn from_egui(modifiers: egui::Modifiers) -> Self {
-        Self {
-            alt: modifiers.alt,
-            ctrl: modifiers.ctrl,
-            shift: modifiers.shift,
-            mac_cmd: modifiers.mac_cmd,
-            command: modifiers.command,
-        }
+pub(crate) fn pointer_button_from_egui(button: egui::PointerButton) -> PointerButton {
+    match button {
+        egui::PointerButton::Primary => PointerButton::Primary,
+        egui::PointerButton::Secondary => PointerButton::Secondary,
+        egui::PointerButton::Middle => PointerButton::Middle,
+        egui::PointerButton::Extra1 => PointerButton::Back,
+        egui::PointerButton::Extra2 => PointerButton::Forward,
     }
 }
 
-impl HostEvent {
-    /// Translates a live `egui::Event` into a host-neutral `HostEvent`,
-    /// returning `None` for egui-only events that have no equivalent
-    /// (`Copy`, `Cut`, `Paste`, `PointerGone`, `AccessKitActionRequest`,
-    /// etc.). Used to populate `FrameHostInput::events` from the currently
-    /// running egui host; an iced host will implement the same
-    /// construction against its own native event stream.
-    ///
-    /// Key translation is deliberately lossy — `HostEvent::Key::key` uses
-    /// a short debug-style string (`"Enter"`, `"ArrowUp"`, `"A"`). This
-    /// mirrors the coverage of `to_egui_events` and is sufficient for
-    /// replay + parity tests. Keys outside that set translate to `None`
-    /// so the runtime's keyboard phase keeps reading them from egui
-    /// directly until an explicit key-translation pass lands.
-    pub(crate) fn from_egui_event(event: &egui::Event) -> Option<Self> {
-        Some(match event {
+pub(crate) fn modifiers_to_egui(modifiers: ModifiersState) -> egui::Modifiers {
+    egui::Modifiers {
+        alt: modifiers.alt,
+        ctrl: modifiers.ctrl,
+        shift: modifiers.shift,
+        mac_cmd: modifiers.mac_cmd,
+        command: modifiers.command,
+    }
+}
+
+pub(crate) fn modifiers_from_egui(modifiers: egui::Modifiers) -> ModifiersState {
+    ModifiersState {
+        alt: modifiers.alt,
+        ctrl: modifiers.ctrl,
+        shift: modifiers.shift,
+        mac_cmd: modifiers.mac_cmd,
+        command: modifiers.command,
+    }
+}
+
+/// Translates a live `egui::Event` into a host-neutral `HostEvent`,
+/// returning `None` for egui-only events that have no equivalent
+/// (`Copy`, `Cut`, `Paste`, `PointerGone`, `AccessKitActionRequest`,
+/// etc.). Used to populate `FrameHostInput::events` from the currently
+/// running egui host; an iced host will implement the same
+/// construction against its own native event stream.
+///
+/// Key translation is deliberately lossy — `HostEvent::Key::key` uses
+/// a short debug-style string (`"Enter"`, `"ArrowUp"`, `"A"`). This
+/// mirrors the coverage of `host_event_to_egui_events` and is sufficient for
+/// replay + parity tests. Keys outside that set translate to `None`
+/// so the runtime's keyboard phase keeps reading them from egui
+/// directly until an explicit key-translation pass lands.
+pub(crate) fn host_event_from_egui_event(event: &egui::Event) -> Option<HostEvent> {
+    Some(match event {
             egui::Event::Text(text) => HostEvent::Text(text.clone()),
             egui::Event::PointerMoved(pos) => HostEvent::PointerMoved { x: pos.x, y: pos.y },
             egui::Event::PointerButton {
@@ -92,7 +85,7 @@ impl HostEvent {
                 pressed,
                 ..
             } => {
-                let button = PointerButton::from_egui(*button);
+                let button = pointer_button_from_egui(*button);
                 if *pressed {
                     HostEvent::PointerDown {
                         x: pos.x,
@@ -121,21 +114,21 @@ impl HostEvent {
             } => HostEvent::Key {
                 key: egui_key_to_host_string(*key)?,
                 pressed: *pressed,
-                modifiers: ModifiersState::from_egui(*modifiers),
+                modifiers: modifiers_from_egui(*modifiers),
             },
             _ => return None,
         })
-    }
+}
 
-    /// Translates a host-neutral record playback step into an array of concrete `egui::Event` instances.
-    /// (Returns a Vec because some synthetic actions may require multiple tick-level egui interactions).
-    pub(crate) fn to_egui_events(&self) -> Vec<egui::Event> {
-        match self {
+/// Translates a host-neutral record playback step into an array of concrete `egui::Event` instances.
+/// (Returns a Vec because some synthetic actions may require multiple tick-level egui interactions).
+pub(crate) fn host_event_to_egui_events(event: &HostEvent) -> Vec<egui::Event> {
+    match event {
             HostEvent::PointerMoved { x, y } => {
                 vec![egui::Event::PointerMoved(egui::pos2(*x, *y))]
             }
             HostEvent::PointerDown { x, y, button } => {
-                if let Some(btn) = button.to_egui() {
+                if let Some(btn) = pointer_button_to_egui(*button) {
                     vec![egui::Event::PointerButton {
                         pos: egui::pos2(*x, *y),
                         button: btn,
@@ -147,7 +140,7 @@ impl HostEvent {
                 }
             }
             HostEvent::PointerUp { x, y, button } => {
-                if let Some(btn) = button.to_egui() {
+                if let Some(btn) = pointer_button_to_egui(*button) {
                     vec![egui::Event::PointerButton {
                         pos: egui::pos2(*x, *y),
                         button: btn,
@@ -202,13 +195,13 @@ impl HostEvent {
                         physical_key: None,
                         pressed: *pressed,
                         repeat: false,
-                        modifiers: modifiers.to_egui(),
+                        modifiers: modifiers_to_egui(*modifiers),
                     }]
                 } else {
                     vec![]
                 }
             }
-            HostEvent::WindowResized { width, height } => {
+            HostEvent::WindowResized { .. } => {
                 vec![]
             }
             HostEvent::Focus(focused) => {
@@ -219,10 +212,9 @@ impl HostEvent {
                 vec![]
             }
         }
-    }
 }
 
-/// Inverse of the limited key-translation done in [`HostEvent::to_egui_events`].
+/// Inverse of the limited key-translation done in [`host_event_to_egui_events`].
 /// Returns the short stable string keys produced by the to_egui path and
 /// `None` for keys outside that subset.
 fn egui_key_to_host_string(key: egui::Key) -> Option<String> {

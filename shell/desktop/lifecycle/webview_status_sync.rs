@@ -4,8 +4,11 @@
 
 use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
 use servo::{LoadStatus, WebViewId};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
-use crate::app::GraphBrowserApp;
+use crate::app::{GraphBrowserApp, RendererId};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::gui_state::{
@@ -14,6 +17,18 @@ use crate::shell::desktop::ui::gui_state::{
 };
 
 const FOCUSED_CONTENT_STOP_LOAD_SUPPORTED: bool = false;
+
+static NEXT_RENDERER_ID: AtomicU64 = AtomicU64::new(1);
+static SERVO_RENDERER_IDS: OnceLock<Mutex<HashMap<WebViewId, RendererId>>> = OnceLock::new();
+static RENDERER_SERVO_IDS: OnceLock<Mutex<HashMap<RendererId, WebViewId>>> = OnceLock::new();
+
+fn servo_renderer_ids() -> &'static Mutex<HashMap<WebViewId, RendererId>> {
+    SERVO_RENDERER_IDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn renderer_servo_ids() -> &'static Mutex<HashMap<RendererId, WebViewId>> {
+    RENDERER_SERVO_IDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Convert servo's `LoadStatus` to the portable `ContentLoadState`.
 ///
@@ -51,6 +66,52 @@ pub(crate) fn viewer_instance_id_from_servo(id: WebViewId) -> ViewerInstanceId {
     )
 }
 
+pub(crate) fn renderer_id_from_servo(id: WebViewId) -> RendererId {
+    if let Some(existing) = servo_renderer_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&id)
+        .copied()
+    {
+        return existing;
+    }
+
+    let renderer_id = RendererId::from_raw(NEXT_RENDERER_ID.fetch_add(1, Ordering::Relaxed));
+    servo_renderer_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(id, renderer_id);
+    renderer_servo_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(renderer_id, id);
+    renderer_id
+}
+
+pub(crate) fn viewer_instance_id_from_renderer(id: RendererId) -> Option<ViewerInstanceId> {
+    servo_webview_id_from_renderer(id).map(viewer_instance_id_from_servo)
+}
+
+pub(crate) fn servo_webview_id_from_renderer(id: RendererId) -> Option<WebViewId> {
+    renderer_servo_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&id)
+        .copied()
+}
+
+pub(crate) fn forget_renderer_id_for_servo(id: WebViewId) -> Option<RendererId> {
+    let renderer_id = servo_renderer_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&id)?;
+    renderer_servo_ids()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&renderer_id);
+    Some(renderer_id)
+}
+
 /// Inverse of [`viewer_instance_id_from_servo`]. Returns `None` when
 /// the id was produced by a different provider (Wry / iced_webview /
 /// MiddleNet Direct) or when the encoded string has been corrupted.
@@ -73,17 +134,17 @@ pub(crate) fn focused_content_status(
     let Some(renderer_id) = renderer_id else {
         return FocusedContentStatus::unavailable(focused_node_key, None);
     };
-    let Some(webview) = window.webview_by_id(renderer_id) else {
+    let Some(webview) = window.webview_by_renderer_id(renderer_id) else {
         return FocusedContentStatus::unavailable(
             focused_node_key,
-            Some(viewer_instance_id_from_servo(renderer_id)),
+            viewer_instance_id_from_renderer(renderer_id),
         );
     };
 
     let load_status = content_load_state_from_servo(webview.load_status());
     FocusedContentStatus {
         node_key: focused_node_key,
-        renderer_id: Some(viewer_instance_id_from_servo(renderer_id)),
+        renderer_id: viewer_instance_id_from_renderer(renderer_id),
         current_url: webview.url().map(|url| url.to_string()),
         load_status,
         status_text: webview.status_text(),
@@ -220,7 +281,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
+        app.map_webview_to_node(renderer_id_from_servo(webview_id), node_key);
 
         let status = focused_content_status(Some(node_key), &app, &window);
 

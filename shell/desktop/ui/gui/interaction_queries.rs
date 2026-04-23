@@ -65,16 +65,22 @@ pub(super) fn has_focused_node(gui: &EguiHost) -> bool {
 }
 
 pub(super) fn webview_id_for_node_key(gui: &EguiHost, node_key: NodeKey) -> Option<WebViewId> {
-    gui.runtime.graph_app.get_webview_for_node(node_key)
+    gui.runtime
+        .graph_app
+        .get_webview_for_node(node_key)
+        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
 }
 
 pub(super) fn active_tile_webview_id(gui: &EguiHost) -> Option<WebViewId> {
     nav_targeting::active_node_pane_node(&gui.runtime.graph_app)
         .and_then(|node_key| gui.runtime.graph_app.get_webview_for_node(node_key))
+        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
 }
 
 pub(super) fn node_key_for_webview_id(gui: &EguiHost, webview_id: WebViewId) -> Option<NodeKey> {
-    gui.runtime.graph_app.get_node_for_webview(webview_id)
+    gui.runtime.graph_app.get_node_for_webview(
+        crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+    )
 }
 
 pub(super) fn location_has_focus(gui: &EguiHost) -> bool {
@@ -93,11 +99,11 @@ pub(super) fn request_command_palette_toggle(gui: &mut EguiHost) {
 }
 
 pub(super) fn egui_wants_keyboard_input(gui: &EguiHost) -> bool {
-    gui.context.egui_context().wants_keyboard_input()
+    gui.context.egui_context().egui_wants_keyboard_input()
 }
 
 pub(super) fn egui_wants_pointer_input(gui: &EguiHost) -> bool {
-    gui.context.egui_context().wants_pointer_input()
+    gui.context.egui_context().egui_wants_pointer_input()
 }
 
 pub(super) fn pointer_hover_position(

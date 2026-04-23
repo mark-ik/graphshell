@@ -9,9 +9,7 @@ use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode, VisibleNavigat
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::model::graph::filter::{FacetExpr, FilterEvaluationSummary, evaluate_filter_result};
 use crate::registries::domain::presentation::PresentationProfile;
-use crate::shell::desktop::runtime::registries::{
-    phase3_resolve_active_presentation_profile, phase3_resolve_active_theme,
-};
+use crate::shell::desktop::runtime::registries::phase3_resolve_active_presentation_profile;
 use egui::Color32;
 use std::collections::HashSet;
 

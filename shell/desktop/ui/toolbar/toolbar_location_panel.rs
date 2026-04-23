@@ -415,11 +415,18 @@ pub(super) fn render_location_search_panel(
                     &provider_query,
                     graph_app.workspace.graph_runtime.runtime_caches.clone(),
                 );
-                *omnibar_provider_suggestion_driver = Some(
-                    crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver::new(
-                        generation, rx,
-                    ),
-                );
+                match rx {
+                    Ok(rx) => {
+                        *omnibar_provider_suggestion_driver = Some(
+                            crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver::new(
+                                generation, rx,
+                            ),
+                        );
+                    }
+                    Err(_) => {
+                        session.provider_mailbox.result.interrupt();
+                    }
+                }
             }
         }
 

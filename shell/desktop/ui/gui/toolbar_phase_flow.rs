@@ -63,6 +63,9 @@ pub(crate) fn run_keyboard_phase(
     window_rendering_context: &Rc<WindowRenderingContext>,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     suppress_toggle_view: bool,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
@@ -81,6 +84,7 @@ pub(crate) fn run_keyboard_phase(
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
+            viewer_surface_host,
             suppress_toggle_view,
         },
         frame_intents,
@@ -91,6 +95,7 @@ pub(crate) fn run_keyboard_phase(
          rendering_context,
          window_rendering_context,
          viewer_surfaces,
+         viewer_surface_host,
          responsive_webviews,
          webview_creation_backpressure,
          frame_intents| {
@@ -102,15 +107,21 @@ pub(crate) fn run_keyboard_phase(
                 base_rendering_context: rendering_context,
                 window_rendering_context,
                 viewer_surfaces,
+                viewer_surface_host,
                 responsive_webviews,
                 webview_creation_backpressure,
                 lifecycle_intents: frame_intents,
             });
         },
-        |tiles_tree, viewer_surfaces, tile_favicon_textures, favicon_textures| {
+        |tiles_tree,
+         viewer_surfaces,
+         viewer_surface_host,
+         tile_favicon_textures,
+         favicon_textures| {
             crate::shell::desktop::workbench::tile_runtime::reset_runtime_webview_state(
                 tiles_tree,
                 viewer_surfaces,
+                viewer_surface_host,
                 tile_favicon_textures,
                 favicon_textures,
             );
@@ -121,6 +132,7 @@ pub(crate) fn run_keyboard_phase(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_toolbar_phase(
     ctx: &egui::Context,
+    root_ui: &mut egui::Ui,
     winit_window: &Window,
     state: &RunningAppState,
     graph_app: &mut GraphBrowserApp,
@@ -150,12 +162,16 @@ pub(crate) fn run_toolbar_phase(
     window_rendering_context: &Rc<WindowRenderingContext>,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     frame_intents: &mut Vec<GraphIntent>,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
 ) -> (bool, bool) {
     let toolbar_dialog_phase = gui_frame::handle_toolbar_dialog_phase(
         ToolbarDialogPhaseArgs {
             ctx,
+            root_ui,
             winit_window,
             state,
             graph_app,
@@ -175,6 +191,7 @@ pub(crate) fn run_toolbar_phase(
             command_surface_telemetry,
             toasts,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             #[cfg(feature = "diagnostics")]
@@ -193,6 +210,7 @@ pub(crate) fn run_toolbar_phase(
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         responsive_webviews,
         webview_creation_backpressure,
         frame_intents,
@@ -215,6 +233,9 @@ fn handle_toolbar_toggle_tile_view_request(
     rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     frame_intents: &mut Vec<GraphIntent>,
@@ -228,6 +249,7 @@ fn handle_toolbar_toggle_tile_view_request(
             base_rendering_context: rendering_context,
             window_rendering_context,
             viewer_surfaces,
+            viewer_surface_host,
             responsive_webviews,
             webview_creation_backpressure,
             lifecycle_intents: frame_intents,

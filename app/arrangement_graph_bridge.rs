@@ -171,7 +171,7 @@ impl GraphBrowserApp {
 
         self.emit_ux_navigation_transition();
         self.emit_arrangement_projection_health();
-        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested(
             "frame_membership_changed",
         );
 
@@ -212,7 +212,7 @@ impl GraphBrowserApp {
 
         self.emit_ux_navigation_transition();
         self.emit_arrangement_projection_health();
-        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested(
+        crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested(
             "tile_group_membership_changed",
         );
 

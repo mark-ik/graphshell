@@ -39,7 +39,13 @@ pub(crate) enum UxProbeAvailability {
 #[derive(Debug, Clone, Copy)]
 enum UxProbeCheck {
     Stateless(fn(&UxTreeSnapshot) -> Option<UxContractViolation>),
-    Stateful(fn(&UxTreeSnapshot, &mut UxProbeRuntimeState) -> Option<UxContractViolation>),
+    Stateful(
+        fn(
+            &UxTreeSnapshot,
+            Option<&crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry>,
+            &mut UxProbeRuntimeState,
+        ) -> Option<UxContractViolation>,
+    ),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -261,6 +267,9 @@ fn check_node_pane_tombstone_lifecycle(snapshot: &UxTreeSnapshot) -> Option<UxCo
 
 fn check_node_pane_placeholder_timeout(
     snapshot: &UxTreeSnapshot,
+    _command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     state: &mut UxProbeRuntimeState,
 ) -> Option<UxContractViolation> {
     let mut observed_candidates = HashSet::new();
@@ -368,9 +377,15 @@ fn lagging_projection_frames(
 
 fn check_command_surface_observability_projection(
     snapshot: &UxTreeSnapshot,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     state: &mut UxProbeRuntimeState,
 ) -> Option<UxContractViolation> {
-    let live = latest_command_surface_event_sequence_metadata();
+    let Some(command_surface_telemetry) = command_surface_telemetry else {
+        return None;
+    };
+    let live = latest_command_surface_event_sequence_metadata(command_surface_telemetry);
     let projected_routes = projected_command_bar_route_events(snapshot).unwrap_or_default();
     let projected_mailbox = projected_omnibar_mailbox_events(snapshot).unwrap_or_default();
 
@@ -603,6 +618,9 @@ fn evaluate_descriptors(
     snapshot: &UxTreeSnapshot,
     descriptors: &[UxProbeDescriptor],
     build_latency_us: u64,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
 ) -> UxProbeRunReport {
     let registered_probe_count = descriptors.len();
     let runtime_disabled = runtime_disabled_probe_ids();
@@ -645,7 +663,7 @@ fn evaluate_descriptors(
                 let Ok(mut state) = runtime_state().lock() else {
                     return None;
                 };
-                check(snapshot, &mut state)
+                check(snapshot, command_surface_telemetry, &mut state)
             })),
         };
         match evaluation {
@@ -690,6 +708,16 @@ pub(crate) fn evaluate_registered_probes(
     snapshot: &UxTreeSnapshot,
     build_latency_us: u64,
 ) -> UxProbeRunReport {
+    evaluate_registered_probes_with_telemetry(snapshot, build_latency_us, None)
+}
+
+pub(crate) fn evaluate_registered_probes_with_telemetry(
+    snapshot: &UxTreeSnapshot,
+    build_latency_us: u64,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
+) -> UxProbeRunReport {
     if !runtime_enabled() {
         return UxProbeRunReport {
             violations: Vec::new(),
@@ -702,7 +730,12 @@ pub(crate) fn evaluate_registered_probes(
             skipped_for_build_budget: false,
         };
     }
-    evaluate_descriptors(snapshot, registered_probes(), build_latency_us)
+    evaluate_descriptors(
+        snapshot,
+        registered_probes(),
+        build_latency_us,
+        command_surface_telemetry,
+    )
 }
 
 #[cfg(test)]
@@ -861,9 +894,9 @@ mod tests {
             },
         ];
 
-        let first = evaluate_descriptors(&snapshot, &descriptors, 0);
+        let first = evaluate_descriptors(&snapshot, &descriptors, 0, None);
         let lifecycle = drain_pending_probe_lifecycle_events_for_tests();
-        let second = evaluate_descriptors(&snapshot, &descriptors, 0);
+        let second = evaluate_descriptors(&snapshot, &descriptors, 0, None);
 
         assert_eq!(first.executed_probe_count, 2);
         assert!(first.violations.iter().any(|violation| {
@@ -901,10 +934,10 @@ mod tests {
             check: UxProbeCheck::Stateless(test_violation),
         }];
 
-        let first = evaluate_descriptors(&snapshot, &descriptors, 0);
-        let second = evaluate_descriptors(&snapshot, &descriptors, 0);
+        let first = evaluate_descriptors(&snapshot, &descriptors, 0, None);
+        let second = evaluate_descriptors(&snapshot, &descriptors, 0, None);
         age_suppression_window_for_tests("ux.probe.test", Some("uxnode://test/node"));
-        let third = evaluate_descriptors(&snapshot, &descriptors, 0);
+        let third = evaluate_descriptors(&snapshot, &descriptors, 0, None);
 
         assert_eq!(first.violations.len(), 1);
         assert!(second.violations.is_empty());
@@ -924,7 +957,12 @@ mod tests {
             check: UxProbeCheck::Stateless(test_violation),
         }];
 
-        let report = evaluate_descriptors(&snapshot, &descriptors, UX_TREE_BUILD_HARD_CAP_US + 1);
+        let report = evaluate_descriptors(
+            &snapshot,
+            &descriptors,
+            UX_TREE_BUILD_HARD_CAP_US + 1,
+            None,
+        );
 
         assert!(report.skipped_for_build_budget);
         assert_eq!(report.executed_probe_count, 0);

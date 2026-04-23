@@ -102,7 +102,9 @@ fn open_preferred_context_command_surface_for_webview_target(
     webview_id: WebViewId,
     anchor: [f32; 2],
 ) -> bool {
-    let Some(node_key) = graph_app.get_node_for_webview(webview_id) else {
+    let Some(node_key) = graph_app.get_node_for_webview(
+        crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+    ) else {
         return false;
     };
 
@@ -141,6 +143,7 @@ fn open_preferred_context_command_surface_for_webview_target(
 
 pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
+    pub(crate) root_ui: &'a mut egui::Ui,
     pub(crate) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
@@ -150,6 +153,9 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -195,6 +201,7 @@ pub(crate) fn run_post_render_phase<FActive>(
 {
     let PostRenderPhaseArgs {
         ctx,
+        root_ui,
         ui_render_backend,
         graph_app,
         bookmark_import_dialog,
@@ -203,6 +210,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         tiles_tree,
         graph_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         toolbar_height,
@@ -262,7 +270,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
     }
 
-    *toolbar_height = Length::new(ctx.available_rect().min.y);
+    *toolbar_height = Length::new(ctx.content_rect().min.y);
     if !preview_mode_active {
         graph_app.check_periodic_snapshot();
     }
@@ -329,20 +337,20 @@ pub(crate) fn run_post_render_phase<FActive>(
         layer_state,
         WorkbenchLayerState::WorkbenchActive | WorkbenchLayerState::WorkbenchPinned
     ) {
-        let available_rect = ctx.available_rect();
+        let available_rect = ctx.content_rect();
         let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
             graph_app.default_registry_theme_id(),
         )
         .tokens
         .workbench_panel_background;
         let focus_arg = focus.reborrow();
-        egui::SidePanel::right("workbench_area")
+        egui::Panel::right("workbench_area")
             .resizable(true)
-            .default_width(workbench_area_default_width(available_rect))
-            .min_width(WORKBENCH_AREA_MIN_WIDTH)
-            .max_width(workbench_area_max_width(available_rect))
+            .default_size(workbench_area_default_width(available_rect))
+            .min_size(WORKBENCH_AREA_MIN_WIDTH)
+            .max_size(workbench_area_max_width(available_rect))
             .frame(egui::Frame::new().fill(panel_bg))
-            .show(ctx, |ui| {
+            .show_inside(root_ui, |ui| {
                 post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
                     ui,
                     TileRenderPassArgs {
@@ -353,6 +361,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         tiles_tree,
                         graph_tree,
                         viewer_surfaces,
+                        viewer_surface_host,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -381,10 +390,11 @@ pub(crate) fn run_post_render_phase<FActive>(
     )
     .tokens
     .workbench_panel_background;
+    let graph_surface_focused = focus.graph_surface_focused();
     let focus_arg = focus.reborrow();
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(central_panel_bg))
-        .show(ctx, |ui| {
+        .show_inside(root_ui, |ui| {
             if matches!(layer_state, WorkbenchLayerState::WorkbenchOnly) {
                 post_render_intents.extend(tile_render_pass::run_tile_render_pass_in_ui(
                     ui,
@@ -396,6 +406,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         tiles_tree,
                         graph_tree,
                         viewer_surfaces,
+                        viewer_surface_host,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -426,12 +437,13 @@ pub(crate) fn run_post_render_phase<FActive>(
                     active_search_match,
                     graph_search_filter_mode,
                     search_query_active,
+                    graph_surface_focused,
                 ));
             }
         });
 
     if matches!(layer_state, WorkbenchLayerState::WorkbenchOverlayActive) {
-        let available_rect = ctx.available_rect();
+        let available_rect = ctx.content_rect();
         let overlay_pos_id = egui::Id::new("workbench_overlay_pos");
         let overlay_size_id = egui::Id::new("workbench_overlay_size");
         let overlay_drag_origin_id = egui::Id::new("workbench_overlay_drag_origin");
@@ -577,6 +589,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 tiles_tree,
                                 graph_tree,
                                 viewer_surfaces,
+                                viewer_surface_host,
                                 tile_favicon_textures,
                                 graph_search_matches: &search_matches,
                                 active_search_match,
@@ -670,7 +683,13 @@ pub(crate) fn run_post_render_phase<FActive>(
     let active_node_pane_id = active_pane_first.map(|(pid, _)| pid);
     let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
         .or_else(|| {
-            focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
+            focused_dialog_webview.and_then(|webview_id| {
+                graph_app.get_node_for_webview(
+                    crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                        webview_id,
+                    ),
+                )
+            })
         })
         .or(active_node_pane_key);
     render::render_command_palette_panel(
@@ -707,6 +726,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             window,
             tiles_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             &mut post_render_intents,
@@ -733,6 +753,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             window,
             tiles_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             webview_creation_backpressure,
             focus.focused_node_hint,
@@ -860,7 +881,10 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            node,
+        );
 
         app.set_context_command_surface_preference(ContextCommandSurfacePreference::ContextPalette);
         let ctx = egui::Context::default();
@@ -893,7 +917,10 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            node,
+        );
         app.set_context_command_surface_preference(ContextCommandSurfacePreference::RadialPalette);
         let ctx = egui::Context::default();
 

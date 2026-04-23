@@ -6,12 +6,12 @@ use crate::graph::NavigationTrigger;
 fn webview_url_changed_updates_existing_mapping() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://before.example");
-    let webview_id = harness.map_test_webview_with_id(key);
+    let renderer_id = harness.map_test_webview_with_id(key);
 
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewUrlChanged {
-            webview_id,
+            webview_id: renderer_id,
             new_url: "https://after.example".to_string(),
         }]);
 
@@ -23,7 +23,7 @@ fn webview_url_changed_updates_existing_mapping() {
         .get_node(key)
         .expect("mapped node should exist");
     assert_eq!(node.url(), "https://after.example");
-    assert_eq!(harness.app.get_node_for_webview(webview_id), Some(key));
+    assert_eq!(harness.app.get_node_for_webview(renderer_id), Some(key));
 }
 
 #[test]
@@ -31,12 +31,12 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
     let mut harness = TestRegistry::new();
     let from = harness.add_node("https://a.example");
     let to = harness.add_node("https://b.example");
-    let webview_id = harness.map_test_webview_with_id(from);
+    let renderer_id = harness.map_test_webview_with_id(from);
 
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewUrlChanged {
-            webview_id,
+            webview_id: renderer_id,
             new_url: "https://b.example".to_string(),
         }]);
 
@@ -72,12 +72,12 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
 fn webview_history_changed_clamps_index_to_entry_bounds() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://a.example");
-    let webview_id = harness.map_test_webview_with_id(key);
+    let renderer_id = harness.map_test_webview_with_id(key);
 
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
-            webview_id,
+            webview_id: renderer_id,
             entries: vec![
                 "https://a.example".to_string(),
                 "https://b.example".to_string(),
@@ -101,7 +101,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     let mut harness = TestRegistry::new();
     let a = harness.add_node("https://a.example");
     let b = harness.add_node("https://b.example");
-    let webview_id = harness.map_test_webview_with_id(b);
+    let renderer_id = harness.map_test_webview_with_id(b);
 
     {
         let node = harness
@@ -123,7 +123,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
-            webview_id,
+            webview_id: renderer_id,
             entries: vec![
                 "https://a.example".to_string(),
                 "https://b.example".to_string(),
@@ -134,7 +134,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
-            webview_id,
+            webview_id: renderer_id,
             entries: vec![
                 "https://a.example".to_string(),
                 "https://b.example".to_string(),
@@ -145,7 +145,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     harness
         .app
         .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
-            webview_id,
+            webview_id: renderer_id,
             entries: vec![
                 "https://a.example".to_string(),
                 "https://b.example".to_string(),
@@ -223,7 +223,7 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
     let mut harness = TestRegistry::new();
     let step1 = harness.add_node("https://site.example/?step=1");
     let step2 = harness.add_node("https://site.example/?step=2");
-    let webview_id = harness.map_test_webview_with_id(step2);
+    let renderer_id = harness.map_test_webview_with_id(step2);
 
     {
         let node = harness
@@ -245,11 +245,11 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
 
     harness.app.apply_reducer_intents([
         GraphIntent::WebViewUrlChanged {
-            webview_id,
+            webview_id: renderer_id,
             new_url: "https://site.example/?step=2".to_string(),
         },
         GraphIntent::WebViewHistoryChanged {
-            webview_id,
+            webview_id: renderer_id,
             entries: vec![
                 "https://site.example/?step=0".to_string(),
                 "https://site.example/?step=1".to_string(),

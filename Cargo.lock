@@ -4926,6 +4926,7 @@ dependencies = [
  "url",
  "uuid",
  "verso",
+ "verso-host",
  "wasmparser 0.240.0",
  "wat",
  "webview2-com",
@@ -4959,7 +4960,9 @@ dependencies = [
 name = "graphshell-core"
 version = "0.0.1"
 dependencies = [
+ "crossbeam-channel",
  "euclid",
+ "futures-util",
  "graph-canvas",
  "graph-memory",
  "graph-tree",
@@ -15877,6 +15880,19 @@ dependencies = [
  "middlenet-core",
  "middlenet-engine",
  "serde",
+]
+
+[[package]]
+name = "verso-host"
+version = "0.0.1"
+dependencies = [
+ "crossbeam-channel",
+ "futures-util",
+ "graphshell-core",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "verso",
 ]
 
 [[package]]

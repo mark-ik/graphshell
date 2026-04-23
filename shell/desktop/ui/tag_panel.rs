@@ -114,9 +114,9 @@ pub(crate) fn open_node_tag_panel(
 
 pub(crate) fn open_tag_panel_for_current_focus(
     app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
+    _tiles_tree: &Tree<TileKind>,
     graph_surface_focused: bool,
-    focused_hint: Option<NodeKey>,
+    _focused_hint: Option<NodeKey>,
 ) -> bool {
     if graph_surface_focused {
         if let Some(node_key) = app.get_single_selected_node() {
@@ -337,9 +337,9 @@ pub(crate) fn render_tag_panel(
 
 fn should_close_tag_panel(
     app: &GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
+    _tiles_tree: &Tree<TileKind>,
     graph_surface_focused: bool,
-    focused_hint: Option<NodeKey>,
+    _focused_hint: Option<NodeKey>,
     state: &TagPanelState,
 ) -> bool {
     if app.domain_graph().get_node(state.node_key).is_none() {

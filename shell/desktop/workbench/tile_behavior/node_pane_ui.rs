@@ -57,6 +57,7 @@ impl<'a> GraphshellTileBehavior<'a> {
                 SearchDisplayMode::Highlight
             },
             self.search_query_active,
+            false,
         );
         let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
         let mut passthrough_actions = Vec::new();

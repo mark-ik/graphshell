@@ -2,16 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use egui_tiles::Tree;
 use servo::WebViewId;
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::{ChromeProjectionSource, EmbedderWindow};
+use crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer;
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
 use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 /// Resolve the currently active node-pane tile, if any.
 pub(crate) fn active_node_pane_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
@@ -46,7 +45,7 @@ pub(crate) fn chrome_projection_node(
 fn focused_embedded_content_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
     graph_app
         .embedded_content_focus_webview()
-        .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
+    .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id))
 }
 
 /// Resolve the current command-bar target for omnibar and viewer-facing controls.
@@ -71,7 +70,9 @@ pub(crate) fn nav_target_webview_id(
     graph_app: &GraphBrowserApp,
     focused_toolbar_node: Option<NodeKey>,
 ) -> Option<WebViewId> {
-    focused_toolbar_node.and_then(|node_key| graph_app.get_webview_for_node(node_key))
+    focused_toolbar_node
+        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
+        .and_then(servo_webview_id_from_renderer)
 }
 
 #[cfg(test)]
@@ -107,8 +108,14 @@ mod tests {
         let pane_id = PaneId::new();
         let a_id = test_webview_id();
         let b_id = test_webview_id();
-        app.map_webview_to_node(a_id, a);
-        app.map_webview_to_node(b_id, b);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(a_id),
+            a,
+        );
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(b_id),
+            b,
+        );
 
         let chosen = command_bar_focus_target(Some(pane_id), Some(a), Some(b), Some(a));
         assert_eq!(chosen.active_pane(), Some(pane_id));
@@ -120,7 +127,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let a_id = test_webview_id();
-        app.map_webview_to_node(a_id, a);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(a_id),
+            a,
+        );
 
         let chosen = command_bar_focus_target(None, Some(a), None, None);
         assert_eq!(chosen.active_pane(), None);
@@ -134,7 +144,10 @@ mod tests {
             app.add_node_and_sync("https://selected.example".into(), Point2D::new(0.0, 0.0));
         let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(10.0, 0.0));
         let other_wv = test_webview_id();
-        app.map_webview_to_node(other_wv, other);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(other_wv),
+            other,
+        );
 
         let chosen = command_bar_focus_target(None, None, None, Some(selected));
         assert_eq!(chosen.focused_node(), Some(selected));
@@ -145,7 +158,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let a_id = test_webview_id();
-        app.map_webview_to_node(a_id, a);
+        app.map_webview_to_node(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(a_id),
+            a,
+        );
 
         assert_eq!(nav_target_webview_id(&app, Some(a)), Some(a_id));
     }
@@ -177,8 +193,12 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let node = app.add_node_and_sync("https://focus.example".into(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node);
-        app.set_embedded_content_focus_webview(Some(webview_id));
+        let renderer_id =
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                webview_id,
+            );
+        app.map_webview_to_node(renderer_id, node);
+        app.set_embedded_content_focus_webview(Some(renderer_id));
 
         assert_eq!(focused_embedded_content_node(&app), Some(node));
     }
@@ -194,11 +214,19 @@ mod tests {
             app.add_node_and_sync("https://projected.example".into(), Point2D::new(10.0, 0.0));
         let focused_renderer = test_webview_id();
         let projected_renderer = test_webview_id();
-        app.map_webview_to_node(focused_renderer, focused_node);
-        app.map_webview_to_node(projected_renderer, projected_node);
-        app.set_embedded_content_focus_webview(Some(focused_renderer));
+        let focused_renderer_id =
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                focused_renderer,
+            );
+        let projected_renderer_id =
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                projected_renderer,
+            );
+        app.map_webview_to_node(focused_renderer_id, focused_node);
+        app.map_webview_to_node(projected_renderer_id, projected_node);
+        app.set_embedded_content_focus_webview(Some(focused_renderer_id));
         window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
-            projected_renderer,
+            projected_renderer_id,
         )));
 
         assert_eq!(chrome_projection_node(&app, &window), Some(focused_node));
@@ -213,8 +241,14 @@ mod tests {
         let projected_node =
             app.add_node_and_sync("https://pane.example".into(), Point2D::new(0.0, 0.0));
         let projected_renderer = test_webview_id();
-        registries::phase1_attach_renderer(pane_id, projected_renderer, Some(projected_node))
-            .unwrap();
+        registries::phase1_attach_renderer(
+            pane_id,
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                projected_renderer,
+            ),
+            Some(projected_node),
+        )
+        .unwrap();
         window.set_chrome_projection_source(Some(ChromeProjectionSource::Pane(pane_id)));
 
         assert_eq!(chrome_projection_node(&app, &window), Some(projected_node));

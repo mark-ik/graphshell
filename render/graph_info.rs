@@ -568,13 +568,28 @@ pub(super) fn draw_graph_info(
             crate::shell::desktop::runtime::registries::input::action_id::workbench::HELP_OPEN,
         )
         .join(" / ");
+    let zoom_in_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_IN,
+        )
+        .join(" / ");
+    let zoom_out_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_OUT,
+        )
+        .join(" / ");
+    let zoom_reset_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_RESET,
+        )
+        .join(" / ");
     let tags_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
             crate::shell::desktop::runtime::registries::input::action_id::graph::NODE_EDIT_TAGS,
         )
         .join(" / ");
     let controls_text = format!(
-        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | {tags_hint} Tags | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
+        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Tab Graph Focus | Arrows Navigate | Shift+Arrows Extend | Esc Dismiss Tooltip | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | {tags_hint} Tags | R Reheat | {zoom_in_hint} / {zoom_out_hint} / {zoom_reset_hint} Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
     );
     ui.painter().text(
         ui.available_rect_before_wrap().left_bottom() + Vec2::new(10.0, -10.0),

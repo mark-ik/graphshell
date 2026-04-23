@@ -33,6 +33,9 @@ pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -56,6 +59,7 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
                 tile_runtime::reset_runtime_webview_state(
                     args.tiles_tree,
                     args.viewer_surfaces,
+                    args.viewer_surface_host,
                     args.tile_favicon_textures,
                     args.favicon_textures,
                 );

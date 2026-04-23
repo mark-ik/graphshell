@@ -4,13 +4,13 @@ use std::time::Instant;
 use url::Url;
 
 use crate::app::GraphIntent;
-use crate::shell::desktop::runtime::control_panel::{IntentSource, QueuedIntent};
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_AGENT_INTENT_DROPPED;
-use crate::shell::desktop::runtime::registries::agent::{
+use crate::app::runtime_ports::control_panel::{IntentSource, QueuedIntent};
+use crate::app::runtime_ports::diagnostics::{DiagnosticEvent, emit_event};
+use crate::app::runtime_ports::registries::CHANNEL_AGENT_INTENT_DROPPED;
+use crate::app::runtime_ports::registries::agent::{
     Agent, AgentCapability, AgentContext, AgentHandle,
 };
-use crate::shell::desktop::runtime::registries::signal_routing::{NavigationSignal, SignalKind};
+use crate::app::runtime_ports::registries::signal_routing::{NavigationSignal, SignalKind};
 
 pub(crate) const AGENT_ID_TAG_SUGGESTER: &str = "agent:tag_suggester";
 
@@ -77,7 +77,7 @@ impl Agent for TagSuggesterAgent {
 }
 
 fn derive_tag_suggestions(
-    registries: &crate::shell::desktop::runtime::registries::RegistryRuntime,
+    registries: &crate::app::runtime_ports::registries::RegistryRuntime,
     uri: &str,
     title: &str,
 ) -> Vec<String> {
@@ -146,8 +146,8 @@ fn extract_tokens(input: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::graph::NodeKey;
-    use crate::shell::desktop::runtime::registries::phase3_shared_runtime;
-    use crate::shell::desktop::runtime::registries::signal_routing::{
+    use crate::app::runtime_ports::registries::phase3_shared_runtime;
+    use crate::app::runtime_ports::registries::signal_routing::{
         NavigationSignal, SignalEnvelope, SignalKind, SignalSource,
     };
     use tokio::sync::mpsc;

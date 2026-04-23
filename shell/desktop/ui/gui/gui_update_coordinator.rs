@@ -21,6 +21,7 @@ impl EguiHost {
         ));
         let ExecuteUpdateFrameArgs {
             ctx,
+            root_ui,
             ui_render_backend,
             winit_window,
             state,
@@ -37,6 +38,7 @@ impl EguiHost {
             clipboard,
             favicon_textures,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             thumbnail_channel,
             thumbnail_capture_in_flight,
@@ -95,6 +97,7 @@ impl EguiHost {
                 focus_authority,
                 toolbar_state,
                 viewer_surfaces,
+                viewer_surface_host,
                 tile_favicon_textures,
                 favicon_textures,
                 app_state,
@@ -107,6 +110,7 @@ impl EguiHost {
 
         Self::run_toolbar_and_graph_search_window_phases(ToolbarAndGraphSearchWindowPhaseArgs {
             ctx,
+            root_ui: &mut *root_ui,
             winit_window,
             state,
             graph_app,
@@ -126,6 +130,7 @@ impl EguiHost {
             command_surface_telemetry,
             toasts,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
@@ -163,6 +168,7 @@ impl EguiHost {
         };
         Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
             ctx,
+            root_ui: &mut *root_ui,
             ui_render_backend,
             graph_app,
             bookmark_import_dialog,
@@ -173,6 +179,7 @@ impl EguiHost {
             modal_surface_active,
             toolbar_height,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
@@ -247,6 +254,7 @@ impl EguiHost {
             focus_authority,
             toolbar_state,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
@@ -298,6 +306,7 @@ impl EguiHost {
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
+            viewer_surface_host,
             graph_search_output.suppress_toggle_view,
             frame_intents,
         );
@@ -308,6 +317,7 @@ impl EguiHost {
     fn run_toolbar_and_graph_search_window_phases(args: ToolbarAndGraphSearchWindowPhaseArgs<'_>) {
         let ToolbarAndGraphSearchWindowPhaseArgs {
             ctx,
+            root_ui,
             winit_window,
             state,
             graph_app,
@@ -327,6 +337,7 @@ impl EguiHost {
             command_surface_telemetry,
             toasts,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
@@ -352,6 +363,7 @@ impl EguiHost {
 
         let (toolbar_visible, is_graph_view) = gui_orchestration::run_toolbar_phase(
             ctx,
+            root_ui,
             winit_window,
             state,
             graph_app,
@@ -379,6 +391,7 @@ impl EguiHost {
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
+            viewer_surface_host,
             frame_intents,
             open_node_tile_after_intents,
         );

@@ -1,0 +1,16 @@
+[package]
+name = "verso-host"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+crossbeam-channel = "0.5"
+futures-util = "0.3"
+graphshell-core = { path = "../graphshell-core" }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
+tokio-util = "0.7"
+verso = { path = "../verso" }
+
+[lib]
+path = "src/lib.rs"

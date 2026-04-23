@@ -18,6 +18,7 @@ use crate::mods::native::web_runtime;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
@@ -34,6 +35,9 @@ pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -140,6 +144,9 @@ pub(crate) struct ActivePrewarmArgs<'a> {
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -150,12 +157,13 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
 ) -> Vec<GraphIntent> {
     let ActivePrewarmArgs {
         graph_app,
-        tiles_tree,
+        tiles_tree: _tiles_tree,
         window,
         app_state,
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         responsive_webviews,
         webview_creation_backpressure,
     } = args;
@@ -183,6 +191,7 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
                 rendering_context,
                 window_rendering_context,
                 viewer_surfaces,
+                viewer_surface_host,
                 None,
                 selected_key,
                 responsive_webviews,
@@ -206,6 +215,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         tile_runtime::reset_runtime_webview_state(
             args.tiles_tree,
             args.viewer_surfaces,
+            args.viewer_surface_host,
             args.tile_favicon_textures,
             args.favicon_textures,
         );
@@ -222,15 +232,19 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         args.graph_app,
         args.window,
         args.viewer_surfaces,
+        args.viewer_surface_host,
         args.frame_intents,
     );
     for node_key in args.graph_app.take_warm_cache_evictions() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
-            args.window.close_webview(webview_id);
+            if let Some(servo_webview_id) = servo_webview_id_from_renderer(webview_id) {
+                args.window.close_webview(servo_webview_id);
+            }
             args.frame_intents
                 .push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
-        args.viewer_surfaces.remove(&node_key);
+        args.viewer_surface_host
+            .retire_surface(args.viewer_surfaces, node_key);
         // Frame-aware demotion:
         let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
         if is_frame_member {
@@ -277,11 +291,14 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
 
     for node_key in tile_nodes.difference(&composited_runtime_nodes).copied() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
-            args.window.close_webview(webview_id);
+            if let Some(servo_webview_id) = servo_webview_id_from_renderer(webview_id) {
+                args.window.close_webview(servo_webview_id);
+            }
             args.frame_intents
                 .push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
-        args.viewer_surfaces.remove(&node_key);
+        args.viewer_surface_host
+            .retire_surface(args.viewer_surfaces, node_key);
     }
 
     #[cfg(feature = "wry")]
@@ -412,11 +429,14 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .take_active_webview_evictions_with_limit(pressure_limit, &protected_active_nodes)
             {
                 if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
-                    args.window.close_webview(webview_id);
+                    if let Some(servo_webview_id) = crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer(webview_id) {
+                        args.window.close_webview(servo_webview_id);
+                    }
                     args.frame_intents
                         .push(RuntimeEvent::UnmapWebview { webview_id }.into());
                 }
-                args.viewer_surfaces.remove(&node_key);
+                args.viewer_surface_host
+                    .retire_surface(args.viewer_surfaces, node_key);
                 let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
                 if is_frame_member {
                     args.frame_intents.push(

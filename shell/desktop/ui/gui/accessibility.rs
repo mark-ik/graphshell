@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(feature = "diagnostics")]
 use std::sync::{Mutex, OnceLock};
 
-use accesskit::{Action, Node, NodeId, Role, TreeUpdate};
+use accesskit::{Action, Live, Node, NodeId, Role, TreeUpdate};
 use egui::Context;
 use log::warn;
 use servo::WebViewId;
@@ -220,6 +220,7 @@ pub(super) struct UxTreeA11yNodePlan {
     pub(super) label: String,
     pub(super) description: Option<String>,
     pub(super) state_description: Option<String>,
+    pub(super) live: Option<Live>,
     pub(super) selected: bool,
     pub(super) busy: bool,
     pub(super) disabled: bool,
@@ -273,9 +274,12 @@ pub(super) fn build_uxtree_a11y_graft_plan(
     let mut nodes: Vec<UxTreeA11yNodePlan> = snapshot
         .semantic_nodes
         .iter()
-        .map(|node| build_uxtree_a11y_node_plan(node, annotations))
+        .map(|node| build_uxtree_a11y_node_plan(node, annotations, graph_app))
         .collect();
     attach_webview_anchors_to_uxtree_nodes(&mut nodes, snapshot, graph_app);
+    if let Some(node) = build_graph_surface_focus_announcement_node(snapshot, graph_app) {
+        nodes.push(node);
+    }
     nodes.extend(build_graph_reader_a11y_nodes(
         snapshot,
         annotations,
@@ -312,15 +316,26 @@ fn uxtree_accessibility_anchor_label(snapshot: &UxTreeSnapshot) -> String {
 fn build_uxtree_a11y_node_plan(
     node: &UxSemanticNode,
     annotations: &[TileAffordanceAnnotation],
+    graph_app: &GraphBrowserApp,
 ) -> UxTreeA11yNodePlan {
     let affordance = projected_affordance_for_uxtree_node(node, annotations);
+    let description = match node.domain {
+        UxDomainIdentity::GraphView { graph_view_id, .. } if node.role == UxNodeRole::GraphSurface => {
+            Some(crate::render::graph_surface_accessibility_description(
+                graph_app,
+                graph_view_id,
+            ))
+        }
+        _ => uxtree_affordance_description(affordance.as_ref()),
+    };
     UxTreeA11yNodePlan {
         ux_node_id: node.ux_node_id.clone(),
         parent_ux_node_id: node.parent_ux_node_id.clone(),
         role: map_uxtree_role_to_accesskit_role(node.role),
         label: node.label.clone(),
-        description: uxtree_affordance_description(affordance.as_ref()),
+        description,
         state_description: uxtree_state_description(node, affordance.as_ref()),
+        live: None,
         selected: node.state.selected,
         busy: node.state.blocked
             || affordance
@@ -330,6 +345,84 @@ fn build_uxtree_a11y_node_plan(
         action_route: None,
         attached_child_ids: Vec::new(),
     }
+}
+
+fn build_graph_surface_focus_announcement_node(
+    snapshot: &UxTreeSnapshot,
+    graph_app: &GraphBrowserApp,
+) -> Option<UxTreeA11yNodePlan> {
+    let (graph_surface_id, graph_view_id) = focused_graph_surface(snapshot, graph_app)?;
+    if graph_app.workspace.graph_runtime.focused_view != Some(graph_view_id) {
+        return None;
+    }
+
+    let selected_key = graph_app.selection_for_view(graph_view_id).primary()?;
+    let node = graph_app.domain_graph().get_node(selected_key)?;
+    let label = graph_surface_focus_announcement_label(graph_app, selected_key, node);
+
+    Some(UxTreeA11yNodePlan {
+        ux_node_id: format!("a11y://graph-surface/{graph_view_id:?}/focus-announcement"),
+        parent_ux_node_id: Some(graph_surface_id),
+        role: egui::accesskit::Role::Status,
+        label,
+        description: Some("Polite live announcement for graph-surface focus changes.".to_string()),
+        state_description: graph_reader_node_state_description(selected_key, graph_app, None),
+        live: Some(Live::Polite),
+        selected: false,
+        busy: false,
+        disabled: false,
+        action_route: None,
+        attached_child_ids: Vec::new(),
+    })
+}
+
+fn graph_surface_focus_announcement_label(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+    node: &crate::graph::Node,
+) -> String {
+    let mut parts = vec![format!(
+        "Focused node: {}",
+        graph_reader_node_label(graph_app, node_key, node)
+    )];
+    parts.push(format!(
+        "Lifecycle: {}",
+        graph_surface_focus_announcement_lifecycle(node.lifecycle)
+    ));
+
+    let semantic_tags = graph_surface_focus_announcement_semantic_tags(graph_app, node_key);
+    if !semantic_tags.is_empty() {
+        let hidden_tag_count = semantic_tags.len().saturating_sub(3);
+        let visible_tags = semantic_tags.into_iter().take(3).collect::<Vec<_>>();
+        let mut tag_summary = format!("Semantic tags: {}", visible_tags.join(", "));
+        if hidden_tag_count > 0 {
+            tag_summary.push_str(&format!(", plus {hidden_tag_count} more"));
+        }
+        parts.push(tag_summary);
+    }
+
+    parts.join(". ")
+}
+
+fn graph_surface_focus_announcement_lifecycle(
+    lifecycle: crate::graph::NodeLifecycle,
+) -> &'static str {
+    match lifecycle {
+        crate::graph::NodeLifecycle::Active => "Active",
+        crate::graph::NodeLifecycle::Warm => "Warm",
+        crate::graph::NodeLifecycle::Cold => "Cold",
+        crate::graph::NodeLifecycle::Tombstone => "Ghost Node",
+    }
+}
+
+fn graph_surface_focus_announcement_semantic_tags(
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) -> Vec<String> {
+    crate::shell::desktop::runtime::registries::knowledge::tags_for_node(graph_app, &node_key)
+        .into_iter()
+        .map(|tag| crate::render::semantic_tags::semantic_tag_display_label(&tag))
+        .collect()
 }
 
 fn attach_webview_anchors_to_uxtree_nodes(
@@ -342,10 +435,17 @@ fn attach_webview_anchors_to_uxtree_nodes(
         let Some(parent_ux_node_id) = find_webview_parent_ux_node_id(snapshot, node_key) else {
             continue;
         };
+        let Some(servo_webview_id) =
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer(
+                webview_id,
+            )
+        else {
+            continue;
+        };
         attachments
             .entry(parent_ux_node_id)
             .or_default()
-            .push(webview_accessibility_anchor_id(webview_id));
+            .push(webview_accessibility_anchor_id(servo_webview_id));
     }
 
     for node in nodes {
@@ -394,6 +494,7 @@ fn build_graph_reader_a11y_nodes(
                 .to_string(),
         ),
         state_description: Some("partial".to_string()),
+            live: None,
         selected: false,
         busy: false,
         disabled: false,
@@ -482,6 +583,7 @@ fn build_graph_reader_map_item_plan(
             graph_app,
             affordance.as_ref(),
         ),
+        live: None,
         selected: graph_app.focused_selection().contains(&node_key),
         busy: graph_app.runtime_block_state_for_node(node_key).is_some(),
         disabled: false,
@@ -511,6 +613,7 @@ fn build_graph_reader_room_nodes(
         label: format!("Graph Reader Room: {label}"),
         description: Some("Focused node room context with grouped connected doors.".to_string()),
         state_description: Some("partial".to_string()),
+        live: None,
         selected: false,
         busy: false,
         disabled: false,
@@ -531,6 +634,7 @@ fn build_graph_reader_room_nodes(
             label: format!("{group_label} ({})", group_nodes.len()),
             description: None,
             state_description: None,
+            live: None,
             selected: false,
             busy: false,
             disabled: false,
@@ -607,6 +711,7 @@ fn build_graph_reader_room_item_plan(
             graph_app,
             affordance.as_ref(),
         ),
+        live: None,
         selected: false,
         busy: graph_app.runtime_block_state_for_node(node_key).is_some(),
         disabled: false,
@@ -724,7 +829,7 @@ fn map_uxtree_role_to_accesskit_role(role: UxNodeRole) -> egui::accesskit::Role 
         UxNodeRole::Workbench => egui::accesskit::Role::GenericContainer,
         UxNodeRole::SplitContainer => egui::accesskit::Role::Group,
         UxNodeRole::TabContainer => egui::accesskit::Role::TabList,
-        UxNodeRole::GraphSurface => egui::accesskit::Role::ScrollView,
+        UxNodeRole::GraphSurface => egui::accesskit::Role::Application,
         UxNodeRole::GraphNode => egui::accesskit::Role::TreeItem,
         UxNodeRole::StatusIndicator => egui::accesskit::Role::Status,
         UxNodeRole::NodePane => egui::accesskit::Role::Pane,
@@ -1152,6 +1257,7 @@ fn inject_uxtree_a11y_plan_node(
     let label = node.label.clone();
     let description = node.description.clone();
     let state_description = node.state_description.clone();
+    let live = node.live;
     let selected = node.selected;
     let busy = node.busy;
     let disabled = node.disabled;
@@ -1166,6 +1272,9 @@ fn inject_uxtree_a11y_plan_node(
         }
         if let Some(state_description) = &state_description {
             builder.set_state_description(state_description.clone());
+        }
+        if let Some(live) = live {
+            builder.set_live(live);
         }
         if selected {
             builder.set_selected(true);

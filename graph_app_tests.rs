@@ -1,5 +1,6 @@
 use super::NavigatorSidebarSidePreference;
 use super::*;
+use crate::app::runtime_ports::{diagnostics, registries};
 use crate::util::NoteAddress;
 use euclid::default::Point2D;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -8,24 +9,7 @@ use uuid::Uuid;
 
 /// Create a unique RendererId for testing.
 fn test_webview_id() -> RendererId {
-    #[cfg(not(target_os = "ios"))]
-    {
-        thread_local! {
-            static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-        }
-        NS_INSTALLED.with(|cell| {
-            if !cell.get() {
-                base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(42));
-                cell.set(true);
-            }
-        });
-        servo::WebViewId::new(base::id::PainterId::next())
-    }
-    #[cfg(target_os = "ios")]
-    {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        RendererId(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-    }
+    super::renderer_id::test_renderer_id()
 }
 
 #[test]
@@ -5687,9 +5671,9 @@ fn test_set_snapshot_interval_secs_without_persistence_fails() {
 
 #[test]
 fn test_nostr_subscriptions_persist_across_restart() {
-    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
+    let _guard = registries::lock_phase3_nostr_tests();
 
-    crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[])
+    registries::phase3_restore_nostr_subscriptions(&[])
         .expect("nostr subscriptions should clear before test");
 
     let dir = TempDir::new().unwrap();
@@ -5697,10 +5681,10 @@ fn test_nostr_subscriptions_persist_across_restart() {
 
     {
         let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        crate::shell::desktop::runtime::registries::phase3_nostr_relay_subscribe_for_caller(
+        registries::phase3_nostr_relay_subscribe_for_caller(
             "workspace:test",
             Some("timeline"),
-            crate::shell::desktop::runtime::registries::nostr_core::NostrFilterSet {
+            registries::nostr_core::NostrFilterSet {
                 kinds: vec![1],
                 authors: vec!["npub1example".to_string()],
                 hashtags: vec![],
@@ -5711,12 +5695,11 @@ fn test_nostr_subscriptions_persist_across_restart() {
         app.apply_reducer_intents([GraphIntent::PersistNostrSubscriptions]);
     }
 
-    crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[])
+    registries::phase3_restore_nostr_subscriptions(&[])
         .expect("nostr subscriptions should clear before reopen");
 
     let _reopened = GraphBrowserApp::new_from_dir(path);
-    let persisted =
-        crate::shell::desktop::runtime::registries::phase3_nostr_persisted_subscriptions();
+    let persisted = registries::phase3_nostr_persisted_subscriptions();
     assert_eq!(persisted.len(), 1);
     assert_eq!(persisted[0].caller_id, "workspace:test");
     assert_eq!(persisted[0].requested_id.as_deref(), Some("timeline"));
@@ -5725,7 +5708,7 @@ fn test_nostr_subscriptions_persist_across_restart() {
 
 #[test]
 fn test_nostr_signer_settings_persist_across_restart_without_secret() {
-    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
+    let _guard = registries::lock_phase3_nostr_tests();
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
@@ -5736,7 +5719,7 @@ fn test_nostr_signer_settings_persist_across_restart_without_secret() {
 
     {
         let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        crate::shell::desktop::runtime::registries::phase3_nostr_use_nip46_bunker_uri(&format!(
+        registries::phase3_nostr_use_nip46_bunker_uri(&format!(
             "bunker://{}?relay=wss://relay.one&secret=shared-secret&perms=sign_event",
             signer_pubkey
         ))
@@ -5745,8 +5728,8 @@ fn test_nostr_signer_settings_persist_across_restart_without_secret() {
     }
 
     let _reopened = GraphBrowserApp::new_from_dir(path);
-    match crate::shell::desktop::runtime::registries::phase3_nostr_signer_backend_snapshot() {
-        crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::Nip46Delegated {
+    match registries::phase3_nostr_signer_backend_snapshot() {
+        registries::NostrSignerBackendSnapshot::Nip46Delegated {
             relay_urls,
             signer_pubkey: restored_pubkey,
             has_ephemeral_secret,
@@ -5764,17 +5747,17 @@ fn test_nostr_signer_settings_persist_across_restart_without_secret() {
 
 #[test]
 fn test_nostr_nip07_permissions_persist_across_restart() {
-    let _guard = crate::shell::desktop::runtime::registries::lock_phase3_nostr_tests();
+    let _guard = registries::lock_phase3_nostr_tests();
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
 
     {
         let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+        registries::phase3_nostr_set_nip07_permission(
             "https://example.com/path",
             "signEvent",
-            crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+            registries::Nip07PermissionDecision::Allow,
         )
         .expect("nip07 permission should be accepted");
         app.save_persisted_nostr_nip07_permissions();
@@ -5782,13 +5765,12 @@ fn test_nostr_nip07_permissions_persist_across_restart() {
 
     let _reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
-        crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants(),
+        registries::phase3_nostr_nip07_permission_grants(),
         vec![
-            crate::shell::desktop::runtime::registries::Nip07PermissionGrant {
+            registries::Nip07PermissionGrant {
                 origin: "https://example.com".to_string(),
                 method: "signEvent".to_string(),
-                decision:
-                    crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+                decision: registries::Nip07PermissionDecision::Allow,
             }
         ]
     );
@@ -5821,15 +5803,15 @@ fn default_registry_lens_setting_publishes_lens_invalidation_signal() {
 
     let observed = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&observed);
-    let observer_id = crate::shell::desktop::runtime::registries::phase3_subscribe_signal(
-        crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+    let observer_id = registries::phase3_subscribe_signal(
+        registries::signal_routing::SignalTopic::RegistryEvent,
         move |signal| {
-            if let crate::shell::desktop::runtime::registries::signal_routing::SignalKind::RegistryEvent(
-                crate::shell::desktop::runtime::registries::signal_routing::RegistryEventSignal::LensChanged {
+            if let registries::signal_routing::SignalKind::RegistryEvent(
+                registries::signal_routing::RegistryEventSignal::LensChanged {
                     new_lens_id,
                 },
             ) = &signal.kind
-                && new_lens_id == crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT
+                && new_lens_id == registries::lens::LENS_ID_DEFAULT
             {
                 seen.fetch_add(1, Ordering::Relaxed);
             }
@@ -5842,8 +5824,8 @@ fn default_registry_lens_setting_publishes_lens_invalidation_signal() {
 
     assert_eq!(observed.load(Ordering::Relaxed), 1);
     assert!(
-        crate::shell::desktop::runtime::registries::phase3_unsubscribe_signal(
-            crate::shell::desktop::runtime::registries::signal_routing::SignalTopic::RegistryEvent,
+        registries::phase3_unsubscribe_signal(
+            registries::signal_routing::SignalTopic::RegistryEvent,
             observer_id,
         )
     );
@@ -5935,16 +5917,16 @@ fn test_set_theme_intent_updates_runtime_and_workspace_setting() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([GraphIntent::SetTheme {
-        theme_id: crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK.to_string(),
+        theme_id: registries::theme::THEME_ID_DARK.to_string(),
     }]);
 
     assert_eq!(
         app.default_registry_theme_id(),
-        Some(crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK)
+        Some(registries::theme::THEME_ID_DARK)
     );
     assert_eq!(
-        crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(None).resolved_id,
-        crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK
+        registries::phase3_resolve_active_theme(None).resolved_id,
+        registries::theme::THEME_ID_DARK
     );
 }
 
@@ -7674,7 +7656,7 @@ fn set_node_url_noop_does_not_capture_undo_checkpoint() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn stale_camera_target_enqueue_emits_blocked_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let stale_target = GraphViewId::new();
     app.clear_pending_camera_command();
@@ -7693,7 +7675,7 @@ fn stale_camera_target_enqueue_emits_blocked_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn graph_view_region_mutations_emit_diagnostic_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let anchor = GraphViewId::new();
     app.ensure_graph_view_registered(anchor);
@@ -7732,7 +7714,7 @@ fn graph_view_region_mutations_emit_diagnostic_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn graph_view_transfer_emits_success_and_blocked_channels() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let source = GraphViewId::new();
     let destination = GraphViewId::new();
@@ -8242,7 +8224,7 @@ fn graph_view_layout_manager_round_trip_and_restore_archived_slot() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn toggle_command_palette_emits_ux_navigation_transition_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     assert!(!app.workspace.chrome_ui.show_command_palette);
 
@@ -8288,7 +8270,7 @@ fn toggle_radial_menu_reducer_bridge_enqueues_workbench_intent() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn set_navigator_selected_rows_emits_ux_navigation_transition_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([GraphIntent::SetNavigatorSelectedRows {
@@ -8306,7 +8288,7 @@ fn set_navigator_selected_rows_emits_ux_navigation_transition_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn clear_graph_focused_view_reset_emits_ux_navigation_transition_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     app.workspace.graph_runtime.focused_view = Some(GraphViewId::new());
 
@@ -8324,7 +8306,7 @@ fn clear_graph_focused_view_reset_emits_ux_navigation_transition_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn set_highlighted_edge_emits_ux_navigation_transition_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
     let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
@@ -8342,7 +8324,7 @@ fn set_highlighted_edge_emits_ux_navigation_transition_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn webview_url_changed_emits_history_traversal_recorded_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let a = app
         .workspace
@@ -8373,7 +8355,7 @@ fn webview_url_changed_emits_history_traversal_recorded_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn remove_history_edge_emits_history_archive_dissolved_appended_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let dir = TempDir::new().expect("temp dir");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
 
@@ -8403,7 +8385,7 @@ fn remove_history_edge_emits_history_archive_dissolved_appended_channel() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn clear_and_export_history_without_persistence_emit_failure_channels() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([
@@ -8428,7 +8410,7 @@ fn clear_and_export_history_without_persistence_emit_failure_channels() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn history_preview_and_replay_intents_emit_timeline_channels() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
 
     app.apply_reducer_intents([
@@ -8472,7 +8454,7 @@ fn history_preview_and_replay_intents_emit_timeline_channels() {
 #[cfg(feature = "diagnostics")]
 #[test]
 fn clear_highlighted_edge_emits_ux_navigation_transition_channel() {
-    let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut diagnostics = diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
     let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));

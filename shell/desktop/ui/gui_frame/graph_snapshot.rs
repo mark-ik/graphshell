@@ -11,6 +11,9 @@ pub(super) fn handle_pending_graph_snapshot_actions(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -21,6 +24,7 @@ pub(super) fn handle_pending_graph_snapshot_actions(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -54,6 +58,9 @@ fn handle_pending_graph_snapshot_restore(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -63,6 +70,7 @@ fn handle_pending_graph_snapshot_restore(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -73,6 +81,7 @@ fn handle_pending_graph_snapshot_restore(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -85,6 +94,9 @@ fn call_pending_named_graph_snapshot_restore(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -95,6 +107,7 @@ fn call_pending_named_graph_snapshot_restore(
             window,
             tiles_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             webview_creation_backpressure,
             focused_node_hint,
@@ -109,6 +122,9 @@ fn call_pending_latest_graph_snapshot_restore(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -119,6 +135,7 @@ fn call_pending_latest_graph_snapshot_restore(
             window,
             tiles_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             webview_creation_backpressure,
             focused_node_hint,
@@ -132,6 +149,9 @@ fn restore_pending_named_graph_snapshot(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -142,6 +162,7 @@ fn restore_pending_named_graph_snapshot(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -165,6 +186,9 @@ fn restore_pending_latest_graph_snapshot(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -174,6 +198,7 @@ fn restore_pending_latest_graph_snapshot(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -194,6 +219,9 @@ fn restore_graph_snapshot_and_reset_workspace(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -210,6 +238,7 @@ fn restore_graph_snapshot_and_reset_workspace(
         restore(graph_app),
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -222,6 +251,9 @@ fn apply_graph_snapshot_restore_result(
     restore_result: Result<(), String>,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -232,6 +264,7 @@ fn apply_graph_snapshot_restore_result(
             reset_graph_workspace_after_snapshot_restore(
                 tiles_tree,
                 viewer_surfaces,
+                viewer_surface_host,
                 tile_favicon_textures,
                 webview_creation_backpressure,
                 focused_node_hint,
@@ -253,12 +286,18 @@ fn close_all_webviews_and_apply_intents(
 pub(super) fn reset_graph_workspace_after_snapshot_restore(
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
     let previous_focus_hint = *focused_node_hint;
-    viewer_surfaces.clear();
+    let surface_keys: Vec<_> = viewer_surfaces.keys().copied().collect();
+    for node_key in surface_keys {
+        viewer_surface_host.retire_surface(viewer_surfaces, node_key);
+    }
     tile_favicon_textures.clear();
     webview_creation_backpressure.clear();
     *focused_node_hint = None;

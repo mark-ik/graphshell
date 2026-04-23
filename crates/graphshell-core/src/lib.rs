@@ -15,6 +15,7 @@
 
 pub mod actions;
 pub mod address;
+pub mod async_host;
 pub mod async_request;
 pub mod content;
 pub mod geometry;
@@ -25,5 +26,7 @@ pub mod pane;
 pub mod persistence;
 pub mod routing;
 pub mod shell_state;
+pub mod signal_router;
 pub mod time;
 pub mod types;
+pub mod viewer_host;

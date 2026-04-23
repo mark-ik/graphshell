@@ -13,9 +13,9 @@ use uuid::Uuid;
 use crate::graph::physics::GraphPhysicsState;
 use crate::graph::scene_runtime::{GraphViewSceneRuntime, SceneRegionDragState, SceneRegionId};
 use crate::graph::{FrameLayoutHint, Graph, NodeKey};
+use crate::app::runtime_ports::RuntimeCaches;
 use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::shell::desktop::runtime::caches::RuntimeCaches;
 
 use super::AppCommand;
 use super::settings_persistence::NavigatorSidebarSidePreference;
@@ -194,6 +194,12 @@ pub struct SemanticNavigationNodeRuntime {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SemanticNavigationRuntimeState {
     pub recent_nodes: HashMap<NodeKey, SemanticNavigationNodeRuntime>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphTooltipTarget {
+    Node(NodeKey),
+    Edge { from: NodeKey, to: NodeKey },
 }
 
 /// View-layer runtime state: physics, selection, views, search, history, rendering.
@@ -423,8 +429,14 @@ pub struct GraphViewRuntimeState {
     /// Last hovered node in graph view (updated by graph render pass).
     pub hovered_graph_node: Option<NodeKey>,
 
+    /// Last hovered edge in graph view (updated by graph render pass).
+    pub hovered_graph_edge: Option<(NodeKey, NodeKey)>,
+
     /// Explicit highlighted edge in graph view (for edge-search targeting).
     pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
+
+    /// Tooltip target dismissed with Escape until the hovered/focused target changes.
+    pub dismissed_graph_tooltip: Option<GraphTooltipTarget>,
 
     /// Selected frame identity from graph-canvas backdrop interaction.
     pub selected_frame_name: Option<String>,

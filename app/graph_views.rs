@@ -35,7 +35,7 @@ fn sorted_unique_node_keys(nodes: impl IntoIterator<Item = NodeKey>) -> Vec<Node
 fn emit_graph_view_region_mutation_diagnostic(byte_len: usize) {
     emit_event(DiagnosticEvent::MessageSent {
         channel_id:
-            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_REGION_MUTATION_APPLIED,
+            crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_REGION_MUTATION_APPLIED,
         byte_len: byte_len.max(1),
     });
 }
@@ -43,7 +43,7 @@ fn emit_graph_view_region_mutation_diagnostic(byte_len: usize) {
 fn emit_graph_view_transfer_succeeded_diagnostic(byte_len: usize) {
     emit_event(DiagnosticEvent::MessageSent {
         channel_id:
-            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED,
+            crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED,
         byte_len: byte_len.max(1),
     });
 }
@@ -51,7 +51,7 @@ fn emit_graph_view_transfer_succeeded_diagnostic(byte_len: usize) {
 fn emit_graph_view_transfer_blocked_diagnostic() {
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id:
-            crate::shell::desktop::runtime::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
+            crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
         latency_us: 0,
     });
 }
@@ -1540,7 +1540,7 @@ impl GraphBrowserApp {
                     })?;
                 Some((
                     view_id,
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&requested),
+                    crate::app::runtime_ports::registries::phase2_resolve_lens(&requested),
                 ))
             })
             .collect();
@@ -2818,7 +2818,7 @@ mod tests {
             crate::registries::atomic::lens::PhysicsProfile::scatter(),
         );
 
-        let resolved = crate::shell::desktop::runtime::registries::phase2_resolve_lens(
+        let resolved = crate::app::runtime_ports::registries::phase2_resolve_lens(
             crate::registries::atomic::lens::LENS_ID_SEMANTIC_OVERLAY,
         );
         view.apply_resolved_lens_identity(resolved);

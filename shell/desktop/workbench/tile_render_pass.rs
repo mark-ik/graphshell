@@ -53,6 +53,9 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub graph_search_matches: &'a HashSet<NodeKey>,
     pub active_search_match: Option<NodeKey>,
@@ -114,6 +117,7 @@ pub(crate) fn render_specialty_graph_in_ui(
         None,
         crate::app::SearchDisplayMode::Highlight,
         false,
+        false,
     );
     let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
     let mut post_render_intents = Vec::new();
@@ -168,6 +172,7 @@ pub(crate) fn render_primary_graph_in_ui(
     active_search_match: Option<NodeKey>,
     graph_search_filter_mode: bool,
     search_query_active: bool,
+    graph_surface_focused: bool,
 ) -> Vec<GraphIntent> {
     let view_id = primary_graph_view_id(graph_app, tiles_tree);
 
@@ -183,6 +188,7 @@ pub(crate) fn render_primary_graph_in_ui(
             SearchDisplayMode::Highlight
         },
         search_query_active,
+        graph_surface_focused,
     );
     let multi_select_modifier = ui.input(|i| i.modifiers.ctrl);
     let mut post_render_intents = Vec::new();
@@ -240,6 +246,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         tiles_tree,
         graph_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         graph_search_matches,
         active_search_match,
@@ -388,6 +395,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 graph_app,
                 window,
                 viewer_surfaces,
+                viewer_surface_host,
                 node_key,
                 &mut post_render_intents,
             );
@@ -408,6 +416,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 graph_app,
                 window,
                 viewer_surfaces,
+                viewer_surface_host,
                 node_key,
                 &mut post_render_intents,
             );
@@ -576,6 +585,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 rendering_context,
                 window_rendering_context,
                 viewer_surfaces,
+                viewer_surface_host,
                 Some(state.pane_id),
                 state.node,
                 responsive_webviews,
@@ -853,7 +863,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                 )
             })
             .unwrap_or_else(|| {
-                let content_rect = ctx.available_rect();
+                let content_rect = ctx.content_rect();
                 (
                     content_rect,
                     VisibleNavigationRegionSet::singleton(content_rect),
@@ -1014,13 +1024,13 @@ fn render_floating_pane_overlays(
         .workbench_navigation_geometry
         .as_ref()
         .map(|geometry| geometry.visible_region_set_or_content())
-        .unwrap_or_else(|| VisibleNavigationRegionSet::singleton(ctx.available_rect()));
+        .unwrap_or_else(|| VisibleNavigationRegionSet::singleton(ctx.content_rect()));
     let rect = floating_overlay_rect_for_visible_regions(
         &visible_regions,
         floating_state.viewer_id_override.is_some(),
     )
     .unwrap_or_else(|| {
-        egui::Rect::from_center_size(ctx.available_rect().center(), egui::vec2(280.0, 180.0))
+        egui::Rect::from_center_size(ctx.content_rect().center(), egui::vec2(280.0, 180.0))
     });
     let title = graph_app
         .domain_graph()
@@ -1390,8 +1400,10 @@ fn render_split_handles(
     }
 }
 
-pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphIntent> {
-    let ctx = args.ctx;
+pub(crate) fn run_tile_render_pass(
+    root_ui: &mut egui::Ui,
+    args: TileRenderPassArgs<'_>,
+) -> Vec<GraphIntent> {
     let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
         args.graph_app.default_registry_theme_id(),
     )
@@ -1400,7 +1412,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     let mut post_render_intents = Vec::new();
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(panel_bg))
-        .show(ctx, |ui| {
+        .show_inside(root_ui, |ui| {
             post_render_intents = run_tile_render_pass_in_ui(ui, args);
         });
     post_render_intents

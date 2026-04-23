@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::app::runtime_ports::registries;
 
 /// User preference for how the application theme is selected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -540,9 +541,7 @@ impl GraphBrowserApp {
     pub fn set_keyboard_pan_step(&mut self, step: f32) {
         let normalized = step.clamp(1.0, 200.0);
         self.workspace.chrome_ui.keyboard_pan_step = normalized;
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
-            normalized,
-        );
+        registries::phase3_set_active_canvas_keyboard_pan_step(normalized);
         self.save_keyboard_pan_step();
     }
 
@@ -569,7 +568,7 @@ impl GraphBrowserApp {
 
     pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {
         self.workspace.chrome_ui.lasso_binding_preference = binding;
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(binding);
+        registries::phase3_set_active_canvas_lasso_binding(binding);
         self.save_lasso_binding_preference();
     }
 
@@ -696,7 +695,7 @@ impl GraphBrowserApp {
 
     pub fn save_persisted_nostr_signer_settings(&mut self) {
         let encoded = serde_json::to_string(
-            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_signer_settings(),
+            &registries::phase3_nostr_persisted_signer_settings(),
         )
         .unwrap_or_else(|_| "{\"backend\":\"local_host_key\"}".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME, &encoded);
@@ -704,7 +703,7 @@ impl GraphBrowserApp {
 
     pub fn save_persisted_nostr_nip07_permissions(&mut self) {
         let encoded = serde_json::to_string(
-            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_nip07_permissions(),
+            &registries::phase3_nostr_persisted_nip07_permissions(),
         )
         .unwrap_or_else(|_| "[]".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME, &encoded);
@@ -716,7 +715,7 @@ impl GraphBrowserApp {
             return;
         };
         let Some(settings) = serde_json::from_str::<
-            crate::shell::desktop::runtime::registries::PersistedNostrSignerSettings,
+            registries::PersistedNostrSignerSettings,
         >(&raw)
         .map_err(|error| {
             warn!("Ignoring invalid persisted nostr signer settings: {error}");
@@ -725,11 +724,7 @@ impl GraphBrowserApp {
         .ok() else {
             return;
         };
-        if let Err(error) =
-            crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_signer_settings(
-                &settings,
-            )
-        {
+        if let Err(error) = registries::phase3_nostr_apply_persisted_signer_settings(&settings) {
             warn!("Ignoring persisted nostr signer settings restore failure: {error:?}");
         }
     }
@@ -738,9 +733,7 @@ impl GraphBrowserApp {
         let permissions = self
             .load_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME)
             .and_then(|raw| {
-                serde_json::from_str::<
-                    Vec<crate::shell::desktop::runtime::registries::Nip07PermissionGrant>,
-                >(&raw)
+                serde_json::from_str::<Vec<registries::Nip07PermissionGrant>>(&raw)
                 .map_err(|error| {
                     warn!("Ignoring invalid persisted nostr nip07 permissions: {error}");
                     error
@@ -749,18 +742,15 @@ impl GraphBrowserApp {
             })
             .unwrap_or_default();
 
-        if let Err(error) =
-        crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_nip07_permissions(
-            &permissions,
-        )
-    {
-        warn!("Ignoring persisted nostr nip07 permissions restore failure: {error:?}");
-    }
+        if let Err(error) = registries::phase3_nostr_apply_persisted_nip07_permissions(&permissions)
+        {
+            warn!("Ignoring persisted nostr nip07 permissions restore failure: {error:?}");
+        }
     }
 
     pub fn save_persisted_nostr_subscriptions(&mut self) {
         let encoded = serde_json::to_string(
-            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_subscriptions(),
+            &registries::phase3_nostr_persisted_subscriptions(),
         )
         .unwrap_or_else(|_| "[]".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME, &encoded);
@@ -770,9 +760,7 @@ impl GraphBrowserApp {
         let subscriptions = self
             .load_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME)
             .and_then(|raw| {
-                serde_json::from_str::<
-                    Vec<crate::shell::desktop::runtime::registries::PersistedNostrSubscription>,
-                >(&raw)
+                serde_json::from_str::<Vec<registries::PersistedNostrSubscription>>(&raw)
                 .map_err(|error| {
                     warn!("Ignoring invalid persisted nostr subscriptions: {error}");
                     error
@@ -781,11 +769,7 @@ impl GraphBrowserApp {
             })
             .unwrap_or_default();
 
-        if let Err(error) =
-            crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(
-                &subscriptions,
-            )
-        {
+        if let Err(error) = registries::phase3_restore_nostr_subscriptions(&subscriptions) {
             warn!("Ignoring persisted nostr subscriptions restore failure: {error:?}");
         }
     }
@@ -1359,9 +1343,7 @@ impl GraphBrowserApp {
     pub fn set_default_registry_lens_id(&mut self, lens_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(lens_id.map(str::to_owned));
         self.workspace.chrome_ui.default_registry_lens_id = normalized.clone();
-        crate::shell::desktop::runtime::registries::phase3_publish_lens_changed(
-            normalized.as_deref(),
-        );
+        registries::phase3_publish_lens_changed(normalized.as_deref());
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_LENS_ID_NAME,
             normalized.as_deref().unwrap_or(""),
@@ -1370,12 +1352,11 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
-        let resolution =
-            crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-                normalized
-                    .as_deref()
-                    .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
-            );
+        let resolution = registries::phase3_set_active_physics_profile(
+            normalized
+                .as_deref()
+                .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
+        );
         let persisted = normalized.as_ref().map(|_| resolution.resolved_id.clone());
         self.workspace.chrome_ui.default_registry_physics_id = persisted.clone();
         self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
@@ -1387,10 +1368,9 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_theme_id(&mut self, theme_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(theme_id.map(str::to_owned));
-        let persisted = normalized.as_deref().map(|requested| {
-            crate::shell::desktop::runtime::registries::phase3_set_active_theme(requested)
-                .resolved_id
-        });
+        let persisted = normalized
+            .as_deref()
+            .map(|requested| registries::phase3_set_active_theme(requested).resolved_id);
         self.workspace.chrome_ui.default_registry_theme_id = persisted.clone();
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_THEME_ID_NAME,
@@ -1409,7 +1389,7 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.theme_mode = mode;
         self.save_workspace_layout_json(Self::SETTINGS_THEME_MODE_NAME, &mode.to_string());
         let follows_system = mode == ThemeMode::System;
-        crate::shell::desktop::runtime::registries::phase3_set_theme_follows_system(follows_system);
+        registries::phase3_set_theme_follows_system(follows_system);
         match mode {
             ThemeMode::System => {
                 // Clear explicit override — runtime will follow OS events.
@@ -1417,14 +1397,10 @@ impl GraphBrowserApp {
                 self.save_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME, "");
             }
             ThemeMode::Light => {
-                self.set_default_registry_theme_id(Some(
-                    crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT,
-                ));
+                self.set_default_registry_theme_id(Some(registries::theme::THEME_ID_LIGHT));
             }
             ThemeMode::Dark => {
-                self.set_default_registry_theme_id(Some(
-                    crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK,
-                ));
+                self.set_default_registry_theme_id(Some(registries::theme::THEME_ID_DARK));
             }
         }
     }
@@ -1767,9 +1743,7 @@ impl GraphBrowserApp {
             .and_then(|raw| raw.parse::<ThemeMode>().ok())
             .unwrap_or(ThemeMode::System);
         self.workspace.chrome_ui.theme_mode = loaded_theme_mode;
-        crate::shell::desktop::runtime::registries::phase3_set_theme_follows_system(
-            loaded_theme_mode == ThemeMode::System,
-        );
+        registries::phase3_set_theme_follows_system(loaded_theme_mode == ThemeMode::System);
 
         self.workspace.chrome_ui.default_registry_theme_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
@@ -1784,8 +1758,7 @@ impl GraphBrowserApp {
                 .default_registry_theme_id
                 .as_deref()
             {
-                let resolution =
-                    crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
+                let resolution = registries::phase3_set_active_theme(theme_id);
                 self.workspace.chrome_ui.default_registry_theme_id = Some(resolution.resolved_id);
             }
         }
@@ -1807,52 +1780,41 @@ impl GraphBrowserApp {
             .default_registry_physics_id
             .as_deref()
         {
-            let resolution =
-                crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-                    physics_id,
-                );
+            let resolution = registries::phase3_set_active_physics_profile(physics_id);
             self.workspace.chrome_ui.default_registry_physics_id =
                 Some(resolution.resolved_id.clone());
             self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
         } else {
-            let resolution =
-                crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-                    crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
-                );
+            let resolution = registries::phase3_set_active_physics_profile(
+                crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
+            );
             self.apply_physics_profile(&resolution.resolved_id, &resolution.profile);
         }
         if let Some(profile_id) = canvas_profile_id.as_deref() {
-            crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(
-                profile_id,
-            );
+            registries::phase3_set_active_canvas_profile(profile_id);
         } else {
-            crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(
+            registries::phase3_set_active_canvas_profile(
                 crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
             );
         }
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
+        registries::phase3_set_active_canvas_keyboard_pan_step(
             self.workspace.chrome_ui.keyboard_pan_step,
         );
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
+        registries::phase3_set_active_canvas_lasso_binding(
             self.workspace.chrome_ui.lasso_binding_preference,
         );
         if let Some(profile_id) = workbench_surface_profile_id.as_deref() {
-            crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
-                profile_id,
-            );
+            registries::phase3_set_active_workbench_surface_profile(profile_id);
         }
         if let Some(workflow_id) = active_workflow_id.as_deref()
-            && let Err(error) = crate::shell::desktop::runtime::registries::phase3_activate_workflow(
-                self,
-                workflow_id,
-            )
+            && let Err(error) = registries::phase3_activate_workflow(self, workflow_id)
         {
             warn!("Ignoring invalid persisted workflow activation '{workflow_id}': {error:?}");
         }
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
+        registries::phase3_set_active_canvas_keyboard_pan_step(
             self.workspace.chrome_ui.keyboard_pan_step,
         );
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
+        registries::phase3_set_active_canvas_lasso_binding(
             self.workspace.chrome_ui.lasso_binding_preference,
         );
         self.load_persisted_nostr_signer_settings();

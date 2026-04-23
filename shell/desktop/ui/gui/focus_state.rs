@@ -47,10 +47,10 @@ pub(crate) fn workspace_runtime_focus_state(
         local_widget_focus,
         embedded_content_focus_webview: graph_app
             .embedded_content_focus_webview()
-            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
+            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
-            .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
+            .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
         command_palette_contextual_mode: graph_app
@@ -122,10 +122,10 @@ pub(crate) fn workbench_runtime_focus_state(
         local_widget_focus,
         embedded_content_focus_webview: graph_app
             .embedded_content_focus_webview()
-            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
+            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
-            .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
+            .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
         command_palette_contextual_mode: graph_app
@@ -232,10 +232,10 @@ pub(crate) fn refresh_realized_runtime_focus_state(
         local_widget_focus,
         embedded_content_focus_webview: graph_app
             .embedded_content_focus_webview()
-            .map(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo),
+            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
-            .and_then(|webview_id| graph_app.get_node_for_webview(webview_id)),
+            .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),
         show_command_palette: graph_app.workspace.chrome_ui.show_command_palette,
         show_context_palette: graph_app.workspace.chrome_ui.show_context_palette,
         command_palette_contextual_mode: graph_app
@@ -790,15 +790,16 @@ pub(crate) fn realize_embedded_content_focus_from_authority(
     focus_authority: &RuntimeFocusAuthorityState,
     graph_app: &mut GraphBrowserApp,
 ) {
-    let webview_id = match focus_authority.embedded_content_focus.as_ref() {
+    let renderer_id = match focus_authority.embedded_content_focus.as_ref() {
         Some(EmbeddedContentTarget::WebView { renderer_id, .. }) => {
             crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_viewer_instance(
                 renderer_id,
             )
+            .map(crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo)
         }
         None => None,
     };
-    graph_app.set_embedded_content_focus_webview(webview_id);
+    graph_app.set_embedded_content_focus_webview(renderer_id);
 }
 
 pub(crate) fn apply_graph_search_local_focus_state(

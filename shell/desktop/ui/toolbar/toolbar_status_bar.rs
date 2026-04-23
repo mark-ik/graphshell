@@ -1,4 +1,4 @@
-use egui::TopBottomPanel;
+use egui::Panel;
 
 use crate::mods::verse;
 #[cfg(feature = "diagnostics")]
@@ -312,9 +312,9 @@ fn chip_color(ctx: &egui::Context, tone: StatusChipTone) -> Option<egui::Color32
     let theme_tokens = phase3_resolve_active_theme(None).tokens;
     match tone {
         StatusChipTone::Default => None,
-        StatusChipTone::Weak => Some(ctx.style().visuals.weak_text_color()),
+        StatusChipTone::Weak => Some(ctx.global_style().visuals.weak_text_color()),
         StatusChipTone::Notice => Some(theme_tokens.command_notice),
-        StatusChipTone::Warning => Some(ctx.style().visuals.warn_fg_color),
+        StatusChipTone::Warning => Some(ctx.global_style().visuals.warn_fg_color),
         StatusChipTone::Success => Some(theme_tokens.status_success),
     }
 }
@@ -352,6 +352,7 @@ fn render_status_row(ui: &mut egui::Ui, ctx: &egui::Context, chips: &[StatusChip
 }
 
 pub(super) fn render_shell_status_bar(
+    root_ui: &mut egui::Ui,
     ctx: &egui::Context,
     workbench_layer_state: WorkbenchLayerState,
     focused_content_status: &FocusedContentStatus,
@@ -367,14 +368,14 @@ pub(super) fn render_shell_status_bar(
         diagnostics_attention,
     );
 
-    let response = TopBottomPanel::bottom("shell_status_bar")
+    let response = Panel::bottom("shell_status_bar")
         .frame(
             egui::Frame::default()
-                .fill(ctx.style().visuals.window_fill)
+                .fill(ctx.global_style().visuals.window_fill)
                 .inner_margin(4.0),
         )
-        .exact_height(STATUS_BAR_HEIGHT)
-        .show(ctx, |ui| {
+        .exact_size(STATUS_BAR_HEIGHT)
+        .show_inside(root_ui, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {
                     render_status_row(ui, ctx, &model.leading, false);

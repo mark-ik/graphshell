@@ -89,6 +89,9 @@ pub(crate) struct ToggleTileViewArgs<'a> {
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -1666,6 +1669,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
                 args.graph_app,
                 args.window,
                 args.viewer_surfaces,
+                args.viewer_surface_host,
                 node_key,
                 args.lifecycle_intents,
             );
@@ -1681,6 +1685,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
                 args.base_rendering_context,
                 args.window_rendering_context,
                 args.viewer_surfaces,
+                args.viewer_surface_host,
                 None,
                 node_key,
                 args.responsive_webviews,

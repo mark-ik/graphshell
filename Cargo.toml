@@ -20,6 +20,7 @@ members = [
     "crates/middlenet-render",
     "crates/middlenet-engine",
     "crates/verso",
+    "crates/verso-host",
 ]
 
 [lib]
@@ -91,6 +92,7 @@ iced-host = ["dep:iced"]
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }
 verso = { path = "crates/verso" }
+verso-host = { path = "crates/verso-host" }
 graphshell-comms = { path = "crates/graphshell-comms" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }

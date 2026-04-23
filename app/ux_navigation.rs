@@ -1,5 +1,5 @@
 use super::*;
-use crate::shell::desktop::runtime::registries::{
+use crate::app::runtime_ports::registries::{
     CHANNEL_UX_ARRANGEMENT_DURABILITY_TRANSITION, CHANNEL_UX_ARRANGEMENT_MISSING_FAMILY_FALLBACK,
     CHANNEL_UX_ARRANGEMENT_PROJECTION_HEALTH, CHANNEL_UX_FOCUS_CAPTURE_ENTER,
     CHANNEL_UX_FOCUS_CAPTURE_EXIT,
@@ -260,7 +260,7 @@ impl GraphBrowserApp {
         if !was_open {
             self.emit_focus_capture_enter();
             self.emit_ux_navigation_transition();
-            crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_opened");
+            crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_opened");
         }
     }
 
@@ -274,7 +274,7 @@ impl GraphBrowserApp {
         }
         self.emit_focus_capture_exit();
         self.emit_ux_navigation_transition();
-        crate::shell::desktop::runtime::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_closed");
+        crate::app::runtime_ports::registries::phase3_publish_workbench_projection_refresh_requested("settings_overlay_closed");
     }
 
     pub fn open_settings_overlay(&mut self, page: SettingsToolPage) {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+use accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use euclid::default::Point2D;
 use servo::WebViewId;
@@ -227,7 +227,10 @@ fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hi
     let node_key =
         graph_app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
     let webview_id = test_webview_id();
-    graph_app.map_webview_to_node(webview_id, node_key);
+    graph_app.map_webview_to_node(
+        crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+        node_key,
+    );
 
     let graph_view_id = GraphViewId::new();
     let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
@@ -313,6 +316,131 @@ fn uxtree_a11y_graft_plan_attaches_webview_anchor_and_graph_reader_under_host_hi
         .find(|node| node.parent_ux_node_id.as_deref() == Some(map_root.ux_node_id.as_str()))
         .expect("graph reader should include at least one map item");
     assert!(!map_item.label.is_empty());
+}
+
+#[test]
+fn uxtree_a11y_graft_plan_adds_polite_live_focus_announcement_for_graph_surface() {
+    let mut graph_app = GraphBrowserApp::new_for_testing();
+    let node_key = graph_app.add_node_and_sync(
+        "https://focused-node.example".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
+    let node = graph_app
+        .domain_graph_mut()
+        .get_node_mut(node_key)
+        .expect("test node should exist");
+    node.lifecycle = crate::graph::NodeLifecycle::Warm;
+    node.tags.insert("#research".to_string());
+    let graph_view_id = GraphViewId::new();
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
+    graph_app.select_node(node_key, false);
+
+    let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
+    let snapshot = UxTreeSnapshot {
+        semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
+        presentation_version: UX_TREE_PRESENTATION_SCHEMA_VERSION,
+        trace_version: UX_TREE_TRACE_SCHEMA_VERSION,
+        semantic_nodes: vec![UxSemanticNode {
+            ux_node_id: graph_surface_id.clone(),
+            parent_ux_node_id: None,
+            role: UxNodeRole::GraphSurface,
+            label: "Graph Surface".to_string(),
+            state: UxNodeState {
+                focused: true,
+                selected: false,
+                blocked: false,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
+            domain: UxDomainIdentity::GraphView {
+                graph_view_id,
+                pane_id: None,
+            },
+        }],
+        presentation_nodes: Vec::new(),
+        trace_nodes: Vec::new(),
+        trace_summary: UxTraceSummary {
+            build_duration_us: 10,
+            route_events_observed: 0,
+            diagnostics_events_observed: 0,
+        },
+    };
+
+    let plan = super::accessibility::build_uxtree_a11y_graft_plan(&snapshot, &[], &graph_app);
+    let announcement = plan
+        .nodes
+        .iter()
+        .find(|node| node.role == egui::accesskit::Role::Status)
+        .expect("focused graph surface should expose a live announcement node");
+
+    assert_eq!(announcement.parent_ux_node_id.as_deref(), Some(graph_surface_id.as_str()));
+    assert_eq!(announcement.live, Some(Live::Polite));
+    assert!(announcement.label.starts_with("Focused node:"));
+    assert!(announcement.label.contains("Lifecycle: Warm"));
+    assert!(announcement.label.contains("Semantic tags: #research"));
+    assert_eq!(announcement.state_description.as_deref(), Some("focused-room-target"));
+}
+
+#[test]
+fn graph_surface_projection_uses_application_role_and_descriptive_canvas_copy() {
+    let mut graph_app = GraphBrowserApp::new_for_testing();
+    let node_key =
+        graph_app.add_node_and_sync("https://focused.example".to_string(), Point2D::new(0.0, 0.0));
+    graph_app
+        .domain_graph_mut()
+        .get_node_mut(node_key)
+        .expect("test node should exist")
+        .title = "Focused Example".to_string();
+    let graph_view_id = GraphViewId::new();
+    graph_app.workspace.graph_runtime.focused_view = Some(graph_view_id);
+    graph_app.select_node(node_key, false);
+
+    let graph_surface_id = format!("uxnode://workbench/tile/test/graph/{graph_view_id:?}");
+    let snapshot = UxTreeSnapshot {
+        semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
+        presentation_version: UX_TREE_PRESENTATION_SCHEMA_VERSION,
+        trace_version: UX_TREE_TRACE_SCHEMA_VERSION,
+        semantic_nodes: vec![UxSemanticNode {
+            ux_node_id: graph_surface_id.clone(),
+            parent_ux_node_id: None,
+            role: UxNodeRole::GraphSurface,
+            label: "Graph Canvas".to_string(),
+            state: UxNodeState {
+                focused: true,
+                selected: false,
+                blocked: false,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
+            domain: UxDomainIdentity::GraphView {
+                graph_view_id,
+                pane_id: None,
+            },
+        }],
+        presentation_nodes: Vec::new(),
+        trace_nodes: Vec::new(),
+        trace_summary: UxTraceSummary {
+            build_duration_us: 10,
+            route_events_observed: 0,
+            diagnostics_events_observed: 0,
+        },
+    };
+
+    let plan = super::accessibility::build_uxtree_a11y_graft_plan(&snapshot, &[], &graph_app);
+    let graph_surface = plan
+        .nodes
+        .iter()
+        .find(|node| node.ux_node_id == graph_surface_id)
+        .expect("graph surface should be projected");
+
+    assert_eq!(graph_surface.role, egui::accesskit::Role::Application);
+    let description = graph_surface
+        .description
+        .as_deref()
+        .expect("graph surface should expose descriptive instructions");
+    assert!(description.contains("Tab moves between the graph surface and the selected content"));
+    assert!(description.contains("Arrow keys move between visible nodes"));
+    assert!(description.contains("Current tooltip: Focused Example"));
 }
 
 #[test]

@@ -103,7 +103,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
     CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
     CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED, CHANNEL_VIEWER_SELECT_STARTED,
-    CHANNEL_VIEWER_SELECT_SUCCEEDED, CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
+    CHANNEL_VIEWER_SELECT_SUCCEEDED, CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
+    CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
     CHANNEL_WORKFLOW_ACTIVATED,
 };
 
@@ -464,7 +465,7 @@ const COMMAND_SURFACE_ROUTE_FIELDS: [PayloadField; 4] = [
     },
 ];
 
-const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 14] = [
+const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 15] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
         schema_version: 1,
@@ -499,6 +500,11 @@ const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 14] = [
         channel_id: CHANNEL_VIEWER_FALLBACK_USED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED,
@@ -2007,6 +2013,7 @@ fn channel_retention_policy(channel_id: &str) -> RetentionPolicy {
         CHANNEL_ACTION_EXECUTE_FAILED
         | CHANNEL_IDENTITY_SIGN_FAILED
         | CHANNEL_PROTOCOL_RESOLVE_FAILED
+        | CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED
         | CHANNEL_VIEWER_CAPABILITY_NONE
         | CHANNEL_NOSTR_RELAY_CONNECT_FAILED => RetentionPolicy::KeepRecent(500),
         CHANNEL_COMPOSITOR_TILE_ACTIVITY => RetentionPolicy::KeepRecent(256),

@@ -47,7 +47,6 @@ use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRA
 use crate::shell::desktop::ui::gui_state::{BookmarkImportDialogEvent, BookmarkImportDialogState};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_invariants;
@@ -55,6 +54,8 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
+#[cfg(test)]
+use verso_host::NoopViewerSurfaceHost;
 
 #[path = "gui_frame/connected_open.rs"]
 mod connected_open;
@@ -126,7 +127,7 @@ pub(crate) fn ingest_pre_frame(
     {
         let focused_node = graph_app
             .embedded_content_focus_webview()
-            .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
+            .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id));
         let radial_menu_open = graph_app.workspace.chrome_ui.show_radial_menu;
         for command in app_state.take_pending_gamepad_ui_commands() {
             let (binding, context) = match command {
@@ -448,6 +449,9 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -474,6 +478,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         rendering_context,
         window_rendering_context,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -518,6 +523,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         tiles_tree,
         window,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
@@ -549,6 +555,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
             rendering_context,
             window_rendering_context,
             viewer_surfaces,
+            viewer_surface_host,
             responsive_webviews,
             webview_creation_backpressure,
         });
@@ -567,6 +574,41 @@ mod tests {
     use crate::app::GraphIntent;
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 
+    #[derive(Default)]
+    struct RecordingViewerSurfaceHost {
+        retired_nodes: Vec<NodeKey>,
+    }
+
+    impl graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    > for RecordingViewerSurfaceHost
+    {
+        fn allocate_surface(
+            &mut self,
+            _registry: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+            _node_key: NodeKey,
+        ) -> Result<(), graphshell_core::viewer_host::ViewerSurfaceError> {
+            Ok(())
+        }
+
+        fn retire_surface(
+            &mut self,
+            registry: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+            node_key: NodeKey,
+        ) {
+            self.retired_nodes.push(node_key);
+            registry.remove(&node_key);
+        }
+
+        fn has_surface(
+            &self,
+            registry: &crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+            node_key: NodeKey,
+        ) -> bool {
+            registry.contains_gl_context(&node_key)
+        }
+    }
+
     #[test]
     fn snapshot_restore_focus_reset_emits_ux_navigation_transition_channel() {
         let mut tiles = Tiles::default();
@@ -580,10 +622,12 @@ mod tests {
             HashMap::new();
         let mut focused_node_hint = Some(NodeKey::new(9));
         let mut diagnostics = diagnostics::DiagnosticsState::new();
+        let mut viewer_surface_host = NoopViewerSurfaceHost;
 
         graph_snapshot::reset_graph_workspace_after_snapshot_restore(
             &mut tree,
             &mut viewer_surfaces,
+            &mut viewer_surface_host,
             &mut tile_favicon_textures,
             &mut webview_creation_backpressure,
             &mut focused_node_hint,
@@ -595,6 +639,46 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when snapshot restore clears focus hint"
         );
+    }
+
+    #[test]
+    fn snapshot_restore_reset_retires_viewer_surfaces_via_host() {
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let mut tree = Tree::new("graphshell_tiles", root, tiles);
+        let mut viewer_surfaces =
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new();
+        let first_node = NodeKey::new(11);
+        let second_node = NodeKey::new(12);
+        viewer_surfaces.set_handle(
+            first_node,
+            crate::shell::desktop::workbench::compositor_adapter::ContentSurfaceHandle::CallbackFallback,
+        );
+        viewer_surfaces.set_handle(
+            second_node,
+            crate::shell::desktop::workbench::compositor_adapter::ContentSurfaceHandle::CallbackFallback,
+        );
+        let mut tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)> =
+            HashMap::new();
+        let mut webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState> =
+            HashMap::new();
+        let mut focused_node_hint = None;
+        let mut viewer_surface_host = RecordingViewerSurfaceHost::default();
+
+        graph_snapshot::reset_graph_workspace_after_snapshot_restore(
+            &mut tree,
+            &mut viewer_surfaces,
+            &mut viewer_surface_host,
+            &mut tile_favicon_textures,
+            &mut webview_creation_backpressure,
+            &mut focused_node_hint,
+        );
+
+        let retired_nodes: HashSet<_> = viewer_surface_host.retired_nodes.into_iter().collect();
+        assert_eq!(retired_nodes.len(), 2);
+        assert!(retired_nodes.contains(&first_node));
+        assert!(retired_nodes.contains(&second_node));
+        assert_eq!(viewer_surfaces.len(), 0);
     }
 
     #[test]

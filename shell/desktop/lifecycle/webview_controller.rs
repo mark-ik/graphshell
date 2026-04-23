@@ -22,6 +22,9 @@ use crate::parser::location_bar_input_to_url;
 use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    renderer_id_from_servo, servo_webview_id_from_renderer,
+};
 use crate::shell::desktop::runtime::registries;
 use crate::util::{GraphAddress, NodeAddress, NoteAddress, VersoAddress};
 
@@ -124,7 +127,11 @@ pub(crate) fn sync_to_graph_intents(
     for (wv_id, _) in window.webviews().into_iter() {
         seen_webviews.insert(wv_id);
     }
-    let active = resolve_active_webview_for_sync(app, app.embedded_content_focus_webview());
+    let active = resolve_active_webview_for_sync(
+        app,
+        app.embedded_content_focus_webview()
+            .and_then(servo_webview_id_from_renderer),
+    );
     reconcile_mappings_and_selection(app, &seen_webviews, active)
 }
 
@@ -224,7 +231,9 @@ pub(crate) fn close_webviews_for_nodes(
     let mut intents = Vec::new();
     for &node_key in nodes {
         if let Some(wv_id) = app.get_webview_for_node(node_key) {
-            window.close_webview(wv_id);
+            if let Some(servo_webview_id) = servo_webview_id_from_renderer(wv_id) {
+                window.close_webview(servo_webview_id);
+            }
             intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
         }
         intents.push(
@@ -244,8 +253,9 @@ pub(crate) fn close_all_webviews(
         window.webviews().into_iter().map(|(id, _)| id).collect();
     for wv_id in webviews_to_close {
         window.close_webview(wv_id);
-        intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
-        if let Some(node_key) = app.get_node_for_webview(wv_id) {
+        let renderer_id = renderer_id_from_servo(wv_id);
+        intents.push(RuntimeEvent::UnmapWebview { webview_id: renderer_id }.into());
+        if let Some(node_key) = app.get_node_for_webview(renderer_id) {
             intents.push(
                 lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::ExplicitClose)
                     .into(),
@@ -359,16 +369,16 @@ mod tests {
             .add_node("https://b.com".into(), Point2D::new(1.0, 1.0));
         let w1 = test_webview_id();
         let w2 = test_webview_id();
-        app.map_webview_to_node(w1, n1);
-        app.map_webview_to_node(w2, n2);
+        app.map_webview_to_node(renderer_id_from_servo(w1), n1);
+        app.map_webview_to_node(renderer_id_from_servo(w2), n2);
 
         let mut seen = HashSet::new();
         seen.insert(w1);
         let intents = reconcile_mappings_and_selection(&mut app, &seen, Some(w1));
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.get_node_for_webview(w1), Some(n1));
-        assert_eq!(app.get_node_for_webview(w2), None);
+        assert_eq!(app.get_node_for_webview(renderer_id_from_servo(w1)), Some(n1));
+        assert_eq!(app.get_node_for_webview(renderer_id_from_servo(w2)), None);
         assert_eq!(app.get_single_selected_node(), Some(n1));
     }
 
@@ -386,7 +396,7 @@ mod tests {
             .graph
             .add_node("https://b.com".into(), Point2D::new(1.0, 1.0));
         let w1 = test_webview_id();
-        app.map_webview_to_node(w1, n1);
+        app.map_webview_to_node(renderer_id_from_servo(w1), n1);
         app.select_node(n2, false);
 
         let mut seen = HashSet::new();
@@ -422,7 +432,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let embedded_focus = test_webview_id();
         let stale_window_focus = test_webview_id();
-        app.set_embedded_content_focus_webview(Some(embedded_focus));
+        app.set_embedded_content_focus_webview(Some(renderer_id_from_servo(embedded_focus)));
 
         assert_eq!(
             resolve_active_webview_for_sync(&app, Some(stale_window_focus)),
@@ -1026,8 +1036,8 @@ mod tests {
             create_node_via_reducer(&mut app, "https://other.example", Point2D::new(20.0, 0.0));
         let focused_webview = test_webview_id();
         let preferred_webview = test_webview_id();
-        app.map_webview_to_node(focused_webview, focused);
-        app.map_webview_to_node(preferred_webview, other);
+        app.map_webview_to_node(renderer_id_from_servo(focused_webview), focused);
+        app.map_webview_to_node(renderer_id_from_servo(preferred_webview), other);
 
         let (target_node, target_webview) =
             resolve_detail_submit_target(&app, Some(focused), Some(preferred_webview));
@@ -1044,7 +1054,7 @@ mod tests {
             Point2D::new(0.0, 0.0),
         );
         let preferred_webview = test_webview_id();
-        app.map_webview_to_node(preferred_webview, node);
+        app.map_webview_to_node(renderer_id_from_servo(preferred_webview), node);
 
         let (target_node, target_webview) =
             resolve_detail_submit_target(&app, None, Some(preferred_webview));
@@ -1077,7 +1087,7 @@ mod tests {
             Point2D::new(20.0, 0.0),
         );
         let remaining_webview = test_webview_id();
-        app.map_webview_to_node(remaining_webview, remaining);
+        app.map_webview_to_node(renderer_id_from_servo(remaining_webview), remaining);
 
         let (target_node, target_webview) =
             resolve_detail_submit_target(&app, Some(stale_focused), Some(remaining_webview));
@@ -1104,7 +1114,7 @@ mod tests {
             create_node_via_reducer(&mut app, "https://focused.example", Point2D::new(0.0, 0.0));
         let focused_webview = test_webview_id();
         let stale_preferred_webview = test_webview_id();
-        app.map_webview_to_node(focused_webview, focused);
+        app.map_webview_to_node(renderer_id_from_servo(focused_webview), focused);
 
         let (target_node, target_webview) =
             resolve_detail_submit_target(&app, Some(focused), Some(stale_preferred_webview));

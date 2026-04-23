@@ -4,7 +4,7 @@
 
 # Graph Canvas Input & Accessibility Follow-on (2026-04-19)
 
-**Status**: Proposed (not started; split out from egui_graphs retirement)
+**Status**: Implemented (landed 2026-04-23)
 **Scope**: Redesign the graph-canvas input/interaction features that the
 earlier `egui_graphs`-based implementations did not meet the project's
 standards bar for. These are explicitly *not* part of the egui_graphs
@@ -162,5 +162,12 @@ Additional infrastructure to add in this follow-on:
 
 ### 2026-04-19
 
-- Plan created alongside egui_graphs retirement baseline. Not yet started;
-  waiting on baseline completion.
+- Plan created alongside egui_graphs retirement baseline.
+
+### 2026-04-23
+
+- Default lasso gesture landed as `Shift+Left-drag`; right-drag remains available as a preference without owning the default graph-surface gesture.
+- Spatial keyboard traversal landed on the graph surface: arrow keys move between visible nodes, `Shift+Arrow` extends selection, `Ctrl+Shift+A` selects visible nodes, and `Ctrl+A` remains select-all.
+- Graph-surface focus announcements landed with semantic-tag and lifecycle detail, and the accessibility bridge now exposes the graph surface as an application-style canvas with descriptive keyboard guidance.
+- Graph-surface tooltips now surface for hovered nodes and edges as well as focused nodes, support `Escape` dismissal, and clear once the hover/focus target changes.
+- Zoom shortcuts now route through remappable bindings (`Ctrl+=`, `Ctrl+-`, `Ctrl+0`, with command-key parity where the binding system maps command to control semantics).

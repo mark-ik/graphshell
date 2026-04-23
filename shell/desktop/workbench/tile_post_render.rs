@@ -539,8 +539,11 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
             channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
             byte_len: uxtree_snapshot.semantic_nodes.len(),
         });
-        let probe_report =
-            ux_probes::evaluate_registered_probes(&uxtree_snapshot, build_latency_us);
+        let probe_report = ux_probes::evaluate_registered_probes_with_telemetry(
+            &uxtree_snapshot,
+            build_latency_us,
+            Some(command_surface_telemetry),
+        );
         let snapshot_export = ux_tree::write_snapshot_if_configured(&uxtree_snapshot);
         if let Ok(Some((path, byte_len))) = &snapshot_export {
             emit_message_sent_with_payload(

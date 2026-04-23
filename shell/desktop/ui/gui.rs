@@ -6,16 +6,18 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use arboard::Clipboard;
 use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
+use graphshell_core::async_host::AsyncSpawner;
 use log::warn;
-use graphshell_core::content::ContentLoadState;
+use graphshell_core::signal_router::SignalRouter;
 use servo::{
-    DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, WindowRenderingContext,
+    DeviceIndependentPixel, OffscreenRenderingContext, RenderingContextCore, WebViewId,
+    WindowRenderingContext,
 };
 use url::Url;
 use winit::event::WindowEvent;
@@ -29,13 +31,10 @@ use super::gui_frame;
 use super::gui_orchestration;
 use super::gui_state::{
     BookmarkImportDialogState, CommandAuthorityMut, GraphSearchAuthorityMut, GraphshellRuntime,
-    LocalFocusTarget, PaneRegionHint, PendingWebviewContextSurfaceRequest,
-    RuntimeFocusAuthorityState, RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState,
-    ToolbarEditable, ToolbarState,
+    LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState, RuntimeFocusInputs,
+    RuntimeFocusInspector, RuntimeFocusState, ToolbarState,
 };
 use super::persistence_ops;
-#[cfg(test)]
-use super::thumbnail_pipeline;
 use super::toolbar_routing::{self, ToolbarNavAction};
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
@@ -60,21 +59,24 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::nip07_bridge;
+use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 use crate::shell::desktop::runtime::registries::workbench_surface;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
     phase3_resolve_active_theme, phase3_shared_runtime,
 };
-use crate::shell::desktop::ui::thumbnail_pipeline::{
-    RendererFaviconTextureCache, ThumbnailCaptureResult,
-};
+use crate::shell::desktop::ui::thumbnail_pipeline::{self, RendererFaviconTextureCache};
+#[cfg(test)]
+use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
-use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
-use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
+use crate::shell::desktop::workbench::ux_replay::{
+    HostEvent, ModifiersState, host_event_from_egui_event,
+};
 use crate::util::CoordBridge;
+use verso_host::{ServoViewerSurfaceHost, TokioAsyncSpawner};
 
 #[path = "gui/accessibility.rs"]
 pub(super) mod accessibility;
@@ -247,8 +249,8 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
         let events = i
             .events
             .iter()
-            .filter_map(HostEvent::from_egui_event)
-            .collect::<Vec<_>>();
+            .filter_map(host_event_from_egui_event)
+            .collect::<Vec<HostEvent>>();
         (
             i.pointer.hover_pos(),
             ModifiersState {
@@ -267,10 +269,10 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
     };
     FrameHostInput {
         events,
-        pointer_hover: pointer_hover.map(portable_point_from_egui),
-        viewport_size: portable_size_from_egui(ctx.screen_rect().size()),
-        wants_keyboard: ctx.wants_keyboard_input(),
-        wants_pointer: ctx.wants_pointer_input(),
+        pointer_hover: pointer_hover.map(|pos| portable_point_from_egui(pos)),
+        viewport_size: portable_size_from_egui(ctx.content_rect().size()),
+        wants_keyboard: ctx.egui_wants_keyboard_input(),
+        wants_pointer: ctx.egui_wants_pointer_input(),
         modifiers,
         had_input_events,
     }
@@ -373,13 +375,14 @@ impl EguiHost {
         // Create tokio runtime for background workers
         let tokio_runtime = tokio::runtime::Runtime::new()
             .expect("Failed to create tokio runtime for async workers");
+        let async_spawner: Arc<dyn AsyncSpawner> =
+            Arc::new(TokioAsyncSpawner::new(Some(tokio_runtime.handle().clone())));
+        let signal_router: Arc<dyn SignalRouter> = Arc::new(RegistrySignalRouter);
 
         // Initialize ControlPanel with an explicit runtime handle so later
         // Shell relay setup does not depend on a temporary enter() guard.
-        let mut control_panel = ControlPanel::new_with_runtime(
-            worker_idle_threshold_secs,
-            tokio_runtime.handle().clone(),
-        );
+        let mut control_panel =
+            ControlPanel::new_with_async_spawner(worker_idle_threshold_secs, Arc::clone(&async_spawner));
         control_panel.spawn_memory_monitor();
         control_panel.spawn_mod_loader();
         control_panel.spawn_prefetch_scheduler();
@@ -392,7 +395,7 @@ impl EguiHost {
             warn!("Failed to spawn tag suggester agent: {error}");
         }
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
-        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel);
+        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel, Arc::clone(&signal_router));
 
         let toast_anchor =
             Self::toast_anchor(graph_app.workspace.chrome_ui.toast_anchor_preference);
@@ -407,10 +410,17 @@ impl EguiHost {
             toolbar_state: ToolbarState::with_initial_location(initial_url),
             bookmark_import_dialog: None,
             control_panel,
+            async_spawner,
             registry_runtime,
+            signal_router,
             tokio_runtime,
             viewer_surfaces:
                 crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
+            viewer_surface_host: Box::new(ServoViewerSurfaceHost::new({
+                let rendering_context = rendering_context.clone();
+                let window_rendering_context = window_rendering_context.clone();
+                move || Rc::new(window_rendering_context.offscreen_context(rendering_context.size()))
+            })),
             webview_creation_backpressure: HashMap::new(),
             thumbnail_capture_in_flight: HashSet::new(),
             frame_inbox,
@@ -550,7 +560,9 @@ impl EguiHost {
         let resolved_url = self
             .runtime
             .graph_app
-            .get_node_for_webview(webview_id)
+            .get_node_for_webview(
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            )
             .and_then(|node_key| {
                 self.runtime
                     .graph_app
@@ -635,6 +647,14 @@ impl EguiHost {
         interaction_queries::focused_node_key(self)
     }
 
+    pub(crate) fn primary_selected_node_key(&self) -> Option<NodeKey> {
+        self.runtime.graph_app.focused_selection().primary()
+    }
+
+    pub(crate) fn graph_surface_focused(&self) -> bool {
+        self.runtime.graph_surface_focused
+    }
+
     pub(crate) fn has_focused_node(&self) -> bool {
         interaction_queries::has_focused_node(self)
     }
@@ -692,9 +712,13 @@ impl EguiHost {
 
     pub(crate) fn set_embedded_content_focus_webview(&mut self, webview_id: Option<WebViewId>) {
         let target = webview_id.map(|servo_webview_id| {
+            let renderer_id =
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                    servo_webview_id,
+                );
             crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
                 renderer_id: crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_servo(servo_webview_id),
-                node_key: self.runtime.graph_app.get_node_for_webview(servo_webview_id),
+                node_key: self.runtime.graph_app.get_node_for_webview(renderer_id),
             }
         });
         focus_state::apply_focus_command(
@@ -730,7 +754,14 @@ impl EguiHost {
                     .as_ref()
                     .and_then(|state| state.embedded_content_focus.as_ref().and_then(unwrap_servo))
             })
-            .or_else(|| self.runtime.graph_app.embedded_content_focus_webview())
+            .or_else(|| {
+                self.runtime
+                    .graph_app
+                    .embedded_content_focus_webview()
+                    .and_then(
+                        crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+                    )
+            })
     }
 
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
@@ -785,7 +816,9 @@ impl EguiHost {
         webview_id: WebViewId,
         action: ToolbarNavAction,
     ) -> bool {
-        let fallback_node = self.runtime.graph_app.get_node_for_webview(webview_id);
+        let fallback_node = self.runtime.graph_app.get_node_for_webview(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+        );
         toolbar_routing::run_nav_action_for_fallback_node(
             &mut self.runtime.graph_app,
             fallback_node,
@@ -894,9 +927,12 @@ impl EguiHost {
                     clear_data_confirm_deadline_secs,
                     bookmark_import_dialog,
                     control_panel,
+                    async_spawner: _,
                     registry_runtime,
+                    signal_router: _,
                     tokio_runtime: _,
                     viewer_surfaces,
+                    viewer_surface_host,
                     webview_creation_backpressure,
                     thumbnail_capture_in_flight,
                     frame_inbox: _,
@@ -929,9 +965,10 @@ impl EguiHost {
             toasts,
             graph_app.workspace.chrome_ui.toast_anchor_preference,
         );
-        context.run_ui_frame(winit_window, |ctx, ui_render_backend| {
+        context.run_ui_frame(winit_window, |ctx, root_ui, ui_render_backend| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
+            root_ui,
                 ui_render_backend,
                 winit_window,
                 state,
@@ -948,6 +985,7 @@ impl EguiHost {
                 clipboard,
                 favicon_textures: renderer_favicon_textures,
                 viewer_surfaces,
+                viewer_surface_host: viewer_surface_host.as_mut(),
                 tile_favicon_textures,
                 thumbnail_channel,
                 thumbnail_capture_in_flight,
@@ -1134,11 +1172,16 @@ impl EguiHost {
         if let Ok(stack) = result {
             self.runtime
                 .graph_app
-                .update_clip_inspector_pointer_stack(webview_id, stack);
+                .update_clip_inspector_pointer_stack(
+                    crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                        webview_id,
+                    ),
+                    stack,
+                );
         }
     }
 
-    pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<WebViewId> {
+    pub(crate) fn clip_inspector_target_webview_id(&self) -> Option<crate::app::RendererId> {
         self.runtime
             .graph_app
             .workspace

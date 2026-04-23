@@ -4,11 +4,11 @@
 
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditState;
-use egui::{Key, Modifiers, TopBottomPanel, Vec2};
+use egui::{Key, Modifiers, Panel, Vec2};
 use egui_tiles::Tree;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use winit::window::Window;
 
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
@@ -54,7 +54,7 @@ use self::toolbar_status_bar::render_shell_status_bar;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, GraphViewId, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
-    ToastAnchorPreference, ToolSurfaceReturnTarget, WorkbenchIntent,
+    ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -178,6 +178,7 @@ impl CommandBarFocusTarget {
 
 pub(crate) struct Input<'a> {
     pub ctx: &'a egui::Context,
+    pub root_ui: &'a mut egui::Ui,
     pub winit_window: &'a Window,
     pub state: &'a RunningAppState,
     pub graph_app: &'a mut GraphBrowserApp,
@@ -254,8 +255,8 @@ fn radial_shortcut_label(shortcut: RadialMenuShortcut) -> &'static str {
 
 fn lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
     match binding {
-        CanvasLassoBinding::RightDrag => "Right Drag (Default)",
-        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag",
+        CanvasLassoBinding::RightDrag => "Right Drag",
+        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag (Default)",
     }
 }
 
@@ -434,7 +435,8 @@ fn frame_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option
 }
 
 fn render_fullscreen_origin_strip(
-    ctx: &egui::Context,
+    root_ui: &mut egui::Ui,
+    _ctx: &egui::Context,
     graph_app: &GraphBrowserApp,
     command_bar_focus_target: CommandBarFocusTarget,
 ) {
@@ -459,9 +461,9 @@ fn render_fullscreen_origin_strip(
         220,
     );
     let frame = egui::Frame::default().fill(frame_fill).inner_margin(4.0);
-    TopBottomPanel::top("fullscreen_origin_strip")
+    Panel::top("fullscreen_origin_strip")
         .frame(frame)
-        .show(ctx, |ui| {
+        .show_inside(root_ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Fullscreen");
                 ui.separator();
@@ -578,6 +580,7 @@ fn render_command_bar_right_column(
 pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let Input {
         ctx,
+        root_ui,
         winit_window,
         state,
         graph_app,
@@ -618,7 +621,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
 
     if winit_window.fullscreen().is_some() {
         clear_command_surface_semantic_snapshot(command_surface_telemetry);
-        render_fullscreen_origin_strip(ctx, graph_app, command_bar_focus_target);
+        render_fullscreen_origin_strip(root_ui, ctx, graph_app, command_bar_focus_target);
         return Output {
             toggle_tile_view_requested: false,
             open_selected_mode_after_submit: None,
@@ -637,12 +640,12 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let has_node_panes = !is_graph_view;
     let toolbar_height = graph_app.workspace.chrome_ui.toolbar_height_dp;
     let frame = egui::Frame::default()
-        .fill(ctx.style().visuals.window_fill)
+        .fill(ctx.global_style().visuals.window_fill)
         .inner_margin(4.0);
-    let command_bar_response = TopBottomPanel::top("shell_command_bar")
+    let command_bar_response = Panel::top("shell_command_bar")
         .frame(frame)
-        .exact_height(toolbar_height)
-        .show(ctx, |ui| {
+        .exact_size(toolbar_height)
+        .show_inside(root_ui, |ui| {
             ui.columns(3, |columns| {
                 columns[0].horizontal_wrapped(|ui| {
                     render_command_bar_left_column(ui, graph_app);
@@ -709,6 +712,7 @@ pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
     let ambient_diagnostics_attention = diagnostics_state.ambient_attention_summary();
 
     let status_bar_rect = render_shell_status_bar(
+        root_ui,
         ctx,
         workbench_layer_state,
         focused_content_status,

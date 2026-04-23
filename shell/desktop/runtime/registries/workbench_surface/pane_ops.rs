@@ -411,7 +411,7 @@ pub(super) fn handle_switch_navigator_node_surface_intent(
 pub(super) fn handle_open_node_in_pane_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
-    mut graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     node: NodeKey,
     pane: PaneId,
 ) {

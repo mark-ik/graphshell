@@ -29,12 +29,9 @@ use crate::registries::atomic::lens::{
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
-use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::input::{
-    InputBinding, InputBindingRemap, InputConflict as InputRemapConflict, InputContext,
-};
-use crate::shell::desktop::runtime::registries::{
+use crate::app::runtime_ports::{
+    CachePolicy, DiagnosticEvent, InputBinding, InputBindingRemap, InputContext,
+    InputRemapConflict, RuntimeCaches, emit_event,
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
     CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
     CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
@@ -49,7 +46,7 @@ use crate::shell::desktop::runtime::registries::{
     phase2_describe_input_bindings, phase2_reset_input_binding_remaps,
 };
 #[cfg(not(test))]
-use crate::shell::desktop::runtime::registries::{
+use crate::app::runtime_ports::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
 };
@@ -58,20 +55,6 @@ use crate::util::{
 };
 use euclid::default::Point2D;
 use log::{debug, warn};
-// Platform-agnostic renderer handle.
-// On desktop this aliases servo::WebViewId so existing callers in the
-// desktop module work without any conversion.
-// On iOS, Servo is not a dependency, so a standalone opaque type is used.
-#[cfg(not(target_os = "ios"))]
-use servo::WebViewId;
-/// Opaque handle for a renderer instance (webview, PDF viewer, etc.).
-/// On desktop: identical to `servo::WebViewId` (type alias, zero cost).
-/// On iOS: an opaque counter assigned by the iOS renderer layer.
-#[cfg(not(target_os = "ios"))]
-pub type RendererId = WebViewId;
-#[cfg(target_os = "ios")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RendererId(u64);
 use uuid::Uuid;
 
 macro_rules! impl_display_from_str {
@@ -205,6 +188,7 @@ mod startup_persistence;
 
 #[path = "app/settings_persistence.rs"]
 mod settings_persistence;
+#[allow(unused_imports)]
 pub use settings_persistence::{
     DefaultWebViewerBackend, FocusRingCurve, FocusRingSettings, NavigatorSidebarSidePreference,
     SettingsToolPage, ThemeMode, ThumbnailAspect, ThumbnailFilter, ThumbnailFormat,
@@ -227,9 +211,10 @@ mod storage_interop;
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
 pub use workspace_state::{
-    ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphViewRuntimeState,
-    NavigatorSpecialtyView, SemanticNavigationNodeRuntime, SemanticNavigationRuntimeState,
-    VisibleNavigationRegionSet, WorkbenchNavigationGeometry, WorkbenchSessionState,
+    ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphTooltipTarget,
+    GraphViewRuntimeState, NavigatorSpecialtyView, SemanticNavigationNodeRuntime,
+    SemanticNavigationRuntimeState, VisibleNavigationRegionSet, WorkbenchNavigationGeometry,
+    WorkbenchSessionState,
 };
 
 #[path = "app/intent_phases.rs"]
@@ -238,6 +223,13 @@ mod intent_phases;
 #[path = "app/graph_app_types.rs"]
 mod graph_app_types;
 pub use graph_app_types::*;
+
+#[path = "app/runtime_ports.rs"]
+pub(crate) mod runtime_ports;
+
+#[path = "app/renderer_id.rs"]
+mod renderer_id;
+pub(crate) use renderer_id::RendererId;
 
 #[derive(Default)]
 pub struct AppServices {
@@ -513,7 +505,9 @@ impl GraphBrowserApp {
                     semantic_depth_restore_dimensions: HashMap::new(),
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
+                    hovered_graph_edge: None,
                     highlighted_graph_edge: None,
+                    dismissed_graph_tooltip: None,
                     selected_frame_name: None,
                     frame_tile_groups: HashMap::new(),
                     navigator_projection_state: NavigatorProjectionState::default(),
@@ -582,7 +576,7 @@ impl GraphBrowserApp {
                         ContextCommandSurfacePreference::RadialPalette,
                     keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                     keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                    lasso_binding_preference: CanvasLassoBinding::RightDrag,
+                    lasso_binding_preference: CanvasLassoBinding::default(),
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     omnibar_dropdown_max_rows: Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS,
@@ -713,7 +707,9 @@ impl GraphBrowserApp {
                     semantic_depth_restore_dimensions: HashMap::new(),
                     suggested_semantic_tags: HashMap::new(),
                     hovered_graph_node: None,
+                    hovered_graph_edge: None,
                     highlighted_graph_edge: None,
+                    dismissed_graph_tooltip: None,
                     selected_frame_name: None,
                     frame_tile_groups: HashMap::new(),
                     navigator_projection_state: NavigatorProjectionState::default(),
@@ -782,7 +778,7 @@ impl GraphBrowserApp {
                         ContextCommandSurfacePreference::RadialPalette,
                     keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                     keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
-                    lasso_binding_preference: CanvasLassoBinding::RightDrag,
+                    lasso_binding_preference: CanvasLassoBinding::default(),
                     omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                     omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                     omnibar_dropdown_max_rows: Self::DEFAULT_OMNIBAR_DROPDOWN_MAX_ROWS,

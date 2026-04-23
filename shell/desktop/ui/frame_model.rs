@@ -22,6 +22,7 @@
 //! `gui_state.rs::project_view_model`); iced hosts consume portable
 //! types directly.
 
+#[allow(unused_imports)]
 pub(crate) use graphshell_core::shell_state::frame_model::{
     CommandPaletteScopeView, CommandPaletteViewModel, DegradedReceiptSpec, DialogsViewModel,
     FocusRingCurve, FocusRingSpec, FocusViewModel, FrameHostInput, FrameViewModel,

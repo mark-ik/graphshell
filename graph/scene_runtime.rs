@@ -4,13 +4,16 @@
 
 use std::collections::HashMap;
 
-use crate::app::{GraphBrowserApp, GraphViewId, SceneMode, SimulateBehaviorPreset};
+use crate::app::{GraphBrowserApp, GraphViewId, SceneMode};
 use crate::graph::NodeKey;
 use crate::graph::physics::apply_position_deltas;
 use crate::util::CoordBridge;
 use parry2d::math::Pose;
 use parry2d::query::intersection_test;
 use parry2d::shape::Ball;
+
+#[cfg(test)]
+use crate::app::SimulateBehaviorPreset;
 
 const DEFAULT_NODE_PADDING: f32 = 4.0;
 const MAX_REGION_DELTA_PER_PASS: f32 = 18.0;

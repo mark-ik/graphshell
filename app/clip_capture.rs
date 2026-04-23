@@ -554,9 +554,7 @@ fn html_escape(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use euclid::default::Point2D;
-    use servo::WebViewId;
 
     use super::{
         CLIP_EDGE_LABEL, ClipCaptureData, ClipContentFacetData, ClipInspectorFilter,
@@ -567,13 +565,8 @@ mod tests {
     };
     use crate::app::GraphBrowserApp;
 
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
+    fn test_webview_id() -> RendererId {
+        super::renderer_id::test_renderer_id()
     }
 
     #[test]

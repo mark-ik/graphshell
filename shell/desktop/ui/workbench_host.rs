@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use egui::{RichText, SidePanel, TopBottomPanel};
+use egui::{Panel, RichText};
 use egui_tiles::{Container, LinearDir, Tile, TileId, Tree};
 use uuid::Uuid;
 
@@ -971,7 +971,8 @@ fn render_graph_scope_controls(
 }
 
 pub(crate) fn render_fallback_graph_scope_toolbar_host(
-    ctx: &egui::Context,
+    _ctx: &egui::Context,
+    root_ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     graph_tree: &mut graph_tree::GraphTree<NodeKey>,
@@ -983,9 +984,9 @@ pub(crate) fn render_fallback_graph_scope_toolbar_host(
     }
 
     let mut post_host_actions = Vec::new();
-    TopBottomPanel::top("navigator_graph_scope_toolbar_host_fallback")
-        .exact_height(NAVIGATOR_GRAPH_VIEW_SWITCHER_HEIGHT + 28.0)
-        .show(ctx, |ui| {
+    Panel::top("navigator_graph_scope_toolbar_host_fallback")
+        .exact_size(NAVIGATOR_GRAPH_VIEW_SWITCHER_HEIGHT + 28.0)
+        .show_inside(root_ui, |ui| {
             if graph_view_switcher_visible(projection) {
                 render_graph_view_switcher(ui, graph_app, projection);
                 ui.separator();
@@ -2436,6 +2437,7 @@ fn build_tree_node(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_workbench_host(
     ctx: &egui::Context,
+    root_ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     graph_tree: &mut graph_tree::GraphTree<NodeKey>,
@@ -2496,7 +2498,7 @@ pub(crate) fn render_workbench_host(
     let mut overlay_occlusions = Vec::new();
 
     for (index, host_layout) in host_layouts.iter().cloned().enumerate() {
-        let host_available_rect = ctx.available_rect();
+        let host_available_rect = ctx.content_rect();
         let host_panel_max_extent = match host_layout.form_factor {
             WorkbenchHostFormFactor::Sidebar => {
                 (host_available_rect.width() * HOST_PANEL_MAX_FRACTION).max(HOST_PANEL_MAX_FLOOR)
@@ -3336,16 +3338,16 @@ pub(crate) fn render_workbench_host(
             match host_layout.form_factor {
                 WorkbenchHostFormFactor::Sidebar => {
                     let side_panel = match host_layout.anchor_edge {
-                        AnchorEdge::Left => SidePanel::left(panel_id),
-                        AnchorEdge::Right => SidePanel::right(panel_id),
-                        AnchorEdge::Top | AnchorEdge::Bottom => SidePanel::right(panel_id),
+                        AnchorEdge::Left => Panel::left(panel_id),
+                        AnchorEdge::Right => Panel::right(panel_id),
+                        AnchorEdge::Top | AnchorEdge::Bottom => Panel::right(panel_id),
                     };
                     let panel_response = side_panel
                         .resizable(host_layout.resizable)
-                        .default_width(host_panel_default_extent)
-                        .min_width(HOST_PANEL_MAX_FLOOR)
-                        .max_width(host_panel_max_extent)
-                        .show(ctx, |ui| {
+                        .default_size(host_panel_default_extent)
+                        .min_size(HOST_PANEL_MAX_FLOOR)
+                        .max_size(host_panel_max_extent)
+                        .show_inside(root_ui, |ui| {
                             show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
                                 show_host_contents(ui);
                             });
@@ -3354,16 +3356,16 @@ pub(crate) fn render_workbench_host(
                 }
                 WorkbenchHostFormFactor::Toolbar => {
                     let top_bottom_panel = match host_layout.anchor_edge {
-                        AnchorEdge::Top => egui::TopBottomPanel::top(panel_id),
-                        AnchorEdge::Bottom => egui::TopBottomPanel::bottom(panel_id),
-                        AnchorEdge::Left | AnchorEdge::Right => egui::TopBottomPanel::top(panel_id),
+                        AnchorEdge::Top => egui::Panel::top(panel_id),
+                        AnchorEdge::Bottom => egui::Panel::bottom(panel_id),
+                        AnchorEdge::Left | AnchorEdge::Right => egui::Panel::top(panel_id),
                     };
                     let panel_response = top_bottom_panel
                         .resizable(host_layout.resizable)
-                        .default_height(host_panel_default_extent)
-                        .min_height(HOST_PANEL_MAX_FLOOR)
-                        .max_height(host_panel_max_extent)
-                        .show(ctx, |ui| {
+                        .default_size(host_panel_default_extent)
+                        .min_size(HOST_PANEL_MAX_FLOOR)
+                        .max_size(host_panel_max_extent)
+                        .show_inside(root_ui, |ui| {
                             show_host_contents_with_cross_axis_margins(ui, &host_layout, |ui| {
                                 show_host_contents(ui);
                             });
@@ -3425,7 +3427,7 @@ pub(crate) fn render_workbench_host(
         }
     }
 
-    update_workbench_navigation_geometry(graph_app, ctx.available_rect(), overlay_occlusions);
+    update_workbench_navigation_geometry(graph_app, ctx.content_rect(), overlay_occlusions);
 
     for action in post_host_actions {
         apply_workbench_host_action(action, graph_app, tiles_tree, graph_tree);

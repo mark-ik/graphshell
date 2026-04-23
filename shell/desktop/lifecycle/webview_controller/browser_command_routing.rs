@@ -43,13 +43,16 @@ pub(super) fn resolve_browser_command_target(
     match target {
         BrowserCommandTarget::FocusedInput => app
             .embedded_content_focus_webview()
+            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
             .map(BrowserCommandRouteOutcome::Resolved)
             .unwrap_or(BrowserCommandRouteOutcome::NoTarget),
         BrowserCommandTarget::ChromeProjection { fallback_node } => {
             if let Some(webview_id) = window.explicit_chrome_webview_id() {
                 BrowserCommandRouteOutcome::Resolved(webview_id)
             } else if let Some(webview_id) =
-                fallback_node.and_then(|node_key| app.get_webview_for_node(node_key))
+                fallback_node
+                    .and_then(|node_key| app.get_webview_for_node(node_key))
+                    .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
             {
                 BrowserCommandRouteOutcome::Fallback(webview_id)
             } else {

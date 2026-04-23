@@ -20,6 +20,9 @@ pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) toolbar_state: &'a mut ToolbarState,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -34,6 +37,7 @@ pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
 
 pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
+    pub(super) root_ui: &'a mut egui::Ui,
     pub(super) winit_window: &'a Window,
     pub(super) state: &'a RunningAppState,
     pub(super) graph_app: &'a mut GraphBrowserApp,
@@ -57,6 +61,9 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -84,6 +91,9 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -98,6 +108,7 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
 
 pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
+    pub(super) root_ui: &'a mut egui::Ui,
     pub(super) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
@@ -109,6 +120,9 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -167,6 +181,7 @@ pub(super) struct PreFrameAndIntentInitArgs<'a> {
 
 pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) ctx: &'a egui::Context,
+    pub(super) root_ui: &'a mut egui::Ui,
     pub(super) ui_render_backend: &'a mut UiRenderBackendHandle,
     pub(super) winit_window: &'a Window,
     pub(super) state: &'a RunningAppState,
@@ -186,6 +201,9 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(super) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) thumbnail_channel: &'a super::super::thumbnail_pipeline::ThumbnailChannel,
     pub(super) thumbnail_capture_in_flight:

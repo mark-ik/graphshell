@@ -14,6 +14,7 @@ use crate::mods::native::web_runtime;
 use crate::registries::atomic::viewer::ViewerRenderMode;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use ::verso::{HostCapabilities as VersoHostCapabilities, WebEnginePreference};
@@ -199,7 +200,7 @@ impl TileCoordinator {
 
     fn should_preserve_runtime_webview(
         node_exists: bool,
-        mapped_webview: Option<WebViewId>,
+        mapped_webview: Option<crate::app::RendererId>,
     ) -> bool {
         node_exists && mapped_webview.is_some()
     }
@@ -207,10 +208,16 @@ impl TileCoordinator {
     pub(crate) fn reset_runtime_webview_state(
         tiles_tree: &mut Tree<TileKind>,
         viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        >,
         tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
         favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     ) {
-        viewer_surfaces.clear();
+        let surface_keys: Vec<_> = viewer_surfaces.keys().copied().collect();
+        for node_key in surface_keys {
+            viewer_surface_host.retire_surface(viewer_surfaces, node_key);
+        }
         tile_favicon_textures.clear();
         favicon_textures.clear();
         Self::remove_all_node_panes(tiles_tree);
@@ -311,6 +318,9 @@ impl TileCoordinator {
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
         viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        >,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
@@ -324,6 +334,7 @@ impl TileCoordinator {
                 graph_app,
                 window,
                 viewer_surfaces,
+                viewer_surface_host,
                 node_key,
                 lifecycle_intents,
             );
@@ -334,6 +345,9 @@ impl TileCoordinator {
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
         viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        >,
         node_key: NodeKey,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
@@ -379,7 +393,7 @@ impl TileCoordinator {
                 }
             }
 
-            viewer_surfaces.remove(&node_key);
+            viewer_surface_host.retire_surface(viewer_surfaces, node_key);
             return;
         }
 
@@ -405,11 +419,18 @@ impl TileCoordinator {
             }
         }
 
-        viewer_surfaces.remove(&node_key);
+        viewer_surface_host.retire_surface(viewer_surfaces, node_key);
 
-        if let Some(wv_id) = mapped_webview {
-            window.close_webview(wv_id);
-            lifecycle_intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
+        if let Some(renderer_id) = mapped_webview {
+            if let Some(servo_webview_id) = servo_webview_id_from_renderer(renderer_id) {
+                window.close_webview(servo_webview_id);
+            }
+            lifecycle_intents.push(
+                RuntimeEvent::UnmapWebview {
+                    webview_id: renderer_id,
+                }
+                .into(),
+            );
         }
         lifecycle_intents.push(
             lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::NodeRemoval).into(),
@@ -501,12 +522,16 @@ pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
 pub(crate) fn reset_runtime_webview_state(
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
 ) {
     TileCoordinator::reset_runtime_webview_state(
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
     );
@@ -724,6 +749,9 @@ pub(crate) fn prune_stale_node_panes(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
     TileCoordinator::prune_stale_node_panes(
@@ -731,6 +759,7 @@ pub(crate) fn prune_stale_node_panes(
         graph_app,
         window,
         viewer_surfaces,
+        viewer_surface_host,
         lifecycle_intents,
     );
 }
@@ -739,6 +768,9 @@ pub(crate) fn release_node_runtime_for_pane(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     node_key: NodeKey,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
@@ -746,6 +778,7 @@ pub(crate) fn release_node_runtime_for_pane(
         graph_app,
         window,
         viewer_surfaces,
+        viewer_surface_host,
         node_key,
         lifecycle_intents,
     );
@@ -762,22 +795,17 @@ mod tests {
         GraphPaneRef, NodePaneState, TileRenderMode, ViewerId,
     };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::{Tile, Tiles, Tree};
     use euclid::Point2D;
 
-    fn test_webview_id() -> servo::WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        servo::WebViewId::new(PainterId::next())
+    fn test_renderer_id() -> crate::app::RendererId {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        crate::app::RendererId::from_raw(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
 
     #[test]
     fn preserve_runtime_webview_when_node_exists_and_mapped() {
-        let webview_id = test_webview_id();
+        let webview_id = test_renderer_id();
         assert!(TileCoordinator::should_preserve_runtime_webview(
             true,
             Some(webview_id)
@@ -786,7 +814,7 @@ mod tests {
 
     #[test]
     fn do_not_preserve_runtime_webview_when_node_missing_or_unmapped() {
-        let webview_id = test_webview_id();
+        let webview_id = test_renderer_id();
         assert!(!TileCoordinator::should_preserve_runtime_webview(
             false,
             Some(webview_id)

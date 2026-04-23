@@ -537,7 +537,7 @@ fn parse_surface_role(value: &str) -> Result<SurfaceRole, String> {
 mod tests {
     use super::*;
     #[cfg(feature = "diagnostics")]
-    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
+    use crate::app::runtime_ports::diagnostics::DiagnosticsState;
     use crate::shell::desktop::workbench::ux_tree::{
         UxAction, UxNodeState, UxPresentationNode, UxSemanticNode, UxTraceSummary,
     };
@@ -893,14 +893,14 @@ mod tests {
         assert_eq!(
             channel_count(
                 &snapshot,
-                crate::shell::desktop::runtime::registries::CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT
+                crate::app::runtime_ports::registries::CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT
             ),
             0
         );
         assert_eq!(
             channel_count(
                 &snapshot,
-                crate::shell::desktop::runtime::registries::CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT
+                crate::app::runtime_ports::registries::CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT
             ),
             0
         );

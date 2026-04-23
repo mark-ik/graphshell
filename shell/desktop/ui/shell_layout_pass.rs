@@ -123,7 +123,7 @@ impl<'a> ShellLayoutPass<'a> {
                 | WorkbenchLayerState::WorkbenchPinned
                 | WorkbenchLayerState::WorkbenchOnly
         ) {
-            slot_rects.workbench_area = Some(self.ctx.available_rect());
+            slot_rects.workbench_area = Some(self.ctx.content_rect());
         }
 
         ShellLayoutRenderOutput {

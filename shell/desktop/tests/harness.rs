@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tiles, Tree};
 use euclid::Point2D;
 use serde_json::Value;
@@ -119,9 +118,9 @@ impl TestRegistry {
     }
 
     pub(crate) fn map_test_webview_with_id(&mut self, key: NodeKey) -> crate::app::RendererId {
-        let webview_id = test_webview_id();
-        self.app.map_webview_to_node(webview_id, key);
-        webview_id
+        let renderer_id = crate::app::renderer_id::test_renderer_id();
+        self.app.map_webview_to_node(renderer_id, key);
+        renderer_id
     }
 
     pub(crate) fn step_with_tile_sample(
@@ -257,13 +256,4 @@ impl TestRegistry {
             }
         }
     }
-}
-
-fn test_webview_id() -> servo::WebViewId {
-    PIPELINE_NAMESPACE.with(|tls| {
-        if tls.get().is_none() {
-            PipelineNamespace::install(TEST_NAMESPACE);
-        }
-    });
-    servo::WebViewId::new(PainterId::next())
 }

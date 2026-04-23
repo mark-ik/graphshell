@@ -31,6 +31,9 @@ use crate::app::{
     HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId, WorkbenchIntent,
 };
 use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    forget_renderer_id_for_servo, renderer_id_from_servo, servo_webview_id_from_renderer,
+};
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
@@ -248,6 +251,10 @@ impl EmbedderWindow {
         self.runtime_state.webview_by_id(id)
     }
 
+    pub(crate) fn webview_by_renderer_id(&self, renderer_id: RendererId) -> Option<WebView> {
+        servo_webview_id_from_renderer(renderer_id).and_then(|id| self.webview_by_id(id))
+    }
+
     pub(crate) fn newest_webview_id(&self) -> Option<WebViewId> {
         self.runtime_state.newest_webview_id()
     }
@@ -396,7 +403,9 @@ impl EmbedderWindow {
         if !self.runtime_state.remove_webview(webview_id) {
             return;
         }
-        let detached_attachment = registries::phase1_detach_renderer(webview_id);
+        let detached_attachment =
+            registries::phase1_detach_renderer(renderer_id_from_servo(webview_id));
+        let _ = forget_renderer_id_for_servo(webview_id);
         self.clear_explicit_targets_for_closed_webview(
             webview_id,
             detached_attachment.map(|attachment| attachment.pane_id),
@@ -421,7 +430,7 @@ impl EmbedderWindow {
 
     pub(crate) fn notify_url_changed(&self, webview: WebView, new_url: Url) {
         let kind = WebViewLifecycleEventKind::UrlChanged {
-            webview_id: webview.id(),
+            webview_id: renderer_id_from_servo(webview.id()),
             new_url: new_url.to_string(),
         };
         #[cfg(all(
@@ -451,7 +460,7 @@ impl EmbedderWindow {
         current: usize,
     ) {
         let kind = WebViewLifecycleEventKind::HistoryChanged {
-            webview_id: webview.id(),
+            webview_id: renderer_id_from_servo(webview.id()),
             entries: entries.into_iter().map(|u| u.to_string()).collect(),
             current,
         };
@@ -477,7 +486,7 @@ impl EmbedderWindow {
 
     pub(crate) fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
         let kind = WebViewLifecycleEventKind::PageTitleChanged {
-            webview_id: webview.id(),
+            webview_id: renderer_id_from_servo(webview.id()),
             title,
         };
         #[cfg(all(
@@ -532,7 +541,7 @@ impl EmbedderWindow {
         backtrace: Option<String>,
     ) {
         let kind = WebViewLifecycleEventKind::WebViewCrashed {
-            webview_id: webview.id(),
+            webview_id: renderer_id_from_servo(webview.id()),
             reason,
             has_backtrace: backtrace.as_deref().is_some_and(|b| !b.is_empty()),
         };

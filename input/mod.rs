@@ -155,11 +155,19 @@ fn action_binding_pressed(
         .any(|binding| key_binding_pressed(input, binding))
 }
 
+pub(crate) fn graph_view_action_binding_pressed(
+    input: &egui::InputState,
+    action_id: &str,
+) -> bool {
+    let binding_descriptors = phase2_describe_input_bindings();
+    action_binding_pressed(input, action_id, &binding_descriptors)
+}
+
 /// Collect keyboard actions from the egui context (input detection only).
 pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
-    let keyboard_captured_by_egui = ctx.wants_keyboard_input();
+    let keyboard_captured_by_egui = ctx.egui_wants_keyboard_input();
     let mut actions = KeyboardActions::default();
     let binding_descriptors = phase2_describe_input_bindings();
 
@@ -1033,6 +1041,27 @@ mod tests {
         actions
     }
 
+    fn graph_view_action_pressed_with_key_event(key: Key, modifiers: Modifiers, action_id: &str) -> bool {
+        let ctx = egui::Context::default();
+        let mut pressed = false;
+
+        let mut raw = RawInput::default();
+        raw.modifiers = modifiers;
+        raw.events.push(Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+
+        let _ = ctx.run(raw, |ctx| {
+            pressed = ctx.input(|input| graph_view_action_binding_pressed(input, action_id));
+        });
+
+        pressed
+    }
+
     #[test]
     fn collect_actions_suppresses_f6_when_keyboard_is_captured() {
         let actions = collect_actions_with_key_event(Key::F6, Modifiers::default(), true);
@@ -1099,6 +1128,26 @@ mod tests {
             actions.toggle_radial_menu,
             "F3 should trigger radial menu toggle when keyboard input is not captured"
         );
+    }
+
+    #[test]
+    fn graph_view_action_binding_pressed_distinguishes_select_visible_from_select_all() {
+        let ctrl_shift = Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Modifiers::default()
+        };
+
+        assert!(graph_view_action_pressed_with_key_event(
+            Key::A,
+            ctrl_shift,
+            action_id::graph::SELECT_VISIBLE,
+        ));
+        assert!(!graph_view_action_pressed_with_key_event(
+            Key::A,
+            ctrl_shift,
+            action_id::graph::SELECT_ALL,
+        ));
     }
 
     #[test]

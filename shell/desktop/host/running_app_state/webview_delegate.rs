@@ -90,7 +90,11 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
         window.notify_host_open_request(
             "about:blank".into(),
             OpenSurfaceSource::ChildWebview,
-            Some(parent_webview.id()),
+            Some(
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                    parent_webview.id(),
+                ),
+            ),
             Some(token),
         );
     }

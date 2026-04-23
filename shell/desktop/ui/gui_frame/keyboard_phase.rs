@@ -36,6 +36,9 @@ pub(crate) struct KeyboardPhaseArgs<'a> {
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) suppress_toggle_view: bool,
 }
 
@@ -53,6 +56,9 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         &Rc<OffscreenRenderingContext>,
         &Rc<WindowRenderingContext>,
         &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        >,
         &HashSet<WebViewId>,
         &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
         &mut Vec<GraphIntent>,
@@ -60,6 +66,9 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     F2: FnMut(
         &mut Tree<TileKind>,
         &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        >,
         &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
         &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     ),
@@ -78,6 +87,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         window_rendering_context,
         responsive_webviews,
         webview_creation_backpressure,
+        viewer_surface_host,
         suppress_toggle_view,
     } = args;
 
@@ -100,6 +110,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
             rendering_context,
             window_rendering_context,
             viewer_surfaces,
+            viewer_surface_host,
             responsive_webviews,
             webview_creation_backpressure,
             frame_intents,
@@ -119,6 +130,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         reset_runtime_webview_state(
             tiles_tree,
             viewer_surfaces,
+            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
         );

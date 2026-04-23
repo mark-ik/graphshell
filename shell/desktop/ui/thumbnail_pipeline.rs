@@ -16,7 +16,8 @@ use servo::{Image, PixelFormat, WebViewId};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync::{
-    servo_webview_id_from_viewer_instance, viewer_instance_id_from_servo,
+    renderer_id_from_servo, servo_webview_id_from_viewer_instance,
+    viewer_instance_id_from_servo,
 };
 use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 
@@ -353,7 +354,7 @@ pub(crate) fn request_pending_thumbnail_captures(
             continue;
         }
 
-        let Some(node_key) = graph_app.get_node_for_webview(id) else {
+        let Some(node_key) = graph_app.get_node_for_webview(renderer_id_from_servo(id)) else {
             continue;
         };
         let Some(node) = graph_app.domain_graph().get_node(node_key) else {
@@ -442,7 +443,7 @@ pub(crate) fn graph_intent_for_thumbnail_result(
     graph_app: &GraphBrowserApp,
     result: &ThumbnailCaptureResult,
 ) -> Option<GraphIntent> {
-    let node_key = graph_app.get_node_for_webview(result.webview_id)?;
+    let node_key = graph_app.get_node_for_webview(renderer_id_from_servo(result.webview_id))?;
     let node = graph_app.domain_graph().get_node(node_key)?;
     let current_runtime_url = graph_app
         .runtime_display_url_for_node(node_key)
@@ -524,7 +525,7 @@ pub(crate) fn load_pending_favicons(
         );
         renderer_favicon_textures.insert(id, (handle, texture));
 
-        if let Some(node_key) = graph_app.get_node_for_webview(id) {
+        if let Some(node_key) = graph_app.get_node_for_webview(renderer_id_from_servo(id)) {
             intents.push(GraphIntent::SetNodeFavicon {
                 key: node_key,
                 rgba,
@@ -558,7 +559,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
+        app.map_webview_to_node(renderer_id_from_servo(webview_id), node_key);
 
         let result = ThumbnailCaptureResult {
             webview_id,
@@ -608,7 +609,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
+        app.map_webview_to_node(renderer_id_from_servo(webview_id), node_key);
 
         app.workspace
             .graph_runtime
@@ -735,7 +736,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
+        app.map_webview_to_node(renderer_id_from_servo(webview_id), node_key);
 
         // Encode a real 400×300 PNG and store it in the cache. This
         // simulates a capture that ran under user settings width=400,

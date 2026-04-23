@@ -9,12 +9,15 @@
 //! edge_style_registry) that depend on egui or platform I/O.
 
 // Re-export everything from core's graph module.
+#[allow(unused_imports)]
 pub use graphshell_core::graph::*;
 
 // Re-export core sub-modules so host code can use `crate::graph::apply::*` etc.
+#[allow(unused_imports)]
 pub use graphshell_core::graph::{apply, facet_projection, filter};
 
 // Re-export leaf types from core (previously defined here).
+#[allow(unused_imports)]
 pub use graphshell_core::types::{
     ArchivedClassificationProvenance, ArchivedClassificationScheme, ArchivedClassificationStatus,
     ClassificationProvenance, ClassificationScheme, ClassificationStatus, DominantEdge,
@@ -23,6 +26,7 @@ pub use graphshell_core::types::{
 };
 
 // Re-export address types from core (previously defined here).
+#[allow(unused_imports)]
 pub use graphshell_core::address::{
     Address, AddressKind, address_from_url, address_kind_from_url, cached_host_from_url,
     detect_mime,

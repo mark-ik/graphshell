@@ -700,7 +700,7 @@ fn imported_session_root_title(
 impl GraphBrowserApp {
     fn refresh_protocol_probe_for_node(&mut self, key: NodeKey, url: &str, enqueue_cancel: bool) {
         let protocol_resolution =
-            crate::shell::desktop::runtime::registries::protocol::ProtocolRegistry::default()
+            crate::app::runtime_ports::registries::protocol::ProtocolRegistry::default()
                 .resolve(url);
         let should_probe = matches!(
             crate::graph::address_kind_from_url(url),
@@ -745,7 +745,7 @@ impl GraphBrowserApp {
     pub(crate) fn preferred_new_node_anchor(&self, anchor: Option<NodeKey>) -> Option<NodeKey> {
         anchor.or_else(|| {
             self.focused_selection().primary().and_then(|key| {
-                crate::shell::desktop::runtime::registries::phase3_suggest_semantic_placement_anchor(
+                crate::app::runtime_ports::registries::phase3_suggest_semantic_placement_anchor(
                     self, key,
                 )
             })

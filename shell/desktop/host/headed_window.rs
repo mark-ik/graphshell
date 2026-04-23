@@ -52,6 +52,9 @@ use crate::shell::desktop::host::window::{
     PlatformWindow, PlatformWindowDialogs, PlatformWindowOps, PlatformWindowRendering,
     PlatformWindowSignals,
 };
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    renderer_id_from_servo, servo_webview_id_from_renderer,
+};
 use crate::shell::desktop::render_backend::UiHostRenderBootstrap;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
@@ -557,21 +560,29 @@ impl HeadedWindow {
                     self.winit_window.request_redraw();
                     consumed = true;
                 }
-                if consumed
-                    && let WindowEvent::KeyboardInput {
-                        event: key_event, ..
-                    } = event
+                if let WindowEvent::KeyboardInput {
+                    event: key_event, ..
+                } = event
                     && key_event.state == ElementState::Pressed
                     && matches!(key_event.physical_key, PhysicalKey::Code(KeyCode::Tab))
                 {
-                    // Focus-ownership routing for Tab:
-                    // - if egui currently owns keyboard focus, keep Tab in egui;
-                    // - if a webview tile is focused and egui does not want keyboard input,
-                    //   pass Tab through to Servo.
                     let gui = self.gui.borrow();
+                    let egui_wants_keyboard_input = gui.egui_wants_keyboard_input();
+                    let graph_surface_focused = gui.graph_surface_focused();
                     let tab_target_is_webview = gui.has_focused_node();
-                    if tab_target_is_webview && !gui.egui_wants_keyboard_input() {
-                        consumed = false;
+                    let selected_node_key = gui.primary_selected_node_key();
+                    drop(gui);
+
+                    if graph_surface_focused && !egui_wants_keyboard_input {
+                        if selected_node_key.is_some() {
+                            self.gui.borrow_mut().set_focused_node_key(selected_node_key);
+                            self.winit_window.request_redraw();
+                            consumed = true;
+                        }
+                    } else if tab_target_is_webview && !egui_wants_keyboard_input {
+                        self.gui.borrow_mut().focus_graph_surface();
+                        self.winit_window.request_redraw();
+                        consumed = true;
                     }
                 }
             }
@@ -650,7 +661,7 @@ impl HeadedWindow {
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
                             if self.gui.borrow().clip_inspector_target_webview_id()
-                                == Some(webview_id)
+                                == Some(renderer_id_from_servo(webview_id))
                             {
                                 self.request_clip_inspector_stack_at_pointer(
                                     &window,
@@ -941,9 +952,12 @@ impl HeadedWindow {
     pub(crate) fn sync_clip_inspector_highlight(
         &self,
         window: &EmbedderWindow,
-        webview_id: WebViewId,
+        webview_id: crate::app::RendererId,
         dom_path: Option<&str>,
     ) {
+        let Some(webview_id) = servo_webview_id_from_renderer(webview_id) else {
+            return;
+        };
         let Some(webview) = window.webview_by_id(webview_id) else {
             return;
         };

@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use super::super::{EguiHost, UpdateFrameStage};
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
-
-    use super::super::{EguiHost, UpdateFrameStage};
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use servo::WebViewId;
 
     use crate::app::GraphBrowserApp;
     use crate::prefs::AppPreferences;
@@ -15,13 +12,8 @@ mod tests {
     use crate::shell::desktop::runtime::registries::CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM;
     use crate::shell::desktop::ui::gui_state::{GraphshellRuntime, RuntimeFocusAuthorityState};
 
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
+    fn test_renderer_id() -> crate::app::RendererId {
+        crate::app::renderer_id::test_renderer_id()
     }
 
     #[test]
@@ -58,11 +50,11 @@ mod tests {
             "https://before.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node_key);
+        let renderer_id = test_renderer_id();
+        app.map_webview_to_node(renderer_id, node_key);
 
         window.enqueue_test_graph_event_kind(WebViewLifecycleEventKind::UrlChanged {
-            webview_id,
+            webview_id: renderer_id,
             new_url: "https://after.example".to_string(),
         });
 
@@ -110,13 +102,13 @@ mod tests {
             "https://focused.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        let webview_id = test_webview_id();
+        let renderer_id = test_renderer_id();
         runtime_state
             .graph_app
-            .map_webview_to_node(webview_id, node_key);
+            .map_webview_to_node(renderer_id, node_key);
         runtime_state
             .graph_app
-            .set_embedded_content_focus_webview(Some(webview_id));
+            .set_embedded_content_focus_webview(Some(renderer_id));
 
         super::super::clear_embedded_content_focus(&mut runtime_state);
 
@@ -137,13 +129,13 @@ mod tests {
             "https://focused.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        let webview_id = test_webview_id();
+        let renderer_id = test_renderer_id();
         runtime_state
             .graph_app
-            .map_webview_to_node(webview_id, node_key);
+            .map_webview_to_node(renderer_id, node_key);
         runtime_state
             .graph_app
-            .set_embedded_content_focus_webview(Some(webview_id));
+            .set_embedded_content_focus_webview(Some(renderer_id));
 
         super::super::clear_embedded_content_focus(&mut runtime_state);
 

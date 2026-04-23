@@ -2145,7 +2145,7 @@ fn collect_overview_keyboard_intents(
     let mut selected_view_id = selected_view_id;
     let mut graph_intents = Vec::new();
     let mut surface_actions = Vec::new();
-    if slots.is_empty() || ctx.wants_keyboard_input() {
+    if slots.is_empty() || ctx.egui_wants_keyboard_input() {
         return (selected_view_id, graph_intents, surface_actions);
     }
 

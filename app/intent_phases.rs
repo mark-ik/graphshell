@@ -22,6 +22,7 @@
 //!    a bool.
 
 use super::*;
+use crate::app::runtime_ports::{diagnostics, registries};
 
 impl GraphBrowserApp {
     /// Phase 1: workspace-only view state.
@@ -206,8 +207,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetViewLensId { view_id, lens_id } => {
-                let resolved =
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens_id);
+                let resolved = registries::phase2_resolve_lens(&lens_id);
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     view.apply_resolved_lens_identity(resolved);
                 }
@@ -252,12 +252,12 @@ impl GraphBrowserApp {
                     let is_some = expr.is_some();
                     view.apply_filter_override(expr.clone());
                     let channel = if is_some {
-                        crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_APPLIED
+                        registries::CHANNEL_UX_FACET_FILTER_APPLIED
                     } else {
-                        crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED
+                        registries::CHANNEL_UX_FACET_FILTER_CLEARED
                     };
-                    crate::shell::desktop::runtime::diagnostics::emit_event(
-                        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                    diagnostics::emit_event(
+                        diagnostics::DiagnosticEvent::MessageReceived {
                             channel_id: channel,
                             latency_us: 0,
                         },
@@ -267,16 +267,16 @@ impl GraphBrowserApp {
                             let channel_id = match warning {
                                 crate::model::graph::filter::FilterEvalError::TypeMismatch {
                                     ..
-                                } => crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH,
+                                } => registries::CHANNEL_UX_FACET_FILTER_TYPE_MISMATCH,
                                 crate::model::graph::filter::FilterEvalError::InvalidExtensionKey {
                                     ..
                                 }
                                 | crate::model::graph::filter::FilterEvalError::KeyAbsent {
                                     ..
-                                } => crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_EVAL_FAILURE,
+                                } => registries::CHANNEL_UX_FACET_FILTER_EVAL_FAILURE,
                             };
-                            crate::shell::desktop::runtime::diagnostics::emit_event(
-                                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                            diagnostics::emit_event(
+                                diagnostics::DiagnosticEvent::MessageReceived {
                                     channel_id,
                                     latency_us: 0,
                                 },
@@ -289,9 +289,9 @@ impl GraphBrowserApp {
             GraphIntent::ClearViewFilter { view_id } => {
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     view.apply_filter_override(None);
-                    crate::shell::desktop::runtime::diagnostics::emit_event(
-                        crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
-                            channel_id: crate::shell::desktop::runtime::registries::CHANNEL_UX_FACET_FILTER_CLEARED,
+                    diagnostics::emit_event(
+                        diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: registries::CHANNEL_UX_FACET_FILTER_CLEARED,
                             latency_us: 0,
                         },
                     );
@@ -432,7 +432,7 @@ impl GraphBrowserApp {
                 total_mib,
             } => {
                 self.set_memory_pressure_status(level, available_mib, total_mib);
-                crate::shell::desktop::runtime::registries::phase3_propagate_subsystem_health_memory_pressure(
+                registries::phase3_propagate_subsystem_health_memory_pressure(
                     level,
                     available_mib,
                     total_mib,
@@ -440,16 +440,12 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::ModActivated { mod_id } => {
-                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id, true,
-                );
+                registries::phase3_route_mod_lifecycle_event(&mod_id, true);
                 log::info!("mod activated: {mod_id}");
                 true
             }
             GraphIntent::ModLoadFailed { mod_id, reason } => {
-                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id, false,
-                );
+                registries::phase3_route_mod_lifecycle_event(&mod_id, false);
                 log::warn!("mod load failed: {mod_id} ({reason})");
                 true
             }
@@ -475,7 +471,7 @@ impl GraphBrowserApp {
             } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        crate::shell::desktop::runtime::registries::phase3_trust_peer(
+                        registries::phase3_trust_peer(
                             crate::mods::native::verse::TrustedPeer {
                                 node_id,
                                 display_name,
@@ -499,7 +495,7 @@ impl GraphBrowserApp {
             } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        crate::shell::desktop::runtime::registries::phase3_grant_workspace_access(
+                        registries::phase3_grant_workspace_access(
                             node_id,
                             &workspace_id,
                             crate::mods::native::verse::AccessLevel::ReadWrite,
@@ -521,7 +517,7 @@ impl GraphBrowserApp {
             GraphIntent::ForgetDevice { peer_id } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        crate::shell::desktop::runtime::registries::phase3_revoke_peer(node_id);
+                        registries::phase3_revoke_peer(node_id);
                         log::info!("forgetting device: {peer_id}");
                     }
                     Err(error) => {
@@ -536,7 +532,7 @@ impl GraphBrowserApp {
             } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        crate::shell::desktop::runtime::registries::phase3_revoke_workspace_access(
+                        registries::phase3_revoke_workspace_access(
                             node_id,
                             &workspace_id,
                         );
@@ -556,11 +552,11 @@ impl GraphBrowserApp {
             }
             GraphIntent::StartGeminiCapsuleServer { port } => {
                 let port = port.unwrap_or(1965);
-                crate::shell::desktop::runtime::registries::start_gemini_capsule_server(port);
+                registries::start_gemini_capsule_server(port);
                 true
             }
             GraphIntent::StopGeminiCapsuleServer => {
-                crate::shell::desktop::runtime::registries::stop_gemini_capsule_server();
+                registries::stop_gemini_capsule_server();
                 true
             }
             GraphIntent::ServeNodeAsGemini {
@@ -571,7 +567,7 @@ impl GraphBrowserApp {
             } => {
                 let content = gemini_content
                     .unwrap_or_else(|| format!("# {title}\n\nThis node has no content yet.\n"));
-                crate::shell::desktop::runtime::registries::register_gemini_node(
+                registries::register_gemini_node(
                     node_id,
                     title,
                     privacy_class,
@@ -580,16 +576,16 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::UnserveNodeFromGemini { node_id } => {
-                crate::shell::desktop::runtime::registries::unregister_gemini_node(node_id);
+                registries::unregister_gemini_node(node_id);
                 true
             }
             GraphIntent::StartGopherCapsuleServer { port } => {
                 let port = port.unwrap_or(70);
-                crate::shell::desktop::runtime::registries::start_gopher_capsule_server(port);
+                registries::start_gopher_capsule_server(port);
                 true
             }
             GraphIntent::StopGopherCapsuleServer => {
-                crate::shell::desktop::runtime::registries::stop_gopher_capsule_server();
+                registries::stop_gopher_capsule_server();
                 true
             }
             GraphIntent::ServeNodeAsGopher {
@@ -600,7 +596,7 @@ impl GraphBrowserApp {
             } => {
                 let content = gophermap_content
                     .unwrap_or_else(|| format!("i{title}\tfake\tfake\t70\r\n.\r\n"));
-                crate::shell::desktop::runtime::registries::register_gopher_node(
+                registries::register_gopher_node(
                     node_id,
                     title,
                     privacy_class,
@@ -609,16 +605,16 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::UnserveNodeFromGopher { node_id } => {
-                crate::shell::desktop::runtime::registries::unregister_gopher_node(node_id);
+                registries::unregister_gopher_node(node_id);
                 true
             }
             GraphIntent::StartFingerServer { port } => {
                 let port = port.unwrap_or(79);
-                crate::shell::desktop::runtime::registries::start_finger_server(port);
+                registries::start_finger_server(port);
                 true
             }
             GraphIntent::StopFingerServer => {
-                crate::shell::desktop::runtime::registries::stop_finger_server();
+                registries::stop_finger_server();
                 true
             }
             GraphIntent::PublishFingerProfile {
@@ -626,7 +622,7 @@ impl GraphBrowserApp {
                 privacy_class,
                 finger_text,
             } => {
-                crate::shell::desktop::runtime::registries::publish_finger_profile(
+                registries::publish_finger_profile(
                     query_name,
                     privacy_class,
                     finger_text,
@@ -634,7 +630,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::UnpublishFingerProfile { query_name } => {
-                crate::shell::desktop::runtime::registries::unpublish_finger_profile(query_name);
+                registries::unpublish_finger_profile(query_name);
                 true
             }
             GraphIntent::WorkflowActivated { .. } => true,
@@ -984,14 +980,12 @@ impl GraphBrowserApp {
                     let normalized_tag = if trimmed.starts_with('#') {
                         trimmed.to_ascii_lowercase()
                     } else {
-                        match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
-                            trimmed,
-                        ) {
-                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                        match registries::phase3_validate_knowledge_tag(trimmed) {
+                            registries::knowledge::TagValidationResult::Valid {
                                 canonical_code, ..
                             } => format!("udc:{canonical_code}"),
-                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
-                            | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
+                            registries::knowledge::TagValidationResult::Unknown { .. }
+                            | registries::knowledge::TagValidationResult::Malformed { .. } => {
                                 trimmed.to_string()
                             }
                         }
@@ -1019,8 +1013,8 @@ impl GraphBrowserApp {
                             .node_classifications(key)
                             .is_some_and(|cs| cs.iter().any(|c| c.value == normalized_tag));
                         if !already_classified {
-                            let label = match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(udc_code) {
-                                crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                            let label = match registries::phase3_validate_knowledge_tag(udc_code) {
+                                registries::knowledge::TagValidationResult::Valid {
                                     display_label, ..
                                 } => Some(display_label),
                                 _ => None,
@@ -1224,10 +1218,8 @@ impl GraphBrowserApp {
                     .unwrap_or_default();
                 let mut normalized = BTreeSet::new();
                 for suggestion in suggestions {
-                    match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
-                        &suggestion,
-                    ) {
-                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                    match registries::phase3_validate_knowledge_tag(&suggestion) {
+                        registries::knowledge::TagValidationResult::Valid {
                             canonical_code, ..
                         } => {
                             let canonical = format!("udc:{canonical_code}");
@@ -1235,8 +1227,8 @@ impl GraphBrowserApp {
                                 normalized.insert(canonical);
                             }
                         }
-                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
-                        | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {}
+                        registries::knowledge::TagValidationResult::Unknown { .. }
+                        | registries::knowledge::TagValidationResult::Malformed { .. } => {}
                     }
                 }
                 if normalized.is_empty() {
@@ -1276,7 +1268,7 @@ impl GraphBrowserApp {
                     });
                 }
                 if updated && let Some(node) = self.workspace.domain.graph.get_node(key) {
-                    crate::shell::desktop::runtime::registries::phase3_publish_navigation_mime_resolved(
+                    registries::phase3_publish_navigation_mime_resolved(
                         key,
                         node.url(),
                         node.mime_hint.as_deref(),

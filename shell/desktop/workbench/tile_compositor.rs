@@ -25,7 +25,7 @@ use image::load_from_memory;
 #[cfg(test)]
 use servo::OffscreenRenderingContext;
 
-use crate::app::{GraphBrowserApp, VisibleNavigationRegionSet};
+use crate::app::{GraphBrowserApp, RendererId, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
 use crate::registries::domain::presentation::PresentationProfile;
@@ -183,7 +183,7 @@ fn active_presentation_profile(app: &GraphBrowserApp) -> PresentationProfile {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompositedContentSignature {
-    webview_id: servo::WebViewId,
+    webview_id: RendererId,
     rect_px: [i32; 4],
     semantic_generation: u64,
 }
@@ -302,7 +302,7 @@ pub(crate) fn compositor_activity_summaries_snapshot() -> Vec<CompositorFrameAct
 }
 
 fn content_signature_for_tile(
-    webview_id: servo::WebViewId,
+    webview_id: RendererId,
     tile_rect: egui::Rect,
     pixels_per_point: f32,
     semantic_generation: u64,
@@ -762,7 +762,7 @@ fn run_composited_texture_content_pass(
         byte_len: 1,
     });
 
-    let Some(webview) = window.webview_by_id(webview_id) else {
+    let Some(webview) = window.webview_by_renderer_id(webview_id) else {
         log::debug!(
             "composite: runtime viewer {:?} not found in window for node {:?}",
             webview_id,
@@ -993,7 +993,11 @@ pub(crate) fn activate_focused_node_for_frame(
         *focused_node_hint = Some(node_key);
         if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
             graph_app.set_embedded_content_focus_webview(Some(wv_id));
-            window.retarget_input_to_webview(wv_id);
+            if let Some(servo_webview_id) =
+                crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer(wv_id)
+            {
+                window.retarget_input_to_webview(servo_webview_id);
+            }
         } else if let Some(fallback_node) = fallback
             && let Some(fallback_wv_id) = graph_app.get_webview_for_node(fallback_node)
         {
@@ -1007,7 +1011,11 @@ pub(crate) fn activate_focused_node_for_frame(
                 byte_len: 1,
             });
             graph_app.set_embedded_content_focus_webview(Some(fallback_wv_id));
-            window.retarget_input_to_webview(fallback_wv_id);
+            if let Some(servo_webview_id) =
+                crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer(fallback_wv_id)
+            {
+                window.retarget_input_to_webview(servo_webview_id);
+            }
         }
     }
 }
@@ -1910,6 +1918,12 @@ mod tests {
         servo::WebViewId::new(PainterId::next())
     }
 
+    fn test_renderer_id() -> RendererId {
+        crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+            test_webview_id(),
+        )
+    }
+
     fn tree_with_two_active_nodes(a: NodeKey, b: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
@@ -2043,7 +2057,7 @@ mod tests {
         let a = NodeKey::new(1);
         let b = NodeKey::new(2);
         seed_active_pane_rects(&mut app, &[a, b]);
-        app.map_webview_to_node(test_webview_id(), a);
+        app.map_webview_to_node(test_renderer_id(), a);
 
         let (primary, fallback) = frame_activation_targets(&app, Some(a));
 
@@ -2071,7 +2085,7 @@ mod tests {
         let a = NodeKey::new(3);
         let b = NodeKey::new(4);
         seed_active_pane_rects(&mut app, &[a, b]);
-        app.map_webview_to_node(test_webview_id(), b);
+        app.map_webview_to_node(test_renderer_id(), b);
 
         let (primary, fallback) = frame_activation_targets(&app, Some(a));
 
@@ -2084,8 +2098,8 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = NodeKey::new(11);
         let b = NodeKey::new(12);
-        let a_webview = test_webview_id();
-        let b_webview = test_webview_id();
+        let a_webview = test_renderer_id();
+        let b_webview = test_renderer_id();
         app.map_webview_to_node(a_webview, a);
         app.map_webview_to_node(b_webview, b);
 
@@ -2105,7 +2119,7 @@ mod tests {
         let primary = NodeKey::new(7);
         let fallback = NodeKey::new(8);
         seed_active_pane_rects(&mut app, &[primary, fallback]);
-        app.map_webview_to_node(test_webview_id(), fallback);
+        app.map_webview_to_node(test_renderer_id(), fallback);
 
         let mut diagnostics = DiagnosticsState::new();
         let prefs = crate::prefs::AppPreferences::default();
@@ -2140,7 +2154,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let node = NodeKey::new(12);
         let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, node);
+        let renderer_id =
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                webview_id,
+            );
+        app.map_webview_to_node(renderer_id, node);
 
         let prefs = crate::prefs::AppPreferences::default();
         let window = crate::shell::desktop::host::window::EmbedderWindow::new(
@@ -2154,7 +2172,7 @@ mod tests {
             activate_focused_node_for_frame(&window, &mut app, &mut focused_hint)
         }));
 
-        assert_eq!(app.embedded_content_focus_webview(), Some(webview_id));
+        assert_eq!(app.embedded_content_focus_webview(), Some(renderer_id));
     }
 
     #[cfg(feature = "wry")]
@@ -2419,7 +2437,7 @@ mod tests {
         clear_composited_signature_cache_for_tests();
         let node = NodeKey::new(50);
         let signature = content_signature_for_tile(
-            test_webview_id(),
+            test_renderer_id(),
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
             1.0,
             1,
@@ -2447,7 +2465,7 @@ mod tests {
     fn differential_content_decision_recomposes_when_signature_changes() {
         clear_composited_signature_cache_for_tests();
         let node = NodeKey::new(51);
-        let webview = test_webview_id();
+        let webview = test_renderer_id();
         let original = content_signature_for_tile(
             webview,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
@@ -2488,7 +2506,7 @@ mod tests {
             TileRenderMode::CompositedTexture,
         );
         let signature = content_signature_for_tile(
-            test_webview_id(),
+            test_renderer_id(),
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
             1.0,
             1,
@@ -2547,7 +2565,7 @@ mod tests {
             TileRenderMode::CompositedTexture,
         );
         let signature = content_signature_for_tile(
-            test_webview_id(),
+            test_renderer_id(),
             egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
             1.0,
             1,
@@ -2596,7 +2614,7 @@ mod tests {
 
     #[test]
     fn content_signature_changes_when_semantic_generation_changes() {
-        let webview = test_webview_id();
+        let webview = test_renderer_id();
         let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0));
         let original = content_signature_for_tile(webview, rect, 1.0, 1);
         let changed = content_signature_for_tile(webview, rect, 1.0, 2);

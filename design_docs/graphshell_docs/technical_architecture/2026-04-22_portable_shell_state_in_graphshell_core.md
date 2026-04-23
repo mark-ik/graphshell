@@ -538,6 +538,61 @@ Explore agent mapped the dependency chain. Findings:
 (`gui_state.rs:784` projection + `iced_host.rs`); `FrameHostInput`
 has 2 similar. Slice 2's re-export pattern works here.
 
+### 2026-04-22 — M5b partial: `AsyncSpawner` + `SignalRouter` extraction
+
+First trait-extraction pass landed for the two seams that were still
+directly coupled to concrete shell infrastructure:
+
+- `graphshell-core` now exports three new host-boundary modules:
+  `async_host`, `signal_router`, and `viewer_host`.
+- `async_host::AsyncSpawner` is implemented as an **object-safe** trait.
+  The original plan's generic `spawn_blocking<T>` shape would not have
+  supported `Arc<dyn AsyncSpawner>`; the landed API erases the blocking
+  result at the trait boundary and restores the caller-facing type via
+  `BlockingTaskReceiver<T>`.
+- `signal_router::SignalRouter` defines the portable subscription seam
+  for frame-inbox consumers, with the currently-needed `Lifecycle` and
+  `RegistryEvent` topic families expressed as portable enums.
+- `viewer_host::ViewerSurfaceHost` is defined in core, but **not yet
+  wired through the shell runtime** in this pass; the live viewer-surface
+  lifecycle remains on the shell/compositor path for now.
+
+Shell-side adapters and runtime wiring added alongside the portable traits:
+
+- `shell/desktop/runtime/tokio_async_spawner.rs` wraps the existing Tokio
+  runtime handle and now owns supervised-task spawning, blocking-task
+  execution, and shutdown joining.
+- `ControlPanel` no longer stores a concrete `tokio::runtime::Handle` or
+  `JoinSet`; it holds `Arc<dyn AsyncSpawner>` and routes supervised work
+  through that trait.
+- `shell/desktop/runtime/registry_signal_router.rs` adapts the existing
+  Register async subscription API into the portable `SignalRouter`
+  stream-based interface.
+- `GuiFrameInbox::spawn` now consumes `Arc<dyn SignalRouter>` instead of
+  calling `phase3_subscribe_signal_async(...)` directly.
+- `GraphshellRuntime::new_minimal` and `EguiHost::new` now construct and
+  retain `async_spawner` / `signal_router` alongside the existing
+  `tokio_runtime`, so host wiring is explicit at the runtime boundary.
+
+Validation performed without compiling the shell/Servo/webrender stack:
+
+- `cargo test -p graphshell-core --lib`: **225 pass** locally.
+- `cargo build -p graphshell-core --target wasm32-unknown-unknown`:
+  **passes** locally, confirming the new host-boundary modules remain
+  portable.
+- Shell-side files were checked through editor diagnostics after the
+  refactor. Full `cargo test -p graphshell --lib` / end-to-end validation
+  was intentionally skipped because that path currently drags the parallel
+  webrender/Servo build graph back in.
+
+Remaining M5b work after this partial landing:
+
+- Migrate the live viewer-surface lifecycle to `ViewerSurfaceHost`
+  instead of the current shell-owned compositor registry path.
+- Re-run shell-side compile/test validation once the webrender-adjacent
+  build path is usable again, or once a narrower non-Servo check target
+  exists.
+
 **Estimate**: 6–8 files touched, 4–6 portable types promoted to
 graphshell-core, **medium complexity** once the Instant decision lands.
 

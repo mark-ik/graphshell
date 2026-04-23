@@ -116,7 +116,6 @@ pub fn run_graph_canvas_frame(
     use graph_canvas::engine::InteractionEngine;
     use graph_canvas::interaction::CanvasAction;
     use graph_canvas::layout::{ForceDirected, Layout, LayoutExtras};
-    use graph_canvas::packet::{Color, Stroke};
     use graph_canvas::projection::ViewDimension;
 
     app.ensure_graph_view_registered(view_id);
@@ -293,6 +292,17 @@ pub fn run_graph_canvas_frame(
                 }
                 CanvasAction::HoverNode(maybe_key) => {
                     app.workspace.graph_runtime.hovered_graph_node = *maybe_key;
+                    if maybe_key.is_some() {
+                        app.workspace.graph_runtime.hovered_graph_edge = None;
+                    }
+                }
+                CanvasAction::HoverEdge(maybe_edge) => {
+                    app.workspace.graph_runtime.hovered_graph_edge = maybe_edge
+                        .as_ref()
+                        .map(|edge| (edge.source, edge.target));
+                    if maybe_edge.is_some() {
+                        app.workspace.graph_runtime.hovered_graph_node = None;
+                    }
                 }
                 _ => {
                     graph_actions.extend(canvas_action_to_graph_actions(action));

@@ -87,25 +87,8 @@ mod tests {
     use super::*;
 
     fn renderer_id() -> RendererId {
-        #[cfg(not(target_os = "ios"))]
-        {
-            thread_local! {
-                static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-            }
-            NS_INSTALLED.with(|cell| {
-                if !cell.get() {
-                    base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(42));
-                    cell.set(true);
-                }
-            });
-            servo::WebViewId::new(base::id::PainterId::next())
-        }
-
-        #[cfg(target_os = "ios")]
-        {
-            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-            RendererId(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-        }
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        RendererId::from_raw(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
 
     #[test]

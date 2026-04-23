@@ -130,7 +130,11 @@ pub(crate) trait UiRenderBackendContract {
     fn egui_winit_state_mut(&mut self) -> &mut egui_winit::State;
 
     fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse;
-    fn run_ui_frame(&mut self, window: &Window, run_ui: impl FnMut(&Context, &mut Self));
+    fn run_ui_frame(
+        &mut self,
+        window: &Window,
+        run_ui: impl FnMut(&Context, &mut egui::Ui, &mut Self),
+    );
 
     fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken;
     fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)>;
@@ -199,10 +203,17 @@ impl UiRenderBackendContract for UiRenderBackendHandle {
         response
     }
 
-    fn run_ui_frame(&mut self, window: &Window, mut run_ui: impl FnMut(&Context, &mut Self)) {
+    fn run_ui_frame(
+        &mut self,
+        window: &Window,
+        mut run_ui: impl FnMut(&Context, &mut egui::Ui, &mut Self),
+    ) {
         let raw_input = self.egui_winit.take_egui_input(window);
         let egui_ctx = self.egui_ctx.clone();
-        let full_output = egui_ctx.run(raw_input, |ctx| run_ui(ctx, self));
+        let full_output = egui_ctx.run_ui(raw_input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            run_ui(&ctx, root_ui, self)
+        });
         self.egui_winit
             .handle_platform_output(window, full_output.platform_output);
 

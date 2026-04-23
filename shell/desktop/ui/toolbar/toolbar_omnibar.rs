@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 use euclid::default::Point2D;
 
 use crate::app::{user_visible_node_title_from_data, user_visible_node_url_from_data};
@@ -125,7 +126,10 @@ pub(super) fn spawn_provider_suggestion_request(
     provider: SearchProviderKind,
     query: &str,
     runtime_caches: crate::shell::desktop::runtime::caches::RuntimeCaches,
-) -> crossbeam_channel::Receiver<ProviderSuggestionFetchOutcome> {
+) -> Result<
+    graphshell_core::async_host::BlockingTaskReceiver<ProviderSuggestionFetchOutcome>,
+    graphshell_core::async_host::SpawnError,
+> {
     let query = query.to_string();
     control_panel.spawn_blocking_host_request_rx("omnibar_provider_suggestions", move || {
         let outcome = match fetch_provider_search_suggestions(provider, &query, &runtime_caches) {
@@ -874,7 +878,7 @@ pub(super) fn omnibar_matches_for_query(
             let warm_set = tab_node_keys_in_tree(graph_app, tiles_tree);
             let view_id = omnibar_graph_view_context(graph_app, tiles_tree);
             let mut local_tabs: Vec<NodeKey> = warm_set.iter().copied().collect();
-            local_tabs.sort_by_key(|key| key.index());
+            local_tabs.sort_by_key(|key: &NodeKey| key.index());
             let mut out: Vec<OmnibarMatch> =
                 local_tabs.into_iter().map(OmnibarMatch::Node).collect();
             // Append cold graphlet peers under the active projection — nodes with
@@ -1150,16 +1154,10 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::Tree;
     use euclid::default::Point2D;
-    use servo::WebViewId;
     use tempfile::TempDir;
 
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
+    fn test_renderer_id() -> crate::app::RendererId {
+        crate::app::renderer_id::test_renderer_id()
     }
 
     #[test]
@@ -1178,12 +1176,12 @@ mod tests {
             "https://example.com/source".into(),
             Point2D::new(10.0, 20.0),
         );
-        let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, source_key);
+        let renderer_id = test_renderer_id();
+        app.map_webview_to_node(renderer_id, source_key);
 
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-                webview_id,
+            webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Facet Clip".to_string(),
@@ -1686,11 +1684,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
         let source_key =
             app.add_node_and_sync("https://saved-source.example".into(), Point2D::zero());
-        let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, source_key);
+        let renderer_id = test_renderer_id();
+        app.map_webview_to_node(renderer_id, source_key);
         let _clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-                webview_id,
+            webview_id: renderer_id,
                 source_url: "https://saved-source.example".to_string(),
                 page_title: Some("Saved Source".to_string()),
                 clip_title: "Saved Clip".to_string(),
@@ -1735,12 +1733,12 @@ mod tests {
             "https://example.com/source".into(),
             Point2D::new(10.0, 20.0),
         );
-        let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, source_key);
+        let renderer_id = test_renderer_id();
+        app.map_webview_to_node(renderer_id, source_key);
 
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-                webview_id,
+            webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Visible Label Clip".to_string(),

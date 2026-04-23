@@ -9,10 +9,7 @@ use std::time::{Duration, Instant};
 
 use backon::{BackoffBuilder, ExponentialBuilder};
 use log::warn;
-use servo::{
-    OffscreenRenderingContext, RenderingContextCore, WebViewId,
-    WindowRenderingContext,
-};
+use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 use url::Url;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason, RuntimeEvent};
@@ -21,8 +18,13 @@ use crate::registries::infrastructure::mod_loader;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{EmbedderWindow, WebViewCreationContext};
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::lifecycle::webview_status_sync::{
+    renderer_id_from_servo, servo_webview_id_from_renderer,
+};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::{self, CHANNEL_MOD_LOAD_FAILED};
+use crate::shell::desktop::runtime::registries::{
+    self, CHANNEL_MOD_LOAD_FAILED, CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
+};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
 // Pragmatic Phase A backpressure:
@@ -191,6 +193,9 @@ pub(crate) fn ensure_webview_for_node(
     base_rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pane_id: Option<PaneId>,
     node_key: NodeKey,
     responsive_webviews: &HashSet<WebViewId>,
@@ -221,8 +226,11 @@ pub(crate) fn ensure_webview_for_node(
     }
 
     if let Some(existing_webview_id) = graph_app.get_webview_for_node(node_key) {
-        if window.contains_webview(existing_webview_id) {
-            if responsive_webviews.contains(&existing_webview_id)
+        if let Some(existing_servo_webview_id) =
+            servo_webview_id_from_renderer(existing_webview_id)
+            && window.contains_webview(existing_servo_webview_id)
+        {
+            if responsive_webviews.contains(&existing_servo_webview_id)
                 && let Some(state) = webview_creation_backpressure.get_mut(&node_key)
             {
                 state.pending = None;
@@ -299,9 +307,23 @@ pub(crate) fn ensure_webview_for_node(
         return;
     }
 
-    let render_context = viewer_surfaces.get_or_insert_gl_context_with(node_key, || {
-        Rc::new(window_rendering_context.offscreen_context(base_rendering_context.size()))
-    });
+    let _ = (base_rendering_context, window_rendering_context);
+    if viewer_surface_host.allocate_surface(viewer_surfaces, node_key).is_err() {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
+            byte_len: node_url.len(),
+        });
+        webview_creation_backpressure.remove(&node_key);
+        return;
+    }
+    let Some(render_context) = viewer_surfaces.gl_context(&node_key).cloned() else {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
+            byte_len: node_url.len(),
+        });
+        webview_creation_backpressure.remove(&node_key);
+        return;
+    };
     let pending_create_token = graph_app.take_pending_host_create_token(node_key);
     let webview = if let Some(token) = pending_create_token {
         let Some(request) = running_state.take_pending_create_request(token) else {
@@ -325,8 +347,11 @@ pub(crate) fn ensure_webview_for_node(
         window.create_toplevel_webview_with_context(running_state.clone(), url, render_context)
     };
     if let Some(pane_id) = pane_id
-        && let Err(error) =
-            registries::phase1_attach_renderer(pane_id, webview.id(), Some(node_key))
+        && let Err(error) = registries::phase1_attach_renderer(
+            pane_id,
+            renderer_id_from_servo(webview.id()),
+            Some(node_key),
+        )
     {
         warn!(
             "renderer registry rejected pane {:?} -> webview {:?} attachment for node {:?}: {:?}",
@@ -352,7 +377,7 @@ pub(crate) fn ensure_webview_for_node(
     });
     lifecycle_intents.extend([
         RuntimeEvent::MapWebviewToNode {
-            webview_id: webview.id(),
+            webview_id: renderer_id_from_servo(webview.id()),
             key: node_key,
         }
         .into(),
@@ -429,7 +454,7 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                     }
                     lifecycle_intents.push(
                         RuntimeEvent::UnmapWebview {
-                            webview_id: probe.webview_id,
+                            webview_id: renderer_id_from_servo(probe.webview_id),
                         }
                         .into(),
                     );

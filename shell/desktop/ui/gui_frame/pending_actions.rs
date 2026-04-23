@@ -10,6 +10,9 @@ pub(super) fn run_post_render_pending_actions(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
@@ -19,6 +22,7 @@ pub(super) fn run_post_render_pending_actions(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
@@ -32,6 +36,9 @@ struct PendingPostRenderActionPipeline<'a> {
     tiles_tree: &'a mut Tree<TileKind>,
     viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &'a mut Option<NodeKey>,
@@ -80,6 +87,7 @@ fn run_pending_graph_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeli
         pipeline.window,
         pipeline.tiles_tree,
         pipeline.viewer_surfaces,
+        pipeline.viewer_surface_host,
         pipeline.tile_favicon_textures,
         pipeline.webview_creation_backpressure,
         pipeline.focused_node_hint,

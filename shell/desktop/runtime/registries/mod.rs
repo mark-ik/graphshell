@@ -118,6 +118,8 @@ pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str = "registry.protoc
 pub(crate) const CHANNEL_VIEWER_SELECT_STARTED: &str = "registry.viewer.select_started";
 pub(crate) const CHANNEL_VIEWER_SELECT_SUCCEEDED: &str = "registry.viewer.select_succeeded";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_USED: &str = "registry.viewer.fallback_used";
+pub(crate) const CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED: &str =
+    "registry.viewer.surface_allocate_failed";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED: &str =
     "registry.viewer.fallback_wry_feature_disabled";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING: &str =

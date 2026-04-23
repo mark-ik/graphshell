@@ -2218,6 +2218,9 @@ pub(crate) fn switch_persistence_store(
     window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     viewer_surfaces: &mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    viewer_surface_host: &mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     lifecycle_intents: &mut Vec<GraphIntent>,
@@ -2231,6 +2234,7 @@ pub(crate) fn switch_persistence_store(
     tile_runtime::reset_runtime_webview_state(
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
     );

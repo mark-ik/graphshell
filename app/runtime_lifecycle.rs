@@ -511,7 +511,7 @@ impl GraphBrowserApp {
         if previous_lifecycle != Some(NodeLifecycle::Active)
             && let Some(node) = self.workspace.domain.graph.get_node(node_key)
         {
-            crate::shell::desktop::runtime::registries::phase3_publish_navigation_node_activated(
+            crate::app::runtime_ports::registries::phase3_publish_navigation_node_activated(
                 node_key,
                 node.url(),
                 &node.title,
@@ -746,23 +746,7 @@ mod tests {
     use super::*;
 
     fn test_webview_id() -> RendererId {
-        #[cfg(not(target_os = "ios"))]
-        {
-            thread_local! {
-                static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-            }
-            NS_INSTALLED.with(|cell| {
-                if !cell.get() {
-                    base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(42));
-                    cell.set(true);
-                }
-            });
-            servo::WebViewId::new(base::id::PainterId::next())
-        }
-        #[cfg(target_os = "ios")]
-        {
-            Default::default()
-        }
+        super::renderer_id::test_renderer_id()
     }
 
     #[test]

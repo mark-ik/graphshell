@@ -28,6 +28,7 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
+    pub(crate) root_ui: &'a mut egui::Ui,
     pub(crate) winit_window: &'a Window,
     pub(crate) state: &'a RunningAppState,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
@@ -51,6 +52,9 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) toasts: &'a mut egui_notify::Toasts,
     pub(crate) viewer_surfaces:
         &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
+        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -70,6 +74,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
 ) -> ToolbarDialogPhaseOutput {
     let ToolbarDialogPhaseArgs {
         ctx,
+        root_ui,
         winit_window,
         state,
         graph_app,
@@ -89,6 +94,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         command_surface_telemetry,
         toasts,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         #[cfg(feature = "diagnostics")]
@@ -117,6 +123,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
     let workbench_projection = shell_layout_pass.render_workbench(|| {
         workbench_host::render_workbench_host(
             ctx,
+            &mut *root_ui,
             graph_app,
             tiles_tree,
             graph_tree,
@@ -129,6 +136,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         |workbench_layer_state: WorkbenchLayerState| {
             toolbar_ui::render_toolbar_ui(ToolbarUiInput {
                 ctx,
+                root_ui: &mut *root_ui,
                 winit_window,
                 state,
                 graph_app,
@@ -157,6 +165,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
     );
     workbench_host::render_fallback_graph_scope_toolbar_host(
         ctx,
+        &mut *root_ui,
         graph_app,
         tiles_tree,
         graph_tree,
@@ -181,6 +190,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         window,
         tiles_tree,
         viewer_surfaces,
+        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         frame_intents,

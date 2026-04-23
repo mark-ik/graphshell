@@ -42,6 +42,7 @@ pub(crate) mod action_id {
         pub(crate) const NODE_DELETE: &str = "graph:node_delete";
         pub(crate) const CLEAR: &str = "graph:clear";
         pub(crate) const SELECT_ALL: &str = "graph:select_all";
+        pub(crate) const SELECT_VISIBLE: &str = "graph:select_visible";
     }
 
     pub(crate) mod workbench {
@@ -736,7 +737,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
             binding: InputBinding::Key {
-                modifiers: ModifierMask::NONE,
+                modifiers: ModifierMask::CTRL,
                 keycode: Keycode::Named(NamedKey::Plus),
             },
         },
@@ -746,7 +747,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
             binding: InputBinding::Key {
-                modifiers: ModifierMask::NONE,
+                modifiers: ModifierMask::CTRL,
                 keycode: Keycode::Named(NamedKey::Minus),
             },
         },
@@ -756,7 +757,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
             binding: InputBinding::Key {
-                modifiers: ModifierMask::NONE,
+                modifiers: ModifierMask::CTRL,
                 keycode: Keycode::Named(NamedKey::Num0),
             },
         },
@@ -877,6 +878,16 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             context: InputContext::GraphView,
             binding: InputBinding::Key {
                 modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('a'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: action_id::graph::SELECT_VISIBLE,
+            display_name: "Select Visible Nodes",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask(ModifierMask::CTRL.0 | ModifierMask::SHIFT.0),
                 keycode: Keycode::Char('a'),
             },
         },
@@ -1671,6 +1682,49 @@ mod tests {
     }
 
     #[test]
+    fn input_registry_uses_ctrl_modified_default_zoom_bindings() {
+        let registry = InputRegistry::default();
+        let descriptors = registry.describe_bindable_actions();
+        let zoom_in = descriptors
+            .iter()
+            .find(|entry| entry.action_id == action_id::graph::ZOOM_IN)
+            .expect("zoom-in binding descriptor should exist");
+        let zoom_out = descriptors
+            .iter()
+            .find(|entry| entry.action_id == action_id::graph::ZOOM_OUT)
+            .expect("zoom-out binding descriptor should exist");
+        let zoom_reset = descriptors
+            .iter()
+            .find(|entry| entry.action_id == action_id::graph::ZOOM_RESET)
+            .expect("zoom-reset binding descriptor should exist");
+
+        assert_eq!(
+            zoom_in
+                .default_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("Ctrl++")
+        );
+        assert_eq!(
+            zoom_out
+                .default_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("Ctrl+-")
+        );
+        assert_eq!(
+            zoom_reset
+                .default_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("Ctrl+0")
+        );
+    }
+
+    #[test]
     fn input_registry_action_ids_follow_namespace_name_format() {
         for action_id in [
             action_id::toolbar::SUBMIT,
@@ -1699,6 +1753,8 @@ mod tests {
             action_id::graph::NODE_DELETE,
             action_id::graph::CLEAR,
             action_id::graph::SELECT_ALL,
+            action_id::graph::SELECT_VISIBLE,
+            action_id::graph::SELECT_VISIBLE,
             action_id::workbench::HELP_OPEN,
             action_id::workbench::TOGGLE_WORKBENCH_OVERLAY,
             action_id::workbench::OPEN_HISTORY_MANAGER,
@@ -1716,5 +1772,24 @@ mod tests {
         ] {
             assert!(is_namespaced_action_id(action_id), "{action_id}");
         }
+    }
+
+    #[test]
+    fn input_registry_exposes_ctrl_shift_a_for_select_visible() {
+        let registry = InputRegistry::default();
+        let descriptors = registry.describe_bindable_actions();
+        let select_visible = descriptors
+            .iter()
+            .find(|entry| entry.action_id == action_id::graph::SELECT_VISIBLE)
+            .expect("select-visible binding descriptor should exist");
+
+        assert_eq!(
+            select_visible
+                .default_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("Ctrl+Shift+A")
+        );
     }
 }

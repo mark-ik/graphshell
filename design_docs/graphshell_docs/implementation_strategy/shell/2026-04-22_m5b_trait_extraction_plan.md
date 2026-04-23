@@ -414,8 +414,10 @@ browser at a 3–5 week premium.
 As of April 2026 (Rust ≈ 1.95): **wasm threading still requires
 nightly**. [Tracking issue #77839](https://github.com/rust-lang/rust/issues/77839)
 for WebAssembly atomics is open; `target_feature = "atomics"` and
-`-Z build-std` are both unstable. `wasm32-wasip1-threads` is an
-experimental target.
+`-Z build-std` are both unstable. The limiting factor here is Rust
+stabilisation rather than a missing wasm ecosystem piece.
+[`wasm32-wasip1-threads`](https://doc.rust-lang.org/rustc/platform-support/wasm32-wasip1-threads.html)
+is an experimental target.
 
 Consequences for Graphshell:
 

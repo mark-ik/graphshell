@@ -480,17 +480,10 @@ fn text_relevance(query: &str, haystack: &str) -> Option<f32> {
 mod tests {
     use super::*;
     use crate::graph::{ImportRecord, ImportRecordMembership};
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use euclid::default::Point2D;
-    use servo::WebViewId;
 
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
+    fn test_renderer_id() -> crate::app::RendererId {
+        crate::app::renderer_id::test_renderer_id()
     }
     #[test]
     fn index_registry_fans_out_to_local_history_and_knowledge_providers() {
@@ -720,11 +713,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let source_key =
             app.add_node_and_sync("https://example.com/source".into(), Point2D::new(0.0, 0.0));
-        let webview_id = test_webview_id();
-        app.map_webview_to_node(webview_id, source_key);
+        let renderer_id = test_renderer_id();
+        app.map_webview_to_node(renderer_id, source_key);
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-                webview_id,
+            webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Indexed Clip".to_string(),

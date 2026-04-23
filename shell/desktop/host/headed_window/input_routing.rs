@@ -319,7 +319,11 @@ pub(super) fn handle_intercepted_key_bindings(
             window.notify_host_open_request(
                 "servo:newtab".to_string(),
                 OpenSurfaceSource::KeyboardShortcut,
-                Some(active_webview.id()),
+                Some(
+                    crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                        active_webview.id(),
+                    ),
+                ),
                 None,
             );
         })

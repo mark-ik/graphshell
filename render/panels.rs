@@ -1093,14 +1093,34 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                             let help_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
                                 action_id::workbench::HELP_OPEN,
                             ).join(" / ");
+                            let select_all_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                                action_id::graph::SELECT_ALL,
+                            ).join(" / ");
+                            let select_visible_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                                action_id::graph::SELECT_VISIBLE,
+                            ).join(" / ");
+                            let zoom_key = [
+                                action_id::graph::ZOOM_IN,
+                                action_id::graph::ZOOM_OUT,
+                                action_id::graph::ZOOM_RESET,
+                            ]
+                            .into_iter()
+                            .map(crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action)
+                            .map(|labels| labels.join(" / "))
+                            .collect::<Vec<_>>()
+                            .join(" / ");
                             let shortcuts = [
                                 ("Home / Esc", "Toggle Graph / Detail view"),
+                                ("Tab", "Move between the graph surface and selected content"),
+                                ("Arrow keys", "Move graph-surface focus between visible nodes"),
+                                ("Shift + Arrow keys", "Extend graph-surface selection"),
+                                ("Esc", "Dismiss graph tooltip or close the active overlay"),
                                 ("N", "Create new node"),
                                 ("Delete", "Remove selected nodes"),
                                 ("Ctrl+Shift+Delete", "Clear entire graph"),
                                 ("T", "Toggle physics simulation"),
                                 ("R", "Reheat physics simulation"),
-                                ("+ / - / 0", "Zoom in / out / reset"),
+                                (&zoom_key, "Zoom in / out / reset"),
                                 ("C", "Toggle camera position-fit lock"),
                                 ("Z", "Toggle camera zoom-fit lock"),
                                 ("P", "Physics settings panel"),
@@ -1114,6 +1134,8 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 ("Alt+G", "Remove user edge"),
                                 ("I / U", "Pin / Unpin selected node(s)"),
                                 ("L", "Toggle pin on primary selected node"),
+                                (&select_all_key, "Select all nodes in current graph view"),
+                                (&select_visible_key, "Select visible nodes on graph surface"),
                                 (lasso_base, "Lasso select (replace)"),
                                 (lasso_add, "Lasso add to selection"),
                                 (lasso_toggle, "Lasso toggle selection"),
@@ -1125,7 +1147,8 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 ("Drag tab out", "Detach tab into split pane"),
                                 ("Shift + Double-click node", "Fallback split-open gesture"),
                                 ("Click + drag", "Move a node"),
-                                ("Scroll wheel", "Zoom in / out"),
+                                ("Scroll wheel", "Pan canvas"),
+                                ("Ctrl+Scroll wheel", "Zoom in / out"),
                             ];
 
                             for (key, desc) in shortcuts {
@@ -3029,7 +3052,7 @@ pub fn render_navigator_tool_pane_in_ui(
         app.navigator_projection_state().expanded_rows.len(),
     ));
 
-    if !ui.ctx().wants_keyboard_input() {
+    if !ui.ctx().egui_wants_keyboard_input() {
         ui.ctx().input(|input| {
             if input.key_pressed(egui::Key::ArrowUp) {
                 apply_navigator_keyboard_action(
@@ -3557,8 +3580,8 @@ fn toast_anchor_label(anchor: ToastAnchorPreference) -> &'static str {
 
 fn lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
     match binding {
-        CanvasLassoBinding::RightDrag => "Right Drag (Default)",
-        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag",
+        CanvasLassoBinding::RightDrag => "Right Drag",
+        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag (Default)",
     }
 }
 

@@ -1447,7 +1447,7 @@ fn append_graph_surface_semantics(
         ux_node_id: ux_node_id.to_string(),
         parent_ux_node_id: parent_ux_node_id.map(str::to_string),
         role: UxNodeRole::GraphSurface,
-        label: format!("Graph View {graph_view_id:?}"),
+        label: format!("Graph Canvas {graph_view_id:?}"),
         state: UxNodeState {
             focused,
             selected: tile_selected,
@@ -1550,7 +1550,7 @@ fn push_nodes(
     presentation_nodes: &mut Vec<UxPresentationNode>,
     trace_nodes: &mut Vec<UxTraceNode>,
 ) {
-    use super::ux_tree_source::{ContainerKind, ResolvedPane};
+    use super::ux_tree_source::ResolvedPane;
 
     let Some(resolved) = walker.resolve(graph_app, handle) else {
         return;

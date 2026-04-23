@@ -22,10 +22,10 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use graphshell_core::async_host::{AsyncSpawner, BlockingTaskReceiver, SpawnError};
 use sysinfo::System;
 use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
-use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
@@ -44,6 +44,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_SYSTEM_TASK_BUDGET_WORKER_RESUMED, CHANNEL_SYSTEM_TASK_BUDGET_WORKER_SUSPENDED,
     RegistryRuntime,
 };
+use verso_host::TokioAsyncSpawner;
 
 // `HostRequestMailbox<T>` was removed in M4 slice 5 (2026-04-22). The
 // omnibar path (its sole caller) now uses
@@ -258,17 +259,16 @@ pub(crate) struct ControlPanel {
     /// construction time (`worker_idle_threshold_secs`).
     worker_idle_threshold_ms: u64,
     /// Live worker count per tier — incremented at spawn, never decremented
-    /// (workers are supervised through JoinSet; this is a spawn-site record,
+    /// (workers are supervised through the host spawner; this is a spawn-site record,
     /// not a live-task count). Used by the §4 concurrency budget query surface.
     registered_tiers: HashMap<WorkerTier, usize>,
-    /// Optional Tokio runtime handle used to make supervised worker spawning
-    /// explicit instead of depending on ambient runtime context.
-    runtime_handle: Option<Handle>,
-    /// Supervised background worker tasks.
-    workers: JoinSet<()>,
+    /// Host-provided async spawner for supervised work.
+    async_spawner: Arc<dyn AsyncSpawner>,
     /// Concurrency gate for Tier 3 short-lived tasks (protocol probes, blocking
     /// host requests, supervised one-shots). Capacity = [`TIER3_TASK_LIMIT`].
     short_lived_semaphore: Arc<Semaphore>,
+    #[cfg(test)]
+    worker_count_for_tests: usize,
 }
 
 impl ControlPanel {
@@ -278,7 +278,9 @@ impl ControlPanel {
     /// `worker_idle_threshold_secs` is sourced from `AppPreferences`; pass
     /// `None` to use the built-in default of 120 s.
     pub(crate) fn new(worker_idle_threshold_secs: Option<u64>) -> Self {
-        Self::new_with_optional_runtime(worker_idle_threshold_secs, Handle::try_current().ok())
+        let async_spawner: Arc<dyn AsyncSpawner> =
+            Arc::new(TokioAsyncSpawner::new(Handle::try_current().ok()));
+        Self::new_with_async_spawner(worker_idle_threshold_secs, async_spawner)
     }
 
     /// Create a `ControlPanel` bound to an explicit Tokio runtime handle.
@@ -290,12 +292,14 @@ impl ControlPanel {
         worker_idle_threshold_secs: Option<u64>,
         runtime_handle: Handle,
     ) -> Self {
-        Self::new_with_optional_runtime(worker_idle_threshold_secs, Some(runtime_handle))
+        let async_spawner: Arc<dyn AsyncSpawner> =
+            Arc::new(TokioAsyncSpawner::new(Some(runtime_handle)));
+        Self::new_with_async_spawner(worker_idle_threshold_secs, async_spawner)
     }
 
-    fn new_with_optional_runtime(
+    pub(crate) fn new_with_async_spawner(
         worker_idle_threshold_secs: Option<u64>,
-        runtime_handle: Option<Handle>,
+        async_spawner: Arc<dyn AsyncSpawner>,
     ) -> Self {
         let (intent_tx, intent_rx) = mpsc::channel(INTENT_CHANNEL_CAPACITY);
         let (lifecycle_policy_tx, _lifecycle_policy_rx) =
@@ -321,25 +325,33 @@ impl ControlPanel {
             currently_idle: false,
             worker_idle_threshold_ms,
             registered_tiers: HashMap::new(),
-            runtime_handle,
-            workers: JoinSet::new(),
+            async_spawner,
             short_lived_semaphore: Arc::new(Semaphore::new(TIER3_TASK_LIMIT)),
             sync_command_tx: None,
             discovery_result_rx: None,
+            #[cfg(test)]
+            worker_count_for_tests: 0,
         }
     }
 
-    fn spawn_worker<F>(&mut self, task: F)
+    fn spawn_worker<F>(&mut self, label: &'static str, task: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let handle = self.runtime_handle.clone().unwrap_or_else(|| {
-            panic!(
-                "ControlPanel worker spawn requires a Tokio runtime handle; construct with ControlPanel::new_with_runtime(...) or create ControlPanel inside an active Tokio runtime"
-            )
-        });
-        let _guard = handle.enter();
-        self.workers.spawn(task);
+        match self.async_spawner.spawn_supervised(label, Box::pin(task)) {
+            Ok(()) => {
+                #[cfg(test)]
+                {
+                    self.worker_count_for_tests += 1;
+                }
+            }
+            Err(SpawnError::ShuttingDown) => {
+                log::debug!("control_panel: spawn rejected during shutdown ({label})");
+            }
+            Err(SpawnError::Unsupported) => {
+                panic!("ControlPanel async spawner does not support supervised tasks ({label})");
+            }
+        }
     }
 
     /// Drain all pending intents from async producers (non-blocking).
@@ -407,7 +419,7 @@ impl ControlPanel {
     pub(crate) fn spawn_memory_monitor(&mut self) {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_memory_monitor", async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: memory monitor cancelled");
@@ -425,7 +437,7 @@ impl ControlPanel {
     pub(crate) fn spawn_mod_loader(&mut self) {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_mod_loader", async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: mod loader cancelled");
@@ -527,7 +539,7 @@ impl ControlPanel {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
         let policy_rx = self.lifecycle_policy_tx.subscribe();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_prefetch_scheduler", async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: prefetch scheduler cancelled");
@@ -548,7 +560,7 @@ impl ControlPanel {
         self.discovery_result_rx = Some(discovery_result_rx);
         let mut suspended_rx = self.p2p_sync_suspended_tx.subscribe();
 
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_p2p_sync", async move {
             let resources = match verse::sync_worker_resources(
                 crate::shell::desktop::runtime::registries::phase3_trusted_peers_handle(),
             ) {
@@ -622,13 +634,13 @@ impl ControlPanel {
 
         // Relay worker task.
         let worker_cancel = cancel.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_nostr_relay_worker", async move {
             NostrRelayWorker::new(command_rx, worker_cancel).run().await;
         });
 
         // Event dispatch task: translates inbound relay events into intents.
         let intent_tx = self.intent_tx.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_nostr_event_dispatch", async move {
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => break,
@@ -658,7 +670,7 @@ impl ControlPanel {
         // this task merely records transitions until NostrRelayWorker gains a
         // native suspension API.
         let suspend_cancel = self.cancel.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_nostr_suspend_observer", async move {
             loop {
                 tokio::select! {
                     _ = suspend_cancel.cancelled() => break,
@@ -688,7 +700,7 @@ impl ControlPanel {
             registries: Arc::clone(&registries),
         };
         let handle = agent.spawn(context);
-        self.spawn_worker(handle.task);
+        self.spawn_worker("control_panel_agent", handle.task);
         registries.route_agent_spawned(&agent_id);
         log::debug!("control_panel: agent spawned ({agent_name}, {agent_id})");
     }
@@ -705,7 +717,7 @@ impl ControlPanel {
         F: Future<Output = ()> + Send + 'static,
     {
         let sem = Arc::clone(&self.short_lived_semaphore);
-        self.spawn_worker(async move {
+        self.spawn_worker(label, async move {
             match sem.acquire_owned().await {
                 Ok(_permit) => task.await, // permit released when task completes
                 Err(_) => {}               // semaphore closed = shutdown in progress
@@ -730,28 +742,17 @@ impl ControlPanel {
         &mut self,
         label: &'static str,
         work: F,
-    ) -> crossbeam_channel::Receiver<T>
+    ) -> Result<BlockingTaskReceiver<T>, SpawnError>
     where
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
     {
-        let cancel = self.cancel.child_token();
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        self.spawn_supervised_task(label, async move {
-            if cancel.is_cancelled() {
-                return;
-            }
-
-            let result = tokio::task::spawn_blocking(work).await;
-            if cancel.is_cancelled() {
-                return;
-            }
-
-            if let Ok(value) = result {
-                let _ = tx.send(value);
-            }
-        });
-        rx
+        let result = graphshell_core::async_host::spawn_blocking(self.async_spawner.as_ref(), label, work);
+        #[cfg(test)]
+        if result.is_ok() {
+            self.worker_count_for_tests += 1;
+        }
+        result
     }
 
     pub(crate) fn spawn_registered_agent(
@@ -774,7 +775,7 @@ impl ControlPanel {
         F: Future<Output = ()> + Send + 'static,
     {
         let cancel = self.cancel.clone();
-        self.spawn_worker(async move {
+        self.spawn_worker(label, async move {
             tokio::select! {
                 _ = cancel.cancelled() => {
                     log::debug!("control_panel: shell signal relay cancelled ({label})");
@@ -815,7 +816,7 @@ impl ControlPanel {
         let tx = self.intent_tx.clone();
         let active_probes = Arc::clone(&self.active_protocol_probes);
         let sem = Arc::clone(&self.short_lived_semaphore);
-        self.spawn_worker(async move {
+        self.spawn_worker("control_panel_protocol_probe", async move {
             // Acquire a Tier 3 concurrency permit before running the probe.
             // If the semaphore is closed (shutdown), skip silently.
             let Ok(_permit) = sem.acquire_owned().await else {
@@ -861,24 +862,28 @@ impl ControlPanel {
     /// Cancel all supervised workers and await their completion.
     ///
     /// Safe to call from an async context (e.g. the main app shutdown path).
-    /// After this returns the `JoinSet` is empty and the channel is drained.
+    /// After this returns the spawner has joined its supervised tasks and the
+    /// channel is drained.
     pub(crate) async fn shutdown(&mut self) {
         log::debug!(
-            "control_panel: shutdown requested — cancelling {} workers",
-            self.workers.len()
+            "control_panel: shutdown requested — cancelling supervised workers"
         );
         // Close the semaphore first so any tasks waiting to acquire a Tier 3
         // permit unblock immediately and exit without doing work.
         self.short_lived_semaphore.close();
         self.cancel.cancel();
-        while self.workers.join_next().await.is_some() {}
+        self.async_spawner.shutdown().await;
+        #[cfg(test)]
+        {
+            self.worker_count_for_tests = 0;
+        }
         log::debug!("control_panel: all workers joined");
     }
 
     /// Number of background workers currently supervised.
     #[cfg(test)]
     pub(crate) fn worker_count(&self) -> usize {
-        self.workers.len()
+        self.worker_count_for_tests
     }
 
     #[cfg(test)]
@@ -1234,22 +1239,27 @@ mod tests {
     async fn spawn_blocking_host_request_rx_is_supervised_and_returns_result() {
         let mut panel = ControlPanel::new(None);
 
-        let rx = panel.spawn_blocking_host_request_rx("test_blocking_request", || 42usize);
+        let rx = panel
+            .spawn_blocking_host_request_rx("test_blocking_request", || 42usize)
+            .expect("blocking host request should spawn");
 
         assert_eq!(panel.worker_count(), 1);
         let started = Instant::now();
         let value = loop {
             match rx.try_recv() {
                 Ok(value) => break value,
-                Err(crossbeam_channel::TryRecvError::Empty) => {
+                Err(graphshell_core::async_host::BlockingTryRecvError::Empty) => {
                     assert!(
                         started.elapsed() < Duration::from_secs(2),
                         "blocking host request should return a value"
                     );
                     tokio::task::yield_now().await;
                 }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                Err(graphshell_core::async_host::BlockingTryRecvError::Disconnected) => {
                     panic!("blocking host request should not disconnect before delivery");
+                }
+                Err(graphshell_core::async_host::BlockingTryRecvError::TypeMismatch) => {
+                    panic!("blocking host request delivered an unexpected type");
                 }
             }
         };

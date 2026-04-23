@@ -26,7 +26,9 @@ mod tests {
     use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
     use crate::shell::desktop::ui::iced_events::from_iced_event;
     use crate::shell::desktop::ui::iced_host_ports::IcedHostPorts;
-    use crate::shell::desktop::workbench::ux_replay::{HostEvent, PointerButton};
+    use crate::shell::desktop::workbench::ux_replay::{
+        HostEvent, PointerButton, host_event_from_egui_event,
+    };
 
     // -----------------------------------------------------------------------
     // Level 1 — event translation parity.
@@ -39,7 +41,7 @@ mod tests {
             position: iced::Point { x: 5.0, y: 7.0 },
         });
 
-        let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");
+        let from_egui = host_event_from_egui_event(&egui_event).expect("egui translates");
         let from_iced = from_iced_event(&iced_event).expect("iced translates");
         assert_eq!(from_egui, from_iced);
     }
@@ -55,7 +57,7 @@ mod tests {
         let iced_event =
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left));
 
-        let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");
+        let from_egui = host_event_from_egui_event(&egui_event).expect("egui translates");
         let from_iced = from_iced_event(&iced_event).expect("iced translates");
 
         // Both should produce a PointerDown with PointerButton::Primary.
@@ -102,7 +104,7 @@ mod tests {
             repeat: false,
         });
 
-        let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");
+        let from_egui = host_event_from_egui_event(&egui_event).expect("egui translates");
         let from_iced = from_iced_event(&iced_event).expect("iced translates");
         assert_eq!(from_egui, from_iced);
     }
@@ -112,7 +114,7 @@ mod tests {
         let egui_event = egui::Event::WindowFocused(true);
         let iced_event = iced::Event::Window(iced::window::Event::Focused);
 
-        let from_egui = HostEvent::from_egui_event(&egui_event).expect("egui translates");
+        let from_egui = host_event_from_egui_event(&egui_event).expect("egui translates");
         let from_iced = from_iced_event(&iced_event).expect("iced translates");
         assert_eq!(from_egui, from_iced);
     }

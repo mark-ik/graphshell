@@ -169,6 +169,16 @@ impl GraphBrowserApp {
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
     }
 
+    pub(crate) fn promote_focused_selection_primary(&mut self, key: NodeKey) {
+        self.workspace.graph_runtime.selected_frame_name = None;
+        let previous_primary = self.focused_selection().primary();
+        let scope = self.current_selection_scope();
+        if self.current_selection_mut().promote_primary(key) {
+            self.sync_selection_edge_projection_override_for_scope(scope);
+            self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
+        }
+    }
+
     pub(crate) fn restore_selection_snapshot(
         &mut self,
         active_selection: SelectionState,

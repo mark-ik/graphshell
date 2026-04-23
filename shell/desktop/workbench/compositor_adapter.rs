@@ -147,6 +147,7 @@ pub(crate) fn egui_stroke_from_portable(s: graph_canvas::packet::Stroke) -> Stro
 use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContextCore, WebView};
+use verso_host::ViewerSurfaceRegistryHost;
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED;
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED;
@@ -375,7 +376,29 @@ impl ViewerSurfaceRegistry {
     pub(crate) fn remove(&mut self, key: &NodeKey) -> Option<ViewerSurface> {
         self.surfaces.remove(key)
     }
+}
 
+
+impl ViewerSurfaceRegistryHost for ViewerSurfaceRegistry {
+    type Surface = std::rc::Rc<OffscreenRenderingContext>;
+
+    fn get_or_insert_surface_with<F>(&mut self, node_key: NodeKey, create_surface: F)
+    where
+        F: FnOnce() -> Self::Surface,
+    {
+        let _ = self.get_or_insert_gl_context_with(node_key, create_surface);
+    }
+
+    fn retire_surface(&mut self, node_key: NodeKey) {
+        self.remove(&node_key);
+    }
+
+    fn has_surface(&self, node_key: NodeKey) -> bool {
+        self.contains_gl_context(&node_key)
+    }
+}
+
+impl ViewerSurfaceRegistry {
     /// Iterate over all node keys with surfaces.
     pub(crate) fn keys(&self) -> impl Iterator<Item = &NodeKey> {
         self.surfaces.keys()
@@ -2031,7 +2054,7 @@ mod tests {
         fn run_ui_frame(
             &mut self,
             _window: &winit::window::Window,
-            _run_ui: impl FnMut(&egui::Context, &mut Self),
+            _run_ui: impl FnMut(&egui::Context, &mut egui::Ui, &mut Self),
         ) {
             panic!("ui frame execution should not be used in compositor retirement tests")
         }
