@@ -228,7 +228,7 @@ pub use graph_app_types::*;
 pub(crate) mod runtime_ports;
 
 #[path = "app/renderer_id.rs"]
-mod renderer_id;
+pub(crate) mod renderer_id;
 pub(crate) use renderer_id::RendererId;
 
 #[derive(Default)]
@@ -1925,3 +1925,7 @@ impl Default for GraphBrowserApp {
 #[cfg(test)]
 #[path = "graph_app_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "app/sanctioned_writes_tests.rs"]
+mod sanctioned_writes_tests;
