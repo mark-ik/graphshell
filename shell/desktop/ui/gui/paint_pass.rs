@@ -5,7 +5,7 @@
 use super::*;
 
 use crate::shell::desktop::render_backend::{
-    begin_ui_render_backend_paint, end_ui_render_backend_paint,
+    HostNeutralRenderBackend, begin_ui_render_backend_paint, end_ui_render_backend_paint,
 };
 
 pub(super) fn paint(gui: &mut EguiHost, window: &Window) {

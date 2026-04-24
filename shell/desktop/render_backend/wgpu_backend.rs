@@ -122,7 +122,39 @@ pub(crate) struct UiRenderBackendHandle {
     native_textures: HashMap<BackendTextureToken, servo::wgpu::Texture>,
 }
 
-pub(crate) trait UiRenderBackendContract {
+/// Host-neutral render-backend surface (§12.13, 2026-04-24).
+///
+/// Carries only the wgpu / texture / surface operations both egui and
+/// iced hosts need. Iced hosts impl just this trait; egui hosts impl
+/// the extension trait [`UiRenderBackendContract`] that adds the
+/// egui-specific surface (`Context`, `egui_winit::State`,
+/// `handle_window_event` returning egui's `EventResponse`).
+///
+/// Splitting the trait this way keeps the wgpu shared-device + native
+/// texture interop seam (introduced for the M4.5 §12.10 viewer-surface
+/// path) reachable from iced without dragging egui types across the
+/// boundary.
+pub(crate) trait HostNeutralRenderBackend {
+    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken;
+    fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)>;
+    fn upsert_native_texture(
+        &mut self,
+        existing: Option<BackendTextureToken>,
+        texture: &servo::wgpu::Texture,
+    ) -> Option<BackendTextureToken>;
+    fn free_native_texture(&mut self, token: BackendTextureToken);
+
+    fn submit_frame(&mut self, window: &Window);
+    fn destroy_surface(&mut self);
+}
+
+/// Egui-specific extension over [`HostNeutralRenderBackend`].
+///
+/// Holds the egui `Context` + `egui_winit::State` and the egui frame
+/// lifecycle (`handle_window_event` returning egui's `EventResponse`,
+/// `run_ui_frame` consuming an egui `Ui` closure). The egui host
+/// targets this trait; iced targets only the host-neutral parent.
+pub(crate) trait UiRenderBackendContract: HostNeutralRenderBackend {
     fn init_surface_accesskit<Event>(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -141,18 +173,6 @@ pub(crate) trait UiRenderBackendContract {
         window: &Window,
         run_ui: impl FnMut(&Context, &mut egui::Ui, &mut Self),
     );
-
-    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken;
-    fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)>;
-    fn upsert_native_texture(
-        &mut self,
-        existing: Option<BackendTextureToken>,
-        texture: &servo::wgpu::Texture,
-    ) -> Option<BackendTextureToken>;
-    fn free_native_texture(&mut self, token: BackendTextureToken);
-
-    fn submit_frame(&mut self, window: &Window);
-    fn destroy_surface(&mut self);
 }
 
 impl UiRenderBackendHandle {
@@ -170,6 +190,90 @@ impl UiRenderBackendHandle {
 
         self.painter
             .on_window_resized(egui::ViewportId::ROOT, width, height);
+    }
+}
+
+impl HostNeutralRenderBackend for UiRenderBackendHandle {
+    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
+        BackendTextureToken(texture_id)
+    }
+
+    fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)> {
+        let render_state = self.render_state()?;
+        Some((render_state.device, render_state.queue))
+    }
+
+    fn upsert_native_texture(
+        &mut self,
+        existing: Option<BackendTextureToken>,
+        texture: &servo::wgpu::Texture,
+    ) -> Option<BackendTextureToken> {
+        let render_state = self.render_state()?;
+        let texture_view = texture.create_view(&servo::wgpu::TextureViewDescriptor::default());
+        let mut renderer = render_state.renderer.write();
+
+        let token = if let Some(existing) = existing {
+            renderer.update_egui_texture_from_wgpu_texture(
+                &render_state.device,
+                &texture_view,
+                servo::wgpu::FilterMode::Linear,
+                existing.0,
+            );
+            existing
+        } else {
+            BackendTextureToken(renderer.register_native_texture(
+                &render_state.device,
+                &texture_view,
+                servo::wgpu::FilterMode::Linear,
+            ))
+        };
+
+        self.native_textures.insert(token, texture.clone());
+        Some(token)
+    }
+
+    fn free_native_texture(&mut self, token: BackendTextureToken) {
+        if trace_texture_delta_enabled() {
+            eprintln!("graphshell_free_native_texture id={:?}", token.0);
+        }
+        if let Some(render_state) = self.render_state() {
+            render_state.renderer.write().free_texture(&token.0);
+        }
+        self.native_textures.remove(&token);
+    }
+
+    fn submit_frame(&mut self, _window: &Window) {
+        let Some(frame) = self.pending_frame.take() else {
+            return;
+        };
+
+        if trace_texture_delta_enabled()
+            && let Some(render_state) = self.render_state()
+        {
+            let renderer = render_state.renderer.read();
+            for (id, image_delta) in &frame.textures_delta.set {
+                eprintln!(
+                    "graphshell_texture_delta id={id:?} pos={:?} exists={} free_count={}",
+                    image_delta.pos,
+                    renderer.texture(id).is_some(),
+                    frame.textures_delta.free.len(),
+                );
+            }
+        }
+
+        let _ = self.painter.paint_and_update_textures(
+            egui::ViewportId::ROOT,
+            frame.pixels_per_point,
+            [0.0, 0.0, 0.0, 0.0],
+            &frame.clipped_primitives,
+            &frame.textures_delta,
+            Vec::new(),
+        );
+    }
+
+    fn destroy_surface(&mut self) {
+        self.native_textures.clear();
+        self.painter.destroy();
     }
 }
 
@@ -230,84 +334,5 @@ impl UiRenderBackendContract for UiRenderBackendHandle {
             textures_delta: full_output.textures_delta,
             pixels_per_point: full_output.pixels_per_point,
         });
-    }
-
-    fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
-        BackendTextureToken(texture_id)
-    }
-
-    fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)> {
-        let render_state = self.render_state()?;
-        Some((render_state.device, render_state.queue))
-    }
-
-    fn upsert_native_texture(
-        &mut self,
-        existing: Option<BackendTextureToken>,
-        texture: &servo::wgpu::Texture,
-    ) -> Option<BackendTextureToken> {
-        let render_state = self.render_state()?;
-        let texture_view = texture.create_view(&servo::wgpu::TextureViewDescriptor::default());
-        let mut renderer = render_state.renderer.write();
-
-        let token = if let Some(existing) = existing {
-            renderer.update_egui_texture_from_wgpu_texture(
-                &render_state.device,
-                &texture_view,
-                servo::wgpu::FilterMode::Linear,
-                existing.0,
-            );
-            existing
-        } else {
-            BackendTextureToken(renderer.register_native_texture(
-                &render_state.device,
-                &texture_view,
-                servo::wgpu::FilterMode::Linear,
-            ))
-        };
-
-        self.native_textures.insert(token, texture.clone());
-        Some(token)
-    }
-
-    fn free_native_texture(&mut self, token: BackendTextureToken) {
-        if let Some(render_state) = self.render_state() {
-            render_state.renderer.write().free_texture(&token.0);
-        }
-        self.native_textures.remove(&token);
-    }
-
-    fn submit_frame(&mut self, _window: &Window) {
-        let Some(frame) = self.pending_frame.take() else {
-            return;
-        };
-
-        if trace_texture_delta_enabled()
-            && let Some(render_state) = self.render_state()
-        {
-            let renderer = render_state.renderer.read();
-            for (id, image_delta) in &frame.textures_delta.set {
-                eprintln!(
-                    "graphshell_texture_delta id={id:?} pos={:?} exists={} free_count={}",
-                    image_delta.pos,
-                    renderer.texture(id).is_some(),
-                    frame.textures_delta.free.len(),
-                );
-            }
-        }
-
-        let _ = self.painter.paint_and_update_textures(
-            egui::ViewportId::ROOT,
-            frame.pixels_per_point,
-            [0.0, 0.0, 0.0, 0.0],
-            &frame.clipped_primitives,
-            &frame.textures_delta,
-            Vec::new(),
-        );
-    }
-
-    fn destroy_surface(&mut self) {
-        self.native_textures.clear();
-        self.painter.destroy();
     }
 }

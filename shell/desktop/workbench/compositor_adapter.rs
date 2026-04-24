@@ -41,8 +41,9 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
     BackendContentBridge, BackendCustomPass, BackendGraphicsContext, BackendParentRenderCallback,
     BackendParentRenderRegionInPixels, BackendTextureToken, BackendViewportInPixels,
-    UiRenderBackendContract, UiRenderBackendHandle, backend_content_bridge_mode_label,
-    backend_content_bridge_path, custom_pass_from_backend_viewport, register_custom_paint_callback,
+    HostNeutralRenderBackend, UiRenderBackendContract, UiRenderBackendHandle,
+    backend_content_bridge_mode_label, backend_content_bridge_path,
+    custom_pass_from_backend_viewport, register_custom_paint_callback,
     select_content_bridge_from_render_context, texture_id_from_token,
 };
 #[cfg(feature = "gl_compat")]
@@ -2193,8 +2194,8 @@ mod tests {
     use crate::graph::NodeKey;
     use crate::shell::desktop::render_backend::{
         BackendContentBridgeCapabilities, BackendParentRenderCallback,
-        BackendParentRenderRegionInPixels, BackendTextureToken, UiRenderBackendContract,
-        backend_bridge_test_env_lock, backend_content_bridge_mode_label,
+        BackendParentRenderRegionInPixels, BackendTextureToken, HostNeutralRenderBackend,
+        UiRenderBackendContract, backend_bridge_test_env_lock, backend_content_bridge_mode_label,
         backend_content_bridge_path, clear_backend_bridge_env_for_tests,
         select_backend_content_bridge_with_capabilities, set_backend_bridge_mode_env_for_tests,
     };
@@ -2247,6 +2248,32 @@ mod tests {
         }
     }
 
+    impl HostNeutralRenderBackend for RecordingBackend {
+        fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
+            BackendTextureToken(texture_id)
+        }
+
+        fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)> {
+            None
+        }
+
+        fn upsert_native_texture(
+            &mut self,
+            _existing: Option<BackendTextureToken>,
+            _texture: &servo::wgpu::Texture,
+        ) -> Option<BackendTextureToken> {
+            None
+        }
+
+        fn free_native_texture(&mut self, token: BackendTextureToken) {
+            self.freed_textures.push(token);
+        }
+
+        fn submit_frame(&mut self, _window: &winit::window::Window) {}
+
+        fn destroy_surface(&mut self) {}
+    }
+
     impl UiRenderBackendContract for RecordingBackend {
         fn init_surface_accesskit<Event>(
             &mut self,
@@ -2285,30 +2312,6 @@ mod tests {
         ) {
             panic!("ui frame execution should not be used in compositor retirement tests")
         }
-
-        fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
-            BackendTextureToken(texture_id)
-        }
-
-        fn shared_wgpu_device_queue(&self) -> Option<(servo::wgpu::Device, servo::wgpu::Queue)> {
-            None
-        }
-
-        fn upsert_native_texture(
-            &mut self,
-            _existing: Option<BackendTextureToken>,
-            _texture: &servo::wgpu::Texture,
-        ) -> Option<BackendTextureToken> {
-            None
-        }
-
-        fn free_native_texture(&mut self, token: BackendTextureToken) {
-            self.freed_textures.push(token);
-        }
-
-        fn submit_frame(&mut self, _window: &winit::window::Window) {}
-
-        fn destroy_surface(&mut self) {}
     }
 
     fn resource_retirement_test_lock() -> &'static Mutex<()> {

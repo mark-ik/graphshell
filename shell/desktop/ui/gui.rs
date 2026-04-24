@@ -48,8 +48,9 @@ use crate::shell::desktop::host::window::WebViewLifecycleEvent;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::render_backend::{
-    UiHostRenderBootstrap, UiRenderBackendContract, UiRenderBackendHandle, UiRenderBackendInit,
-    activate_ui_render_backend, create_shared_wgpu_rendering_context, create_ui_render_backend,
+    HostNeutralRenderBackend, UiHostRenderBootstrap, UiRenderBackendContract,
+    UiRenderBackendHandle, UiRenderBackendInit, activate_ui_render_backend,
+    create_shared_wgpu_rendering_context, create_ui_render_backend,
 };
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
@@ -625,7 +626,15 @@ impl EguiHost {
     }
 
     pub(crate) fn is_graph_view(&self) -> bool {
-        !pane_queries::tree_has_active_node_pane(&self.runtime.graph_app)
+        // §12.6 (2026-04-24, second pass): consume the cached
+        // view-model output of `runtime.tick(...)` rather than
+        // re-running the pane-tree predicate each call. Pre-first-frame
+        // fallback to the live predicate keeps bootstrap queries
+        // working before `update()` runs.
+        self.cached_view_model
+            .as_ref()
+            .map(|vm| vm.is_graph_view)
+            .unwrap_or_else(|| !pane_queries::tree_has_active_node_pane(&self.runtime.graph_app))
     }
 
     /// Set the RunningAppState reference for runtime viewer creation.

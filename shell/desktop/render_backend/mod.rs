@@ -27,10 +27,10 @@ pub(crate) use gl_backend::{
     backend_set_viewport, backend_viewport,
 };
 pub(crate) use wgpu_backend::{
-    BackendCustomPass, UiRenderBackendContract, UiRenderBackendHandle, activate_ui_render_backend,
-    begin_ui_render_backend_paint, create_ui_render_backend, custom_pass_from_backend_viewport,
-    end_ui_render_backend_paint, register_custom_paint_callback, texture_id_from_token,
-    texture_token_from_handle,
+    BackendCustomPass, HostNeutralRenderBackend, UiRenderBackendContract, UiRenderBackendHandle,
+    activate_ui_render_backend, begin_ui_render_backend_paint, create_ui_render_backend,
+    custom_pass_from_backend_viewport, end_ui_render_backend_paint,
+    register_custom_paint_callback, texture_id_from_token, texture_token_from_handle,
 };
 
 pub(crate) fn create_shared_wgpu_rendering_context(
