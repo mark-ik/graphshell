@@ -288,4 +288,109 @@ mod tests {
         // the only time-varying field, and we passed 0 on both sides.
         assert_eq!(snap_egui, snap_iced);
     }
+
+    /// §12.12 (2026-04-24) — first cross-host replay-trace parity test.
+    ///
+    /// Drives both runtime instances through `runtime.tick(...)` with
+    /// IDENTICAL `FrameHostInput.events` (a small UxReplaySession-style
+    /// HostEvent sequence) and asserts the resulting `FrameViewModel`
+    /// projections match across hosts on the portable scalar fields.
+    ///
+    /// This is the smallest meaningful cross-host parity exercise — it
+    /// validates that the runtime's tick is genuinely host-neutral when
+    /// fed real (non-default) input traces. Future slices expand the
+    /// trace coverage, add `PartialEq` to the view-model sub-types, and
+    /// gate CI on parity divergence.
+    #[test]
+    fn replay_trace_scalar_parity_across_host_ports() {
+        use graphshell_core::host_event::HostEvent;
+        use graphshell_core::shell_state::frame_model::FrameHostInput;
+
+        // Construct a small replay trace: pointer move, then a
+        // primary-button down. Same sequence both runtimes consume.
+        let trace_events = vec![
+            HostEvent::PointerMoved { x: 32.0, y: 48.0 },
+            HostEvent::PointerDown {
+                x: 32.0,
+                y: 48.0,
+                button: PointerButton::Primary,
+            },
+        ];
+
+        let input = FrameHostInput {
+            events: trace_events,
+            had_input_events: true,
+            ..FrameHostInput::default()
+        };
+
+        let mut runtime_egui = GraphshellRuntime::for_testing();
+        let mut runtime_iced = GraphshellRuntime::for_testing();
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<arboard::Clipboard> = None;
+        let mut pending_webview_a11y_updates = std::collections::HashMap::new();
+        let mut pending_accesskit_focus_requests = Vec::new();
+        let mut egui_ports = EguiHostPorts {
+            toasts: &mut toasts,
+            clipboard: &mut clipboard,
+            pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
+            pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
+        };
+        let mut iced_ports = IcedHostPorts;
+
+        let vm_egui = runtime_egui.tick(&input, &mut egui_ports);
+        let vm_iced = runtime_iced.tick(&input, &mut iced_ports);
+
+        // Portable scalar fields that should match across hosts after
+        // the same trace. Many view-model sub-structs don't yet derive
+        // `PartialEq`, so we pin parity on the scalar primitives that
+        // do.
+        assert_eq!(
+            vm_egui.focus.graph_surface_focused,
+            vm_iced.focus.graph_surface_focused,
+            "focus.graph_surface_focused"
+        );
+        assert_eq!(
+            vm_egui.focus.focus_ring_alpha, vm_iced.focus.focus_ring_alpha,
+            "focus.focus_ring_alpha"
+        );
+        assert_eq!(
+            vm_egui.toolbar.location, vm_iced.toolbar.location,
+            "toolbar.location"
+        );
+        assert_eq!(
+            vm_egui.toolbar.can_go_back, vm_iced.toolbar.can_go_back,
+            "toolbar.can_go_back"
+        );
+        assert_eq!(
+            vm_egui.toolbar.can_go_forward, vm_iced.toolbar.can_go_forward,
+            "toolbar.can_go_forward"
+        );
+        assert_eq!(
+            vm_egui.graph_search.open, vm_iced.graph_search.open,
+            "graph_search.open"
+        );
+        assert_eq!(
+            vm_egui.graph_search.query, vm_iced.graph_search.query,
+            "graph_search.query"
+        );
+        assert_eq!(
+            vm_egui.graph_search.match_count, vm_iced.graph_search.match_count,
+            "graph_search.match_count"
+        );
+        assert_eq!(
+            vm_egui.command_palette.open, vm_iced.command_palette.open,
+            "command_palette.open"
+        );
+        assert_eq!(
+            vm_egui.command_palette.query, vm_iced.command_palette.query,
+            "command_palette.query"
+        );
+        assert_eq!(vm_egui.dialogs, vm_iced.dialogs, "dialogs view-model");
+        assert_eq!(vm_egui.settings, vm_iced.settings, "settings view-model");
+        assert_eq!(
+            vm_egui.captures_in_flight, vm_iced.captures_in_flight,
+            "captures_in_flight"
+        );
+    }
 }
