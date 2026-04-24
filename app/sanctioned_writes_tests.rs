@@ -5,7 +5,7 @@
 //! Cross-cutting contract tests that enforce the iced-host migration's
 //! sanctioned-writes boundaries via repo-wide source scanning.
 //!
-//! Three boundaries are enforced here, all referenced by the iced-host
+//! Four boundaries are enforced here, all referenced by the iced-host
 //! migration plan §12:
 //!
 //! - §12.3 — Persisted node navigation memory: `Graph::set_node_history_state`
@@ -13,6 +13,11 @@
 //! - §12.1 — Arrangement→graph bridge: `add_arrangement_relation_if_missing`
 //!   and `promote_arrangement_relation_to_frame_membership` may only be called
 //!   from the bridge or their definition file.
+//! - §12.2 — Durable graph mutation kernel: the lower-level kernel function
+//!   `apply_graph_delta` may only be called from the kernel itself, kernel
+//!   test fixtures, and the sanctioned WAL-replay path. Production durable
+//!   mutations must route through `apply_graph_delta_and_sync` (which adds
+//!   `post_apply_sync`); direct kernel calls bypass the sync.
 //! - §12.17 — Host-owned mutation entrypoints: host adapter files
 //!   (`iced_host.rs`, `iced_app.rs`, `iced_events.rs`, `iced_host_ports.rs`,
 //!   `egui_host_ports.rs`) must not call the canonical mutation entrypoints
@@ -232,6 +237,60 @@ fn no_unsanctioned_promote_arrangement_relation_calls() {
          Arrangement-driven graph mutations must route through \
          `GraphBrowserApp::apply_arrangement_snapshot(&snapshot)`.\n\
          See iced-host migration plan \u{00A7}12.1.",
+    );
+}
+
+// ── §12.2 — Durable graph mutation kernel sole-callers ──────────────────────
+
+/// Allowlist for the kernel-level `apply_graph_delta` function (signature
+/// `(&mut Graph, GraphDelta) -> GraphDeltaResult`). Production durable
+/// mutations must route through `apply_graph_delta_and_sync` (in
+/// `app/graph_mutations.rs`), which composes the typed kernel mutation
+/// with `post_apply_sync`. Calling the kernel directly bypasses the sync.
+/// The allowlist captures the only sites where a direct kernel call is
+/// legitimate:
+///
+/// - `crates/graphshell-core/src/graph/apply.rs` — kernel definition itself.
+/// - `crates/graphshell-core/src/graph/facet_projection.rs` — kernel-internal
+///   test fixtures (mirrors the `Node::replace_history_state` rationale:
+///   detached `Graph`-only test construction can't go through the app sync
+///   wrapper because there's no `GraphBrowserApp` to call against).
+/// - `graph/graphlet.rs`, `graph/frame_affinity.rs` — graph-crate test
+///   fixtures, same rationale.
+/// - `services/persistence/mod.rs` — WAL/snapshot replay path. Replay
+///   re-applies persisted typed deltas to reconstruct the saved graph and
+///   intentionally skips `post_apply_sync` (sync state is restored from
+///   the snapshot, not re-derived from each replayed delta).
+///
+/// `app/graph_mutations.rs` is NOT in this list because its sanctioned
+/// wrapper imports the kernel function under the renamed alias
+/// `apply_domain_graph_delta`, so the protected literal does not appear
+/// there. A new file in this allowlist is a deliberate review signal —
+/// either it's a legitimate replay/test fixture path, or the new caller
+/// should be re-routed through the sync wrapper.
+const APPLY_GRAPH_DELTA_KERNEL_ALLOWED_FILES: &[&str] = &[
+    "crates/graphshell-core/src/graph/apply.rs",
+    "crates/graphshell-core/src/graph/facet_projection.rs",
+    "graph/graphlet.rs",
+    "graph/frame_affinity.rs",
+    "services/persistence/mod.rs",
+];
+
+#[test]
+fn no_unsanctioned_apply_graph_delta_kernel_calls() {
+    let needle: &str = concat!("apply_graph", "_delta(");
+    assert_no_unsanctioned_callers(
+        needle,
+        APPLY_GRAPH_DELTA_KERNEL_ALLOWED_FILES,
+        "Unsanctioned direct call to the kernel function `apply_graph_delta`.\n\
+         Production durable mutations must route through \
+         `apply_graph_delta_and_sync` in `app/graph_mutations.rs`, which \
+         composes the typed kernel mutation with `post_apply_sync`. Direct \
+         kernel calls bypass the sync and leave derived state stale.\n\
+         If this is a new replay/test-fixture path, add the file to \
+         `APPLY_GRAPH_DELTA_KERNEL_ALLOWED_FILES` after PR review confirms \
+         the bypass is intentional.\n\
+         See iced-host migration plan \u{00A7}12.2.",
     );
 }
 
