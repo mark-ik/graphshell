@@ -3,13 +3,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 mod gl_backend;
+mod shared_wgpu_context;
 mod wgpu_backend;
 
 use std::rc::Rc;
 use std::sync::Arc;
 
+use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Size2D};
-use servo::{OffscreenRenderingContext, WindowRenderingContext};
+use servo::{OffscreenRenderingContext, RenderingContextCore, WindowRenderingContext};
 use winit::window::Window;
 
 pub(crate) use gl_backend::{
@@ -30,6 +32,16 @@ pub(crate) use wgpu_backend::{
     end_ui_render_backend_paint, register_custom_paint_callback, texture_id_from_token,
     texture_token_from_handle,
 };
+
+pub(crate) fn create_shared_wgpu_rendering_context(
+    device: servo::wgpu::Device,
+    queue: servo::wgpu::Queue,
+    size: PhysicalSize<u32>,
+) -> Rc<dyn RenderingContextCore> {
+    Rc::new(shared_wgpu_context::SharedWgpuRenderingContext::new(
+        device, queue, size,
+    ))
+}
 
 pub(crate) struct UiHostRenderBootstrap {
     rendering_context: Rc<OffscreenRenderingContext>,

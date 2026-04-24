@@ -83,9 +83,11 @@ pub struct HeadedWindow {
     device_pixel_ratio_override: Option<f32>,
     xr_window_poses: RefCell<Vec<Rc<xr::XRWindowPose>>>,
     modifiers_state: Cell<ModifiersState>,
-    /// The `RenderingContext` of Servo itself. This is used to render Servo results
-    /// temporarily until they can be blitted into the egui scene.
+    /// GL-backed context retained for egui/UI internals that still depend on
+    /// the compat path.
     rendering_context: Rc<OffscreenRenderingContext>,
+    /// Shared-wgpu root context used for Servo/webview bootstrap.
+    root_rendering_context: Rc<dyn RenderingContextCore>,
     /// The RenderingContext that renders directly onto the Window. This is used as
     /// the target of egui rendering and also where Servo rendering results are finally
     /// blitted.
@@ -205,7 +207,7 @@ impl HeadedWindow {
             window_rendering_context.clone(),
             event_loop,
         );
-        let gui = RefCell::new(EguiHost::new(
+        let (gui, root_rendering_context) = EguiHost::new(
             &winit_window,
             event_loop,
             event_loop_proxy.clone(),
@@ -214,7 +216,8 @@ impl HeadedWindow {
             app_preferences.graph_data_dir.clone(),
             app_preferences.graph_snapshot_interval_secs,
             app_preferences.worker_idle_threshold_secs,
-        ));
+        );
+        let gui = RefCell::new(gui);
 
         debug!("Created window {:?}", winit_window.id());
         Rc::new(HeadedWindow {
@@ -232,6 +235,7 @@ impl HeadedWindow {
             touch_event_simulator: app_preferences.simulate_touch_events.then(Default::default),
             pending_keyboard_events: Default::default(),
             rendering_context,
+            root_rendering_context,
             last_title: RefCell::new(String::from(INITIAL_WINDOW_TITLE)),
             dialogs: Default::default(),
             event_loop_proxy,
@@ -597,6 +601,10 @@ impl HeadedWindow {
                     // because we are resizing `SurfmanRenderingContext`.
                     // See https://github.com/servo/servo/issues/38369#issuecomment-3138378527
                     self.window_rendering_context.resize(new_inner_size);
+                    self.root_rendering_context.resize(dpi::PhysicalSize::new(
+                        new_inner_size.width,
+                        new_inner_size.height,
+                    ));
                 }
             }
 
@@ -1019,7 +1027,7 @@ impl PlatformWindowRendering for HeadedWindow {
     }
 
     fn rendering_context(&self) -> Rc<dyn RenderingContextCore> {
-        self.rendering_context.clone()
+        self.root_rendering_context.clone()
     }
 
     fn theme(&self) -> servo::Theme {

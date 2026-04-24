@@ -61,6 +61,12 @@ pub(crate) fn texture_id_from_token(token: BackendTextureToken) -> egui::Texture
     token.0
 }
 
+fn trace_texture_delta_enabled() -> bool {
+    std::env::var("GRAPHSHELL_TRACE_TEXTURE_DELTA")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+}
+
 pub(crate) fn activate_ui_render_backend(render_context: &servo::OffscreenRenderingContext) {
     if let Some(gl) = render_context.gl() {
         gl.make_current()
@@ -275,6 +281,20 @@ impl UiRenderBackendContract for UiRenderBackendHandle {
         let Some(frame) = self.pending_frame.take() else {
             return;
         };
+
+        if trace_texture_delta_enabled()
+            && let Some(render_state) = self.render_state()
+        {
+            let renderer = render_state.renderer.read();
+            for (id, image_delta) in &frame.textures_delta.set {
+                eprintln!(
+                    "graphshell_texture_delta id={id:?} pos={:?} exists={} free_count={}",
+                    image_delta.pos,
+                    renderer.texture(id).is_some(),
+                    frame.textures_delta.free.len(),
+                );
+            }
+        }
 
         let _ = self.painter.paint_and_update_textures(
             egui::ViewportId::ROOT,
