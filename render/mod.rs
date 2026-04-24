@@ -719,18 +719,14 @@ fn fallback_spatial_navigation_origin(
     });
     let centroid = Point2D::new(sum_x / nodes.len() as f32, sum_y / nodes.len() as f32);
 
+    // When the user has no selection yet, seed the search origin on the
+    // *opposite* edge to the direction of travel — otherwise the forward
+    // filter inside `graph_surface_navigation_target` drops every
+    // candidate and navigation is a no-op. For a rightward press we seed
+    // at the leftmost node so the next target is the nearest visible
+    // neighbour walking rightward.
     let candidate = match direction {
-        SpatialNavigationDirection::Left => nodes.iter().min_by(|left, right| {
-            left.center
-                .x
-                .total_cmp(&right.center.x)
-                .then_with(|| {
-                    (left.center.y - centroid.y)
-                        .abs()
-                        .total_cmp(&(right.center.y - centroid.y).abs())
-                })
-        }),
-        SpatialNavigationDirection::Right => nodes.iter().max_by(|left, right| {
+        SpatialNavigationDirection::Left => nodes.iter().max_by(|left, right| {
             left.center
                 .x
                 .total_cmp(&right.center.x)
@@ -740,17 +736,17 @@ fn fallback_spatial_navigation_origin(
                         .total_cmp(&(left.center.y - centroid.y).abs())
                 })
         }),
-        SpatialNavigationDirection::Up => nodes.iter().min_by(|left, right| {
+        SpatialNavigationDirection::Right => nodes.iter().min_by(|left, right| {
             left.center
-                .y
-                .total_cmp(&right.center.y)
+                .x
+                .total_cmp(&right.center.x)
                 .then_with(|| {
-                    (left.center.x - centroid.x)
+                    (left.center.y - centroid.y)
                         .abs()
-                        .total_cmp(&(right.center.x - centroid.x).abs())
+                        .total_cmp(&(right.center.y - centroid.y).abs())
                 })
         }),
-        SpatialNavigationDirection::Down => nodes.iter().max_by(|left, right| {
+        SpatialNavigationDirection::Up => nodes.iter().max_by(|left, right| {
             left.center
                 .y
                 .total_cmp(&right.center.y)
@@ -758,6 +754,16 @@ fn fallback_spatial_navigation_origin(
                     (right.center.x - centroid.x)
                         .abs()
                         .total_cmp(&(left.center.x - centroid.x).abs())
+                })
+        }),
+        SpatialNavigationDirection::Down => nodes.iter().min_by(|left, right| {
+            left.center
+                .y
+                .total_cmp(&right.center.y)
+                .then_with(|| {
+                    (left.center.x - centroid.x)
+                        .abs()
+                        .total_cmp(&(right.center.x - centroid.x).abs())
                 })
         }),
     };
@@ -1377,7 +1383,7 @@ fn resolve_source_node_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{SearchDisplayMode, WorkbenchIntent};
+    use crate::app::{GraphViewId, SearchDisplayMode, WorkbenchIntent};
     use crate::registries::atomic::lens::LayoutMode;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use std::hint::black_box;

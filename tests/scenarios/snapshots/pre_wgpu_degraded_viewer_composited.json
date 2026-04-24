@@ -35,7 +35,7 @@
       "ux_node_id": "uxnode://workbench/tile/#1/graph/GraphViewId(<uuid:01>)",
       "parent_ux_node_id": "uxnode://workbench/tile/#4/tabs",
       "role": "GraphSurface",
-      "label": "Graph View GraphViewId(<uuid:01>)",
+      "label": "Graph Canvas GraphViewId(<uuid:01>)",
       "focused": false,
       "selected": false,
       "blocked": false,

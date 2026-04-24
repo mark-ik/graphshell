@@ -249,6 +249,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 [dev-dependencies]
 base = { path = "../servo-wgpu/components/shared/base", package = "servo-base" }
 graphshell-comms = { path = "crates/graphshell-comms", features = ["test-support"] }
+graphshell-core = { path = "crates/graphshell-core", features = ["test-utils"] }
 insta = "1"
 proptest = "1"
 rstest = "0.26"

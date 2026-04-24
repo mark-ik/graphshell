@@ -616,7 +616,10 @@ mod tests {
             "https://projected.example".into(),
             euclid::point2(10.0, 0.0),
         );
-        let projected_renderer = test_webview_id();
+        let projected_renderer =
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                test_webview_id(),
+            );
         app.map_webview_to_node(projected_renderer, projected_node);
         window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
             projected_renderer,

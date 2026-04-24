@@ -791,21 +791,10 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
 
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use servo::WebViewId;
-
     use super::{EmbedderWindow, InputTarget, WebViewLifecycleEventKind};
+    use crate::app::renderer_id::test_renderer_id as test_webview_id;
     use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
-
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
-    }
 
     #[test]
     fn host_input_target_blocks_explicit_webview_fallback() {

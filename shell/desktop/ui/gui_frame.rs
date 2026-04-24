@@ -605,7 +605,7 @@ mod tests {
             registry: &crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
             node_key: NodeKey,
         ) -> bool {
-            registry.contains_gl_context(&node_key)
+            registry.has_surface(&node_key)
         }
     }
 

@@ -3,9 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::error::Error;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git_sha() -> Result<String, String> {
@@ -20,6 +20,45 @@ fn git_sha() -> Result<String, String> {
         let stderr = String::from_utf8(output.stderr).map_err(|e| e.to_string())?;
         Err(stderr)
     }
+}
+
+fn stage_mozangle_runtime_dlls(build_dir: &Path, profile_dir: &Path) -> Result<(), Box<dyn Error>> {
+    const DLLS: [&str; 2] = ["libEGL.dll", "libGLESv2.dll"];
+
+    let latest_out_dir = fs::read_dir(build_dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("mozangle-"))
+        })
+        .map(|path| path.join("out"))
+        .filter(|out_dir| DLLS.iter().all(|dll| out_dir.join(dll).is_file()))
+        .max_by_key(|out_dir| {
+            out_dir
+                .join(DLLS[0])
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .ok()
+        });
+
+    let Some(latest_out_dir) = latest_out_dir else {
+        println!(
+            "cargo:warning=Could not find mozangle runtime DLLs under {}",
+            build_dir.display()
+        );
+        return Ok(());
+    };
+
+    for dll in DLLS {
+        let source = latest_out_dir.join(dll);
+        let destination = profile_dir.join(dll);
+        fs::copy(&source, &destination)?;
+        println!("cargo:rerun-if-changed={}", source.display());
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -57,6 +96,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         #[cfg(not(windows))]
         panic!("Cross-compiling to windows is currently not supported");
+
+        stage_mozangle_runtime_dlls(build, build.parent().unwrap())?;
     } else if target_os == "macos" {
         println!("cargo:rerun-if-changed=platform/macos/count_threads.c");
         cc::Build::new()

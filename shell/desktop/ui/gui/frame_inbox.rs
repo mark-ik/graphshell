@@ -138,6 +138,7 @@ impl<T> FrameSignalRelay<T> {
 #[cfg(test)]
 mod tests {
     use super::GuiFrameInbox;
+    use std::sync::Arc;
     use std::sync::mpsc::channel;
 
     use crate::shell::desktop::runtime::control_panel::{ControlPanel, WorkerTier};

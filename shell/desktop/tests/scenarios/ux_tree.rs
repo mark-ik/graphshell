@@ -123,12 +123,20 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
         "command-surface snapshot should preserve a valid return path"
     );
 
-    let command_bar = harness
-        .ux_find_node_via_driver(&UxNodeSelector::ByRoleAndLabel(
-            ux_tree::UxNodeRole::CommandBar,
-            "Command Bar".to_string(),
-        ))
-        .expect("driver-backed find-node query should succeed");
+    ux_tree::publish_snapshot(&snapshot);
+    let find_response = crate::shell::desktop::workbench::ux_bridge::handle_latest_snapshot_command(
+        crate::shell::desktop::workbench::ux_bridge::UxBridgeCommand::FindUxNode {
+            selector: UxNodeSelector::ByRoleAndLabel(
+                ux_tree::UxNodeRole::CommandBar,
+                "Command Bar".to_string(),
+            ),
+        },
+    )
+    .expect("bridge find-node query should succeed");
+    let command_bar = match find_response {
+        crate::shell::desktop::workbench::ux_bridge::UxBridgeResponse::Node(node) => node,
+        other => panic!("expected Node response, got {other:?}"),
+    };
     assert!(
         command_bar.is_some(),
         "bridge should resolve the command bar semantic node"

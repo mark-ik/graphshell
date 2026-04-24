@@ -247,6 +247,7 @@ impl TestRegistry {
                 &mut self.app,
                 &mut self.tiles_tree,
                 &mut self.graph_tree,
+                None,
                 command,
             ),
             _ => {

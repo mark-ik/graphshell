@@ -118,7 +118,7 @@ impl CommandSurfaceTelemetry {
         if let Ok(mut slot) = self.snapshot.lock() {
             *slot = None;
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-utils"))]
         self.clear_event_sequence_metadata();
     }
 
@@ -183,7 +183,7 @@ impl CommandSurfaceTelemetry {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn set_event_sequence_metadata_for_tests(
         &self,
         metadata: CommandSurfaceEventSequenceMetadata,
@@ -193,7 +193,7 @@ impl CommandSurfaceTelemetry {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn clear_event_sequence_metadata(&self) {
         if let Ok(mut state) = self.events.lock() {
             *state = CommandSurfaceEventSequenceMetadata::default();

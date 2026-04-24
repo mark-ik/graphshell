@@ -115,19 +115,8 @@ impl EmbedderCore {
 
 #[cfg(test)]
 mod tests {
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use servo::WebViewId;
-
+    use crate::app::renderer_id::test_renderer_id as test_webview_id;
     use crate::shell::desktop::host::window::{WebViewLifecycleEvent, WebViewLifecycleEventKind};
-
-    fn test_webview_id() -> WebViewId {
-        PIPELINE_NAMESPACE.with(|tls| {
-            if tls.get().is_none() {
-                PipelineNamespace::install(TEST_NAMESPACE);
-            }
-        });
-        WebViewId::new(PainterId::next())
-    }
 
     #[test]
     fn test_sort_graph_events_orders_by_sequence() {
