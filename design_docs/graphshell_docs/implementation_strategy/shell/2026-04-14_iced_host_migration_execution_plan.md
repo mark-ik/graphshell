@@ -7,18 +7,22 @@
 **Status**: Active strategy / execution checklist
 **Scope**: A robust, future-facing migration path from the current egui host to
 an iced host, while minimizing rewrite cost by first making `graph-tree`,
-`graph-canvas`, and the compositor/runtime boundaries authoritative.
+`graph-canvas`, the compositor/runtime boundaries, and the viewer-surface
+contract authoritative.
 
 **Related**:
 
 - `SHELL.md`
 - `shell_backlog_pack.md`
+- `../system/2026-03-06_reducer_only_mutation_enforcement_plan.md`
+- `../subsystem_history/SUBSYSTEM_HISTORY.md`
 - `../workbench/2026-04-11_graph_tree_egui_tiles_decoupling_follow_on_plan.md`
 - `../workbench/2026-04-11_egui_tiles_retirement_strategy.md`
 - `../graph/2026-04-11_graph_canvas_crate_plan.md`
 - `../graph/2026-04-13_graph_canvas_phase0_plan.md`
 - `../graph/GRAPH.md`
 - `../aspect_render/2026-04-12_rendering_pipeline_status_quo_plan.md`
+- Servo companion plan: `servo-wgpu/docs/2026-04-18_servo_wgpuification_plan.md`
 - `../../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md`
 - `../../technical_architecture/graph_tree_spec.md`
 - `../../technical_architecture/graph_canvas_spec.md`
@@ -28,7 +32,9 @@ an iced host, while minimizing rewrite cost by first making `graph-tree`,
 - `Cargo.toml`
 - `render/mod.rs`
 - `render/canvas_bridge.rs`
+- `shell/desktop/render_backend/mod.rs`
 - `shell/desktop/ui/gui.rs`
+- `shell/desktop/workbench/compositor_adapter.rs`
 - `shell/desktop/workbench/graph_tree_dual_write.rs`
 - `shell/desktop/workbench/graph_tree_facade.rs`
 - `shell/desktop/workbench/tile_render_pass.rs`
@@ -92,6 +98,20 @@ Implication:
 - an iced cutover is not yet cheap
 - the right next work is authority migration, not shell repainting
 
+Important seam note:
+
+- the remaining risk is no longer just framework ownership of rendering and
+  layout
+- meaningful app-level authority still lives outside the portable crates,
+  especially the arrangement bridge, graph mutation/sync paths, runtime
+  lifecycle hooks, and reducer boundary
+- persisted node navigation memory also still has a live mutation-boundary gap:
+  some runtime paths write `set_node_history_state(...)` directly instead of
+  going through a typed canonical mutation lane
+
+The host plan must not spread those seams into a second host. It should
+preserve them as explicit dependencies and shrink them while authority moves.
+
 ---
 
 ## 3. North Star
@@ -126,6 +146,10 @@ These rules are part of the plan, not optional style preferences.
 - Keep egui alive as the reference host until iced can drive the same runtime
   and produce parity receipts.
 - Prefer dual-host overlap over a one-shot framework cutover.
+- Do not let iced host extraction create new domain-mutation entry points for
+  arrangement, graph truth, or persisted history state. Host migration is
+  allowed to move host/runtime ownership; it is not allowed to fork the
+  reducer-owned durable mutation boundary.
 
 ---
 
@@ -465,6 +489,14 @@ be tested, because `Gui` currently mixes:
 - OS/window/event-loop wiring
 - framework-owned widget and texture state
 
+Boundary clarification:
+
+- the runtime/host extraction line is not the same thing as the domain mutation
+  boundary
+- M4 may move shell/workbench/runtime ownership out of egui, but it must keep
+  arrangement-to-graph sync, graph apply, and persisted-history mutation
+  authority explicit rather than smearing them across new host adapters
+
 Checklist:
 
 - [x] Classify `Gui` fields and responsibilities into:
@@ -478,6 +510,9 @@ Checklist:
 - [x] Define the service-port/effect interface the host-neutral runtime will use
 - [x] Define the view-model surface the egui and iced hosts will each consume
 - [x] Identify what remains intentionally host-specific even after extraction
+- [x] Record the non-host seams that remain authoritative during extraction:
+  arrangement bridge, reducer-owned durable graph mutation, runtime lifecycle
+  hooks, and persisted history mutation policy
 
 **Landed 2026-04-16**: [`../../../archive_docs/checkpoint_2026-04-17/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md`](../../../archive_docs/checkpoint_2026-04-17/graphshell_docs/implementation_strategy/shell/2026-04-16_runtime_boundary_design.md)
 captures the full classification, six `HostPorts` trait surfaces, `FrameViewModel`
@@ -504,6 +539,14 @@ Full build + test verification is gated on the
 
 **Goal**: split stateful shell/workbench orchestration from the current egui
 host implementation.
+
+Dependency note:
+
+- M4 does not own the system-level fix for direct durable writes into
+  node-scoped navigation memory
+- it does own not making that seam worse while runtime authority moves
+- runtime extraction should route host-driven navigation/history updates through
+  the existing app/runtime boundary, not mint new host-specific setters
 
 Checklist:
 
@@ -543,15 +586,88 @@ Checklist:
   `cached_thumbnail_result` dimension-recovery regression (1). All
   pass against graphshell-core; graphshell-lib verification blocked by
   webrender migration.
+- [~] Keep host/runtime extraction from reintroducing app-level authority drift:
+  no new host-owned arrangement->graph writes, no new host-owned graph mutation
+  helpers, and no new direct persisted-history writes such as
+  `set_node_history_state(...)`
+  — persisted-history writes are now hard-guarded by the contract test in
+  `app::history::sanctioned_history_writes_tests` (2026-04-23, Lane A); the
+  arrangement and host-mutation guards remain to be added (see §12.17).
 
 Done gate:
 
 - egui is no longer the owner of shell/workbench runtime semantics
 
+### M4.5. Make Viewer Surfaces Host-Native
+
+**Status**: Newly explicit prerequisite slice. Current code still allocates
+per-node `Rc<OffscreenRenderingContext>` viewer surfaces on the main host path
+and opportunistically imports them into wgpu during composition. The render
+status-quo plan records this as "ViewerSurfaceRegistry: scaffolded" and
+"shared-wgpu import exists and is attempted opportunistically."
+
+**Goal**: make the viewer/compositor surface model authoritative and
+host-portable before iced depends on it.
+
+This slice exists because M4's runtime extraction does **not** by itself make
+the viewer path host-neutral. Today the main host can drive a host-neutral
+runtime tick while still depending on GL-shaped viewer-surface assumptions.
+That is good enough for scaffolding, but not for a useful second host.
+
+Dependency note:
+
+- the current viewer-surface seam is no longer "per-node GL contexts
+  everywhere," but whether hosts exercise the native `RenderingContextCore`
+  path or fall back to explicit GL compatibility producers
+- `ViewerSurfaceRegistry` and `ViewerSurfaceHost` exist, but they do not yet
+  define the sole authoritative surface model on the hot path
+- the target end-state should align with the Servo wgpuification direction:
+  one shared wgpu device for producer and compositor where possible, with GL
+  retained only as an explicit compatibility producer for features that still
+  require it
+
+Checklist:
+
+- [ ] Move authoritative viewer-surface ownership to `ViewerSurfaceRegistry`
+  rather than leaving hot-path ownership smeared across
+  `tile_rendering_contexts` and compositor-side fallback state
+- [ ] Retire direct hot-path reliance on `tile_rendering_contexts:
+  HashMap<NodeKey, Rc<OffscreenRenderingContext>>`
+- [ ] Evolve `ViewerSurfaceHost` / `ViewerSurfaceRegistry` so the primary
+  contract is not "GL offscreen context per node", even if a GL-backed
+  compatibility producer remains one implementation
+- [ ] Keep shared-wgpu texture composition as the primary path and make the
+  callback fallback an explicit compatibility producer, not the shape of the
+  main API
+- [ ] Preserve WebGL quarantine through the interop/import path rather than
+  letting WebGL requirements force the entire viewer-surface contract to stay
+  GL-shaped
+- [ ] Add parity / diagnostics coverage that records which viewer-surface /
+  content-bridge path each host is exercising during bring-up
+
+Done gate:
+
+- the normal viewer composition path no longer depends on host-owned
+  `OffscreenRenderingContext` assumptions
+- `ViewerSurfaceRegistry` is the authoritative surface owner on the hot path
+- GL callback fallback remains explicit and contained rather than shaping the
+  primary host contract
+
 ### M5. Bring Up Iced as a Second Host
 
 **Goal**: prove that iced can host the existing product core without forcing a
-second rewrite of graph/workbench/compositor logic.
+second rewrite of graph/workbench/compositor logic, **without inheriting
+hidden GL-shaped viewer-surface assumptions from the current egui host**.
+
+Dependency note:
+
+- M5 may start with scaffolding before M4.5 is fully complete, but a **useful**
+  iced host does not count as landed unless it consumes the same authoritative
+  viewer-surface contract the egui host is converging on
+- "mount Servo/viewer content" does not mean "reuse whatever
+  `OffscreenRenderingContext` assumptions happen to be hidden behind today's
+  boundary"; it means exercising the same compositor/runtime boundary and
+  viewer-surface policy intended for both hosts
 
 Checklist:
 
@@ -564,11 +680,20 @@ Checklist:
 - [ ] Implement graph-canvas hosting through an iced adapter, ideally consuming
   the same Vello-backed graph-canvas renderer path proven in M2
 - [ ] Mount Servo/viewer content through the same compositor/runtime boundary
+  **and** the same authoritative viewer-surface contract, rather than adding
+  iced-only `OffscreenRenderingContext` assumptions
+- [ ] Preserve the same non-host authority seams during bring-up: arrangement
+  still enters graph truth through the arrangement bridge, durable graph state
+  still enters through the canonical mutation lane, and host-driven
+  navigation/history updates do not add new direct durable-write paths
 - [ ] Add parity runs between egui host and iced host for the same replay inputs
+  and the same viewer-surface / content-bridge policy where the host supports it
 
 Done gate:
 
 - iced can drive the same runtime/core as egui for a useful subset of the app
+- iced does not depend on hidden egui-era `OffscreenRenderingContext`
+  assumptions to mount viewer content
 
 ### M6. Port Chrome and Reach Host Parity
 
@@ -725,6 +850,8 @@ This migration path is successful when Graphshell can truthfully say:
 - compositor/viewer composition is portable across hosts
 - shell/workbench runtime semantics are testable without an egui frame
 - iced and egui can both host the same core for a period of overlap
+- host choice does not change the mutation boundary for arrangement sync, graph
+  truth, or persisted history state
 - framework choice no longer determines product architecture
 
 ---
@@ -985,6 +1112,103 @@ run gated on webrender):
 - Plus rebased existing tests against `ToolbarEditable` reshape and
   the `FocusAuthorityMut` bundle flow.
 
+### 2026-04-23 — Lane A: persisted-history boundary closed
+
+**Context**: parallel-lane work after the cross-cutting boundary status
+matrix (§12) was added. Lane A targeted §12.3 — the biggest live hole in
+the matrix, also the last unchecked item in M4's "no new direct persisted-
+history writes" line.
+
+**Helper landed**: `GraphBrowserApp::apply_node_history_change(key, entries,
+current_index) -> bool` in `app/history.rs`. Pairs the durable
+`Graph::set_node_history_state(...)` write with the
+`refresh_semantic_navigation_runtime_for_node(...)` projection refresh
+that always followed it. Returns whether the durable state actually
+changed.
+
+**Migrations** (10 call sites total):
+
+- Production: `app/runtime_lifecycle.rs:182` (`handle_webview_history_changed`),
+  `app/clip_capture.rs:295` (clip capture init — required restructuring the
+  `let graph = &mut ...` borrow scope so the helper could borrow `&mut self`).
+- Tests: `app/workspace_routing.rs` (3 sites), `shell/desktop/ui/workbench_host.rs`
+  (5 sites). Tests previously called `app.workspace.domain.graph.set_node_history_state(...)`
+  directly to seed history state without triggering the runtime-projection
+  refresh; now they go through the helper, which adds a per-call refresh
+  but is then immediately followed by `app.rebuild_semantic_navigation_runtime()`
+  in those tests anyway, so the per-call refresh is redundant-but-harmless.
+
+**Contract test landed**: `app::history::sanctioned_history_writes_tests::no_unsanctioned_direct_history_writes`.
+Walks the repo from `CARGO_MANIFEST_DIR`, scans every `.rs` file outside
+`target/.git/node_modules/design_docs/snapshots`, and fails if the literal
+`set_node_history_state(` appears in any non-allowlisted file. Allowlist
+covers only the function definition (`crates/graphshell-core/src/graph/mod.rs`)
+and the helper home (`app/history.rs`). The needle is built via
+`concat!()` so the test source itself does not match.
+
+**Receipts**:
+
+- `cargo check --lib` clean (48s, no new warnings — webrender-wgpu
+  unblocked since the 2026-04-22 progress log entry).
+- `cargo test --lib sanctioned_history_writes` — 1 passed, 0 failed
+  (2220 filtered).
+
+**M4 status implication**: M4's last unchecked checklist item ("no new
+direct persisted-history writes such as `set_node_history_state(...)`")
+moves from `[ ]` to `[~]` — persisted-history is now hard-guarded; the
+arrangement-bridge sole-writer guard (§12.1) and host-owned-mutation-entrypoint
+guard (§12.17) remain to be added using the same scanning infrastructure.
+
+**Typed-delta follow-on (deliberately deferred)**: introduce
+`GraphDelta::UpdateNodeHistory { key, entries, current_index }` so the
+helper can route through `apply_graph_delta` rather than calling
+`set_node_history_state` direct. Once that lands, the contract test
+allowlist narrows to `app/history.rs` only and
+`Graph::set_node_history_state` can be `pub(crate)` inside graphshell-core.
+
+### 2026-04-23 — Typed-delta follow-on landed
+
+**Context**: same-day continuation of Lane A. Lane A introduced the
+sanctioned helper + grep-time guard; this follow-on adds the typed delta
++ compile-time guard so future regressions outside `graphshell-core` are
+mechanically impossible (not just test-detectable).
+
+**Changes**:
+
+- `GraphDelta::UpdateNodeHistory { key, entries, current_index }` variant
+  added in `crates/graphshell-core/src/graph/apply.rs`. Match arm in
+  `apply_graph_delta` returns `NodeMetadataUpdated(bool)` mirroring the
+  other node-metadata deltas.
+- Helper rewritten to dispatch via
+  `apply_graph_delta_and_sync(GraphDelta::UpdateNodeHistory { ... })`
+  instead of calling the underlying setter directly. Pattern-matches on
+  `GraphDeltaResult::NodeMetadataUpdated(true)` for the change signal.
+- Helper docstring rephrased to no longer contain the literal needle —
+  references the typed delta variant instead.
+- `Graph::set_node_history_state` visibility tightened from `pub fn` to
+  `pub(crate) fn`. Outside `graphshell-core` the only reachable write
+  surface is the typed delta, dispatched via the helper.
+- Contract test allowlist narrowed to
+  `crates/graphshell-core/src/graph/{mod.rs,apply.rs}` only — the
+  helper home dropped out because the helper no longer mentions the
+  literal anywhere.
+
+**Receipts**:
+
+- `cargo check -p graphshell-core --lib --tests` clean (5.87s, no new
+  warnings). The new `GraphDelta` variant compiles against all 225
+  graphshell-core unit tests.
+- Final repo-wide grep for the literal returns exactly 2 occurrences,
+  both inside `graphshell-core` and both allowlisted: function
+  definition (`mod.rs:2535`) and the typed-delta match arm
+  (`apply.rs:291`).
+- Full `cargo check --lib` later ran clean after the §12.10
+  viewer-surface-path channel contract was updated to declare all 170
+  phase-3 entries.
+
+**Residue**: see §12.3 above for the `Node::replace_history_state`
+parallel surface (test-fixture primitive, intentionally left `pub`).
+
 ### Residue flagged in this session
 
 - **Lossy WebP** — deliberately not implemented. Pure-Rust lossy
@@ -1006,7 +1230,291 @@ run gated on webrender):
 - **Phase-args concrete-type residue** — phase-args structs still
   carry `&mut` refs into runtime fields (`focus_authority`,
   `focus_ring_*`, etc.) rather than `&mut GraphshellRuntime`. That
-  collapse is the M4 final convergence, pending across sessions.
+  collapse is the M4 final convergence; the first slice landed in
+  the 2026-04-23 Lane B' progress entry below.
+
+### 2026-04-23 — Lane B' warm-up + first phase-args collapse
+
+**Context**: Lane B' restarted as its own dedicated session per the
+2026-04-23 progress log scoping note. Two slices landed: a
+vestigial-field warm-up cleanup, then the actual first phase-args
+collapse on `ExecuteUpdateFrameArgs`.
+
+**Warm-up (vestigial `focus_ring_duration` removal)**:
+
+- Removed `pub focus_ring_duration: Duration` slot from
+  `FocusAuthorityMut` in
+  `crates/graphshell-core/src/shell_state/authorities.rs` (the bundle
+  is now 4 fields instead of 5).
+- Removed `pub fn ring_alpha(...)` and `pub fn ring_alpha_with_curve(...)`
+  helper methods from the bundle. They were unused in production —
+  `tile_render_pass.rs` and `gui_state.rs::project_view_model` both
+  call `FocusRingSpec::alpha_at_with_curve` directly with
+  `chrome_ui.focus_ring_settings.duration()` as the source.
+- Removed two test functions covered by dedicated
+  `FocusRingSpec::alpha_at_with_curve` tests in `frame_model.rs`.
+- Removed `pub(crate) focus_ring_duration: Duration` from
+  `GraphshellRuntime` (`shell/desktop/ui/gui_state.rs:318`).
+- Cleaned up flow-through references in 7 sites: `gui.rs`
+  initializer + destructure + assembly, `gui_update_coordinator.rs`
+  destructure + bundle construction, `update_frame_phases.rs`
+  ExecuteUpdateFrameArgs field, `gui_tests.rs` (4 mutation lines),
+  and 3 docstring/comment cleanups.
+
+**First collapse (`ExecuteUpdateFrameArgs`)**:
+
+- Shrank `ExecuteUpdateFrameArgs` from 35+ fields (23 runtime-bound)
+  to 20 fields (1 runtime ref + 19 host-only). Replaced 21 individual
+  `&mut` runtime field refs plus the inline-constructed `graph_search`
+  and `command_authority` bundles with a single
+  `pub(super) runtime: &'a mut GraphshellRuntime`.
+- Moved the `let GraphshellRuntime { graph_app, ... } = self.runtime;`
+  destructure from `gui.rs:920` (top-level `Gui::update`) into
+  `gui_update_coordinator.rs::execute_update_frame` body, where the
+  individual bindings are actually consumed by sub-phase-args
+  construction. The destructure body is bit-for-bit equivalent —
+  same field bindings, same `_` discards for runtime-internal fields
+  (`workbench_view_id`, `async_spawner`, `signal_router`,
+  `tokio_runtime`, `frame_inbox`, `toolbar_drafts`).
+- Sub-phase-args structs (`PreFrameAndIntentInitArgs`,
+  `GraphSearchAndKeyboardPhaseArgs`,
+  `ToolbarAndGraphSearchWindowPhaseArgs`,
+  `SemanticAndPostRenderPhaseArgs`, etc.) are **unchanged** — they
+  continue to take individual `&mut` field references which
+  `execute_update_frame` split-borrows from the destructured runtime.
+  Future Lane B' slices push `runtime: &mut GraphshellRuntime` into
+  each sub-phase-args struct, shrinking the destructure as it goes.
+- `gui.rs:920-1023` shrank from ~110 lines (full nested destructure
+  + 35-field assembly) to ~50 lines (flat destructure + 20-field
+  assembly). Net code reduction at the top-level call site.
+
+**Receipts**:
+
+- `cargo check --lib` clean (39.6s; no new warnings from this slice).
+- `cargo test --lib sanctioned_writes` — 6 passed, 0 failed.
+- `cargo test --lib gui_orchestration` — 96 passed, 0 failed (sanity
+  check on the surrounding gui pipeline).
+
+**Four more sub-phase collapses landed same session**:
+
+- `PreFrameAndIntentInitArgs` — 4 runtime-bound fields removed,
+  `runtime: &mut GraphshellRuntime` added. Function body destructures
+  internally via split-borrow to the 4 fields (`graph_app`,
+  `thumbnail_capture_in_flight`, `command_palette_toggle_requested`,
+  `control_panel`).
+- `GraphSearchAndKeyboardPhaseArgs` — 8 runtime-bound fields + 1
+  `GraphSearchAuthorityMut` bundle collapsed to `runtime`. Body
+  split-borrows 12 fields including the 5 graph-search bundle members
+  (`graph_app`, `graph_surface_focused`, `focus_authority`,
+  `toolbar_state`, `viewer_surfaces`, `viewer_surface_host`,
+  `webview_creation_backpressure`, plus the 5 `graph_search_*`
+  session fields).
+- `ToolbarAndGraphSearchWindowPhaseArgs` — 15 runtime-bound fields
+  + `GraphSearchAuthorityMut` bundle collapsed to `runtime`. Body
+  split-borrows 18 fields covering graph/tree/toolbar/omnibar/command-
+  surface-telemetry/viewer/webview and the graph-search session.
+- `SemanticAndPostRenderPhaseArgs` — 15 runtime-bound fields + 3
+  bundles (`focus`, `graph_search`, `command_authority` wrapping 11
+  additional fields) collapsed to `runtime`. Body split-borrows and
+  constructs the bundles for the deeper sub-phases
+  (`SemanticLifecyclePhaseArgs`, `PostRenderPhaseArgs`).
+
+**`execute_update_frame` body after the collapse**:
+
+- No runtime destructure at all. The `let GraphshellRuntime { … } =
+  runtime;` block that initially sat at the top is **gone**.
+- The `modal_surface_active` computation (which previously used
+  destructured `graph_app`/`focus_authority`/`toolbar_state`) now
+  uses scoped split-borrows: clone `local_widget_focus` first, copy
+  `show_clear_data_confirm` by value, then borrow
+  `runtime.graph_app` and `runtime.focus_authority` mutably.
+- The `finalize_update_frame` trailing call uses
+  `&mut runtime.graph_app` directly.
+- Every sub-phase call site passes `runtime: &mut *runtime`
+  (reborrow). Between calls, the reborrow ends and runtime is fully
+  accessible for the next call.
+
+**Receipts**:
+
+- `cargo check --lib` clean (7.48s incremental; 1m 52s clean).
+  Zero new graphshell warnings from this slice.
+- `cargo test --lib sanctioned_writes` — 6 passed, 0 failed.
+- `cargo test --lib gui_orchestration` — 96 passed, 0 failed.
+
+**Two more deeper-stack collapses landed same session**:
+
+- `SemanticLifecyclePhaseArgs` — 7 runtime-bound fields collapsed.
+  Phase function destructures internally via split-borrow at the
+  `gui_orchestration::run_semantic_lifecycle_phase` call. Caller
+  (Semantic body) now passes `runtime: &mut *runtime` directly.
+- `PostRenderPhaseArgs` — 11 runtime-bound fields plus 2 bundles
+  (`focus`, `command_authority` wrapping 6 more) collapsed. Uses the
+  destructure-at-the-top pattern (function body is ~750 lines with
+  3 `TileRenderPassArgs` constructions across multiple
+  `egui::Panel::show_inside` closures). The Semantic body's
+  intermediate `phase3_reconcile_semantics` /
+  `runtime_focus_inspector` computations now use scoped split-borrows
+  before the PostRender call. `graph_search_matches` snapshot-cloned
+  before the PostRender call so PostRender can take `runtime: &mut
+  *runtime` without holding a reference to the matches vec.
+
+**Pre-existing WIP fix landed alongside**: a missing
+`UxBridgeCommand::GetDiagnosticsState` match arm in
+`shell/desktop/host/webdriver_runtime.rs` was blocking `cargo check`.
+Added a stubbed transport-error return until the upstream lane wires
+its full handler.
+
+**Receipts (full Lane B' second pass)**:
+
+- `cargo check --lib` clean (8.78s incremental).
+- `cargo test --lib sanctioned_writes` — 6 passed, 0 failed.
+- `cargo test --lib gui_orchestration` — 96 passed, 0 failed.
+
+**Lane B' final convergence (2026-04-24): TileRenderPassArgs landed**:
+
+- `TileRenderPassArgs` — 7 runtime-bound fields plus focus bundle
+  collapsed to a single `runtime: &'a mut GraphshellRuntime`. The
+  `run_tile_render_pass_in_ui` body destructures runtime internally
+  via split-borrow at the start, exposing `graph_app`, `graph_tree`,
+  `viewer_surfaces`, etc. and assembling the focus bundle from the
+  destructured fields. Function body shape (~1100 lines downstream)
+  intact.
+- `PostRenderPhase` body restructured: the previous destructure-at-the-top
+  pattern was removed entirely. ~30 use sites of `graph_app`,
+  `bookmark_import_dialog`, `viewer_surfaces`, `viewer_surface_host`,
+  `webview_creation_backpressure`, `control_panel`,
+  `command_surface_telemetry`, `pending_webview_context_surface_requests`,
+  `focus.method()`, `focus.field`, and `command_authority.reborrow()`
+  rewritten as `runtime.foo` / `&mut runtime.foo` split-borrows scoped
+  to each expression. The 3 `TileRenderPassArgs` constructions inside
+  `egui::Panel::show_inside` / `CentralPanel::show_inside` /
+  `egui::Area::show` closures now pass `runtime: &mut *runtime`
+  (closure-captured reborrow); the closures themselves capture runtime
+  by `&mut` reborrow and release it when they return.
+- Several intermediate computations needed careful borrow-checker
+  navigation: the `dirty_state` / `pending_switch` / `dialog_event`
+  values now snapshot read-only data into locals before subsequent
+  `&mut runtime.foo` calls, since holding a `&runtime.foo` borrow
+  alongside `&mut runtime.bar` requires distinct field projections.
+  The post-closure `command_authority` bundle is constructed inline,
+  used for the palette panel call, then explicitly `drop`ped before
+  subsequent `&mut runtime.command_palette_*` accesses.
+
+**Receipts (final Lane B' session)**:
+
+- `cargo check --lib` clean (7.81s incremental). First-try compile
+  on the restructured PostRender body — no borrow-checker iterations
+  needed. Two unused-import warnings cleaned up
+  (`GraphshellRuntime` in post_render_phase.rs,
+  `WebviewCreationBackpressureState` in tile_render_pass.rs).
+- `cargo test --lib sanctioned_writes` — 6 passed, 0 failed.
+- `cargo test --lib gui_orchestration` — 96 passed, 0 failed.
+
+**Lane B' final net progress (2026-04-23 + 2026-04-24)**:
+
+- **8 of 8 phase-args structs collapsed**: `ExecuteUpdateFrameArgs` (top),
+  `PreFrameAndIntentInitArgs`, `GraphSearchAndKeyboardPhaseArgs`,
+  `ToolbarAndGraphSearchWindowPhaseArgs`,
+  `SemanticAndPostRenderPhaseArgs`, `SemanticLifecyclePhaseArgs`,
+  `PostRenderPhaseArgs`, `TileRenderPassArgs`.
+- Every phase function in the frame pipeline now takes
+  `runtime: &mut GraphshellRuntime` as its sole runtime-bound argument.
+- The runtime destructure that originally lived at `gui.rs:920` (top
+  of `Gui::update`, ~30 individual field bindings) is gone entirely.
+  Every sub-phase call along the call chain
+  (`Gui::update` → `execute_update_frame` → `run_semantic_and_post_render_phases`
+  → `run_post_render_phase` / `run_semantic_lifecycle_phase` →
+  `run_tile_render_pass_in_ui`) passes `runtime: &mut *runtime`
+  through the args struct.
+- M4 final convergence achieved: the runtime is the natural carrier
+  for shell/workbench state through the entire frame pipeline. Phase
+  functions destructure runtime internally where their existing
+  function-body shape benefits from individual bindings, or use
+  `runtime.foo` / `&mut runtime.foo` inline where the destructure
+  would conflict with closure-bound reborrows.
+
+### 2026-04-23 — §12.1 + §12.17 contract guards landed; Lane B' scoping
+
+**Context**: continuation of the typed-delta follow-on closure. With the
+reusable scanning helper landed in §12.3, three boundary guards (§12.3,
+§12.1, §12.17) consolidate cleanly into one module.
+
+**Changes**:
+
+- New consolidated module `app/sanctioned_writes_tests.rs` declared from
+  `graph_app.rs` as `#[cfg(test)] mod sanctioned_writes_tests`. Hosts six
+  contract tests + two reusable scanning helpers. The two history tests
+  previously in `app::history::sanctioned_history_writes_tests` migrated
+  here unchanged in semantics; test path moves from
+  `app::history::sanctioned_history_writes_tests::*` to
+  `app::sanctioned_writes_tests::*`.
+- §12.1 — two new tests forbid direct calls to
+  `add_arrangement_relation_if_missing` and
+  `promote_arrangement_relation_to_frame_membership` outside
+  `app/graph_mutations.rs` (definitions + internal composition) and
+  `app/arrangement_graph_bridge.rs` (sanctioned bridge caller).
+  Earlier matrix `partial` characterization revised: the three "deprecated"
+  bridge wrappers in `app/workbench_commands.rs` are actually thin
+  delegations to `apply_arrangement_snapshot`, not bypass paths.
+- §12.17 — two new tests forbid `apply_graph_delta_and_sync(` and
+  `apply_arrangement_snapshot(` in 5 host-adapter files
+  (`iced_host.rs`, `iced_app.rs`, `iced_events.rs`, `iced_host_ports.rs`,
+  `egui_host_ports.rs`). Two host-adjacent files (`iced_graph_canvas.rs`,
+  `iced_parity.rs`) intentionally NOT in the host set — they have
+  legitimate test fixtures and parity-replay helpers respectively.
+- New helper `assert_needle_absent_from_files(needle, target_files,
+  sanction_message)` complements the existing
+  `assert_no_unsanctioned_callers` — first scans a small fixed set, second
+  scans repo-wide with allowlist. Covers both the §12.1 / §12.3 pattern
+  ("identifier may appear only at sanctioned sites repo-wide") and the
+  §12.17 pattern ("identifier must NOT appear in this fixed file set").
+
+**Receipts**:
+
+- `cargo test --lib sanctioned_writes` — 6 passed, 0 failed, 2220
+  filtered (1m 52s build, 0.21s run).
+- `cargo check --lib` clean (post your diagnostics-array fix); no new
+  warnings.
+
+**Lane B' scoping note (deferred to a future session)**:
+
+The user-requested Lane B' (phase-args bundle collapse onto
+`&mut GraphshellRuntime`) was scoped during this session but not landed.
+Findings:
+
+- All four authority bundles (`FocusAuthorityMut`,
+  `GraphSearchAuthorityMut`, `CommandAuthorityMut`, `ToolbarAuthorityMut`)
+  wrap fields that already live on `GraphshellRuntime`.
+- The current pattern at `gui.rs:920-957` destructures `GraphshellRuntime`
+  into individual `&mut` field bindings, then re-bundles them inline at
+  phase-args construction (`gui.rs:994-1013`). That destructure-then-rebundle
+  pattern exists *because* the phase-args structs ALSO carry many other
+  `&mut runtime.field` references alongside the bundles
+  (`viewer_surfaces`, `webview_creation_backpressure`, `control_panel`,
+  `tile_favicon_textures`, etc.). Replacing `bundle: FocusAuthorityMut`
+  with `runtime: &mut GraphshellRuntime` would borrow-conflict with
+  those sibling refs.
+- The genuine collapse therefore requires a coordinated pass per phase
+  function: remove ALL the runtime-pointed `&mut` field refs from the
+  phase-args struct, replace with a single `runtime: &mut GraphshellRuntime`,
+  and rewrite the function body to access via `args.runtime.foo`. This
+  touches every phase-args struct in
+  `shell/desktop/ui/gui/update_frame_phases.rs` (8 large structs, each
+  ~30+ fields) and every corresponding phase function body — plausibly
+  hundreds of edit sites.
+- Workable contained first-slice candidates exist but each has a non-trivial
+  scope:
+  - **Smallest functional collapse**: `PreFrameAndIntentInitArgs` carries
+    only 4 runtime-bound refs (`graph_app`, `thumbnail_capture_in_flight`,
+    `command_authority`, `control_panel`) — most tractable.
+  - **Cleanup prep**: remove the vestigial `runtime.focus_ring_duration`
+    field + corresponding slot on `FocusAuthorityMut` (per the 2026-04-22
+    residue note). Doesn't actually advance the collapse but reduces the
+    surface area for the eventual Lane B' refactor.
+- This work is best done as its own dedicated session with explicit scope
+  budget and live build-verification between each phase migration. Today's
+  session prioritized landing the three boundary guards (§§12.3, 12.1, 12.17)
+  which are now all `done`.
 
 ---
 
@@ -1022,3 +1530,619 @@ It is:
 
 That path costs more upfront, but it prevents paying the same migration tax
 twice.
+
+---
+
+## 12. Cross-Cutting Boundary Status Matrix (2026-04-23)
+
+Audit of every architectural seam this plan depends on, beyond the milestone
+narrative. The milestones (M0–M7) describe what the plan does in sequence;
+this matrix describes the state of the seams the plan is moving authority
+*across*, and where enforcement is real vs. social.
+
+**Status key**:
+
+- `done` — the seam has a named boundary and current code mostly respects it
+- `partial` — the boundary exists, but live callers or enforcement are still leaky
+- `missing` — no real boundary or enforcement yet
+
+### 12.1. Arrangement → Graph Boundary
+
+- `done` Single named bridge entrypoint: `app/arrangement_graph_bridge.rs`
+- `done` Plain-data carrier exists: `ArrangementSnapshot`
+- `done` Typed result exists: `ArrangementGraphDelta`
+- `done` Public entrypoint is explicit: `apply_arrangement_snapshot(...)`
+- `done` Main workbench callers already use it: `app/workbench_commands.rs:489`
+- `done` Bridge wrappers (`sync_named_workbench_frame_graph_representation`,
+  `persist_workbench_tile_group`, `remove_named_workbench_frame_graph_representation`)
+  in `app/workbench_commands.rs` are thin helpers that build a typed
+  `ArrangementSnapshot` and delegate to `apply_arrangement_snapshot` —
+  not bypass paths. Earlier `partial` characterization revised on inspection.
+- `done` Guard tests prevent new direct arrangement-edge writers (2026-04-23):
+  - `no_unsanctioned_add_arrangement_relation_calls` — forbids
+    `.add_arrangement_relation_if_missing(` outside `app/graph_mutations.rs`
+    (definition + internal composition) and `app/arrangement_graph_bridge.rs`
+    (sanctioned bridge caller).
+  - `no_unsanctioned_promote_arrangement_relation_calls` — same allowlist for
+    `.promote_arrangement_relation_to_frame_membership(`.
+  Both live in `app::sanctioned_writes_tests` and use the shared
+  `assert_no_unsanctioned_callers` helper factored out of §12.3 work.
+
+**Targets remaining**:
+
+- Ensure replay/restore paths use the same bridge or the same plain-data
+  contract (audit pending — likely already routed via WAL-replay constructors).
+- Consider tightening `add_arrangement_relation_if_missing` and
+  `promote_arrangement_relation_to_frame_membership` visibility to
+  `pub(in crate::app::arrangement_graph_bridge)` once the contract test has
+  bedded in (compile-time belt-and-suspenders matching §12.3's pattern).
+
+### 12.2. Durable Graph Mutation Boundary
+
+**Distinction**: "typed lane exists" is not the same as "reducer is the sole
+writer." The reducer-only enforcement plan
+(`system/2026-03-06_reducer_only_mutation_enforcement_plan.md`) is the
+stricter rule. M4 must not weaken this distinction by introducing
+host-owned mutation helpers.
+
+- `partial` Canonical typed mutation lane exists: `crates/graphshell-core/src/graph/apply.rs`
+- `partial` App-layer sync wrapper exists: `apply_graph_delta_and_sync(...)`
+  in `app/graph_mutations.rs:3339`
+- `done` Core durable operations are typed: add/remove node, add/remove edge,
+  relation assert/retract, traversal append, node metadata
+- `done` Replay variants exist in the same typed layer
+- `partial` Runtime code still uses higher-level app helpers like
+  `add_node_and_sync`, `assert_relation_and_sync`, especially in
+  `app/runtime_lifecycle.rs`
+- `missing` No hard compile-boundary or contract test; enforcement is social
+
+**Targets**:
+
+- Shrink direct app helper surface so durable writes enter through one obvious
+  sanctioned path
+- Add contract tests forbidding non-reducer direct graph mutation APIs
+- Prove live-vs-replay parity for the full durable mutation set
+
+### 12.3. Persisted Node Navigation Memory
+
+**Status update (2026-04-23, second pass)**: Lane A + the typed-delta
+follow-on both landed. Persisted history now flows through a single typed
+canonical mutation lane with both compile-time and grep-time enforcement.
+
+- `done` Substrate exists and is persisted on nodes as `NodeNavigationMemory`
+  in `crates/graphshell-core/src/graph/mod.rs:653`
+- `done` Typed delta variant exists: `GraphDelta::UpdateNodeHistory { key,
+  entries, current_index }` in `crates/graphshell-core/src/graph/apply.rs`,
+  returning `GraphDeltaResult::NodeMetadataUpdated(bool)`
+- `done` Sanctioned helper exists: `apply_node_history_change(...)` on
+  `GraphBrowserApp` in `app/history.rs:135`. Now dispatches through
+  `apply_graph_delta_and_sync(GraphDelta::UpdateNodeHistory { ... })` rather
+  than calling the underlying setter directly. Pairs the typed-delta
+  dispatch with the semantic-navigation-runtime refresh.
+- `done` Direct durable writes in runtime code routed through the helper:
+  - `app/runtime_lifecycle.rs:182` (`handle_webview_history_changed`)
+  - `app/clip_capture.rs:295` (clip-capture initialization)
+- `done` Test direct uses also routed through the helper:
+  - `app/workspace_routing.rs` (3 sites)
+  - `shell/desktop/ui/workbench_host.rs` (5 sites)
+- `done` Compile-time enforcement: `Graph::set_node_history_state` is
+  `pub(crate)` inside `graphshell-core`; any caller from outside the kernel
+  is now a compile error. The two remaining literal mention sites are
+  the function definition and the `GraphDelta::UpdateNodeHistory` match arm
+  body, both inside `graphshell-core`.
+- `done` Grep-time enforcement: contract test
+  `app::history::sanctioned_history_writes_tests::no_unsanctioned_direct_history_writes`
+  walks the repo and fails on any unallowlisted literal occurrence. Needle
+  built via `concat!()` so the test source does not self-match. Allowlist
+  narrowed to `crates/graphshell-core/src/graph/{mod.rs,apply.rs}` after the
+  typed-delta migration.
+- `done` Receipts:
+  - `cargo check --lib` clean (graphshell-core: 5.87s) for the typed-delta
+    surface; full graphshell lib check is also clean after the §12.10
+    viewer-surface-path channel contract was reconciled to 170 phase-3
+    entries.
+  - Lane A's prior receipt of `cargo test --lib sanctioned_history_writes`
+    passing remains valid for the test-logic side.
+
+**Residue closure (2026-04-23, third pass)**:
+
+- `done` `Node::replace_history_state` parallel surface: kept `pub` for
+  legitimate fixture-construction patterns (`Node::test_stub(...)` →
+  `node.replace_history_state(...)` is the natural unit-test path; can't
+  use the typed delta because there's no Graph to apply against). A
+  9-file allowlist captures every currently-known test caller across the
+  graphshell crate. New contract test
+  `no_unsanctioned_node_replace_history_state_writes` enforces it.
+  Adding a new file to the allowlist becomes a deliberate review signal:
+  if the new caller is non-test, it must route through the typed delta
+  instead; if it's a new test fixture, the allowlist addition is the
+  explicit acknowledgment.
+- `done` WAL replay surface: verified — persistence-replay does not call
+  any of the history mutation surfaces. `services/persistence/types.rs`
+  reconstructs `NodeNavigationMemory` via `from_linear_history(...)` and
+  `empty()` constructors at deserialization time, not via mutation
+  setters. Not a hole.
+- `done` Reusable scanning infrastructure: contract test refactored to
+  extract `assert_no_unsanctioned_callers(needle, allowed_files,
+  sanction_message)` helper. Same shape can guard arrangement-bridge
+  sole-writer (§12.1) and host-owned mutation entrypoints (§12.17) when
+  those land — each becomes a one-test addition with its own allowlist.
+
+### 12.4. Runtime Lifecycle Hooks
+
+- `partial` Title updates already use `GraphDelta`: `runtime_lifecycle.rs:220`
+- `partial` URL change handling is mixed: traversal and URL mutation go through
+  app-sanctioned helpers at `runtime_lifecycle.rs:100`
+- `missing` History change handling still mutates persisted node history
+  directly at `runtime_lifecycle.rs:184`
+- `partial` Lifecycle still owns substantial app/domain behavior directly
+  rather than cleanly splitting ingest, planning, apply, and effects
+
+**Targets**:
+
+- Split lifecycle into host-neutral event ingestion, mutation planning, state
+  apply, and effects
+- Remove direct persisted-history writes from lifecycle
+- Ensure all host lifecycle events can be replayed through the same
+  state-transition seams
+
+### 12.5. Graph Mutation / Sync Paths
+
+**Status update (2026-04-24)**: Post-apply sync is now a distinct,
+explicit step.
+
+- `done` Mutation results are typed enough to distinguish structural vs
+  metadata cases: `GraphDeltaResult` in `apply.rs:133`,
+  `app/graph_mutations.rs:3367`
+- `done` App sync layer split: `apply_graph_delta_and_sync` is now a
+  composition of `apply_domain_graph_delta` (typed kernel mutation)
+  followed by `post_apply_sync` (the new dedicated post-apply hook).
+- `done` Cleanly separate post-apply sync contract:
+  `GraphBrowserApp::post_apply_sync(&GraphDeltaResult)` in
+  `app/graph_mutations.rs`. Documented contract — idempotent (clears
+  cache to `None`; rebuilds containment edges from current graph
+  state, both safe to repeat), host-independent (touches only
+  `workspace.domain.graph` and `workspace.graph_runtime.hop_distance_cache`,
+  no host adapter or rendering state).
+
+**Targets remaining**:
+
+- Wire WAL replay / restore paths to call `post_apply_sync` after
+  batch-applying typed deltas (currently they go through
+  `apply_domain_graph_delta` directly and skip the sync; whether that's
+  intentional or a latent bug needs an audit).
+- Add parity tests that the same typed mutation sequence yields the
+  same durable state and the same sync-visible structural outcomes
+  across hosts. The extracted `post_apply_sync` makes this tractable
+  — a parity test can apply deltas via the runtime path and via direct
+  `apply_domain_graph_delta` + `post_apply_sync`, asserting state
+  convergence.
+- Keep derived cache refresh and view-model projection from silently
+  mutating durable truth (ongoing concern; the extraction makes
+  enforcement easier — a sync helper that ALSO mutates durable graph
+  state would now be visibly separate from the apply step).
+
+### 12.6. Host Runtime Boundary
+
+- `done` Host-neutral runtime exists: `GraphshellRuntime` in
+  `shell/desktop/ui/gui_state.rs:246`
+- `done` Host-neutral per-frame input/output types: `FrameHostInput` /
+  `FrameViewModel` at `shell/desktop/ui/frame_model.rs:28`
+- `done` Host ports exist: `shell/desktop/ui/host_ports.rs:44`
+- `done` Egui ports exist: `shell/desktop/ui/egui_host_ports.rs:72`
+- `partial` Iced ports exist, but are still mostly bring-up stubs:
+  `shell/desktop/ui/iced_host_ports.rs:44`
+- `partial` Iced host calls the same runtime tick:
+  `shell/desktop/ui/iced_host.rs:65`
+- `partial` Egui still reads shell state directly in places; `runtime.tick(...)`
+  exists, but full host consumption of runtime outputs is not complete:
+  `shell/desktop/ui/gui.rs:1056`
+
+**Targets**:
+
+- Make both egui and iced consume runtime outputs, not internal shell state
+- Keep all domain mutation APIs out of host adapters
+- Add parity runs for the same replay/input traces across egui and iced
+
+### 12.7. Workbench Authority
+
+- `partial` `GraphTree` authority is real and parity-checked in practice;
+  `parity_check(...)` runs in `shell/desktop/ui/gui.rs:1030`
+- `done by design` Startup import from tiles is intentionally retained:
+  `incremental_sync_from_tiles(...)` at `shell/desktop/ui/gui.rs:504`
+  reconciles GraphTree with tile state restored from persistence on startup.
+  Per M1's done-gate: "Keep only startup import from tile state plus explicit
+  repair tooling" — this is the only remaining caller; per-frame follower
+  path was removed 2026-04-15.
+- `done` Semantic command routing to `graph_tree_commands` is present in places
+  like `shell/desktop/ui/workbench_host.rs:4911`
+- `done` (2026-04-24) Pending-open flows route through dual-write where a
+  GraphTree is available. `pending_open_flow.rs::handle_pending_open_node_after_intents`,
+  `handle_pending_open_note_after_intents`, `handle_pending_open_clip_after_intents`,
+  and the private `execute_pending_open_node_after_intents` helper now accept
+  `Option<&mut GraphTree>` and dispatch through
+  `graph_tree_dual_write::open_or_focus_node` /
+  `open_or_focus_node_with_mode` when the GraphTree ref is present, falling
+  back to `tile_view_ops::open_or_focus_node_pane*` only when it isn't.
+  `workbench_intent_interceptor::apply_semantic_intents_and_pending_open`
+  reborrows its `Option<&mut GraphTree>` via `.as_deref_mut()` to feed
+  the four downstream calls.
+- `done by design` Other `tile_view_ops::*` call sites (~93 total) remain
+  intentionally — they cover (a) read-only presentation queries
+  (`active_graph_view_id`, `ensure_active_tile`, `warm_peer_tab_container`),
+  (b) graph-pane and tool-pane operations that aren't GraphTree members,
+  and (c) `pane_ops::open_or_focus_node_pane_with_*` fallback paths
+  conditional on graph_tree availability matching the pattern landed
+  here.
+
+**Targets remaining**:
+
+- Add a host-adapter contract test extension (using the §12.17
+  `assert_needle_absent_from_files` helper) that forbids new direct
+  `egui_tiles::Tree<TileKind>` mutations in host adapter files
+  (`iced_host.rs`, etc.) — defers a "host-owned workbench authority"
+  bypass into a compile-test failure rather than reviewer judgment.
+
+### 12.8. Compositor Identity & Pass Traits
+
+**Scope**: this row is now narrowed to compositor-side identity and the
+overlay/content painter trait surfaces. Viewer-surface ownership and the
+GL-shaped per-node `OffscreenRenderingContext` retirement is its own row
+(§12.10) since M4.5 carved that out as a distinct seam.
+
+- `done` Viewer surface registry exists as a portable identity seam in multiple
+  runtime paths and constructors: `shell/desktop/ui/gui.rs:418`
+- `done` Overlay/content passes are trait-driven:
+  - `OverlayAffordancePainter` at `shell/desktop/workbench/compositor_adapter.rs:841`
+  - `ContentPassPainter` at `shell/desktop/workbench/compositor_adapter.rs:911`
+- `partial` Iced-side stubs for those painters exist:
+  `shell/desktop/ui/iced_host_ports.rs:278`
+- `done` Identity is not tile-owned here anymore; `NodeKey` / `PaneId`
+  throughout the compositor hot path
+
+**Targets**:
+
+- Finish real iced implementations of the compositor-facing painter traits
+- Add parity coverage for overlay descriptor + content callback dispatch across
+  hosts
+- Keep WebGL quarantine/composition isolated from host authority
+
+### 12.9. Portable Shell Runtime Bundles
+
+- `done` Authority bundles exist and are already moving out of host-specific
+  ownership:
+  - `FocusAuthorityMut`, `GraphSearchAuthorityMut`, `CommandAuthorityMut` in
+    `crates/graphshell-core/src/shell_state/authorities.rs:58`
+  - `ToolbarAuthorityMut` in `shell/desktop/ui/gui_state.rs:136`
+- `partial` Project is still in a transitional bundle phase; `&mut` threading
+  remains and not everything has collapsed onto the runtime root
+
+**Targets**:
+
+- Finish converging phase args and helper stacks onto `&mut GraphshellRuntime`
+- Remove residual host-owned semantic state access
+- Keep these bundles from becoming permanent semi-authorities
+
+### 12.10. Viewer-Surface Host Nativity (M4.5)
+
+**New row** — carved from §12.8 because M4.5 names this as a distinct
+prerequisite for a *useful* iced host, separate from compositor identity.
+
+- `partial` `ViewerSurfaceRegistry` exists in
+  `shell/desktop/workbench/compositor_adapter.rs`, keys on `NodeKey`, and now
+  owns typed surface backing (`ViewerSurfaceBacking`) plus per-frame
+  `last_frame_path`
+- `done` The first ownership slice has collapsed the old
+  `tile_rendering_contexts`/naked-`gl_ctx` shape into registry-owned compat
+  backing; the original 16-site audit snapshot was directionally useful but
+  stale in detail
+- `partial` Shared-wgpu composition is still opportunistic rather than the
+  primary contract, but the compose path now distinguishes shared-wgpu import
+  from callback fallback in `CompositedContentPassOutcome`
+- `done` GL fallback is now named as a compatibility producer
+  (`ViewerSurfaceBacking::CompatGlOffscreen`, `compat_gl_context`) instead of
+  being the shape of the registry API
+- `done` Parity diagnostics now record which viewer-surface / content-bridge
+  path each frame exercised (`shared_wgpu`, `callback_fallback`,
+  `missing_surface`)
+
+**Targets**:
+
+- Move authoritative viewer-surface ownership fully to `ViewerSurfaceRegistry`
+- Retire direct hot-path reliance on `tile_rendering_contexts`
+- Make shared-wgpu the primary contract; GL becomes named compatibility producer
+- Preserve WebGL quarantine through the interop/import path
+- Add parity / diagnostics coverage for which viewer-surface path is active
+
+**Receipt (2026-04-23, Lane B first slice)**:
+
+- Audit result: the live seam was not a separate free-floating
+  `tile_rendering_contexts` map so much as `ViewerSurfaceRegistry` still being
+  GL-shaped internally and at its hot-path call sites.
+- Landed the first mechanical slice in:
+  `compositor_adapter.rs`, `tile_compositor.rs`,
+  `lifecycle/webview_backpressure.rs`, `tile_render_pass.rs`,
+  `tile_invariants.rs`, `ui/gui_frame.rs`, and diagnostics registry wiring.
+- Follow-on slice: `tile_compositor.rs` now composes runtime viewer content via
+  `CompositorAdapter::compose_webview_content_pass_for_surface(...)` so the
+  compositor call site operates on `ViewerSurface`/registry state instead of
+  peeling out a raw compat GL context first; that same path now keeps the
+  registry-owned `ContentSurfaceHandle` authoritative for imported-wgpu vs
+  callback-fallback state.
+- Broader seam completion (Graphshell-local): the host/registry allocation
+  contract now traffics in typed `ViewerSurfaceBacking` values, that backing
+  enum now includes `NativeRenderingContext(Rc<dyn RenderingContextCore>)`, and
+  `webview_backpressure.rs` now builds webviews from the registry's generic
+  rendering-context accessor rather than a compat-GL-only accessor.
+- Activation receipt (2026-04-23, third pass): the egui host now allocates
+  `ViewerSurfaceBacking::NativeRenderingContext(...)` from the shared host
+  rendering context, so runtime webviews exercise the native viewer-surface
+  composition branch by default. GL remains as an explicit compatibility
+  producer inside the compositor path rather than as the live host allocator's
+  primary shape.
+
+### 12.11. Graph-Canvas as Live Surface Authority (M2)
+
+**New row** — collapsed into §12.8 in the original matrix, but graph-canvas
+authority over scene derivation, camera, interaction, and packet generation
+is a distinct seam from compositor identity. M2 was a major milestone here.
+
+- `done` Live graph panes render through `graph-canvas`, not `egui_graphs`
+  (M2 done 2026-04-21)
+- `done` Portable `CanvasInputEvent` / `CanvasAction` flows in
+  `crates/graph-canvas/src/input.rs`, `interaction.rs`
+- `done` Scene derivation, camera, projection, hit testing, physics in portable
+  crate (`derive.rs`, `camera.rs`, `projection.rs`, `hit_test.rs`, `scene_physics.rs`)
+- `done` Vello backend in `crates/graph-canvas/src/backend_vello.rs` as shared
+  rendering convergence point
+- `done` Host-neutral `canvas_bridge::run_graph_canvas_frame(...)` seam
+  (`render/canvas_bridge.rs`)
+- `partial` Iced-side scaffold exists at `shell/desktop/ui/iced_graph_canvas.rs`
+  but is a `todo(m5)` stub
+- `missing` No parity test that the same `CanvasInputEvent` sequence produces
+  identical packets across hosts
+
+**Targets**:
+
+- Implement iced graph-canvas adapter consuming the same Vello backend
+- Add cross-host packet parity tests
+- Keep all camera / interaction grammar in the portable crate
+
+### 12.12. Replay / Parity Harness (M0)
+
+**New row** — M0 deliverable treated as targets in §§12.5/12.6/12.8 of the
+original matrix, but the harness itself is a seam with its own state.
+
+- `done` GraphTree parity receipts: `graph-tree/src/parity.rs` with 7
+  divergence types
+- `done` Per-frame parity check runs in debug builds:
+  `graph_tree_sync::parity_check()`
+- `partial` UX replay exists: `shell/desktop/workbench/ux_replay.rs`
+- `partial` Iced parity scaffold exists: `shell/desktop/ui/iced_parity.rs`
+- `missing` No exercising of the replay harness across both hosts on every
+  host-touching change
+- `missing` No graph-canvas packet replay (snapshots exist per M0 but not
+  exercised cross-host)
+- `missing` No CI gate that blocks divergence between egui and iced replay
+  outputs
+
+**Targets**:
+
+- Wire `iced_parity.rs` to actually consume the same replay traces as the egui
+  host
+- Add a default narrow validation lane that runs replay parity for the slices
+  affected by each change
+- Treat `iced_parity.rs` as the M5 acceptance harness, not an aspirational stub
+
+### 12.13. Render Backend Boundary
+
+**New row** — `shell/desktop/render_backend/mod.rs` is named as an
+implementation anchor in §0 of this plan but doesn't appear in the original
+matrix as a seam.
+
+- `done` Backend selection exists with `gl_backend.rs` and `wgpu_backend.rs`
+  variants
+- `partial` Backend abstraction is still egui-shaped; iced expects to plug into
+  the same wgpu device/queue but the boundary isn't typed for that yet
+- `missing` No clear contract for what each backend must provide vs. what
+  hosts implement themselves
+
+**Targets**:
+
+- Type the render-backend contract so iced and egui can share the same
+  underlying wgpu surface where the OS allows
+- Document GL backend retention policy alongside the M4.5 viewer-surface
+  decisions
+- Coordinate with the Servo wgpuification companion plan
+
+### 12.14. Settings / Configurability Host-Neutrality
+
+**New row** — `ChromeUiState` carries `FocusRingSettings`, `ThumbnailSettings`,
+etc. with serde persistence. Both hosts need to consume the same settings
+surface and route mutations through the same authority. Not previously
+tracked.
+
+- `done` Settings live on `ChromeUiState` (in graphshell-core, portable)
+- `done` Serde round-trip with legacy-blob compat for `ThumbnailSettings`,
+  `FocusRingSettings` (M4.1 slice 1d, M4.4)
+- `done` Settings persistence: `app/settings_persistence.rs`
+- `partial` Setter-side clamping is consistent for new settings; older settings
+  surfaces vary
+- `missing` No host-neutral settings UI surface — settings panels are still
+  egui-rendered
+- `missing` No parity test that settings changes apply identically across hosts
+
+**Targets**:
+
+- Lift settings UI projection above the host boundary (settings → view-model
+  → host-rendered widget)
+- Add parity coverage for settings mutations
+- Audit older settings surfaces for setter-side clamping consistency
+
+### 12.15. Accessibility Above Framework Layer (Sidequest D)
+
+**New row** — Sidequest D names UxTree / semantic projection above the host
+boundary as a deliberate non-host seam. Currently `missing` in practice.
+
+- `done` UxTree exists as a portable construct: `shell/desktop/workbench/ux_tree.rs`
+- `done` Accessibility bridge exists: `shell/desktop/ui/gui/accessibility.rs`,
+  `accessibility_bridge_tests.rs`
+- `partial` AccessKit integration goes through framework-specific paths
+- `missing` No host-neutral AT projection — egui and iced will each need to
+  re-implement accessibility against AccessKit if this isn't lifted first
+- `missing` No parity test for AT semantics across hosts
+
+**Targets**:
+
+- Lift UxTree → AccessKit translation above the host boundary
+- Make AT semantics part of the view-model surface, not host-specific
+- Add AT parity tests so iced bring-up doesn't regress accessibility
+
+### 12.16. Diagnostics Channel Host-Neutrality
+
+**Status update (2026-04-24)**: `DiagnosticsState` lifted from EguiHost
+to GraphshellRuntime — the data foundation is now host-neutral.
+
+- `done` Channel registry exists: `registries/atomic/diagnostics.rs`
+- `done` Diagnostics surface exists on runtime: `shell/desktop/runtime/diagnostics.rs`
+- `done` Diagnostics pane UI: `shell/desktop/runtime/diagnostics/pane_ui.rs`
+- `partial` Channel registration is centralized; channel *consumers* still
+  often go through host-local logging
+- `done` (2026-04-24) `DiagnosticsState` instance lives on `GraphshellRuntime`
+  rather than `EguiHost`. Removed from `EguiHost`'s struct + constructor;
+  added (cfg-gated `#[cfg(feature = "diagnostics")]`) to `GraphshellRuntime`
+  and its `new_minimal()` test constructor. Removed from
+  `ExecuteUpdateFrameArgs` / `ToolbarAndGraphSearchWindowPhaseArgs` /
+  `SemanticAndPostRenderPhaseArgs` / `PostRenderPhaseArgs` /
+  `TileRenderPassArgs` — phases that need it now split-borrow
+  `&mut runtime.diagnostics_state`. The egui pane renderer
+  (`runtime/diagnostics/pane_ui.rs`) reads from
+  `EguiHost::diagnostics_state()` which now returns
+  `&self.runtime.diagnostics_state`. Iced inherits the same instance for
+  free once it consumes the runtime.
+- `missing` No iced-side diagnostics pane renderer yet — the pane UI is
+  still egui-specific (~1402 lines in `pane_ui.rs` using egui drawing
+  primitives). Lifting the pane to a host-neutral view-model is the
+  next slice; the data layer is now ready for it.
+
+**Targets remaining**:
+
+- Lift the pane rendering shape to a host-neutral
+  `DiagnosticsViewModel` so iced can render the same data through its
+  own widget set. The pane currently mixes data projection (channel
+  message counts, latency percentiles, edge metrics) with egui drawing
+  (rects, strokes, text); separating projection from rendering is the
+  remaining work. Estimated 2-4 hours.
+- Add per-frame diagnostic for which viewer-surface / content-bridge
+  path each host is exercising (per §12.10).
+- Audit channel severities for consistency with `Error` / `Warn` /
+  `Info` conventions.
+
+### 12.17. Enforcement / Regression Guards
+
+**Status update (2026-04-23)**: All three guards landed via the consolidated
+`app::sanctioned_writes_tests` module. Six contract tests now run in
+`cargo test --lib sanctioned_writes`, sharing two reusable scanning helpers
+(`assert_no_unsanctioned_callers` for repo-wide-with-allowlist scans;
+`assert_needle_absent_from_files` for targeted host-adapter scans).
+
+- `done` Plans now name the seams explicitly in:
+  - `system/2026-03-06_reducer_only_mutation_enforcement_plan.md`
+  - `subsystem_history/SUBSYSTEM_HISTORY.md`
+  - this plan §12
+- `done` Enforcement tests in `app/sanctioned_writes_tests.rs`:
+  - §12.3 — `no_unsanctioned_set_node_history_state_writes`
+    (Graph-level setter)
+  - §12.3 — `no_unsanctioned_node_replace_history_state_writes`
+    (Node-level primitive)
+  - §12.1 — `no_unsanctioned_add_arrangement_relation_calls`
+    (`add_arrangement_relation_if_missing` outside bridge + helper module)
+  - §12.1 — `no_unsanctioned_promote_arrangement_relation_calls`
+    (`promote_arrangement_relation_to_frame_membership` outside bridge +
+    helper module)
+  - §12.17 — `host_adapters_do_not_call_apply_graph_delta_and_sync`
+    (forbids the canonical typed-mutation entrypoint in 5 host-adapter files:
+    `iced_host.rs`, `iced_app.rs`, `iced_events.rs`, `iced_host_ports.rs`,
+    `egui_host_ports.rs`)
+  - §12.17 — `host_adapters_do_not_call_apply_arrangement_snapshot`
+    (same allowlist; forbids the arrangement-bridge entrypoint)
+
+  Two host-adjacent files are intentionally NOT in the §12.17 list:
+  `iced_graph_canvas.rs` (graph-canvas integration with legitimate test
+  fixtures) and `iced_parity.rs` (parity-replay scaffold). Adding a new
+  iced/egui adapter file to the host set is a deliberate signal during PR
+  review.
+
+- `done` Receipts: `cargo test --lib sanctioned_writes` — 6 passed, 0 failed
+  (1m 52s build, 0.21s run). Full `cargo check --lib` clean.
+
+**Targets remaining**:
+
+- Generalize the scanning infrastructure to a small `sanctioned_writes`
+  framework module callers can extend without copy-pasting the walker —
+  current shape is already factored, but a public test-utils export would
+  let other crates add their own contract tests without re-implementing.
+- Convert any `partial` enforcement noted elsewhere in §12 into the same
+  helper pattern as it lands.
+
+### 12.18. Operational Gaps
+
+Not architectural seams, but cross-cutting concerns that affect every other
+row's confidence level.
+
+**Verification posture under sibling-crate breakage** — `webrender-wgpu`
+SPIR-V/naga migration blocks `cargo check -p graphshell --lib` and full test
+runs. Verification is currently narrow against `graphshell-core`. This is the
+practical reason "M4 substantially landed" can't be fully confirmed. Tracked
+in the 2026-04-22 progress log entry.
+
+**Time/clock injection for replay** — `runtime.tick()` consumes time
+(focus-ring fade math depends on it). For parity replay across hosts, time
+has to be injectable. Currently not part of `FrameHostInput`'s contract.
+
+**Effect-system surface** — §12.4 covers lifecycle ingest/plan/apply, but the
+broader effect dispatch (thumbnail async, navigation, network, clipboard)
+doesn't have a named boundary. M4.4 landed `BackendThumbnailPort` as a
+port-shaped trait — this pattern arguably wants generalization to other
+async/effect surfaces before iced tries to mirror them.
+
+**Cross-repo Servo wgpuification dependency** — M4.5 alignment depends on
+`servo-wgpu/docs/2026-04-18_servo_wgpuification_plan.md`. Cross-cutting risk
+since viewer-surface decisions can't fully land without Servo-side
+coordination on shared wgpu device/queue ownership.
+
+### 12.19. Bottom Line (updated)
+
+- `done`: arrangement bridge; host-neutral runtime/ports; compositor identity;
+  graph-canvas live surface; portable settings substrate; UxTree exists;
+  diagnostics registry exists
+- `partial`: durable graph mutation lane (still has app/helper leakage);
+  GraphTree/runtime authority transfer; iced port stubs; settings UI surface;
+  AccessKit integration
+- `missing`: persisted node navigation memory boundary; M4.5 viewer-surface
+  host-nativity; replay/parity harness exercised cross-host; render-backend
+  contract typed for shared wgpu; AT projection above host; enforcement tests
+  for the three guard rules
+
+### 12.20. Highest-Leverage Next Targets (updated)
+
+**Tier 1 — unblocks M4 completion**:
+
+- ~~Centralize all `set_node_history_state(...)` writes behind one helper~~
+  — landed 2026-04-23 (Lane A); see §12.3.
+- Phase-args bundle collapse onto `&mut GraphshellRuntime`
+- Move host-side view-model reads to consume `runtime.tick()` output
+
+**Tier 2 — unblocks useful M5 (iced as a real second host)**:
+
+- Begin M4.5: retire `tile_rendering_contexts` hot-path ownership in favor of
+  `ViewerSurfaceRegistry`
+- Wire `iced_parity.rs` to consume the same replay traces as the egui host
+- Implement real iced `OverlayAffordancePainter` / `ContentPassPainter`
+
+**Tier 3 — enforcement and durability**:
+
+- Contract tests for: arrangement-bridge sole-writer, no direct node-history
+  writes, no new host-owned graph/history mutation setters
+- Lift UxTree → AccessKit translation above the host boundary
+- Type the render-backend contract for shared wgpu
