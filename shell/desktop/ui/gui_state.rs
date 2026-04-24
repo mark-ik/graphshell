@@ -651,6 +651,15 @@ impl GraphshellRuntime {
             surfaces_to_present: Vec::new(),
             degraded_receipts: Vec::new(),
             captures_in_flight: self.thumbnail_capture_in_flight.len(),
+            settings:
+                graphshell_core::shell_state::frame_model::SettingsViewModel {
+                    focus_ring: graphshell_core::shell_state::frame_model::FocusRingSettingsView {
+                        enabled: focus_ring_settings.enabled,
+                        duration_ms: focus_ring_settings.duration_ms,
+                        curve: focus_ring_settings.curve,
+                        color_override: focus_ring_settings.color_override,
+                    },
+                },
         }
     }
 }

@@ -120,6 +120,16 @@ pub struct FrameViewModel {
     /// completion. Hosts can gate a "capture in progress" spinner on
     /// `captures_in_flight > 0`.
     pub captures_in_flight: usize,
+
+    /// User-configurable settings projected into a host-neutral shape.
+    /// §12.14 (2026-04-24): the canonical settings types live in
+    /// `app/settings_persistence.rs` (graphshell crate), but the
+    /// host-facing FrameViewModel must not depend on app types — POD
+    /// mirror in [`SettingsViewModel`] keeps the data flow portable.
+    /// Egui and iced both render settings UI from this projection
+    /// instead of reading `chrome_ui.focus_ring_settings` /
+    /// `chrome_ui.thumbnail_settings` directly.
+    pub settings: SettingsViewModel,
 }
 
 // ---------------------------------------------------------------------------
@@ -563,5 +573,53 @@ mod tests {
         assert!(!input.wants_keyboard);
         assert!(!input.wants_pointer);
         assert!(!input.had_input_events);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// §12.14 — Settings view-model (host-neutral projection of user settings)
+// ---------------------------------------------------------------------------
+
+/// Host-neutral projection of user-configurable settings. Lives on
+/// [`FrameViewModel::settings`] and is populated by the runtime each
+/// frame from `chrome_ui.{focus_ring,thumbnail}_settings` (and
+/// future settings groups).
+///
+/// §12.14 (2026-04-24): exists so iced / egui hosts render settings
+/// UI from the same projection rather than reading
+/// `chrome_ui.focus_ring_settings` directly. The canonical settings
+/// types live in `app/settings_persistence.rs` (graphshell crate);
+/// this module mirrors the read-side shape with POD types so the
+/// graphshell-core kernel stays independent of the app crate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SettingsViewModel {
+    /// Focus-ring animation behavior (enabled toggle, fade duration,
+    /// fade curve, optional color override).
+    pub focus_ring: FocusRingSettingsView,
+}
+
+/// POD mirror of `app::FocusRingSettings` for host rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusRingSettingsView {
+    /// Master enable for the focus-ring overlay. Reduced-motion
+    /// accessibility preferences set this to `false`.
+    pub enabled: bool,
+    /// Fade-out duration in milliseconds.
+    pub duration_ms: u32,
+    /// Fade-out reshape curve.
+    pub curve: FocusRingCurve,
+    /// Optional user-chosen RGB color override; `None` means inherit
+    /// the active presentation theme's `focus_ring` color.
+    pub color_override: Option<[u8; 3]>,
+}
+
+impl Default for FocusRingSettingsView {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            duration_ms: 500,
+            curve: FocusRingCurve::Linear,
+            color_override: None,
+        }
     }
 }
