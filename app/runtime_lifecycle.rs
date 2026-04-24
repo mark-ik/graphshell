@@ -60,6 +60,63 @@ pub struct WebviewHistoryChangePlan {
     pub new_index: usize,
 }
 
+/// Typed lifecycle plan derived from a webview scroll-change event.
+///
+/// §12.4 (2026-04-24, second pass): produced by
+/// [`GraphBrowserApp::plan_webview_scroll_change`] and consumed by
+/// [`GraphBrowserApp::apply_webview_scroll_change_plan`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WebviewScrollChangePlan {
+    pub node_key: super::NodeKey,
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+}
+
+/// Typed lifecycle plan derived from a webview title-change event.
+///
+/// §12.4 (2026-04-24, second pass): produced by
+/// [`GraphBrowserApp::plan_webview_title_change`] and consumed by
+/// [`GraphBrowserApp::apply_webview_title_change_plan`]. Plan is `None`
+/// when the title is empty/missing or the webview is unmapped — the
+/// host event should be silently ignored in those cases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebviewTitleChangePlan {
+    pub node_key: super::NodeKey,
+    pub title: String,
+}
+
+/// Typed lifecycle plan derived from a webview-created event.
+///
+/// §12.4 (2026-04-24, second pass): produced by
+/// [`GraphBrowserApp::plan_webview_created`] (read-only) and consumed by
+/// [`GraphBrowserApp::apply_webview_created_plan`] (mutation). Captures
+/// the placement decision (parent + position + URL choice) so the apply
+/// pass is a straightforward node-creation + mapping + optional-edge
+/// sequence. `node_url` is `None` when the placeholder counter must be
+/// bumped at apply time — keeping the plan side-effect-free.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WebviewCreatedPlan {
+    pub child_webview_id: RendererId,
+    pub parent_node: Option<super::NodeKey>,
+    pub position: Point2D<f32>,
+    pub node_url: Option<String>,
+}
+
+/// Typed lifecycle plan derived from a webview-crashed event.
+///
+/// §12.4 (2026-04-24, second pass): produced by
+/// [`GraphBrowserApp::plan_webview_crashed`] and consumed by
+/// [`GraphBrowserApp::apply_webview_crashed_plan`]. `node_key` is `None`
+/// when the crashing webview was already unmapped — the apply path then
+/// just unmaps and warns rather than marking a node crash-blocked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebviewCrashedPlan {
+    pub webview_id: RendererId,
+    pub node_key: Option<super::NodeKey>,
+    pub reason: String,
+    pub has_backtrace: bool,
+}
+
 impl GraphBrowserApp {
     pub(crate) fn handle_host_open_request(&mut self, request: HostOpenRequest) {
         let parent_node = request
@@ -99,23 +156,45 @@ impl GraphBrowserApp {
         }
     }
 
-    pub(crate) fn handle_webview_created(
-        &mut self,
+    /// Plan a webview-created event (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24, second pass): split out of
+    /// `handle_webview_created` so the host event parse + position-query
+    /// pass produces a typed [`WebviewCreatedPlan`] separately from the
+    /// apply pass. Replay paths can construct + execute plans without
+    /// going through the host event surface.
+    pub(crate) fn plan_webview_created(
+        &self,
         parent_webview_id: RendererId,
         child_webview_id: RendererId,
         initial_url: Option<String>,
-    ) {
+    ) -> WebviewCreatedPlan {
         let parent_node = self.get_node_for_webview(parent_webview_id);
         let position = parent_node
             .and_then(|parent_key| self.anchored_new_node_position(parent_key))
             .unwrap_or_else(|| Point2D::new(400.0, 300.0));
-        let node_url = initial_url
-            .filter(|url| !url.is_empty() && url != "about:blank")
+        let node_url = initial_url.filter(|url| !url.is_empty() && url != "about:blank");
+        WebviewCreatedPlan {
+            child_webview_id,
+            parent_node,
+            position,
+            node_url,
+        }
+    }
+
+    /// Apply a previously-planned webview-created event.
+    ///
+    /// §12.4 (2026-04-24, second pass): pure state-mutation step.
+    /// Composes `add_node_and_sync` with the runtime mapping/promotion
+    /// events and the optional parent→child hyperlink edge.
+    pub(crate) fn apply_webview_created_plan(&mut self, plan: WebviewCreatedPlan) {
+        let node_url = plan
+            .node_url
             .unwrap_or_else(|| self.next_placeholder_url());
-        let child_node = self.add_node_and_sync(node_url, position);
+        let child_node = self.add_node_and_sync(node_url, plan.position);
         self.apply_runtime_events([
             RuntimeEvent::MapWebviewToNode {
-                webview_id: child_webview_id,
+                webview_id: plan.child_webview_id,
                 key: child_node,
             },
             RuntimeEvent::PromoteNodeToActive {
@@ -123,7 +202,7 @@ impl GraphBrowserApp {
                 cause: LifecycleCause::Restore,
             },
         ]);
-        if let Some(parent_key) = parent_node {
+        if let Some(parent_key) = plan.parent_node {
             let _ = self.assert_relation_and_sync(
                 parent_key,
                 child_node,
@@ -134,6 +213,16 @@ impl GraphBrowserApp {
                 },
             );
         }
+    }
+
+    pub(crate) fn handle_webview_created(
+        &mut self,
+        parent_webview_id: RendererId,
+        child_webview_id: RendererId,
+        initial_url: Option<String>,
+    ) {
+        let plan = self.plan_webview_created(parent_webview_id, child_webview_id, initial_url);
+        self.apply_webview_created_plan(plan);
     }
 
     fn position_for_host_open(
@@ -283,20 +372,81 @@ impl GraphBrowserApp {
         }
     }
 
+    /// Plan a webview scroll-change event (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24, second pass): returns `None` when the webview
+    /// has no node mapping — the host event should be silently dropped.
+    pub(crate) fn plan_webview_scroll_change(
+        &self,
+        webview_id: RendererId,
+        scroll_x: f32,
+        scroll_y: f32,
+    ) -> Option<WebviewScrollChangePlan> {
+        let node_key = self.get_node_for_webview(webview_id)?;
+        Some(WebviewScrollChangePlan {
+            node_key,
+            scroll_x,
+            scroll_y,
+        })
+    }
+
+    /// Apply a previously-planned webview scroll-change event.
+    ///
+    /// §12.4 (2026-04-24, second pass): pure state-mutation step.
+    pub(crate) fn apply_webview_scroll_change_plan(&mut self, plan: WebviewScrollChangePlan) {
+        let _ = self
+            .workspace
+            .domain
+            .graph
+            .set_node_session_scroll(plan.node_key, Some((plan.scroll_x, plan.scroll_y)));
+    }
+
     pub(crate) fn handle_webview_scroll_changed(
         &mut self,
         webview_id: RendererId,
         scroll_x: f32,
         scroll_y: f32,
     ) {
-        let Some(node_key) = self.get_node_for_webview(webview_id) else {
-            return;
+        if let Some(plan) = self.plan_webview_scroll_change(webview_id, scroll_x, scroll_y) {
+            self.apply_webview_scroll_change_plan(plan);
+        }
+    }
+
+    /// Plan a webview title-change event (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24, second pass): returns `None` when the webview
+    /// is unmapped or the title is missing/empty — the host event
+    /// should be silently dropped in those cases.
+    pub(crate) fn plan_webview_title_change(
+        &self,
+        webview_id: RendererId,
+        title: Option<String>,
+    ) -> Option<WebviewTitleChangePlan> {
+        let node_key = self.get_node_for_webview(webview_id)?;
+        let title = title?;
+        if title.is_empty() {
+            return None;
+        }
+        Some(WebviewTitleChangePlan { node_key, title })
+    }
+
+    /// Apply a previously-planned webview title-change event.
+    ///
+    /// §12.4 (2026-04-24, second pass): pure state-mutation step.
+    /// Routes the title write through the typed delta lane and logs
+    /// the mutation if it actually changed the stored title.
+    pub(crate) fn apply_webview_title_change_plan(&mut self, plan: WebviewTitleChangePlan) {
+        let GraphDeltaResult::NodeMetadataUpdated(changed) =
+            self.apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
+                key: plan.node_key,
+                title: plan.title,
+            })
+        else {
+            unreachable!("title delta must return NodeMetadataUpdated");
         };
-        let _ = self
-            .workspace
-            .domain
-            .graph
-            .set_node_session_scroll(node_key, Some((scroll_x, scroll_y)));
+        if changed {
+            self.log_title_mutation(plan.node_key);
+        }
     }
 
     pub(crate) fn handle_webview_title_changed(
@@ -304,26 +454,48 @@ impl GraphBrowserApp {
         webview_id: RendererId,
         title: Option<String>,
     ) {
-        let Some(node_key) = self.get_node_for_webview(webview_id) else {
-            return;
-        };
-        let Some(title) = title else {
-            return;
-        };
-        if title.is_empty() {
-            return;
+        if let Some(plan) = self.plan_webview_title_change(webview_id, title) {
+            self.apply_webview_title_change_plan(plan);
         }
-        let GraphDeltaResult::NodeMetadataUpdated(changed) =
-            self.apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
+    }
+
+    /// Plan a webview-crashed event (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24, second pass): captures the node-mapping
+    /// lookup result so the apply pass can branch between
+    /// crash-block + demote (mapped) and bare unmap (unmapped) without
+    /// re-querying state.
+    pub(crate) fn plan_webview_crashed(
+        &self,
+        webview_id: RendererId,
+        reason: String,
+        has_backtrace: bool,
+    ) -> WebviewCrashedPlan {
+        WebviewCrashedPlan {
+            webview_id,
+            node_key: self.get_node_for_webview(webview_id),
+            reason,
+            has_backtrace,
+        }
+    }
+
+    /// Apply a previously-planned webview-crashed event.
+    ///
+    /// §12.4 (2026-04-24, second pass): pure state-mutation step.
+    pub(crate) fn apply_webview_crashed_plan(&mut self, plan: WebviewCrashedPlan) {
+        if let Some(node_key) = plan.node_key {
+            self.mark_runtime_crash_blocked(node_key, plan.reason.clone(), plan.has_backtrace);
+            self.apply_runtime_events([RuntimeEvent::DemoteNodeToCold {
                 key: node_key,
-                title,
-            })
-        else {
-            unreachable!("title delta must return NodeMetadataUpdated");
-        };
-        if changed {
-            self.log_title_mutation(node_key);
+                cause: LifecycleCause::Crash,
+            }]);
+        } else {
+            let _ = self.unmap_webview(plan.webview_id);
         }
+        warn!(
+            "WebView {:?} crashed: reason={} has_backtrace={}",
+            plan.webview_id, plan.reason, plan.has_backtrace
+        );
     }
 
     pub(crate) fn handle_webview_crashed(
@@ -332,19 +504,8 @@ impl GraphBrowserApp {
         reason: String,
         has_backtrace: bool,
     ) {
-        if let Some(node_key) = self.get_node_for_webview(webview_id) {
-            self.mark_runtime_crash_blocked(node_key, reason.clone(), has_backtrace);
-            self.apply_runtime_events([RuntimeEvent::DemoteNodeToCold {
-                key: node_key,
-                cause: LifecycleCause::Crash,
-            }]);
-        } else {
-            let _ = self.unmap_webview(webview_id);
-        }
-        warn!(
-            "WebView {:?} crashed: reason={} has_backtrace={}",
-            webview_id, reason, has_backtrace
-        );
+        let plan = self.plan_webview_crashed(webview_id, reason, has_backtrace);
+        self.apply_webview_crashed_plan(plan);
     }
 
     pub fn map_webview_to_node(&mut self, webview_id: RendererId, node_key: NodeKey) {
