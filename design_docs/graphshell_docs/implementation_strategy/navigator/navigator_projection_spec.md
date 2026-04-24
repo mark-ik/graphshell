@@ -17,7 +17,7 @@ cost-class rules.
 
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain authority and section model
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — click grammar and reveal rules
-- [2026-04-21_navigator_projection_pipeline_plan.md](2026-04-21_navigator_projection_pipeline_plan.md) — producing plan and findings
+- [../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md](../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md) — producing plan and findings
 - [../subsystem_history/2026-04-21_graph_runtime_projection_layer_plan.md](../subsystem_history/2026-04-21_graph_runtime_projection_layer_plan.md) — Graph Cartography layer that fills scorer / parent-picker / annotation slots
 - [../subsystem_history/SUBSYSTEM_HISTORY.md](../subsystem_history/SUBSYSTEM_HISTORY.md) — traversal-history authority and shared-projection policy
 - [../subsystem_history/2026-03-18_mixed_timeline_contract.md](../subsystem_history/2026-03-18_mixed_timeline_contract.md) — mixed timeline source for time-axis and recency views

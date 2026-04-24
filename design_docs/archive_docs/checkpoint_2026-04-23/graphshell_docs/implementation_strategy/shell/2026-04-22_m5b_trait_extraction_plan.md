@@ -5,9 +5,24 @@
 # M5b — Runtime-host trait extraction (Async + SignalRouter + ViewerSurfaceHost)
 
 **Date**: 2026-04-22
-**Status**: Slice plan — ready to execute
+**Status**: Archived — implemented (landed 2026-04-23)
 **Audience**: Contributors bringing up M5 iced-native + preparing for
 the eventual wasm32-unknown-unknown bring-up.
+
+> **Archive note (2026-04-23)**: This landed slice moved to
+> `archive_docs/checkpoint_2026-04-23/` after the trait extraction completed.
+> The durable implementation receipt lives in
+> `graphshell_docs/technical_architecture/2026-04-22_portable_shell_state_in_graphshell_core.md`,
+> and the cross-cutting worker/isolation follow-on material most relevant to
+> current planning has been folded into
+> `graphshell_docs/implementation_strategy/system/2026-04-23_execution_isolation_and_worker_runtime_plan.md`.
+
+All three trait seams (`AsyncSpawner`, `SignalRouter`, `ViewerSurfaceHost`)
+now live in `graphshell-core` and are wired through `GraphshellRuntime`.
+Host-side implementations (`TokioAsyncSpawner`, `RegistrySignalRouter`,
+`ServoViewerSurfaceHost`) live in `verso-host` and the shell `desktop::runtime`
+module. Progress log: see the portable-shell-state tech-arch doc's
+2026-04-22 and 2026-04-23 entries.
 
 **Related docs**:
 

@@ -14,7 +14,7 @@ graph truth and workbench arrangement state.
 - [NAVIGATOR.md](NAVIGATOR.md) — Navigator domain spec and authority boundaries
 - [navigator_interaction_contract.md](navigator_interaction_contract.md) — canonical Navigator click grammar and graph/workbench resolution rules
 - [navigator_projection_spec.md](navigator_projection_spec.md) — canonical projection pipeline, composition, annotation, and diff contract
-- [2026-04-21_navigator_projection_pipeline_plan.md](2026-04-21_navigator_projection_pipeline_plan.md) — producing plan and projection-pipeline findings
+- [../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md](../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md) — archived producing plan and projection-pipeline findings
 - [../../technical_architecture/graphlet_model.md](../../technical_architecture/graphlet_model.md) — canonical graphlet semantics consumed by Navigator projection
 - [../../technical_architecture/domain_interaction_scenarios.md](../../technical_architecture/domain_interaction_scenarios.md) — canonical cross-domain scenario IDs (`DI01`-`DI06`)
 - [../domain_interaction_acceptance_matrix.md](../domain_interaction_acceptance_matrix.md) — compact review matrix for cross-domain scenario evidence

@@ -218,6 +218,107 @@ Each slice lands as an independent PR with:
 
 ## 8. Progress Log
 
+### 2026-04-23 — M5b complete: `ViewerSurfaceHost` wired through the shell runtime
+
+Closes the M5b slice. The remaining item from the 2026-04-22 partial
+landing — migrating the live viewer-surface lifecycle to
+`ViewerSurfaceHost` — landed today alongside a broader host-seam
+extraction (commit `537704c6`).
+
+Shell-side wiring:
+
+- `GraphshellRuntime` now holds
+  `viewer_surface_host: Box<dyn ViewerSurfaceHost<ViewerSurfaceRegistry>>`
+  alongside its `viewer_surfaces` registry. Constructed at
+  `shell/desktop/ui/gui.rs:419` as
+  `ServoViewerSurfaceHost::new(move || Rc::new(window_rendering_context.offscreen_context(...)))`,
+  capturing the rendering contexts the egui host owns.
+- All allocate / retire sites route through the trait. Representative
+  call sites: `shell/desktop/lifecycle/webview_backpressure.rs:311`
+  (allocate on pressure release),
+  `shell/desktop/workbench/tile_runtime.rs:219,396,422` (retire on
+  pane close / lifecycle sweeps),
+  `shell/desktop/ui/gui_frame/graph_snapshot.rs:299` (retire during
+  snapshot-restore workspace reset).
+- No direct `viewer_surfaces.insert_gl_context(...)` or
+  `viewer_surfaces.remove(...)` calls remain outside the registry
+  impl itself. Read-only queries (`gl_context()`, `handle()`,
+  `surface()`, iteration) stay on the registry — the trait only
+  owns lifecycle mutations, matching the §5.3 "decide during
+  implementation" note in the plan.
+
+Trait shape detail:
+
+- `ViewerSurfaceHost` is generic over the registry type
+  (`ViewerSurfaceHost<Registry>`), not carrying a concrete registry
+  reference. The verso-host adapter layer defines a
+  `ViewerSurfaceRegistryHost` bound that the shell's
+  `ViewerSurfaceRegistry` implements
+  (`shell/desktop/workbench/compositor_adapter.rs:382`). `NoopViewerSurfaceHost`
+  in `verso-host` is used by tests that need bookkeeping-only
+  semantics.
+
+Validation:
+
+- `cargo test -p graphshell-core --lib`: **225 pass** (includes
+  `viewer_host::tests::viewer_surface_host_tracks_allocated_surfaces`).
+- `cargo build -p graphshell-core --target wasm32-unknown-unknown`:
+  **passes**.
+- `cargo test -p verso-host --lib`: **2 pass**.
+- `cargo check -p graphshell --lib`: **clean**. The webrender/Servo
+  build-path blocker called out on 2026-04-22 has lifted.
+- `cargo test -p graphshell --lib --no-run`: after fixing the 44
+  test-only errors from the adjacent `RendererId` extraction
+  (`mod renderer_id` visibility, stale `WebViewId` helpers in 6
+  test modules, `render_shell_status_bar` signature drift, stale
+  `Instant`-based focus-ring assertions, `ContentLoadState` /
+  `LoadStatus` rename, `CommandSurfaceTelemetry::*_for_tests`
+  methods regated from `#[cfg(test)]` to
+  `#[cfg(any(test, feature = "test-utils"))]`), the test build
+  compiles clean.
+- `cargo test -p graphshell --lib -- --test-threads=1`:
+  **2217 pass / 0 fail / 3 ignored**. The M5b verification test
+  `snapshot_restore_reset_retires_viewer_surfaces_via_host` passes,
+  and the new `CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED` diagnostics
+  snapshot was rebaselined. An initial run surfaced 15 pre-existing
+  failures that were masked by the broken test build on 2026-04-22;
+  all were cleared in a follow-on pass on 2026-04-23:
+  - `ux_bridge::handle_runtime_command` was always rebuilding its
+    snapshot with `None` for command-surface telemetry, so
+    `ByRole(CommandBar)` selectors could never resolve. Added an
+    optional `command_surface_telemetry` parameter; all eight test
+    sites + the `TestRegistry` harness updated.
+  - `evaluate_registered_probes_surfaces_command_surface_observability_violation`
+    called the non-telemetry overload `evaluate_registered_probes`,
+    short-circuiting the probe. Switched to
+    `evaluate_registered_probes_with_telemetry`. Fixing this alone
+    cleared the 10 `ux_probes::tests::*` cascade failures (they
+    were all downstream of a poisoned probe-registry mutex after
+    the first test panicked).
+  - `fallback_spatial_navigation_origin` in `render/mod.rs` picked
+    the node *furthest in* the direction of travel as the seed,
+    leaving no room for the forward filter to find candidates.
+    Flipped to seed from the opposite edge.
+  - `command_surface_uxtree_snapshot_is_healthy_with_return_target`
+    went through `ux_find_node_via_driver`, which re-publishes a
+    telemetry-less snapshot inside the harness's dispatch helper.
+    Switched the call to publish the test's own
+    telemetry-including snapshot and dispatch via
+    `handle_latest_snapshot_command` directly.
+  - `pre_wgpu_critical_path_snapshots_match_baselines` had a stale
+    baseline — production now labels `GraphSurface` nodes
+    "Graph Canvas <GraphViewId>" (terminologically correct) rather
+    than "Graph View". Baseline regenerated.
+
+What this unblocks (per the plan's §9):
+
+- Iced-native host can now construct a `ServoViewerSurfaceHost` with
+  its own rendering context and route viewer lifecycle through the
+  same trait — no divergent mutation path.
+- Wasm32 bring-up: use `NoopViewerSurfaceHost` for the Canvas-rendered
+  iced-web host; surfaces stay in registry bookkeeping but never
+  materialise as textures, matching the §4.3 expectation.
+
 ### 2026-04-22 — Initial slices
 
 - `ContentLoadState` landed in `graphshell-core::content`. 7 tests.
@@ -585,13 +686,14 @@ Validation performed without compiling the shell/Servo/webrender stack:
   was intentionally skipped because that path currently drags the parallel
   webrender/Servo build graph back in.
 
-Remaining M5b work after this partial landing:
+Remaining M5b work after this partial landing (closed on 2026-04-23,
+see entry above):
 
-- Migrate the live viewer-surface lifecycle to `ViewerSurfaceHost`
-  instead of the current shell-owned compositor registry path.
-- Re-run shell-side compile/test validation once the webrender-adjacent
+- ~~Migrate the live viewer-surface lifecycle to `ViewerSurfaceHost`
+  instead of the current shell-owned compositor registry path.~~
+- ~~Re-run shell-side compile/test validation once the webrender-adjacent
   build path is usable again, or once a narrower non-Servo check target
-  exists.
+  exists.~~
 
 **Estimate**: 6–8 files touched, 4–6 portable types promoted to
 graphshell-core, **medium complexity** once the Instant decision lands.

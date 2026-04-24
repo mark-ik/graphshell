@@ -5,12 +5,18 @@
 # Navigator Projection Pipeline Plan
 
 **Date**: 2026-04-21
-**Status**: Completed / canonical spec produced
+**Status**: Archived — canonical spec produced
 **Scope**: Produce the missing `navigator_projection_spec.md` (referenced from
 NAVIGATOR.md §12 related-docs but not present), plus the cross-cutting
 composition/annotation/portal/diff rules that Navigator sections, graphlets,
 and specialty layouts all depend on. Align Navigator projection behavior with
 the existing graph-memory substrate and SUBSYSTEM_HISTORY traversal authority.
+
+> **Archive note (2026-04-23)**: This producing plan moved to
+> `archive_docs/checkpoint_2026-04-23/` after the canonical active contract
+> landed in `graphshell_docs/implementation_strategy/navigator/navigator_projection_spec.md`.
+> Keep this file as design history and findings, not as the active projection
+> authority.
 
 **Authority discipline**:
 

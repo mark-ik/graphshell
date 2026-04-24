@@ -37,7 +37,7 @@ parent-picker / annotation slots consume.
 - [SUBSYSTEM_HISTORY.md](SUBSYSTEM_HISTORY.md) — traversal authority and shared-projection policy
 - [2026-03-18_mixed_timeline_contract.md](2026-03-18_mixed_timeline_contract.md) — WAL timeline aggregate this layer consumes
 - [2026-03-08_unified_history_architecture_plan.md](2026-03-08_unified_history_architecture_plan.md) — history taxonomy
-- [../navigator/2026-04-21_navigator_projection_pipeline_plan.md](../navigator/2026-04-21_navigator_projection_pipeline_plan.md) — companion plan; C7 sequencing anchor
+- [../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md](../../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md) — archived companion producing plan; C7 sequencing anchor
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — primary consumer
 - [../system/register/SYSTEM_REGISTER.md](../system/register/SYSTEM_REGISTER.md) — `AgentRegistry` handoff surface
 - [../graph/GRAPH.md](../graph/GRAPH.md) — truth authority this layer reads from

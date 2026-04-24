@@ -45,6 +45,22 @@ This plan covers reducer ownership of **durable graph mutation**, including:
 - durable edge metadata updates that belong to persisted graph state
 - replay/recovery application of persisted graph deltas
 
+This plan also explicitly covers the mutation-boundary decision for persisted
+node navigation memory (`NodeNavigationMemory` /
+`set_node_history_state(...)`).
+
+Current code reality is mixed:
+
+- traversal append already uses `GraphDelta::AppendTraversal`
+- durable node metadata already uses `GraphDelta`
+- node navigation memory still has direct durable mutation entry points outside
+  the typed delta lane
+
+That ambiguity is now part of scope. This plan must either bring node
+navigation memory into the canonical durable mutation lane or establish a
+separate canonical persisted-history apply lane with equivalent reducer/replay
+discipline.
+
 ### 2.2 Explicitly out of scope for this slice
 
 This plan does not require immediate reducer ownership of:
@@ -81,6 +97,22 @@ The central design correction is:
 - stop defining the target as "all graph mutation everywhere"
 - define the target as "all durable graph mutation uses one canonical reducer-owned apply path"
 
+There is one now-visible boundary case that requires an explicit answer instead
+of continued drift:
+
+- node-local navigation memory is persisted and replay-relevant
+- but it currently bypasses `GraphDelta` through direct
+  `set_node_history_state(...)` writes in runtime paths
+
+That means Graphshell still has two different kinds of durable node truth with
+different mutation rules:
+
+1. graph/topology plus most node metadata, which use graph-apply
+2. node navigation memory, which still has ad hoc mutation entry points
+
+This plan treats that split as temporary architecture debt that must be closed
+explicitly.
+
 ---
 
 ## 4. Architectural Principles
@@ -110,6 +142,26 @@ Hydration and construction are allowed, but they must be clearly named and narro
 ### 4.5 Public runtime escape hatches must close
 
 It is not enough to restrict raw `Graph` mutators if runtime code can still call higher-level mutating helpers on `GraphBrowserApp`.
+
+### 4.6 Persisted history state must not live in a gray zone
+
+Persisted node navigation memory is not allowed to remain "too history-shaped
+for graph apply" and simultaneously "too graph-owned to get its own canonical
+lane."
+
+The acceptable end states are only:
+
+1. node navigation memory becomes part of the canonical reducer-owned durable
+   mutation lane by entering `GraphDelta`, or
+2. node navigation memory gets its own canonical persisted-history apply lane
+   with the same guarantees:
+   - reducer-owned planning
+   - replay/recovery parity
+   - no direct runtime durable writes outside the lane
+   - explicit effect separation
+
+Continued direct runtime mutation of persisted history-bearing node state is
+not an acceptable steady state.
 
 ---
 
@@ -237,6 +289,47 @@ Rules:
 - raw graph mutators remain hidden behind graph apply
 - side effects remain outside graph apply
 
+### Stage A1 - Resolve the node navigation memory boundary
+
+Implementation status as of 2026-04-23:
+
+- `NodeNavigationMemory` is persisted node state in `graphshell-core`
+- runtime code still performs direct writes through
+  `set_node_history_state(...)`
+- `GraphDelta` has no node-history variant
+- replay parity and mutation-boundary enforcement therefore stop short of this
+  history-bearing node state
+
+Decision required before further hardening:
+
+Option A: treat node navigation memory as persisted node metadata and extend
+`GraphDelta` / graph-apply with explicit history-memory operations such as:
+
+- `ReplaceNodeNavigationMemory`
+- `SetNodeHistoryLinearProjection`
+- `AdoptNodeHistorySnapshot`
+
+Option B: treat node navigation memory as a separate persisted history lane and
+create a canonical apply module for it with reducer/replay parity and the same
+escape-hatch restrictions currently expected of `GraphDelta`.
+
+Decision criteria:
+
+- if node navigation memory is loaded/saved as part of graph truth and restored
+  with nodes, default toward Option A
+- if the long-term architecture moves to a workspace-global history substrate
+  that is only projected onto nodes, Option B may become the cleaner
+  separation point
+
+Near-term recommendation:
+
+- default to Option A unless and until the workspace-global history fabric work
+  formally rehomes node history out of node-owned durable state
+- do not add more direct `set_node_history_state(...)` callers while this
+  decision is open
+- route current direct callers behind one temporary app-owned helper so the
+  remaining migration surface is explicit and grep-visible
+
 ### Stage B - Split reducer planning from graph apply
 
 Implementation status as of 2026-03-06:
@@ -283,6 +376,7 @@ After graph apply exists:
 - route startup graph creation through reducer intents or reducer-owned bootstrapping wrappers
 - route UI undo/redo through reducer-intent entry points rather than direct helper calls
 - reduce public mutating `GraphBrowserApp` surface area
+- remove direct runtime `set_node_history_state(...)` usage from lifecycle/import/capture paths
 
 ### Stage E - Tighten raw graph visibility
 
@@ -387,6 +481,9 @@ Add parity tests proving:
 6. Replay of persisted logs produces durable graph state equivalent to live-constructed state for the same delta sequence.
 7. Undo-boundary capture is owned by reducer/app transaction APIs rather than public raw checkpoint helpers.
 8. Transitional exceptions are documented explicitly and do not silently expand.
+9. Persisted node navigation memory no longer bypasses the canonical mutation
+   boundary; it either uses `GraphDelta` or a separately documented canonical
+   persisted-history apply lane.
 
 ---
 
@@ -400,6 +497,8 @@ Implement this plan with:
 - reducer-owned undo-boundary APIs that accept caller-supplied `layout_before` when needed
 - tighter visibility on raw graph mutators and mutable accessors
 - migration of startup/undo/runtime callers away from direct mutating helpers
+- an explicit decision on whether persisted node navigation memory is part of
+  `GraphDelta` or a separate canonical persisted-history lane
 
 Do **not** start with a crate split.
 

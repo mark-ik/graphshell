@@ -13,6 +13,7 @@
 - `layout_algorithm_portfolio_spec.md`
 - `multi_view_pane_spec.md`
 - `../aspect_render/render_backend_contract_spec.md`
+- `../system/2026-04-23_execution_isolation_and_worker_runtime_plan.md`
 
 ---
 
@@ -31,6 +32,12 @@ What is still missing is the runtime-loaded layout path itself:
 - no stable guest ABI
 - no runtime watchdog/fallback policy
 - no snapshot-safe handling for layouts that disappear between sessions
+
+The new system-level execution-isolation plan also makes one constraint explicit:
+today's in-process Extism bring-up shape is **transitional**, not the steady
+state substrate for runtime-loaded layouts. This plan therefore needs to target
+a worker-safe guest-runtime contract rather than silently treating direct
+in-process plugin calls as the end-state.
 
 This plan exists so the WASM lane stops living as speculative prose inside the umbrella physics note.
 
@@ -76,16 +83,19 @@ WASM layouts cannot implement Rust traits directly. The production seam must the
 ### Target 2 Tasks
 
 1. Add a host-side `WasmLayoutAdapter` module that owns plugin lifetime, guest state bytes, and the layout-step call.
-2. Route runtime-loaded layout resolution through the existing registry/runtime flow rather than a one-off loader path.
-3. Ensure the render layer still sees one concrete view-owned layout state wrapper.
-4. Keep built-in native variants and WASM variants selectable through the same user-facing layout selection surface.
-5. Coordinate the persisted state shape with `2026-04-03_layout_backend_state_ownership_plan.md` instead of inventing a parallel carrier.
+2. Back that adapter with the worker-safe `GuestRuntime` / `GuestSessionHandle` seam from `2026-04-23_execution_isolation_and_worker_runtime_plan.md` rather than direct host calls into a global plugin map.
+3. Keep the caller-facing request/result semantics stable across native bring-up and browser-worker realizations even if the backend differs.
+4. Route runtime-loaded layout resolution through the existing registry/runtime flow rather than a one-off loader path.
+5. Ensure the render layer still sees one concrete view-owned layout state wrapper.
+6. Keep built-in native variants and WASM variants selectable through the same user-facing layout selection surface.
+7. Coordinate the persisted state shape with `2026-04-03_layout_backend_state_ownership_plan.md` instead of inventing a parallel carrier.
 
 ### Target 2 Validation Tests
 
 - A WASM layout can be selected, stepped, and restored for one graph view without affecting other views.
 - Unloading and reloading the same plugin preserves host stability and deterministic fallback behavior.
 - Runtime-selected WASM layouts appear in the same resolved-layout diagnostics path as built-in layouts.
+- The same host-side adapter contract works with a native worker-backed backend and a browser `DedicatedWorker` backend.
 
 ---
 
@@ -100,8 +110,9 @@ The source note called out the open risk directly: the happy path is specified, 
 1. Validate guest output for NaN, infinity, missing nodes, duplicate nodes, and grossly invalid coordinates.
 2. Define a watchdog timeout and a deterministic fallback layout when a guest hangs or panics.
 3. Surface per-pane failure state through diagnostics and a visible status indicator rather than silently swapping layouts.
-4. Treat missing or incompatible plugins during snapshot restore as degraded-but-loadable state, not as a fatal error.
-5. Record enough diagnostic detail to distinguish load failure, ABI mismatch, validation failure, and runtime timeout.
+4. Treat worker bootstrap failure, handshake failure, and unsupported-host realizations as explicit degraded states, not as silent fallback.
+5. Treat missing or incompatible plugins during snapshot restore as degraded-but-loadable state, not as a fatal error.
+6. Record enough diagnostic detail to distinguish load failure, ABI mismatch, validation failure, worker/bootstrap failure, and runtime timeout.
 
 ### Target 3 Validation Tests
 
@@ -120,10 +131,14 @@ Runtime-loaded layouts are valuable only if Graphshell defines what environments
 ### Target 4 Tasks
 
 1. Define platform posture for desktop, mobile, and wasm-hosted builds instead of assuming every target supports guest execution equally.
-2. Set an initial node-count and frame-budget envelope for when WASM layouts remain enabled versus auto-downgrade.
-3. Document capability restrictions for layout guests so they do not inherit broader mod privileges than they need.
-4. Define hot-swap expectations: when plugin reload is allowed, when state is discarded, and when the host must restart the active layout.
-5. Keep the first shipped guest contract compute-focused; broader scene or rendering authority is out of scope.
+2. Make the preferred backend explicit per host envelope:
+   - desktop native: worker-backed guest runtime behind the shared message contract
+   - wasm-hosted / browser: `DedicatedWorker`-backed guest runtime or explicit unsupported mode
+   - mobile: selectively enabled only where lifecycle/capability constraints are acceptable
+3. Set an initial node-count and frame-budget envelope for when WASM layouts remain enabled versus auto-downgrade.
+4. Document capability restrictions for layout guests so they do not inherit broader mod privileges than they need.
+5. Define hot-swap expectations: when plugin reload is allowed, when state is discarded, and when the host must restart the active layout.
+6. Keep the first shipped guest contract compute-focused; broader scene or rendering authority is out of scope.
 
 ### Target 4 Validation Tests
 
@@ -136,3 +151,6 @@ Runtime-loaded layouts are valuable only if Graphshell defines what environments
 ## Exit Condition
 
 This plan is complete when Graphshell can select a sandboxed WASM layout through the normal layout selection path, step it through a host-owned adapter, validate and diagnose failures, and restore snapshots safely even when the referenced guest is no longer available.
+This means the active path targets a worker-safe guest runtime with explicit
+bootstrap/health/fallback receipts rather than freezing today's direct
+in-process guest execution shape as the long-term contract.

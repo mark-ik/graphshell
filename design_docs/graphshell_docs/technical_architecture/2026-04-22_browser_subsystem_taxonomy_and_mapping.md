@@ -281,7 +281,7 @@ These are axes that don't exist as first-class concerns in Chromium/Firefox/WebK
 - **Navigator** = single surface with configurable scope and form factor. Per user memory: do not split into multiple instances.
 - **Projections** are the umbrella pattern: pure functions across domain boundaries (graph → tree rows, graph → map, graph → timeline). Projection pipeline has five stages: Scope → Shape → Annotation → Presentation → Portal.
 - **ProjectionLens** enum in `graph-tree` parameterizes Shape stage for tree-family projections.
-- **Canonical spec**: `../implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md` (in flight).
+- **Canonical spec**: `../implementation_strategy/navigator/navigator_projection_spec.md`.
 
 ### 4.4 Registries (Host-Neutral Dispatch)
 

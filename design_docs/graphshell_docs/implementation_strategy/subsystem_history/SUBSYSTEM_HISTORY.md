@@ -35,6 +35,12 @@ Policy in this file should be distilled from canonical specs and accepted resear
 7. **Shared-projection policy**: History owns traversal truth; Navigator, settings,
    diagnostics, and workbench chrome may project or summarize that truth, but
    must not define an independent recent-history structure.
+8. **Canonical-history-mutation policy**: Persisted history-bearing state must
+   not be mutated through ad hoc runtime setters. If history state is persisted
+   as part of node-owned graph truth, it must flow through the canonical
+   reducer-owned durable mutation lane; if it is separated from graph truth, it
+   must have its own canonical persisted-history apply lane with replay parity
+   and no direct runtime durable-write escape hatches.
 
 ---
 
@@ -68,6 +74,12 @@ introducing a second polling path into the viewer runtime.
 History is also the canonical source for traversal-family projection into the
 Navigator's `Recent` section. That sidebar section is a read-only projection
 over history truth, not a second recents store.
+
+One current architecture gap now needs to be named plainly: node-scoped
+navigation memory is persisted history-bearing state, but some runtime paths
+still write it directly through `set_node_history_state(...)` instead of a
+typed canonical mutation lane. That is transitional architecture debt, not an
+accepted steady-state subsystem boundary.
 
 ---
 
@@ -284,6 +296,15 @@ Required checks for PRs touching:
 
 History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
 
+For persisted node-scoped navigation memory specifically:
+
+- while it remains stored inside node-owned graph state, system-level durable
+  mutation policy applies to it just as it applies to other persisted node
+  state
+- if a later workspace-global memory fabric rehomes that state, the history
+  subsystem must define the replacement canonical apply lane before direct node
+  setters are retired
+
 ---
 
 ## 9. Current Status & Gaps
@@ -306,6 +327,9 @@ History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
   `AppendNodeAuditEvent` WAL variant, `node_audit_history` query, and node-pane audit surface.
 - Mixed timeline surface is implemented in History Manager as tab `All`, backed by
   `HistoryTimelineEvent`/`HistoryTimelineFilter` and `mixed_timeline_entries`.
+- `graph-memory` is present as the node-scoped navigation substrate, but its
+  persisted write path is not yet fully normalized through the canonical
+  durable mutation boundary.
 
 **What's missing / open**:
 - Canonical history-side boundary-event schema for distillation/promotion links
@@ -314,6 +338,10 @@ History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
   preview banner visible outside the tool pane).
 - Cross-track diagnostics and focused tests for mixed timeline filtering/query correctness
   (`history.*` channels + integration tests over `mixed_timeline_entries`).
+- Canonical mutation-lane closure for persisted node navigation memory:
+  `set_node_history_state(...)` still bypasses typed graph/history apply in some
+  runtime paths and needs to be brought under the reducer-owned boundary or an
+  explicitly separate persisted-history apply boundary.
 
 ## 10. Dependencies / Blockers
 

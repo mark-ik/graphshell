@@ -15,7 +15,7 @@ and where new projections (e.g., Graph Cartography) slot in.
 - [../../TERMINOLOGY.md#projection-concepts](../../TERMINOLOGY.md) — umbrella definition, three-form convention, mechanism terms
 - [unified_view_model.md](unified_view_model.md) — five-domain model (Shell / Graph / Navigator / Workbench / Viewer)
 - [graph_tree_spec.md](graph_tree_spec.md) — `ProjectionLens` as Shape-stage mechanism for tree-family projections
-- [../implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md](../implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md) — Navigator projection pipeline
+- [../implementation_strategy/navigator/navigator_projection_spec.md](../implementation_strategy/navigator/navigator_projection_spec.md) — Navigator projection pipeline
 - [../implementation_strategy/subsystem_history/2026-04-21_graph_runtime_projection_layer_plan.md](../implementation_strategy/subsystem_history/2026-04-21_graph_runtime_projection_layer_plan.md) — Graph Cartography layer
 - [../implementation_strategy/subsystem_history/2026-04-17_graph_memory_architecture_note.md](../implementation_strategy/subsystem_history/2026-04-17_graph_memory_architecture_note.md) — substrate and downstream projection layers
 
@@ -42,7 +42,7 @@ route. Routing contracts are cataloged elsewhere.
 
 | Target | Projection | Canonical doc | Status |
 |---|---|---|---|
-| Navigator | **Navigator projection** (all Navigator sections and graphlet derivations — pattern) | NAVIGATOR.md, navigator_projection_spec.md, navigator_projection_pipeline_plan.md | Live; canonical pipeline spec landed |
+| Navigator | **Navigator projection** (all Navigator sections and graphlet derivations — pattern) | NAVIGATOR.md, navigator_projection_spec.md, archived navigator producing plan | Live; canonical pipeline spec landed |
 | Workbench | **Projection Rule** (nodes→tiles, graphlets→tile groups, frames→frames — correspondence) | TERMINOLOGY.md Tile Tree Architecture §Projection Rule; workbench/2026-03-20_arrangement_graph_projection_plan.md | Live; graph-tree migration active |
 | Viewer | **Viewer resolution** (AddressKind + ContentKind + mime_hint → viewer backend — backend selection) | viewer/viewer_presentation_and_fallback_spec.md; ViewerRegistry contract | Live; not previously named as a projection — flagged here for consistency |
 | Graph canvas (rendered surface) | **Canvas rendering** (graph truth → spatial/visual rendering at current LOD) | graph/graph_canvas_spec.md; graph/graph_node_edge_interaction_spec.md | Live; not previously named as a projection |
@@ -92,7 +92,7 @@ Mechanisms that implement projections (not projections themselves):
 
 | Mechanism | Role | Canonical doc |
 |---|---|---|
-| Navigator **projection pipeline** (five-stage: Scope → Shape → Annotation → Presentation → Portal) | Navigator projection mechanism | navigator/navigator_projection_spec.md; navigator/2026-04-21_navigator_projection_pipeline_plan.md |
+| Navigator **projection pipeline** (five-stage: Scope → Shape → Annotation → Presentation → Portal) | Navigator projection mechanism | navigator/navigator_projection_spec.md; `../../archive_docs/checkpoint_2026-04-23/graphshell_docs/implementation_strategy/navigator/2026-04-21_navigator_projection_pipeline_plan.md` |
 | `ProjectionLens` (Rust enum in `graph-tree`) | Shape-stage mechanism for tree-family projections; variants parameterize which edge family drives parent-child | technical_architecture/graph_tree_spec.md §6.7 |
 | `LayoutMode` (Rust enum in `graph-tree`) | Presentation-stage mechanism for tree-family projections (TreeStyleTabs, FlatTabs, SplitPanes, Hybrid) | technical_architecture/graph_tree_spec.md §6 |
 | `NavAction` / `TreeIntent` | Portal-stage mechanism for tree-family projections | technical_architecture/graph_tree_spec.md §6.8 |
