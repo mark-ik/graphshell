@@ -2,6 +2,11 @@
 
     A prototype, spatial, P2P web browser
 
+A spatial browser — your tabs live as a map you can arrange, save, and share,
+instead of a strip at the top of the window. See
+[design_docs/PROJECT_DESCRIPTION.md#elevator-pitch](design_docs/PROJECT_DESCRIPTION.md#elevator-pitch) for the short pitch
+(brief / context / technical).
+
 ## CURRENT STATUS
 
 In the middle of adapting the wgpu gui bridge, webrender fork, and Servo fork to do rendering with wgpu and not glow/gleam/opengl. Stuff is, welp, going better than expected. It's absolutely wild. I've got wgpu 29, I've got wgpu, hal and all, I got a serendipitous way to get webgl compatibility aside from running , and, well, I haven't hit inevitable brick wall after wall like I expected. But graphshell itself is messy, and will be until I'm done. My thinking is the scope expansion will be tamed by the need to constrain for wasm32-unknown-unknown compilation of a core subset of compatible features. There is real functional work in the current status of graphshell but also bugs and a lot of unfinished design. All I can do is keep at it.
@@ -36,7 +41,6 @@ In the middle of adapting the wgpu gui bridge, webrender fork, and Servo fork to
 - Toolbar: compact version of the sidebar for when you want the gutter space back. Top or bottom
 - Each automatically scopes to the graph or workbench depending on focus
 - Or you can split the responsibilities to run both toolbar and sidebar, one managing the graph, and one managing the workbench
-
 
 ## Commands (done, description pending)
 
@@ -134,7 +138,6 @@ These environment variables override CLI/prefs for quick tuning (occasionally go
 - Communities fund crawling through bounties: post a target, user crawler(s) build the index, validators check it, tokens/receipts release to crawler contributors.
 - No central search engine: the community that cares about a topic maintains the index for it.
 
-
 ### LoRA / FLoRA
 
     Contributors keep their raw data local and submit adapter weight updates to build communal algorithms/model adaptors, specialized to their subject matter.
@@ -175,7 +178,6 @@ These environment variables override CLI/prefs for quick tuning (occasionally go
 
     Share a graph session with other participants — browsing together or asynchronously.
 
-
 - Collaborative browsing where changes to a shared graph synchronize across participants
 - Async mode: check a shared session out like a git branch, browse and edit independently, then merge your diffs back -- or don't!
 - Live mode: join a shared co-op session, a real-time synchronized graph view instance with time-synchronized web processes and version-controlled history (just like the local, offline graph!)
@@ -203,7 +205,6 @@ These environment variables override CLI/prefs for quick tuning (occasionally go
 - Useful for small teams, classrooms, or private research groups that want shared browsing history/chat/graph views without running a community node
 - Graph snapshots and session links can be shared into Matrix rooms directly from the workbench
 - The room's persistence, storage budget (self/peer hosted), moderation are determined by the admins/membership
-
 
 ## AI Disclaimer
 

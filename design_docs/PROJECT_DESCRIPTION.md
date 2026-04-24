@@ -7,6 +7,22 @@
 - Clipping: DOM inspection & element extraction from nodes into graph UI as nodes
 - Local-first, permissions-based P2P co-op browsing
 
+## Elevator Pitch
+
+A spatial browser — your tabs live as a map you can arrange, save, and share,
+instead of a strip at the top of the window.
+
+Tabs are bad at memory. A graph remembers structure — how things connect, what
+you were doing, where you came from — and it can be collaborative, portable,
+and yours. Graphshell is a local-first, tiling web browser built on a graph
+canvas — think Obsidian's graph view, but the nodes are live webpages, files,
+and notes you can actually work in.
+
+If you want to be technical: Servo-powered spatial browser with a
+force-directed graph canvas, a tiling workbench, and optional P2P co-browsing.
+Long-term it's a "knowledge user agent" — the browser crawls and organizes on
+your behalf instead of passively rendering.
+
 ## Features
 
 ### Graph UI: spatial representation of a browsing session
@@ -19,10 +35,7 @@
 - Active, warm, and cold node states with memory pressure demotion for resource efficiency
 - Origin-grouped processes
 - Minimap for large graphs/reference in detail view (useful for persistent, public graphs)
-- Hotswitch between 2D and 3D versions of the canvas, preserving connections and relative positions of nodes.
-- - 2D version: ideal for dense maps or devices with limited capabilities
-- - 3D version: full 3D (reorientable camera), stacked 3D (layers of depth, not arbitrary deep), or soft 3D (nonreorientable camera)
-- - Level-of-detail rendering prevents information overload; zooming out groups by selectable categories, such as time, domain, origin, relatedness, or other sorting rules.
+- Level-of-detail rendering prevents information overload; zooming out groups by selectable categories, such as time, domain, origin, relatedness, or other sorting rules.
 - Mods: use the rules someone else set up for their graph, like physics parameters, custom node/edge/filter types, canvas region definitions, or extend the capabilities of the app.
 
 ### Workbench
@@ -44,7 +57,7 @@
 
 ### Sessions
 
-- Ean be deleted, saved, shared, and manipulated as needed
+- Each can be deleted, copied, saved, shared, forked, branched, and manipulated as needed
 - Editing: change the relations between nodes; use ghost nodes to represent deleted nodes while maintaining the graph’s shape. Multiple edge and node types.
 - You can retain a previous session's graph or start anew at will
 - Graphs can be exported as JSON (preserving structure and metadata), interactive HTML, or into other browsers, enabling data portability.

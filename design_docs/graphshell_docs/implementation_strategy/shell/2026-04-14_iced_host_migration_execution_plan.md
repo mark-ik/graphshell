@@ -600,11 +600,14 @@ Done gate:
 
 ### M4.5. Make Viewer Surfaces Host-Native
 
-**Status**: Newly explicit prerequisite slice. Current code still allocates
-per-node `Rc<OffscreenRenderingContext>` viewer surfaces on the main host path
-and opportunistically imports them into wgpu during composition. The render
-status-quo plan records this as "ViewerSurfaceRegistry: scaffolded" and
-"shared-wgpu import exists and is attempted opportunistically."
+**Status**: In progress (2026-04-24). Three `HostSurfacePort` methods wired in
+`EguiHostPorts` this session: `register_content_callback` (→
+`CompositorAdapter::register_content_callback`), `unregister_content_callback`
+(→ `CompositorAdapter::unregister_content_callback`), and `retire_surface` (→
+`CompositorAdapter::retire_node_content_resources` when backend is present).
+`present_surface` wiring deferred — borrow conflict with `self.runtime.tick`.
+`ViewerSurfaceRegistry` status-quo plan note updated from "scaffolded" to
+reflect real state. Diagnostics coverage landed (see checklist).
 
 **Goal**: make the viewer/compositor surface model authoritative and
 host-portable before iced depends on it.
@@ -631,8 +634,10 @@ Checklist:
 - [ ] Move authoritative viewer-surface ownership to `ViewerSurfaceRegistry`
   rather than leaving hot-path ownership smeared across
   `tile_rendering_contexts` and compositor-side fallback state
-- [ ] Retire direct hot-path reliance on `tile_rendering_contexts:
+- [x] Retire direct hot-path reliance on `tile_rendering_contexts:
   HashMap<NodeKey, Rc<OffscreenRenderingContext>>`
+  — field was removed from `ViewerSurface` / `ViewerSurfaceRegistry` before this
+  slice; confirmed absent in live code (2026-04-24). Checklist item was stale.
 - [ ] Evolve `ViewerSurfaceHost` / `ViewerSurfaceRegistry` so the primary
   contract is not "GL offscreen context per node", even if a GL-backed
   compatibility producer remains one implementation
@@ -642,8 +647,12 @@ Checklist:
 - [ ] Preserve WebGL quarantine through the interop/import path rather than
   letting WebGL requirements force the entire viewer-surface contract to stay
   GL-shaped
-- [ ] Add parity / diagnostics coverage that records which viewer-surface /
+- [x] Add parity / diagnostics coverage that records which viewer-surface /
   content-bridge path each host is exercising during bring-up
+  — `ViewerSurfaceRegistry::record_frame_path` wired; 5 unit tests added to
+  `compositor_adapter.rs` covering auto-creation, most-recent-wins update,
+  all-variants round-trip, `bump_content_generation` increment, and no-op for
+  missing nodes. All pass (2026-04-24).
 
 Done gate:
 
@@ -1170,7 +1179,7 @@ allowlist narrows to `app/history.rs` only and
 
 **Context**: same-day continuation of Lane A. Lane A introduced the
 sanctioned helper + grep-time guard; this follow-on adds the typed delta
-+ compile-time guard so future regressions outside `graphshell-core` are
+and compile-time guard so future regressions outside `graphshell-core` are
 mechanically impossible (not just test-detectable).
 
 **Changes**:
@@ -1285,7 +1294,7 @@ collapse on `ExecuteUpdateFrameArgs`.
   Future Lane B' slices push `runtime: &mut GraphshellRuntime` into
   each sub-phase-args struct, shrinking the destructure as it goes.
 - `gui.rs:920-1023` shrank from ~110 lines (full nested destructure
-  + 35-field assembly) to ~50 lines (flat destructure + 20-field
+  plus 35-field assembly) to ~50 lines (flat destructure + 20-field
   assembly). Net code reduction at the top-level call site.
 
 **Receipts**:
@@ -1302,7 +1311,7 @@ collapse on `ExecuteUpdateFrameArgs`.
   internally via split-borrow to the 4 fields (`graph_app`,
   `thumbnail_capture_in_flight`, `command_palette_toggle_requested`,
   `control_panel`).
-- `GraphSearchAndKeyboardPhaseArgs` — 8 runtime-bound fields + 1
+- `GraphSearchAndKeyboardPhaseArgs` — 8 runtime-bound fields plus 1
   `GraphSearchAuthorityMut` bundle collapsed to `runtime`. Body
   split-borrows 12 fields including the 5 graph-search bundle members
   (`graph_app`, `graph_surface_focused`, `focus_authority`,
@@ -1310,7 +1319,7 @@ collapse on `ExecuteUpdateFrameArgs`.
   `webview_creation_backpressure`, plus the 5 `graph_search_*`
   session fields).
 - `ToolbarAndGraphSearchWindowPhaseArgs` — 15 runtime-bound fields
-  + `GraphSearchAuthorityMut` bundle collapsed to `runtime`. Body
+  plus `GraphSearchAuthorityMut` bundle collapsed to `runtime`. Body
   split-borrows 18 fields covering graph/tree/toolbar/omnibar/command-
   surface-telemetry/viewer/webview and the graph-search session.
 - `SemanticAndPostRenderPhaseArgs` — 15 runtime-bound fields + 3
@@ -1515,6 +1524,40 @@ Findings:
   budget and live build-verification between each phase migration. Today's
   session prioritized landing the three boundary guards (§§12.3, 12.1, 12.17)
   which are now all `done`.
+
+### 2026-04-24 — Phase-args prelude collapse + focused_node_key view-model migration
+
+**Context**: Lane 1 M4 session. Two Tier 1 §12.20 items closed.
+
+**Phase-args prelude collapse (final piece)**:
+
+- `run_update_frame_prelude` was the last function in the phase-pipeline that
+  passed `&mut runtime.graph_app` instead of `&mut GraphshellRuntime` at its
+  public API boundary.
+- Changed signature: `graph_app: &mut GraphBrowserApp` →
+  `runtime: &mut GraphshellRuntime`. Body updated to access `&mut runtime.graph_app`.
+- Updated the `EguiHost::run_update_frame_prelude` wrapper and the
+  `execute_update_frame` call site correspondingly.
+- The prelude collapse completes the §12.20 Tier 1 "phase-args bundle collapse"
+  item.
+
+**`focused_node_key()` view-model migration (§12.6 third getter)**:
+
+- Root cause of the semantic gap: `FocusViewModel.focused_node` was populated
+  from `focused_node_hint` (a render-pass cache updated by `tile_render_pass`),
+  while `EguiHost::focused_node_key()` read `active_pane_rects.first()` gated
+  on `!graph_surface_focused`. These were equivalent in the common case but
+  semantically different sources.
+- Reconciliation fix: changed `project_view_model` to populate
+  `FocusViewModel.focused_node` from `active_pane_rects.first()` gated on
+  `!graph_surface_focused` — exact same logic as `focused_node_key()`.
+- Migration: `EguiHost::focused_node_key()` now reads
+  `cached_view_model.focus.focused_node` with pre-first-frame fallback to
+  `interaction_queries::focused_node_key`.
+- Tests: updated `focus_view_model_reflects_runtime_focus_fields` to remove
+  the now-unnecessary `focused_node_hint` setup; added
+  `focus_view_model_focused_node_is_none_when_graph_surface_focused` to pin
+  the gate.
 
 ---
 
@@ -1796,16 +1839,24 @@ explicit step.
     `gui_state.rs::project_view_model` from
     `graph_app.workspace.graph_runtime.active_pane_rects.first().is_none()`,
     inlined here because `pane_queries` is a private gui submodule).
+  - `EguiHost::focused_node_key()` (2026-04-24, third pass) →
+    `cached_view_model.focus.focused_node`. Required reconciling
+    `FocusViewModel.focused_node` from `focused_node_hint` (render-pass
+    cache; lagged) to `active_pane_rects.first()` gated on
+    `!graph_surface_focused` — same semantics as `focused_node_key()`.
+    New test `focus_view_model_focused_node_is_none_when_graph_surface_focused`
+    pins the gate. `has_focused_node()` follows for free since it delegates
+    to `focused_node_key()`.
 
 **Targets remaining**:
 
 - Migrate additional `EguiHost` getters onto `cached_view_model` —
-  `focused_node_key`, `runtime_focus_state`, dialog-state queries
-  (which all currently delegate to either runtime/shell state or
-  `interaction_queries`). Some need new view-model fields (e.g.,
-  `runtime_focus_state` is a complex composition); others can read
-  existing ones (`focused_node_key` semantics differ from
-  `vm.focus.focused_node` and need reconciliation).
+  `runtime_focus_state`, dialog-state queries (complex compositions;
+  need new view-model fields or the result as a projection).
+- Migrate chrome render sites (`tile_render_pass.rs:723-745` focus-ring
+  alpha) — blocked on moving `tick()` to run before the render pass rather
+  than after. The view-model value (`vm.focus.focus_ring_alpha`) is already
+  correct but would be stale (previous frame) if read during render.
 - Migrate chrome render sites that currently read `runtime.foo` /
   `graph_app.workspace.chrome_ui.foo` directly. Candidates: focus-ring
   alpha computation in `tile_render_pass.rs:723-745` (already in
@@ -2043,14 +2094,14 @@ matrix as a seam.
   variants
 - `done` (2026-04-24) Backend abstraction split into a host-neutral
   base trait and an egui-specific extension trait:
-    - `HostNeutralRenderBackend` — wgpu / texture / surface ops
-      (`register_texture_token`, `shared_wgpu_device_queue`,
-      `upsert_native_texture`, `free_native_texture`, `submit_frame`,
-      `destroy_surface`). Iced impls just this.
-    - `UiRenderBackendContract: HostNeutralRenderBackend` — the
-      egui-specific extension (`init_surface_accesskit`,
-      `egui_context*`, `egui_winit_state_mut`,
-      `handle_window_event`, `run_ui_frame`).
+  - `HostNeutralRenderBackend` — wgpu / texture / surface ops
+    (`register_texture_token`, `shared_wgpu_device_queue`,
+    `upsert_native_texture`, `free_native_texture`, `submit_frame`,
+    `destroy_surface`). Iced impls just this.
+  - `UiRenderBackendContract: HostNeutralRenderBackend` — the
+    egui-specific extension (`init_surface_accesskit`,
+    `egui_context*`, `egui_winit_state_mut`,
+    `handle_window_event`, `run_ui_frame`).
   `UiRenderBackendHandle` impls both traits. The wgpu shared-device +
   native-texture seam introduced for the M4.5 §12.10 viewer-surface
   path is now reachable from iced without dragging egui types across
@@ -2300,8 +2351,19 @@ coordination on shared wgpu device/queue ownership.
 
 - ~~Centralize all `set_node_history_state(...)` writes behind one helper~~
   — landed 2026-04-23 (Lane A); see §12.3.
-- Phase-args bundle collapse onto `&mut GraphshellRuntime`
-- Move host-side view-model reads to consume `runtime.tick()` output
+- ~~Phase-args bundle collapse onto `&mut GraphshellRuntime`~~ — struct-level
+  collapse landed 2026-04-23 (Lane B'). Last remaining split-borrow at
+  `run_update_frame_prelude` (passed `&mut runtime.graph_app`) collapsed to
+  `runtime: &mut GraphshellRuntime` on 2026-04-24 (Lane 1 M4 session).
+- ~~Move host-side view-model reads to consume `runtime.tick()` output~~
+  — third getter migrated 2026-04-24 (Lane 1): `EguiHost::focused_node_key()`
+  now reads `cached_view_model.focus.focused_node` with pre-first-frame
+  fallback. Required reconciling `FocusViewModel.focused_node` from
+  `focused_node_hint` (render-pass cache) to `active_pane_rects.first()`
+  (same source as `focused_node_key()`). New test pins the graph-surface-
+  focused gate (`focused_node` is None when `graph_surface_focused`). Remaining
+  candidates: `runtime_focus_state`, dialog-state queries, chrome render sites
+  (the latter require tick() to run before the render pass).
 
 **Tier 2 — unblocks useful M5 (iced as a real second host)**:
 

@@ -48,7 +48,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 23, 2026
+Last updated: April 24, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
