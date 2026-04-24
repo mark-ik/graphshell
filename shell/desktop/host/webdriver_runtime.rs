@@ -669,6 +669,14 @@ where
                 Err(error) => ux_bridge::error_json(&error),
             }
         }
+        // Pre-existing WIP from another lane: GetDiagnosticsState added to
+        // UxBridgeCommand but not yet wired into the WebDriver transport.
+        // Stub return until that lane lands its full handler.
+        ux_bridge::UxBridgeCommand::GetDiagnosticsState => ux_bridge::error_json(
+            &ux_bridge::UxBridgeError::transport_unavailable(
+                "GetDiagnosticsState transport not implemented",
+            ),
+        ),
     }
 }
 
