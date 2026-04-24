@@ -42,33 +42,28 @@ pub(super) fn run_pre_frame_and_initialize_intents(
 ) -> (gui_orchestration::PreFramePhaseOutput, Vec<GraphIntent>) {
     let PreFrameAndIntentInitArgs {
         ctx,
-        graph_app,
         state,
         window,
         favicon_textures,
         thumbnail_channel,
-        thumbnail_capture_in_flight,
-        command_authority,
-        control_panel,
+        runtime,
     } = args;
-
-    let CommandAuthorityMut {
-        toggle_requested: command_palette_toggle_requested,
-        session: _command_palette_session,
-    } = command_authority;
 
     let pre_frame = gui_orchestration::run_pre_frame_phase(
         ctx,
-        graph_app,
+        &mut runtime.graph_app,
         state,
         window,
         favicon_textures,
         thumbnail_channel,
-        thumbnail_capture_in_flight,
-        command_palette_toggle_requested,
+        &mut runtime.thumbnail_capture_in_flight,
+        &mut runtime.command_palette_toggle_requested,
     );
-    let frame_intents =
-        initialize_frame_intents(graph_app, pre_frame.frame_intents.clone(), control_panel);
+    let frame_intents = initialize_frame_intents(
+        &mut runtime.graph_app,
+        pre_frame.frame_intents.clone(),
+        &mut runtime.control_panel,
+    );
 
     (pre_frame, frame_intents)
 }

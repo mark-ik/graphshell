@@ -178,8 +178,9 @@ mod tests {
     #[test]
     fn focus_view_model_publishes_focus_ring_when_latched() {
         use crate::graph::NodeKey;
+        use crate::shell::desktop::ui::portable_time::portable_now;
         use crate::shell::desktop::workbench::pane_model::PaneId;
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
 
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(7);
@@ -189,8 +190,7 @@ mod tests {
         // node, so the host should see a positive alpha.
         runtime.focused_node_hint = Some(focused);
         runtime.focus_ring_node_key = Some(focused);
-        runtime.focus_ring_started_at = Some(Instant::now());
-        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.focus_ring_started_at = Some(portable_now());
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
 
@@ -214,8 +214,9 @@ mod tests {
     #[test]
     fn focus_view_model_alpha_is_zero_when_ring_targets_different_node() {
         use crate::graph::NodeKey;
+        use crate::shell::desktop::ui::portable_time::portable_now;
         use crate::shell::desktop::workbench::pane_model::PaneId;
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
 
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(3);
@@ -223,8 +224,7 @@ mod tests {
 
         runtime.focused_node_hint = Some(focused);
         runtime.focus_ring_node_key = Some(stale_ring_target);
-        runtime.focus_ring_started_at = Some(Instant::now());
-        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.focus_ring_started_at = Some(portable_now());
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
 
@@ -247,18 +247,24 @@ mod tests {
 
     #[test]
     fn focus_view_model_ring_cleared_when_alpha_expires() {
+        use crate::app::FocusRingSettings;
         use crate::graph::NodeKey;
         use crate::shell::desktop::workbench::pane_model::PaneId;
-        use std::time::{Duration, Instant};
+        use graphshell_core::time::PortableInstant;
 
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(11);
 
         runtime.focused_node_hint = Some(focused);
         runtime.focus_ring_node_key = Some(focused);
-        // Started long before `now`; animation has elapsed.
-        runtime.focus_ring_started_at = Some(Instant::now() - Duration::from_secs(10));
-        runtime.focus_ring_duration = Duration::from_millis(500);
+        // Started at origin; pair with an instant-off duration so the
+        // animation is deterministically elapsed regardless of how long
+        // the test process has been alive.
+        runtime.focus_ring_started_at = Some(PortableInstant::ORIGIN);
+        runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {
+            duration_ms: 0,
+            ..FocusRingSettings::default()
+        };
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
 
@@ -275,16 +281,16 @@ mod tests {
     fn focus_view_model_honors_disabled_settings() {
         use crate::app::FocusRingSettings;
         use crate::graph::NodeKey;
+        use crate::shell::desktop::ui::portable_time::portable_now;
         use crate::shell::desktop::workbench::pane_model::PaneId;
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
 
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(17);
 
         runtime.focused_node_hint = Some(focused);
         runtime.focus_ring_node_key = Some(focused);
-        runtime.focus_ring_started_at = Some(Instant::now());
-        runtime.focus_ring_duration = Duration::from_millis(500);
+        runtime.focus_ring_started_at = Some(portable_now());
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
         runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {
@@ -307,8 +313,10 @@ mod tests {
     fn focus_view_model_applies_step_curve() {
         use crate::app::{FocusRingCurve, FocusRingSettings};
         use crate::graph::NodeKey;
+        use crate::shell::desktop::ui::portable_time::portable_now;
         use crate::shell::desktop::workbench::pane_model::PaneId;
-        use std::time::{Duration, Instant};
+        use graphshell_core::time::PortableInstant;
+        use std::time::Duration;
 
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(23);
@@ -317,8 +325,9 @@ mod tests {
         runtime.focus_ring_node_key = Some(focused);
         // 250ms into a 1000ms animation: Linear would give ~0.75,
         // Step must give exactly 1.0.
-        runtime.focus_ring_started_at = Some(Instant::now() - Duration::from_millis(250));
-        runtime.focus_ring_duration = Duration::from_millis(1000);
+        runtime.focus_ring_started_at = Some(PortableInstant(
+            portable_now().millis().saturating_sub(250),
+        ));
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
         runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {

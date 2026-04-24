@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 
 use arboard::Clipboard;
 use egui_tiles::{Tile, TileId, Tiles, Tree};
@@ -16,8 +15,7 @@ use graphshell_core::async_host::AsyncSpawner;
 use log::warn;
 use graphshell_core::signal_router::SignalRouter;
 use servo::{
-    DeviceIndependentPixel, OffscreenRenderingContext, RenderingContextCore, WebViewId,
-    WindowRenderingContext,
+    DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, WindowRenderingContext,
 };
 use url::Url;
 use winit::event::WindowEvent;
@@ -30,9 +28,8 @@ use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
 use super::gui_state::{
-    BookmarkImportDialogState, CommandAuthorityMut, GraphSearchAuthorityMut, GraphshellRuntime,
-    LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState, RuntimeFocusInputs,
-    RuntimeFocusInspector, RuntimeFocusState, ToolbarState,
+    GraphshellRuntime, LocalFocusTarget, PaneRegionHint, RuntimeFocusAuthorityState,
+    RuntimeFocusInputs, RuntimeFocusInspector, RuntimeFocusState, ToolbarState,
 };
 use super::persistence_ops;
 use super::toolbar_routing::{self, ToolbarNavAction};
@@ -49,7 +46,6 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::host::window::WebViewLifecycleEvent;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::render_backend::{
     UiHostRenderBootstrap, UiRenderBackendContract, UiRenderBackendHandle, UiRenderBackendInit,
     activate_ui_render_backend, create_ui_render_backend,
@@ -62,13 +58,12 @@ use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 use crate::shell::desktop::runtime::registries::workbench_surface;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime,
+    CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION,
     phase3_resolve_active_theme, phase3_shared_runtime,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{self, RendererFaviconTextureCache};
 #[cfg(test)]
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -206,10 +201,9 @@ pub struct EguiHost {
     state: Option<Rc<RunningAppState>>,
 
     /// Host-neutral runtime state (Category A per M3.5 classification).
+    /// Includes `diagnostics_state` (moved from EguiHost in §12.16,
+    /// 2026-04-24) so iced inherits the same instance.
     pub(crate) runtime: GraphshellRuntime,
-
-    #[cfg(feature = "diagnostics")]
-    diagnostics_state: diagnostics::DiagnosticsState,
 }
 
 impl Drop for EguiHost {
@@ -418,8 +412,11 @@ impl EguiHost {
                 crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             viewer_surface_host: Box::new(ServoViewerSurfaceHost::new({
                 let rendering_context = rendering_context.clone();
-                let window_rendering_context = window_rendering_context.clone();
-                move || Rc::new(window_rendering_context.offscreen_context(rendering_context.size()))
+                move || {
+                    crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceBacking::NativeRenderingContext(
+                        rendering_context.clone(),
+                    )
+                }
             })),
             webview_creation_backpressure: HashMap::new(),
             thumbnail_capture_in_flight: HashSet::new(),
@@ -433,7 +430,6 @@ impl EguiHost {
             graph_surface_focused: false,
             focus_ring_node_key: None,
             focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
             omnibar_provider_suggestion_driver: None,
             focus_authority: RuntimeFocusAuthorityState::default(),
@@ -445,6 +441,8 @@ impl EguiHost {
             clear_data_confirm_deadline_secs: None,
             command_surface_telemetry:
                 crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state: diagnostics::DiagnosticsState::new(),
         };
 
         let mut gui = Self {
@@ -464,8 +462,6 @@ impl EguiHost {
             pending_accesskit_focus_requests: Vec::new(),
             state: None,
             runtime,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state: diagnostics::DiagnosticsState::new(),
         };
         gui.apply_runtime_theme_visuals();
 
@@ -918,107 +914,36 @@ impl EguiHost {
             thumbnail_channel,
             pending_webview_a11y_updates,
             state: app_state,
-            runtime:
-                GraphshellRuntime {
-                    graph_app,
-                    graph_tree,
-                    workbench_view_id: _,
-                    toolbar_state,
-                    clear_data_confirm_deadline_secs,
-                    bookmark_import_dialog,
-                    control_panel,
-                    async_spawner: _,
-                    registry_runtime,
-                    signal_router: _,
-                    tokio_runtime: _,
-                    viewer_surfaces,
-                    viewer_surface_host,
-                    webview_creation_backpressure,
-                    thumbnail_capture_in_flight,
-                    frame_inbox: _,
-                    graph_search_open,
-                    graph_search_query,
-                    graph_search_filter_mode,
-                    graph_search_matches,
-                    graph_search_active_match_index,
-                    focused_node_hint,
-                    graph_surface_focused,
-                    focus_ring_node_key,
-                    focus_ring_started_at,
-                    focus_ring_duration,
-                    omnibar_search_session,
-                    omnibar_provider_suggestion_driver,
-                    command_surface_telemetry,
-                    focus_authority,
-                    toolbar_drafts: _,
-                    command_palette_toggle_requested,
-                    command_palette_session,
-                    pending_webview_context_surface_requests,
-                },
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
+            runtime,
             ..
         } = self;
 
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(
             toasts,
-            graph_app.workspace.chrome_ui.toast_anchor_preference,
+            runtime.graph_app.workspace.chrome_ui.toast_anchor_preference,
         );
         context.run_ui_frame(winit_window, |ctx, root_ui, ui_render_backend| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
-            root_ui,
+                root_ui,
                 ui_render_backend,
                 winit_window,
                 state,
                 window,
                 headed_window,
-                graph_app,
                 pending_webview_a11y_updates,
                 tiles_tree,
-                graph_tree,
                 toolbar_height,
-                toolbar_state,
-                clear_data_confirm_deadline_secs,
                 toasts,
                 clipboard,
                 favicon_textures: renderer_favicon_textures,
-                viewer_surfaces,
-                viewer_surface_host: viewer_surface_host.as_mut(),
                 tile_favicon_textures,
                 thumbnail_channel,
-                thumbnail_capture_in_flight,
-                webview_creation_backpressure,
                 app_state,
-                graph_search: GraphSearchAuthorityMut {
-                    open: graph_search_open,
-                    query: graph_search_query,
-                    filter_mode: graph_search_filter_mode,
-                    matches: graph_search_matches,
-                    active_match_index: graph_search_active_match_index,
-                },
-                focus_authority,
-                focused_node_hint,
-                graph_surface_focused: *graph_surface_focused,
-                focus_ring_node_key,
-                focus_ring_started_at,
-                focus_ring_duration: *focus_ring_duration,
-                omnibar_search_session,
-                omnibar_provider_suggestion_driver,
-                command_surface_telemetry,
-                command_authority: CommandAuthorityMut {
-                    toggle_requested: command_palette_toggle_requested,
-                    session: command_palette_session,
-                },
-                pending_webview_context_surface_requests,
-                bookmark_import_dialog,
                 rendering_context,
                 window_rendering_context,
-                registry_runtime,
-                control_panel,
-                #[cfg(feature = "diagnostics")]
-                diagnostics_state,
+                runtime,
             });
         });
 
@@ -1198,7 +1123,7 @@ impl EguiHost {
 
     #[cfg(feature = "diagnostics")]
     pub(crate) fn diagnostics_state(&self) -> &diagnostics::DiagnosticsState {
-        &self.diagnostics_state
+        &self.runtime.diagnostics_state
     }
 
     #[cfg(feature = "diagnostics")]

@@ -18,119 +18,89 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         ctx,
         root_ui,
         ui_render_backend,
-        graph_app,
-        bookmark_import_dialog,
         window,
         headed_window,
         tiles_tree,
-        graph_tree,
         modal_surface_active,
         toolbar_height,
-        viewer_surfaces,
-        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         app_state,
         rendering_context,
         window_rendering_context,
-        webview_creation_backpressure,
-        focus_authority,
-        focus,
-        pending_webview_context_surface_requests,
-        graph_search,
-        command_authority,
         toasts,
-        registry_runtime: _,
-        control_panel,
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state,
         responsive_webviews,
-        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
+        runtime,
     } = args;
 
-    // This phase only reads 4 of the bundle's 5 refs; `open` flows
-    // through to remain consistent with upstream phase-arg shapes but
-    // is not consulted here.
-    let GraphSearchAuthorityMut {
-        open: _,
-        query: graph_search_query,
-        filter_mode: graph_search_filter_mode,
-        matches: graph_search_matches,
-        active_match_index: graph_search_active_match_index,
-    } = graph_search;
-
+    // Lane B' (2026-04-23): SemanticLifecycle takes runtime directly;
+    // no split-borrows in scope during its call. Split-borrows are
+    // constructed AFTER SemanticLifecycle returns, scoped to the
+    // PostRender + intermediate-computation block.
     run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
-        graph_app,
         tiles_tree,
-        graph_tree,
         modal_surface_active,
-        focus_authority,
         window,
         app_state,
         rendering_context,
         window_rendering_context,
-        viewer_surfaces,
-        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
-        webview_creation_backpressure,
-        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
+        runtime: &mut *runtime,
     });
 
-    crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(graph_app);
-    let search_query_active = is_graph_search_query_active(graph_search_query);
+    // Lane B' (2026-04-23): PostRender now takes runtime directly. The
+    // intermediate `phase3_reconcile_semantics` and `runtime_focus_inspector`
+    // computations split-borrow from runtime in scoped blocks before the
+    // PostRender call so the borrows don't conflict with the single
+    // `&mut *runtime` reborrow PostRender consumes.
+    let search_query_active = is_graph_search_query_active(&runtime.graph_search_query);
+    let graph_search_active_match_index = runtime.graph_search_active_match_index;
+    let graph_search_filter_mode = runtime.graph_search_filter_mode;
+    crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(&mut runtime.graph_app);
     #[cfg(feature = "diagnostics")]
-    let runtime_focus_inspector = Some(crate::shell::desktop::ui::gui::runtime_focus_inspector(
-        graph_app,
-        focus_authority,
-        None,
-        false,
-    ));
+    let runtime_focus_inspector = {
+        let inspector = crate::shell::desktop::ui::gui::runtime_focus_inspector(
+            &mut runtime.graph_app,
+            &mut runtime.focus_authority,
+            None,
+            false,
+        );
+        Some(inspector)
+    };
 
-    // M4.1 slice 1c: the focus mutation bundle (`FocusAuthorityMut`) is
-    // assembled upstream in `execute_update_frame` and flows through
-    // `SemanticAndPostRenderPhaseArgs::focus`. The post-render / tile-
-    // render path consumes it directly; no local reassembly needed.
+    // Snapshot graph_search_matches so we can release the borrow before
+    // PostRender takes runtime.
+    let graph_search_matches_snapshot: Vec<NodeKey> = runtime.graph_search_matches.clone();
+
     gui_frame::run_post_render_phase(
         gui_frame::PostRenderPhaseArgs {
             ctx,
             root_ui,
             ui_render_backend,
-            graph_app,
-            bookmark_import_dialog,
             window,
             headed_window,
             tiles_tree,
-            graph_tree,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             toolbar_height,
-            graph_search_matches,
-            graph_search_active_match_index: *graph_search_active_match_index,
-            graph_search_filter_mode: *graph_search_filter_mode,
+            graph_search_matches: &graph_search_matches_snapshot,
+            graph_search_active_match_index,
+            graph_search_filter_mode,
             search_query_active,
             app_state,
             rendering_context,
             window_rendering_context,
             responsive_webviews,
-            webview_creation_backpressure,
-            focus,
-            command_authority,
-            pending_webview_context_surface_requests,
             toasts,
-            control_panel,
-            command_surface_telemetry,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
             #[cfg(feature = "diagnostics")]
             runtime_focus_inspector,
+            runtime: &mut *runtime,
         },
         |matches, active_index| gui_orchestration::active_graph_search_match(matches, active_index),
     );
@@ -142,43 +112,37 @@ pub(super) fn is_graph_search_query_active(query: &str) -> bool {
 
 pub(super) fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>) {
     let SemanticLifecyclePhaseArgs {
-        graph_app,
         tiles_tree,
-        graph_tree,
         modal_surface_active,
-        focus_authority,
         window,
         app_state,
         rendering_context,
         window_rendering_context,
-        viewer_surfaces,
-        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
-        webview_creation_backpressure,
-        command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
+        runtime,
     } = args;
 
     gui_orchestration::run_semantic_lifecycle_phase(
-        graph_app,
+        &mut runtime.graph_app,
         tiles_tree,
-        graph_tree,
+        &mut runtime.graph_tree,
         modal_surface_active,
-        focus_authority,
+        &mut runtime.focus_authority,
         window,
         app_state,
         rendering_context,
         window_rendering_context,
-        viewer_surfaces,
-        viewer_surface_host,
+        &mut runtime.viewer_surfaces,
+        runtime.viewer_surface_host.as_mut(),
         tile_favicon_textures,
         favicon_textures,
         responsive_webviews,
-        webview_creation_backpressure,
-        command_surface_telemetry,
+        &mut runtime.webview_creation_backpressure,
+        &runtime.command_surface_telemetry,
         open_node_tile_after_intents,
         frame_intents,
     );

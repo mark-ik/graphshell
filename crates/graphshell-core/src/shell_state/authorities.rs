@@ -16,9 +16,11 @@
 //! - [`FocusAuthorityMut`] — focused-node hint + focus-ring animation
 //!   bookkeeping. `focus_ring_started_at` uses
 //!   [`PortableInstant`](crate::time::PortableInstant); the host
-//!   supplies "now" values at call sites (see [`latch_ring`],
-//!   [`ring_alpha`], [`ring_alpha_with_curve`]) rather than the bundle
-//!   reaching for a platform clock.
+//!   supplies "now" values at call sites (see [`latch_ring`]) rather
+//!   than the bundle reaching for a platform clock. Alpha derivation
+//!   is no longer on this bundle — production reads
+//!   `chrome_ui.focus_ring_settings.duration()` and computes alpha via
+//!   [`FocusRingSpec::alpha_at_with_curve`] directly.
 //!
 //! The remaining bundle stays shell-side:
 //!
@@ -34,14 +36,9 @@
 //! existing import paths still resolve.
 //!
 //! [`latch_ring`]: FocusAuthorityMut::latch_ring
-//! [`ring_alpha`]: FocusAuthorityMut::ring_alpha
-//! [`ring_alpha_with_curve`]: FocusAuthorityMut::ring_alpha_with_curve
-
-use std::time::Duration;
 
 use crate::graph::NodeKey;
 use crate::shell_state::command_palette::{CommandPaletteSession, SearchPaletteScope};
-use crate::shell_state::frame_model::{FocusRingCurve, FocusRingSpec};
 use crate::time::PortableInstant;
 
 /// Host-facing mutation handle for graph-search session state.
@@ -193,11 +190,10 @@ impl<'a> CommandAuthorityMut<'a> {
 }
 
 /// Host-facing mutation handle bundling the focus fields the render
-/// / compositor path touches each frame. Replaces the four
-/// individual `&mut`-field parameters (`focused_node_hint`,
-/// `focus_ring_node_key`, `focus_ring_started_at`,
-/// `focus_ring_duration`) that `TileRenderPassArgs` and
-/// `PostRenderPhaseArgs` carried pre-M4.1.
+/// / compositor path touches each frame. Replaces the individual
+/// `&mut`-field parameters (`focused_node_hint`,
+/// `focus_ring_node_key`, `focus_ring_started_at`) that
+/// `TileRenderPassArgs` and `PostRenderPhaseArgs` carried pre-M4.1.
 ///
 /// Per the M3.5 runtime boundary design (§3.1 Focus authority), focus
 /// policy truth belongs on the runtime. Callers destructure the
@@ -222,7 +218,6 @@ pub struct FocusAuthorityMut<'a> {
     pub graph_surface_focused: bool,
     pub focus_ring_node_key: &'a mut Option<NodeKey>,
     pub focus_ring_started_at: &'a mut Option<PortableInstant>,
-    pub focus_ring_duration: Duration,
 }
 
 impl<'a> FocusAuthorityMut<'a> {
@@ -235,7 +230,6 @@ impl<'a> FocusAuthorityMut<'a> {
             graph_surface_focused: self.graph_surface_focused,
             focus_ring_node_key: &mut *self.focus_ring_node_key,
             focus_ring_started_at: &mut *self.focus_ring_started_at,
-            focus_ring_duration: self.focus_ring_duration,
         }
     }
 
@@ -294,36 +288,13 @@ impl<'a> FocusAuthorityMut<'a> {
         *self.focus_ring_started_at = new_focused_node.map(|_| now);
     }
 
-    /// Compute the paint alpha for the focus ring using the default
-    /// linear curve.
-    pub fn ring_alpha(&self, focused_node: Option<NodeKey>, now: PortableInstant) -> f32 {
-        self.ring_alpha_with_curve(focused_node, now, FocusRingCurve::Linear)
-    }
-
-    /// Compute the paint alpha applying the supplied fade reshape.
-    /// Returns 0.0 when the ring target, clock, or stored start-time
-    /// precludes any ring; otherwise delegates to
-    /// [`FocusRingSpec::alpha_at_with_curve`] so the render path and
-    /// the view-model projection share one implementation.
-    pub fn ring_alpha_with_curve(
-        &self,
-        focused_node: Option<NodeKey>,
-        now: PortableInstant,
-        curve: FocusRingCurve,
-    ) -> f32 {
-        let Some(node_key) = *self.focus_ring_node_key else {
-            return 0.0;
-        };
-        let Some(started_at) = *self.focus_ring_started_at else {
-            return 0.0;
-        };
-        FocusRingSpec {
-            node_key,
-            started_at,
-            duration: self.focus_ring_duration,
-        }
-        .alpha_at_with_curve(focused_node, now, curve)
-    }
+    // Note: alpha-derivation methods previously lived here as
+    // `ring_alpha`/`ring_alpha_with_curve`. They were removed alongside
+    // the vestigial `focus_ring_duration` field — the production render
+    // path now sources the duration from `chrome_ui.focus_ring_settings`
+    // and computes alpha via `FocusRingSpec::alpha_at_with_curve`
+    // directly. See iced-host migration plan §10 (2026-04-23
+    // progress log) for the cleanup rationale.
 }
 
 #[cfg(test)]
@@ -459,7 +430,6 @@ mod tests {
             graph_surface_focused: false,
             focus_ring_node_key: &mut focus_ring_node_key,
             focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(500),
         };
 
         // changed_this_frame = false — no mutation.
@@ -478,7 +448,6 @@ mod tests {
             graph_surface_focused: false,
             focus_ring_node_key: &mut focus_ring_node_key,
             focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(300),
         };
 
         let now = PortableInstant(2_000);
@@ -500,7 +469,6 @@ mod tests {
             graph_surface_focused: false,
             focus_ring_node_key: &mut focus_ring_node_key,
             focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(500),
         };
 
         authority.latch_ring(true, None, PortableInstant(1_000));
@@ -508,44 +476,10 @@ mod tests {
         assert_eq!(*authority.focus_ring_started_at, None);
     }
 
-    #[test]
-    fn focus_authority_ring_alpha_returns_zero_when_no_stored_ring() {
-        let mut focused_node_hint = None;
-        let mut focus_ring_node_key: Option<NodeKey> = None;
-        let mut focus_ring_started_at: Option<PortableInstant> = None;
-        let authority = FocusAuthorityMut {
-            focused_node_hint: &mut focused_node_hint,
-            graph_surface_focused: false,
-            focus_ring_node_key: &mut focus_ring_node_key,
-            focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(500),
-        };
-
-        // No ring node stored → 0.0 regardless of `focused_node` /
-        // `now`.
-        assert_eq!(
-            authority.ring_alpha(Some(NodeKey::new(1)), PortableInstant(100)),
-            0.0
-        );
-    }
-
-    #[test]
-    fn focus_authority_ring_alpha_fades_linearly_through_duration() {
-        let mut focused_node_hint = None;
-        let mut focus_ring_node_key = Some(NodeKey::new(3));
-        let mut focus_ring_started_at = Some(PortableInstant(1_000));
-        let authority = FocusAuthorityMut {
-            focused_node_hint: &mut focused_node_hint,
-            graph_surface_focused: false,
-            focus_ring_node_key: &mut focus_ring_node_key,
-            focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(1_000),
-        };
-
-        let half = PortableInstant(1_500);
-        let alpha = authority.ring_alpha(Some(NodeKey::new(3)), half);
-        assert!((alpha - 0.5).abs() < 1e-6);
-    }
+    // Note: `focus_authority_ring_alpha_*` tests removed alongside the
+    // `ring_alpha`/`ring_alpha_with_curve` methods (2026-04-23).
+    // Production alpha derivation lives on `FocusRingSpec::alpha_at_with_curve`
+    // which has its own dedicated test coverage in `frame_model.rs`.
 
     #[test]
     fn focus_authority_clear_hint_if_matches_fires_only_on_match() {
@@ -557,7 +491,6 @@ mod tests {
             graph_surface_focused: false,
             focus_ring_node_key: &mut focus_ring_node_key,
             focus_ring_started_at: &mut focus_ring_started_at,
-            focus_ring_duration: Duration::from_millis(500),
         };
 
         // Non-match: hint preserved, returns false.

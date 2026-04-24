@@ -27,45 +27,32 @@ impl EguiHost {
             state,
             window,
             headed_window,
-            graph_app,
             pending_webview_a11y_updates,
             tiles_tree,
-            graph_tree,
             toolbar_height,
-            toolbar_state,
-            clear_data_confirm_deadline_secs,
             toasts,
             clipboard,
             favicon_textures,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             thumbnail_channel,
-            thumbnail_capture_in_flight,
-            webview_creation_backpressure,
             app_state,
-            mut graph_search,
-            mut command_authority,
-            focus_authority,
-            focused_node_hint,
-            graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
-            omnibar_search_session,
-            omnibar_provider_suggestion_driver,
-            command_surface_telemetry,
-            pending_webview_context_surface_requests,
-            bookmark_import_dialog,
             rendering_context,
             window_rendering_context,
-            registry_runtime,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
+            runtime,
         } = args;
+        // Lane B' (2026-04-23): split-borrow runtime fields per call site
+        // instead of destructuring up-front. Calls that consume `runtime`
+        // as a single ref (PreFrame here; more sub-phases to follow) take
+        // it directly; calls that still consume individual fields receive
+        // split-borrows from `runtime` after PreFrame returns and the
+        // single-ref borrow ends.
 
-        Self::run_update_frame_prelude(ctx, graph_app, pending_webview_a11y_updates, tiles_tree);
+        Self::run_update_frame_prelude(
+            ctx,
+            &mut runtime.graph_app,
+            pending_webview_a11y_updates,
+            tiles_tree,
+        );
         // User-gesture notification and idle-watchdog tick migrated onto
         // `GraphshellRuntime::ingest_frame_input`: both consume runtime
         // state (`control_panel`, `registry_runtime`) and the gesture flag
@@ -73,14 +60,11 @@ impl EguiHost {
         let (pre_frame, mut frame_intents) =
             Self::run_pre_frame_and_initialize_intents(PreFrameAndIntentInitArgs {
                 ctx,
-                graph_app,
                 state,
                 window,
                 favicon_textures,
                 thumbnail_channel,
-                thumbnail_capture_in_flight,
-                command_authority: command_authority.reborrow(),
-                control_panel,
+                runtime: &mut *runtime,
             });
 
         let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
@@ -88,24 +72,17 @@ impl EguiHost {
         let mut graph_search_output =
             Self::run_graph_search_and_keyboard_phases(GraphSearchAndKeyboardPhaseArgs {
                 ctx,
-                graph_app,
                 toasts,
                 window,
                 tiles_tree,
-                graph_surface_focused,
-                graph_search: graph_search.reborrow(),
-                focus_authority,
-                toolbar_state,
-                viewer_surfaces,
-                viewer_surface_host,
                 tile_favicon_textures,
                 favicon_textures,
                 app_state,
                 rendering_context,
                 window_rendering_context,
                 responsive_webviews: &pre_frame.responsive_webviews,
-                webview_creation_backpressure,
                 frame_intents: &mut frame_intents,
+                runtime: &mut *runtime,
             });
 
         Self::run_toolbar_and_graph_search_window_phases(ToolbarAndGraphSearchWindowPhaseArgs {
@@ -113,95 +90,59 @@ impl EguiHost {
             root_ui: &mut *root_ui,
             winit_window,
             state,
-            graph_app,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
             window,
             tiles_tree,
-            graph_tree,
-            focused_node_hint: *focused_node_hint,
-            graph_surface_focused,
-            focus_authority,
-            toolbar_state,
-            clear_data_confirm_deadline_secs,
-            omnibar_search_session,
-            omnibar_provider_suggestion_driver,
-            command_surface_telemetry,
             toasts,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
             rendering_context,
             window_rendering_context,
             responsive_webviews: &pre_frame.responsive_webviews,
-            webview_creation_backpressure,
-            graph_search: graph_search.reborrow(),
             graph_search_output: &mut graph_search_output,
             frame_intents: &mut frame_intents,
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
+            runtime: &mut *runtime,
         });
 
+        // Lane B' (2026-04-23): the runtime destructure that previously
+        // sat here is gone — every remaining sub-phase call takes
+        // `runtime: &mut GraphshellRuntime` directly. The modal-surface
+        // computation that needed `graph_app` / `focus_authority` /
+        // `toolbar_state` simultaneously now split-borrows from runtime
+        // in scoped blocks; the local-widget-focus clone lives outside
+        // any borrow so the mutable borrows it needs are unambiguous.
+        let local_widget_focus_for_modal = runtime.focus_authority.local_widget_focus.clone();
+        let show_clear_data_confirm = runtime.toolbar_state.show_clear_data_confirm;
         let modal_surface_active = super::focus_state::workspace_runtime_focus_state(
-            graph_app,
-            Some(focus_authority),
-            focus_authority.local_widget_focus.clone(),
-            toolbar_state.show_clear_data_confirm,
+            &mut runtime.graph_app,
+            Some(&mut runtime.focus_authority),
+            local_widget_focus_for_modal,
+            show_clear_data_confirm,
         )
         .overlay_active();
 
-        // M4.1 slice 1c: assemble the host-facing focus mutation bundle
-        // after phases 1–3 have settled `graph_surface_focused`. The
-        // downstream render/post-render path takes ownership of this
-        // handle and calls named methods (`clear_hint`, `set_hint`,
-        // `latch_ring`, …) instead of touching individual runtime
-        // fields. Upstream phases still consume individual refs because
-        // each phase only touches a subset.
-        let focus = crate::shell::desktop::ui::gui_state::FocusAuthorityMut {
-            focused_node_hint,
-            graph_surface_focused,
-            focus_ring_node_key,
-            focus_ring_started_at,
-            focus_ring_duration,
-        };
         Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
             ctx,
             root_ui: &mut *root_ui,
             ui_render_backend,
-            graph_app,
-            bookmark_import_dialog,
             window,
             headed_window,
             tiles_tree,
-            graph_tree,
             modal_surface_active,
             toolbar_height,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
             rendering_context,
             window_rendering_context,
-            webview_creation_backpressure,
-            focus_authority,
-            focus,
-            pending_webview_context_surface_requests,
-            graph_search: graph_search.reborrow(),
-            command_authority: command_authority.reborrow(),
             toasts,
-            registry_runtime,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
             responsive_webviews: &pre_frame.responsive_webviews,
-            command_surface_telemetry,
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
             frame_intents: &mut frame_intents,
+            runtime: &mut *runtime,
         });
-        Self::finalize_update_frame(ctx, graph_app, clipboard, toasts);
+        Self::finalize_update_frame(ctx, &mut runtime.graph_app, clipboard, toasts);
     }
 
     pub(super) fn is_canonical_update_frame_stage_sequence(sequence: &[UpdateFrameStage]) -> bool {
@@ -245,37 +186,34 @@ impl EguiHost {
     ) -> graph_search_flow::GraphSearchFlowOutput {
         let GraphSearchAndKeyboardPhaseArgs {
             ctx,
-            graph_app,
             toasts,
             window,
             tiles_tree,
-            graph_surface_focused,
-            graph_search,
-            focus_authority,
-            toolbar_state,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
             rendering_context,
             window_rendering_context,
             responsive_webviews,
-            webview_creation_backpressure,
             frame_intents,
+            runtime,
         } = args;
 
-        // Destructure the bundle into the raw refs that
-        // `gui_orchestration::run_graph_search_phase` still consumes.
-        // The bundle is the host-facing shape; the five refs are the
-        // widget-orchestration shape.
-        let GraphSearchAuthorityMut {
-            open: graph_search_open,
-            query: graph_search_query,
-            filter_mode: graph_search_filter_mode,
-            matches: graph_search_matches,
-            active_match_index: graph_search_active_match_index,
-        } = graph_search;
+        // Lane B' (2026-04-23): destructure runtime internally so the
+        // phase consumes the same shape `gui_orchestration::run_graph_search_phase`
+        // and `run_keyboard_phase` expect (individual `&mut` refs).
+        let graph_app: &mut GraphBrowserApp = &mut runtime.graph_app;
+        let graph_search_open = &mut runtime.graph_search_open;
+        let graph_search_query = &mut runtime.graph_search_query;
+        let graph_search_filter_mode = &mut runtime.graph_search_filter_mode;
+        let graph_search_matches = &mut runtime.graph_search_matches;
+        let graph_search_active_match_index = &mut runtime.graph_search_active_match_index;
+        let focus_authority = &mut runtime.focus_authority;
+        let toolbar_state = &mut runtime.toolbar_state;
+        let viewer_surfaces = &mut runtime.viewer_surfaces;
+        let viewer_surface_host = runtime.viewer_surface_host.as_mut();
+        let webview_creation_backpressure = &mut runtime.webview_creation_backpressure;
+        let graph_surface_focused = runtime.graph_surface_focused;
 
         let graph_search_output = gui_orchestration::run_graph_search_phase(
             ctx,
@@ -320,44 +258,45 @@ impl EguiHost {
             root_ui,
             winit_window,
             state,
-            graph_app,
-            control_panel,
-            #[cfg(feature = "diagnostics")]
-            diagnostics_state,
             window,
             tiles_tree,
-            graph_tree,
-            focused_node_hint: _,
-            graph_surface_focused,
-            focus_authority,
-            toolbar_state,
-            clear_data_confirm_deadline_secs,
-            omnibar_search_session,
-            omnibar_provider_suggestion_driver,
-            command_surface_telemetry,
             toasts,
-            viewer_surfaces,
-            viewer_surface_host,
             tile_favicon_textures,
             favicon_textures,
             app_state,
             rendering_context,
             window_rendering_context,
             responsive_webviews,
-            webview_creation_backpressure,
-            graph_search,
             graph_search_output,
             frame_intents,
             open_node_tile_after_intents,
+            runtime,
         } = args;
 
-        let GraphSearchAuthorityMut {
-            open: graph_search_open,
-            query: graph_search_query,
-            filter_mode: graph_search_filter_mode,
-            matches: graph_search_matches,
-            active_match_index: graph_search_active_match_index,
-        } = graph_search;
+        // Lane B' (2026-04-23): split-borrow the runtime fields the
+        // sub-phases below consume. Same shape as the previous individual
+        // arg destructure; one less hop now that the runtime ref lives on
+        // the args struct.
+        let graph_app: &mut GraphBrowserApp = &mut runtime.graph_app;
+        let control_panel = &mut runtime.control_panel;
+        let graph_tree = &mut runtime.graph_tree;
+        let graph_surface_focused = runtime.graph_surface_focused;
+        let focus_authority = &mut runtime.focus_authority;
+        let toolbar_state = &mut runtime.toolbar_state;
+        let clear_data_confirm_deadline_secs = &mut runtime.clear_data_confirm_deadline_secs;
+        let omnibar_search_session = &mut runtime.omnibar_search_session;
+        let omnibar_provider_suggestion_driver = &mut runtime.omnibar_provider_suggestion_driver;
+        let command_surface_telemetry = &runtime.command_surface_telemetry;
+        let viewer_surfaces = &mut runtime.viewer_surfaces;
+        let viewer_surface_host = runtime.viewer_surface_host.as_mut();
+        let webview_creation_backpressure = &mut runtime.webview_creation_backpressure;
+        let graph_search_open = &mut runtime.graph_search_open;
+        let graph_search_query = &mut runtime.graph_search_query;
+        let graph_search_filter_mode = &mut runtime.graph_search_filter_mode;
+        let graph_search_matches = &mut runtime.graph_search_matches;
+        let graph_search_active_match_index = &mut runtime.graph_search_active_match_index;
+        #[cfg(feature = "diagnostics")]
+        let diagnostics_state = &mut runtime.diagnostics_state;
 
         let mut local_widget_focus = focus_authority.local_widget_focus.clone();
 

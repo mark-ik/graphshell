@@ -233,12 +233,10 @@ impl<'a> ToolbarAuthorityMut<'a> {
     }
 }
 
-// `GraphSearchAuthorityMut` moved to
-// `graphshell_core::shell_state::authorities` in M4 slice 9 (2026-04-22).
-// Re-exported at this path so existing `pub(crate) use crate::shell::
-// desktop::ui::gui_state::GraphSearchAuthorityMut` call sites resolve
-// unchanged.
-pub(crate) use graphshell_core::shell_state::authorities::GraphSearchAuthorityMut;
+// `GraphSearchAuthorityMut` moved to `graphshell_core::shell_state::authorities`
+// in M4 slice 9 (2026-04-22). The compatibility re-export at this path was
+// removed in the 2026-04-23 Lane B' phase-args collapse — all consumers now
+// import from the kernel directly.
 
 // `CommandAuthorityMut` moved to
 // `graphshell_core::shell_state::authorities` in M4 slice 9 (2026-04-22).
@@ -315,7 +313,6 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) graph_surface_focused: bool,
     pub(crate) focus_ring_node_key: Option<NodeKey>,
     pub(crate) focus_ring_started_at: Option<graphshell_core::time::PortableInstant>,
-    pub(crate) focus_ring_duration: Duration,
     pub(crate) omnibar_search_session: Option<OmnibarSearchSession>,
     /// Host-side driver (crossbeam receiver + generation tag) for the
     /// omnibar provider-suggestion async request. Non-portable
@@ -348,6 +345,18 @@ pub(crate) struct GraphshellRuntime {
     /// sink and the static storage goes away.
     pub(crate) command_surface_telemetry:
         crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+
+    /// Diagnostics state (channel registry snapshots, latency
+    /// percentiles, edge metric counters, etc.). Lifted onto the
+    /// runtime in §12.16 (2026-04-24) so iced inherits it for free —
+    /// previously lived as a field on `EguiHost`. The diagnostics pane
+    /// renderer (still egui-specific in `runtime/diagnostics/pane_ui.rs`)
+    /// reads from this field; a future slice will lift the rendering
+    /// shape to a host-neutral view-model so iced can render the same
+    /// data through its own widget set.
+    #[cfg(feature = "diagnostics")]
+    pub(crate) diagnostics_state:
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 }
 
 impl GraphshellRuntime {
@@ -485,11 +494,9 @@ impl GraphshellRuntime {
     pub(crate) fn project_view_model(&self) -> FrameViewModel {
         let chrome_ui = &self.graph_app.workspace.chrome_ui;
         let focus_ring_settings = chrome_ui.focus_ring_settings;
-        // Source the fade-out duration from user settings so
-        // runtime-scoped `focus_ring_duration` stays a harmless
-        // legacy field while the view model reflects the setting the
-        // user actually chose. Slice 1d moves the paint path onto
-        // settings.duration() exclusively.
+        // The fade-out duration is sourced from user settings; the
+        // legacy `runtime.focus_ring_duration` field was removed in
+        // the 2026-04-23 Lane B' warm-up.
         let effective_duration = focus_ring_settings.duration();
         let ring_spec_candidate = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
             node_key,
@@ -738,7 +745,6 @@ impl GraphshellRuntime {
             graph_surface_focused: false,
             focus_ring_node_key: None,
             focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
             omnibar_provider_suggestion_driver: None,
             focus_authority: RuntimeFocusAuthorityState::default(),
@@ -749,6 +755,9 @@ impl GraphshellRuntime {
             clear_data_confirm_deadline_secs: None,
             command_surface_telemetry:
                 crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state:
+                crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new(),
         }
     }
 

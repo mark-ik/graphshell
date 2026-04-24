@@ -29,9 +29,7 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     ChromeProjectionSource, DialogOwner, EmbedderWindow, InputTarget,
 };
-use crate::shell::desktop::lifecycle::webview_backpressure::{
-    self, WebviewCreationBackpressureState,
-};
+use crate::shell::desktop::lifecycle::webview_backpressure;
 use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -44,18 +42,8 @@ use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
     pub ui_render_backend: &'a mut UiRenderBackendHandle,
-    pub graph_app: &'a mut GraphBrowserApp,
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a mut Tree<TileKind>,
-    /// Phase E+B: GraphTree is the membership authority for compositor input
-    /// (Phase E) and the dual-write target for tile mutations (Phase B).
-    /// Rects still come from egui_tiles during migration.
-    pub graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub graph_search_matches: &'a HashSet<NodeKey>,
     pub active_search_match: Option<NodeKey>,
@@ -65,21 +53,16 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub responsive_webviews: &'a HashSet<WebViewId>,
-    pub webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    /// Focus mutation bundle — replaces the former per-field
-    /// `focused_node_hint` / `focus_ring_node_key` / `focus_ring_started_at` /
-    /// `focus_ring_duration` members. M4.1 slice 1b encapsulates focus
-    /// mutations behind this handle; see
-    /// [`FocusAuthorityMut`](crate::shell::desktop::ui::gui_state::FocusAuthorityMut).
-    pub focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
     pub suppress_runtime_side_effects: bool,
-    pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
-    pub command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
-    #[cfg(feature = "diagnostics")]
-    pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     #[cfg(feature = "diagnostics")]
     pub runtime_focus_inspector: Option<RuntimeFocusInspector>,
+    /// Lane B' (2026-04-24): runtime-owned state previously threaded as
+    /// 7 individual refs (graph_app / graph_tree / viewer_surfaces /
+    /// viewer_surface_host / webview_creation_backpressure / control_panel /
+    /// command_surface_telemetry) plus the focus FocusAuthorityMut bundle
+    /// (wrapping 4 more fields) now flows through this single ref. Phase
+    /// function destructures internally and assembles the focus bundle.
+    pub runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind>) -> GraphViewId {
@@ -241,12 +224,8 @@ pub(crate) fn run_tile_render_pass_in_ui(
     let TileRenderPassArgs {
         ctx,
         ui_render_backend,
-        graph_app,
         window,
         tiles_tree,
-        graph_tree,
-        viewer_surfaces,
-        viewer_surface_host,
         tile_favicon_textures,
         graph_search_matches,
         active_search_match,
@@ -256,16 +235,40 @@ pub(crate) fn run_tile_render_pass_in_ui(
         rendering_context,
         window_rendering_context,
         responsive_webviews,
-        webview_creation_backpressure,
-        mut focus,
         suppress_runtime_side_effects,
-        control_panel,
-        command_surface_telemetry,
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state,
         #[cfg(feature = "diagnostics")]
         runtime_focus_inspector,
+        runtime,
     } = args;
+    // Lane B' (2026-04-24): destructure runtime into individual `&mut` field
+    // bindings so the existing function body shape (~1100 lines) stays
+    // intact. The 7 individual refs + focus FocusAuthorityMut bundle that
+    // this function previously received as separate args are now sourced
+    // from the runtime ref. §12.16 (2026-04-24): `diagnostics_state` also
+    // sourced from runtime now (was a separate arg).
+    let crate::shell::desktop::ui::gui_state::GraphshellRuntime {
+        graph_app,
+        graph_tree,
+        viewer_surfaces,
+        viewer_surface_host,
+        webview_creation_backpressure,
+        control_panel,
+        command_surface_telemetry,
+        focused_node_hint,
+        graph_surface_focused,
+        focus_ring_node_key,
+        focus_ring_started_at,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
+        ..
+    } = runtime;
+    let viewer_surface_host = viewer_surface_host.as_mut();
+    let mut focus = crate::shell::desktop::ui::gui_state::FocusAuthorityMut {
+        focused_node_hint,
+        graph_surface_focused: *graph_surface_focused,
+        focus_ring_node_key,
+        focus_ring_started_at,
+    };
     #[cfg(feature = "diagnostics")]
     let render_pass_started = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -459,7 +462,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
     );
     for (_, key, rect) in active_tile_rects.iter() {
         let mapped = graph_app.get_webview_for_node(*key);
-        let has_context = viewer_surfaces.contains_gl_context(key);
+        let has_context = viewer_surfaces.has_surface(key);
         log::debug!(
             "tile_render_pass: active tile {:?} rect {:?} mapped_runtime_viewer={:?} has_context={}",
             key,
@@ -716,8 +719,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
     // `FocusRingSpec` so egui (here) and iced share the same
     // animation math. `project_view_model` uses the same path at
     // its population site. Both source fade duration from
-    // `chrome_ui.focus_ring_settings` so the user-chosen value
-    // wins over the legacy `runtime.focus_ring_duration` field.
+    // `chrome_ui.focus_ring_settings`.
     let focus_ring_settings = graph_app.workspace.chrome_ui.focus_ring_settings;
     let focus_ring_alpha = if focus_ring_settings.enabled {
         (*focus.focus_ring_node_key)
@@ -819,7 +821,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                         *pane_id,
                     );
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
-                let has_context = viewer_surfaces.contains_gl_context(node_key);
+                let has_context = viewer_surfaces.has_surface(node_key);
                 let paint_callback_registered = mapped_webview && has_context;
                 let render_path_hint =
                     crate::shell::desktop::workbench::tile_runtime::render_path_hint_for_mode(
@@ -1405,7 +1407,7 @@ pub(crate) fn run_tile_render_pass(
     args: TileRenderPassArgs<'_>,
 ) -> Vec<GraphIntent> {
     let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
-        args.graph_app.default_registry_theme_id(),
+        args.runtime.graph_app.default_registry_theme_id(),
     )
     .tokens
     .workbench_panel_background;

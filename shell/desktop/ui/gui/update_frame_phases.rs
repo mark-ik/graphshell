@@ -3,26 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
-use crate::shell::desktop::ui::gui_state::PendingWebviewContextSurfaceRequest;
 
 pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
-    pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) window: &'a EmbedderWindow,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
-    /// Read-only snapshot (only read: phase 2 never mutates it; the
-    /// production mutation path lives on
-    /// `crate::shell::desktop::ui::gui::focus_state::apply_canvas_region_focus_state`).
-    pub(super) graph_surface_focused: bool,
-    pub(super) graph_search: GraphSearchAuthorityMut<'a>,
-    pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
-    pub(super) toolbar_state: &'a mut ToolbarState,
-    pub(super) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -30,9 +16,14 @@ pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// individual `graph_app` / `graph_surface_focused` / `graph_search`
+    /// (bundle) / `focus_authority` / `toolbar_state` / `viewer_surfaces` /
+    /// `viewer_surface_host` / `webview_creation_backpressure` fields now
+    /// flows through this single ref. Phase function destructures
+    /// internally.
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
@@ -40,30 +31,9 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) root_ui: &'a mut egui::Ui,
     pub(super) winit_window: &'a Window,
     pub(super) state: &'a RunningAppState,
-    pub(super) graph_app: &'a mut GraphBrowserApp,
-    pub(super) control_panel: &'a mut ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     pub(super) window: &'a EmbedderWindow,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
-    pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
-    pub(super) focused_node_hint: Option<NodeKey>,
-    pub(super) graph_surface_focused: bool,
-    pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
-    pub(super) toolbar_state: &'a mut ToolbarState,
-    pub(super) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
-    pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
-    pub(super) omnibar_provider_suggestion_driver: &'a mut Option<
-        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
-    >,
-    pub(super) command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) toasts: &'a mut egui_notify::Toasts,
-    pub(super) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -71,100 +41,77 @@ pub(super) struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(super) graph_search: GraphSearchAuthorityMut<'a>,
     pub(super) graph_search_output: &'a mut graph_search_flow::GraphSearchFlowOutput,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// 15 individual field refs (graph_app / control_panel / graph_tree /
+    /// focus_authority / toolbar_state / clear_data_confirm_deadline_secs /
+    /// omnibar_search_session / omnibar_provider_suggestion_driver /
+    /// command_surface_telemetry / viewer_surfaces / viewer_surface_host /
+    /// webview_creation_backpressure plus the graph_search bundle and the
+    /// read-only `focused_node_hint` / `graph_surface_focused`) now flows
+    /// through this single ref. Phase function destructures internally.
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 pub(super) struct SemanticLifecyclePhaseArgs<'a> {
-    pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
-    pub(super) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
     pub(super) modal_surface_active: bool,
-    pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
     pub(super) window: &'a EmbedderWindow,
     pub(super) app_state: &'a Option<Rc<RunningAppState>>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(super) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(super) command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// `graph_app` / `graph_tree` / `focus_authority` / `viewer_surfaces` /
+    /// `viewer_surface_host` / `webview_creation_backpressure` /
+    /// `command_surface_telemetry` (7 individual refs) now flows through
+    /// this single ref. Phase function destructures internally.
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     pub(super) ctx: &'a egui::Context,
     pub(super) root_ui: &'a mut egui::Ui,
     pub(super) ui_render_backend: &'a mut UiRenderBackendHandle,
-    pub(super) graph_app: &'a mut GraphBrowserApp,
-    pub(super) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
     pub(super) window: &'a EmbedderWindow,
     pub(super) headed_window: &'a headed_window::HeadedWindow,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
-    pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
     pub(super) modal_surface_active: bool,
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
-    pub(super) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(super) app_state: &'a Option<Rc<RunningAppState>>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(super) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
-    /// Focus mutation bundle assembled by `execute_update_frame` after the
-    /// keyboard/toolbar phases have settled `graph_surface_focused`. The
-    /// downstream post-render / tile-render path mutates focus fields
-    /// through this handle; see
-    /// [`FocusAuthorityMut`](crate::shell::desktop::ui::gui_state::FocusAuthorityMut).
-    pub(super) focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
-    pub(super) pending_webview_context_surface_requests:
-        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
-    /// Graph-search mutation bundle. This phase only reads the search
-    /// query / matches / active-index / filter-mode for render; `open`
-    /// is carried along via the bundle but not consulted.
-    pub(super) graph_search: GraphSearchAuthorityMut<'a>,
-    /// Command-palette mutation bundle. Carries the `toggle_requested`
-    /// signal (read+cleared by pre-frame on the *next* frame; unread
-    /// here) and the `CommandPaletteSession` the palette widget reads
-    /// and writes during post-render.
-    pub(super) command_authority:
-        crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
     pub(super) toasts: &'a mut egui_notify::Toasts,
-    pub(super) registry_runtime: &'a RegistryRuntime,
-    pub(super) control_panel: &'a mut ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// `graph_app` / `bookmark_import_dialog` / `graph_tree` /
+    /// `viewer_surfaces` / `viewer_surface_host` /
+    /// `webview_creation_backpressure` / `focus_authority` / the `focus`
+    /// FocusAuthorityMut bundle / `pending_webview_context_surface_requests`
+    /// / the `graph_search` GraphSearchAuthorityMut bundle / the
+    /// `command_authority` CommandAuthorityMut bundle / `registry_runtime`
+    /// / `control_panel` / `command_surface_telemetry` (15 individual
+    /// refs plus 3 bundles wrapping 11 more fields) now flows through this
+    /// single ref. The phase function destructures internally and assembles
+    /// the bundles for the deeper sub-phases (post-render, semantic
+    /// lifecycle).
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 pub(super) struct PreFrameAndIntentInitArgs<'a> {
     pub(super) ctx: &'a egui::Context,
-    pub(super) graph_app: &'a mut GraphBrowserApp,
     pub(super) state: &'a RunningAppState,
     pub(super) window: &'a EmbedderWindow,
     pub(super) favicon_textures:
@@ -172,13 +119,26 @@ pub(super) struct PreFrameAndIntentInitArgs<'a> {
     /// Consolidated tx/rx pair for async thumbnail capture result
     /// delivery. See [`ThumbnailChannel`](crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailChannel).
     pub(super) thumbnail_channel: &'a super::super::thumbnail_pipeline::ThumbnailChannel,
-    pub(super) thumbnail_capture_in_flight:
-        &'a mut HashSet<graphshell_core::content::ViewerInstanceId>,
-    pub(super) command_authority:
-        crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
-    pub(super) control_panel: &'a mut ControlPanel,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// individual `graph_app` / `thumbnail_capture_in_flight` /
+    /// `command_authority` / `control_panel` fields now flows through
+    /// this single ref. Phase function destructures internally.
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
+/// Top-level frame-phase arguments.
+///
+/// Lane B' (2026-04-23): Runtime-owned state previously threaded through
+/// this struct as ~23 individual `&mut` field references — `graph_app`,
+/// `graph_tree`, `toolbar_state`, the `graph_search_*` quintet (via
+/// `GraphSearchAuthorityMut`), the focus quartet (`focused_node_hint`,
+/// `focus_ring_*`, `graph_surface_focused`, `focus_authority`), the
+/// command-palette pair (via `CommandAuthorityMut`), and so on — is now
+/// delivered as a single [`GraphshellRuntime`] reference. The destructure
+/// that previously decomposed runtime at `gui.rs:920` has moved inside
+/// `execute_update_frame` so individual bindings remain scoped to the
+/// phase-pipeline body that needs them. Only host-side / non-runtime
+/// state remains as individual fields.
 pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) ctx: &'a egui::Context,
     pub(super) root_ui: &'a mut egui::Ui,
@@ -187,58 +147,24 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     pub(super) state: &'a RunningAppState,
     pub(super) window: &'a EmbedderWindow,
     pub(super) headed_window: &'a headed_window::HeadedWindow,
-    pub(super) graph_app: &'a mut GraphBrowserApp,
-    pub(super) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
     pub(super) pending_webview_a11y_updates: &'a mut HashMap<WebViewId, accesskit::TreeUpdate>,
     pub(super) tiles_tree: &'a mut Tree<TileKind>,
-    pub(super) graph_tree: &'a mut graph_tree::GraphTree<crate::graph::NodeKey>,
     pub(super) toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
-    pub(super) toolbar_state: &'a mut ToolbarState,
-    pub(super) clear_data_confirm_deadline_secs: &'a mut Option<f64>,
     pub(super) toasts: &'a mut egui_notify::Toasts,
     pub(super) clipboard: &'a mut Option<Clipboard>,
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    pub(super) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(super) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(super) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(super) thumbnail_channel: &'a super::super::thumbnail_pipeline::ThumbnailChannel,
-    pub(super) thumbnail_capture_in_flight:
-        &'a mut HashSet<graphshell_core::content::ViewerInstanceId>,
-    pub(super) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub(super) app_state: &'a Option<Rc<RunningAppState>>,
-    pub(super) graph_search: GraphSearchAuthorityMut<'a>,
-    pub(super) focus_authority: &'a mut RuntimeFocusAuthorityState,
-    pub(super) focused_node_hint: &'a mut Option<NodeKey>,
-    /// Read-only snapshot; production mutation paths live on
-    /// `GraphshellRuntime` (see `apply_canvas_region_focus_state`).
-    pub(super) graph_surface_focused: bool,
-    pub(super) focus_ring_node_key: &'a mut Option<NodeKey>,
-    pub(super) focus_ring_started_at: &'a mut Option<graphshell_core::time::PortableInstant>,
-    /// Read-only; focus-ring animation length is owned by runtime state
-    /// and sourced from `chrome_ui.focus_ring_settings`. Never mutated
-    /// by any phase.
-    pub(super) focus_ring_duration: Duration,
-    pub(super) omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
-    pub(super) omnibar_provider_suggestion_driver: &'a mut Option<
-        crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
-    >,
-    pub(super) command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
-    pub(super) command_authority:
-        crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
-    pub(super) pending_webview_context_surface_requests:
-        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(super) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(super) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(super) registry_runtime: &'a RegistryRuntime,
-    pub(super) control_panel: &'a mut ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
+    /// Single mutable reference to the runtime. `execute_update_frame`
+    /// destructures this internally to obtain the per-field bindings each
+    /// phase needs. `diagnostics_state` (formerly a separate field, §12.16
+    /// 2026-04-24) now lives on the runtime; phases reach for it via
+    /// `runtime.diagnostics_state` directly.
+    pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

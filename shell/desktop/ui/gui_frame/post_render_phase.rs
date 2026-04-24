@@ -145,17 +145,9 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) root_ui: &'a mut egui::Ui,
     pub(crate) ui_render_backend: &'a mut UiRenderBackendHandle,
-    pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) bookmark_import_dialog: &'a mut Option<BookmarkImportDialogState>,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) headed_window: &'a HeadedWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) graph_tree: &'a mut graph_tree::GraphTree<NodeKey>,
-    pub(crate) viewer_surfaces:
-        &'a mut crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    pub(crate) viewer_surface_host: &'a mut dyn graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    >,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
@@ -168,29 +160,18 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(crate) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(crate) command_surface_telemetry:
-        &'a crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
-    /// Focus mutation bundle carried in from the frame pipeline. Replaces
-    /// the prior per-field `focused_node_hint` / `focus_ring_node_key` /
-    /// `focus_ring_started_at` / `focus_ring_duration` fields. See
-    /// [`FocusAuthorityMut`](crate::shell::desktop::ui::gui_state::FocusAuthorityMut).
-    pub(crate) focus: crate::shell::desktop::ui::gui_state::FocusAuthorityMut<'a>,
-    /// Command-palette mutation bundle. Replaces the pre-M4 pattern of
-    /// stashing palette state inside `egui::Context::data_mut(...)`
-    /// persistent storage; the widget now reads/writes the runtime-
-    /// owned `CommandPaletteSession` through this bundle.
-    pub(crate) command_authority:
-        crate::shell::desktop::ui::gui_state::CommandAuthorityMut<'a>,
-    pub(crate) pending_webview_context_surface_requests:
-        &'a mut Vec<PendingWebviewContextSurfaceRequest>,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
-    pub(crate) control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    pub(crate) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     #[cfg(feature = "diagnostics")]
     pub(crate) runtime_focus_inspector: Option<RuntimeFocusInspector>,
+    /// Lane B' (2026-04-23): runtime-owned state previously threaded as
+    /// 11 individual refs (graph_app / bookmark_import_dialog / graph_tree /
+    /// viewer_surfaces / viewer_surface_host / webview_creation_backpressure /
+    /// command_surface_telemetry / pending_webview_context_surface_requests /
+    /// control_panel) plus the focus and command_authority bundles
+    /// (wrapping 6 more fields) now flows through this single ref. Phase
+    /// function destructures internally and assembles the bundles for the
+    /// downstream tile-render pass.
+    pub(crate) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
 }
 
 pub(crate) fn run_post_render_phase<FActive>(
@@ -203,14 +184,9 @@ pub(crate) fn run_post_render_phase<FActive>(
         ctx,
         root_ui,
         ui_render_backend,
-        graph_app,
-        bookmark_import_dialog,
         window,
         headed_window,
         tiles_tree,
-        graph_tree,
-        viewer_surfaces,
-        viewer_surface_host,
         tile_favicon_textures,
         favicon_textures,
         toolbar_height,
@@ -222,62 +198,65 @@ pub(crate) fn run_post_render_phase<FActive>(
         rendering_context,
         window_rendering_context,
         responsive_webviews,
-        webview_creation_backpressure,
-        mut focus,
-        mut command_authority,
-        pending_webview_context_surface_requests,
         toasts,
-        control_panel,
-        command_surface_telemetry,
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state,
         #[cfg(feature = "diagnostics")]
         runtime_focus_inspector,
+        runtime,
     } = args;
+
+    // Lane B' (2026-04-24): runtime is no longer destructured up-front.
+    // Each runtime-field use is a `runtime.foo` / `&mut runtime.foo`
+    // split-borrow with scope limited to the using expression. This
+    // allows the closure-bound `TileRenderPassArgs` constructions (which
+    // now take `runtime: &mut *runtime`) to reborrow runtime cleanly
+    // since no long-lived destructured bindings hold conflicting borrows.
 
     #[cfg(debug_assertions)]
     {
         for violation in tile_invariants::collect_tile_invariant_violations(
             tiles_tree,
-            graph_app,
-            viewer_surfaces,
+            &mut runtime.graph_app,
+            &mut runtime.viewer_surfaces,
         ) {
             warn!("{violation}");
         }
     }
 
-    let preview_mode_active = history_preview_mode_active(graph_app);
+    let preview_mode_active = history_preview_mode_active(&mut runtime.graph_app);
 
     let mut bookmark_import_requested = false;
-    while graph_app.take_pending_import_bookmarks_from_file() {
+    while runtime.graph_app.take_pending_import_bookmarks_from_file() {
         bookmark_import_requested = true;
     }
-    if bookmark_import_requested && bookmark_import_dialog.is_none() {
-        *bookmark_import_dialog = Some(BookmarkImportDialogState::new());
+    if bookmark_import_requested && runtime.bookmark_import_dialog.is_none() {
+        runtime.bookmark_import_dialog = Some(BookmarkImportDialogState::new());
     }
 
-    match bookmark_import_dialog
+    let dialog_event = runtime
+        .bookmark_import_dialog
         .as_mut()
-        .map(|dialog| dialog.update(ctx))
-    {
+        .map(|dialog| dialog.update(ctx));
+    match dialog_event {
         Some(BookmarkImportDialogEvent::Continue) | None => {}
         Some(BookmarkImportDialogEvent::Cancelled) => {
-            *bookmark_import_dialog = None;
+            runtime.bookmark_import_dialog = None;
         }
         Some(BookmarkImportDialogEvent::Picked(path)) => {
-            *bookmark_import_dialog = None;
-            import_bookmarks_from_path(graph_app, toasts, &path);
+            runtime.bookmark_import_dialog = None;
+            import_bookmarks_from_path(&mut runtime.graph_app, toasts, &path);
         }
     }
 
     *toolbar_height = Length::new(ctx.content_rect().min.y);
     if !preview_mode_active {
-        graph_app.check_periodic_snapshot();
+        runtime.graph_app.check_periodic_snapshot();
     }
 
-    for PendingWebviewContextSurfaceRequest { webview_id, anchor } in
-        pending_webview_context_surface_requests.drain(..)
-    {
+    let pending_requests: Vec<PendingWebviewContextSurfaceRequest> = runtime
+        .pending_webview_context_surface_requests
+        .drain(..)
+        .collect();
+    for PendingWebviewContextSurfaceRequest { webview_id, anchor } in pending_requests {
         let Some(servo_webview_id) =
             crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_viewer_instance(
                 &webview_id,
@@ -291,11 +270,14 @@ pub(crate) fn run_post_render_phase<FActive>(
             continue;
         };
         let _ = open_preferred_context_command_surface_for_webview_target(
-            ctx, graph_app, servo_webview_id, anchor,
+            ctx,
+            &mut runtime.graph_app,
+            servo_webview_id,
+            anchor,
         );
     }
 
-    let focused_dialog_webview = if focus.graph_surface_focused() {
+    let focused_dialog_webview = if runtime.graph_surface_focused {
         None
     } else {
         window.explicit_dialog_webview_id()
@@ -330,7 +312,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     let active_search_match =
         active_graph_search_match(graph_search_matches, graph_search_active_match_index);
     let layer_state =
-        WorkbenchChromeProjection::from_tree(graph_app, tiles_tree, window.focused_pane())
+        WorkbenchChromeProjection::from_tree(&mut runtime.graph_app, tiles_tree, window.focused_pane())
             .layer_state;
 
     if matches!(
@@ -339,11 +321,10 @@ pub(crate) fn run_post_render_phase<FActive>(
     ) {
         let available_rect = ctx.content_rect();
         let panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
-            graph_app.default_registry_theme_id(),
+            runtime.graph_app.default_registry_theme_id(),
         )
         .tokens
         .workbench_panel_background;
-        let focus_arg = focus.reborrow();
         egui::Panel::right("workbench_area")
             .resizable(true)
             .default_size(workbench_area_default_width(available_rect))
@@ -356,12 +337,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                     TileRenderPassArgs {
                         ctx,
                         ui_render_backend,
-                        graph_app,
                         window,
                         tiles_tree,
-                        graph_tree,
-                        viewer_surfaces,
-                        viewer_surface_host,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -371,27 +348,21 @@ pub(crate) fn run_post_render_phase<FActive>(
                         rendering_context,
                         window_rendering_context,
                         responsive_webviews,
-                        webview_creation_backpressure,
-                        focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
-                        control_panel,
-                        command_surface_telemetry,
-                        #[cfg(feature = "diagnostics")]
-                        diagnostics_state,
                         #[cfg(feature = "diagnostics")]
                         runtime_focus_inspector: runtime_focus_inspector.clone(),
+                        runtime: &mut *runtime,
                     },
                 ));
             });
     }
 
     let central_panel_bg = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
-        graph_app.default_registry_theme_id(),
+        runtime.graph_app.default_registry_theme_id(),
     )
     .tokens
     .workbench_panel_background;
-    let graph_surface_focused = focus.graph_surface_focused();
-    let focus_arg = focus.reborrow();
+    let graph_surface_focused = runtime.graph_surface_focused;
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(central_panel_bg))
         .show_inside(root_ui, |ui| {
@@ -401,12 +372,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                     TileRenderPassArgs {
                         ctx,
                         ui_render_backend,
-                        graph_app,
                         window,
                         tiles_tree,
-                        graph_tree,
-                        viewer_surfaces,
-                        viewer_surface_host,
                         tile_favicon_textures,
                         graph_search_matches: &search_matches,
                         active_search_match,
@@ -416,23 +383,18 @@ pub(crate) fn run_post_render_phase<FActive>(
                         rendering_context,
                         window_rendering_context,
                         responsive_webviews,
-                        webview_creation_backpressure,
-                        focus: focus_arg,
                         suppress_runtime_side_effects: preview_mode_active,
-                        control_panel,
-                        command_surface_telemetry,
-                        #[cfg(feature = "diagnostics")]
-                        diagnostics_state,
                         #[cfg(feature = "diagnostics")]
                         runtime_focus_inspector: runtime_focus_inspector.clone(),
+                        runtime: &mut *runtime,
                     },
                 ));
             } else {
                 post_render_intents.extend(tile_render_pass::render_primary_graph_in_ui(
                     ui,
-                    graph_app,
+                    &mut runtime.graph_app,
                     tiles_tree,
-                    graph_tree,
+                    &mut runtime.graph_tree,
                     &search_matches,
                     active_search_match,
                     graph_search_filter_mode,
@@ -481,7 +443,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         .interact_pointer_pos()
                         .is_some_and(|pos| !overlay_rect.contains(pos));
                 if clicked_outside_overlay {
-                    graph_app.enqueue_workbench_intent(
+                    runtime.graph_app.enqueue_workbench_intent(
                         crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible { visible: false },
                     );
                 }
@@ -566,7 +528,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui.small_button("Close overlay").clicked() {
-                                        graph_app.enqueue_workbench_intent(
+                                        runtime.graph_app.enqueue_workbench_intent(
                                             crate::app::WorkbenchIntent::SetWorkbenchOverlayVisible {
                                                 visible: false,
                                             },
@@ -584,12 +546,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                             TileRenderPassArgs {
                                 ctx,
                                 ui_render_backend,
-                                graph_app,
                                 window,
                                 tiles_tree,
-                                graph_tree,
-                                viewer_surfaces,
-                                viewer_surface_host,
                                 tile_favicon_textures,
                                 graph_search_matches: &search_matches,
                                 active_search_match,
@@ -599,15 +557,10 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 rendering_context,
                                 window_rendering_context,
                                 responsive_webviews,
-                                webview_creation_backpressure,
-                                focus: focus.reborrow(),
                                 suppress_runtime_side_effects: preview_mode_active,
-                                control_panel,
-                                command_surface_telemetry,
-                                #[cfg(feature = "diagnostics")]
-                                diagnostics_state,
                                 #[cfg(feature = "diagnostics")]
                                 runtime_focus_inspector: runtime_focus_inspector.clone(),
+                                runtime: &mut *runtime,
                             },
                         ));
                     });
@@ -642,13 +595,18 @@ pub(crate) fn run_post_render_phase<FActive>(
         });
     }
 
-    apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
+    apply_intents_if_any(&mut runtime.graph_app, tiles_tree, &mut post_render_intents);
 
-    render::render_help_panel(ctx, graph_app);
-    render::render_scene_overlay_panel(ctx, graph_app);
-    render::render_settings_overlay_panel(ctx, graph_app, Some(control_panel));
-    render::render_clip_inspector_panel(ctx, graph_app);
-    if let Some(webview_id) = graph_app
+    render::render_help_panel(ctx, &mut runtime.graph_app);
+    render::render_scene_overlay_panel(ctx, &mut runtime.graph_app);
+    render::render_settings_overlay_panel(
+        ctx,
+        &mut runtime.graph_app,
+        Some(&mut runtime.control_panel),
+    );
+    render::render_clip_inspector_panel(ctx, &mut runtime.graph_app);
+    if let Some(webview_id) = runtime
+        .graph_app
         .workspace
         .graph_runtime
         .pending_clip_inspector_highlight_clear
@@ -656,24 +614,28 @@ pub(crate) fn run_post_render_phase<FActive>(
     {
         headed_window.sync_clip_inspector_highlight(window, webview_id, None);
     }
-    if let Some(state) = graph_app
+    let dirty_state = runtime
+        .graph_app
         .workspace
         .graph_runtime
         .clip_inspector_state
         .as_ref()
-        && state.highlight_dirty
-    {
-        headed_window.sync_clip_inspector_highlight(
-            window,
-            state.webview_id,
-            state
-                .pointer_stack
-                .get(state.pointer_stack_index)
-                .and_then(|capture| capture.dom_path.as_deref()),
-        );
-        graph_app.clear_clip_inspector_highlight_dirty();
+        .filter(|state| state.highlight_dirty)
+        .map(|state| {
+            (
+                state.webview_id,
+                state
+                    .pointer_stack
+                    .get(state.pointer_stack_index)
+                    .and_then(|capture| capture.dom_path.clone()),
+            )
+        });
+    if let Some((webview_id, dom_path)) = dirty_state {
+        headed_window.sync_clip_inspector_highlight(window, webview_id, dom_path.as_deref());
+        runtime.graph_app.clear_clip_inspector_highlight_dirty();
     }
-    let active_pane_first = graph_app
+    let active_pane_first = runtime
+        .graph_app
         .workspace
         .graph_runtime
         .active_pane_rects
@@ -681,10 +643,10 @@ pub(crate) fn run_post_render_phase<FActive>(
         .map(|(pane_id, node_key, _)| (*pane_id, *node_key));
     let active_node_pane_key = active_pane_first.map(|(_, nk)| nk);
     let active_node_pane_id = active_pane_first.map(|(pid, _)| pid);
-    let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
+    let focused_pane_node = nav_targeting::chrome_projection_node(&mut runtime.graph_app, window)
         .or_else(|| {
             focused_dialog_webview.and_then(|webview_id| {
-                graph_app.get_node_for_webview(
+                runtime.graph_app.get_node_for_webview(
                     crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
                         webview_id,
                     ),
@@ -692,41 +654,54 @@ pub(crate) fn run_post_render_phase<FActive>(
             })
         })
         .or(active_node_pane_key);
+    let hovered_graph_node = runtime.graph_app.workspace.graph_runtime.hovered_graph_node;
+    let mut command_authority = crate::shell::desktop::ui::gui_state::CommandAuthorityMut {
+        toggle_requested: &mut runtime.command_palette_toggle_requested,
+        session: &mut runtime.command_palette_session,
+    };
     render::render_command_palette_panel(
         ctx,
-        graph_app,
+        &mut runtime.graph_app,
         command_authority.reborrow(),
-        graph_app.workspace.graph_runtime.hovered_graph_node,
+        hovered_graph_node,
         focused_pane_node,
         active_node_pane_id,
     );
+    drop(command_authority);
     render::render_radial_command_menu(
         ctx,
-        graph_app,
-        graph_app.workspace.graph_runtime.hovered_graph_node,
+        &mut runtime.graph_app,
+        hovered_graph_node,
         focused_pane_node,
         active_node_pane_id,
     );
+    let graph_surface_focused_for_panel = runtime.graph_surface_focused;
+    let focused_node_hint_value = runtime.focused_node_hint;
     crate::shell::desktop::ui::tag_panel::render_tag_panel(
         ctx,
-        graph_app,
+        &mut runtime.graph_app,
         tiles_tree,
-        focus.graph_surface_focused(),
-        focus.hint(),
+        graph_surface_focused_for_panel,
+        focused_node_hint_value,
     );
     crate::shell::desktop::ui::overview_plane::render_overview_plane(
         ctx,
-        graph_app,
+        &mut runtime.graph_app,
         tiles_tree,
         window.focused_pane(),
     );
-    if !preview_mode_active && let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
+    let pending_switch = if preview_mode_active {
+        None
+    } else {
+        runtime.graph_app.take_pending_switch_data_dir()
+    };
+    if let Some(target_dir) = pending_switch {
         match persistence_ops::switch_persistence_store(
-            graph_app,
+            &mut runtime.graph_app,
             window,
             tiles_tree,
-            viewer_surfaces,
-            viewer_surface_host,
+            &mut runtime.viewer_surfaces,
+            runtime.viewer_surface_host.as_mut(),
             tile_favicon_textures,
             favicon_textures,
             &mut post_render_intents,
@@ -739,29 +714,29 @@ pub(crate) fn run_post_render_phase<FActive>(
             Err(e) => toasts.error(format!("Failed to switch data directory: {e}")),
         };
     }
-    apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
+    apply_intents_if_any(&mut runtime.graph_app, tiles_tree, &mut post_render_intents);
 
-    let open_settings_tool_pane = render::render_choose_frame_picker(ctx, graph_app)
-        || render::render_unsaved_frame_prompt(ctx, graph_app);
+    let open_settings_tool_pane = render::render_choose_frame_picker(ctx, &mut runtime.graph_app)
+        || render::render_unsaved_frame_prompt(ctx, &mut runtime.graph_app);
     if open_settings_tool_pane {
         tile_view_ops::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
     }
 
     if !preview_mode_active {
         pending_actions::run_post_render_pending_actions(
-            graph_app,
+            &mut runtime.graph_app,
             window,
             tiles_tree,
-            viewer_surfaces,
-            viewer_surface_host,
+            &mut runtime.viewer_surfaces,
+            runtime.viewer_surface_host.as_mut(),
             tile_favicon_textures,
-            webview_creation_backpressure,
-            focus.focused_node_hint,
+            &mut runtime.webview_creation_backpressure,
+            &mut runtime.focused_node_hint,
         );
     }
 
-    while let Some((key, url)) = graph_app.take_pending_protocol_probe() {
-        control_panel.handle_protocol_probe_request(key, url);
+    while let Some((key, url)) = runtime.graph_app.take_pending_protocol_probe() {
+        runtime.control_panel.handle_protocol_probe_request(key, url);
     }
 }
 
