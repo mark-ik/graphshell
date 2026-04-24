@@ -7942,7 +7942,7 @@ mod tests {
 
         let arrangement_memberships =
             HashMap::from([(arranged_key, vec!["Frame: alpha".to_string()])]);
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent_key,
             vec![
                 "https://example.com/source".to_string(),
@@ -7951,7 +7951,7 @@ mod tests {
             ],
             2,
         ));
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             arranged_key,
             vec![
                 "https://example.com/source".to_string(),
@@ -7982,7 +7982,7 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
 
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent_key,
             vec![
                 "https://example.com/a".to_string(),
@@ -7990,7 +7990,7 @@ mod tests {
             ],
             1,
         ));
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent_key,
             vec![
                 "https://example.com/a".to_string(),
@@ -7998,7 +7998,7 @@ mod tests {
             ],
             0,
         ));
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent_key,
             vec![
                 "https://example.com/a".to_string(),

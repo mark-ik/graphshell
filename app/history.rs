@@ -132,6 +132,37 @@ impl super::GraphBrowserApp {
         }
     }
 
+    /// Sanctioned single entry point for durable writes to a node's persisted
+    /// navigation history.
+    ///
+    /// All durable history writes MUST go through this helper. The underlying
+    /// `Graph` setter is `pub(crate)` inside `graphshell-core`, so the only
+    /// reachable write surface from outside the kernel is the typed
+    /// `GraphDelta::UpdateNodeHistory` variant this helper dispatches.
+    ///
+    /// Callers are responsible for any traversal-edge bookkeeping that needs
+    /// to happen before the write — this helper owns the typed delta dispatch
+    /// and the runtime-projection refresh that pairs with it.
+    ///
+    /// Returns `true` if the durable history state actually changed.
+    pub(crate) fn apply_node_history_change(
+        &mut self,
+        key: super::NodeKey,
+        entries: Vec<String>,
+        current_index: usize,
+    ) -> bool {
+        let result = self.apply_graph_delta_and_sync(super::GraphDelta::UpdateNodeHistory {
+            key,
+            entries,
+            current_index,
+        });
+        let changed = matches!(result, super::GraphDeltaResult::NodeMetadataUpdated(true));
+        if changed {
+            self.refresh_semantic_navigation_runtime_for_node(key);
+        }
+        changed
+    }
+
     pub(crate) fn rebuild_semantic_navigation_runtime(&mut self) {
         self.workspace
             .graph_runtime
@@ -692,3 +723,7 @@ impl super::GraphBrowserApp {
         self.take_pending_history_workspace_layout_json()
     }
 }
+
+// Cross-cutting sanctioned-writes contract tests (history, arrangement, host
+// adapters) live in `app/sanctioned_writes_tests.rs`, declared from
+// `graph_app.rs` so they share one module path.

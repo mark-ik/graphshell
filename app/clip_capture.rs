@@ -284,22 +284,21 @@ impl GraphBrowserApp {
             })
             .unwrap_or_default();
 
-        let graph = &mut self.workspace.domain.graph;
-        let _ = graph.set_node_title(clip_key, clip_title);
-        let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
-        let _ =
-            graph.set_node_form_draft(clip_key, Some(serialize_clip_content_facet(&clip_facet)));
-        let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
-        let history_changed =
-            graph.set_node_history_state(clip_key, vec![capture.source_url.clone()], 0);
-        for inherited in &inherited_classifications {
-            graph.add_node_classification(clip_key, inherited.clone());
+        {
+            let graph = &mut self.workspace.domain.graph;
+            let _ = graph.set_node_title(clip_key, clip_title);
+            let _ = graph.insert_node_tag(clip_key, Self::TAG_CLIP.to_string());
+            let _ = graph
+                .set_node_form_draft(clip_key, Some(serialize_clip_content_facet(&clip_facet)));
+            let _ = graph.set_node_mime_hint(clip_key, Some("text/html".to_string()));
+            for inherited in &inherited_classifications {
+                graph.add_node_classification(clip_key, inherited.clone());
+            }
         }
+        let _ =
+            self.apply_node_history_change(clip_key, vec![capture.source_url.clone()], 0);
 
         self.workspace.graph_runtime.semantic_index_dirty = true;
-        if history_changed {
-            self.refresh_semantic_navigation_runtime_for_node(clip_key);
-        }
 
         // Journal inherited classifications to WAL
         if let Some(store) = &mut self.services.persistence {
@@ -563,10 +562,10 @@ mod tests {
         serialize_clip_content_facet, user_visible_node_title_from_data,
         user_visible_node_url_from_data,
     };
-    use crate::app::GraphBrowserApp;
+    use crate::app::{GraphBrowserApp, RendererId};
 
     fn test_webview_id() -> RendererId {
-        super::renderer_id::test_renderer_id()
+        crate::app::renderer_id::test_renderer_id()
     }
 
     #[test]

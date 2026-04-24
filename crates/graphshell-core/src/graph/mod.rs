@@ -2528,7 +2528,11 @@ impl Graph {
         true
     }
 
-    pub fn set_node_history_state(
+    /// Internal setter for `Node::history`. Tightened to `pub(crate)` so the
+    /// only reachable write surface from outside `graphshell-core` is
+    /// `GraphDelta::UpdateNodeHistory`, dispatched via the
+    /// `app::history::GraphBrowserApp::apply_node_history_change` helper.
+    pub(crate) fn set_node_history_state(
         &mut self,
         key: NodeKey,
         history_entries: Vec<String>,

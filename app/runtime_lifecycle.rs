@@ -177,14 +177,7 @@ impl GraphBrowserApp {
             &entries,
             new_index,
         );
-        let changed = self
-            .workspace
-            .domain
-            .graph
-            .set_node_history_state(node_key, entries, new_index);
-        if changed {
-            self.refresh_semantic_navigation_runtime_for_node(node_key);
-        }
+        let _ = self.apply_node_history_change(node_key, entries, new_index);
     }
 
     pub(crate) fn handle_webview_scroll_changed(
@@ -746,7 +739,7 @@ mod tests {
     use super::*;
 
     fn test_webview_id() -> RendererId {
-        super::renderer_id::test_renderer_id()
+        crate::app::renderer_id::test_renderer_id()
     }
 
     #[test]

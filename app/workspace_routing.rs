@@ -1598,7 +1598,7 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent,
             vec![
                 "https://source.example".to_string(),
@@ -1695,7 +1695,7 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent,
             vec![
                 "https://source.example".to_string(),
@@ -1774,7 +1774,7 @@ mod tests {
                 sub_kind: ArrangementSubKind::FrameMember,
             },
         );
-        assert!(app.workspace.domain.graph.set_node_history_state(
+        assert!(app.apply_node_history_change(
             recent,
             vec![
                 "https://source.example".to_string(),

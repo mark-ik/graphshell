@@ -127,6 +127,17 @@ pub enum GraphDelta {
         key: NodeKey,
         suppressed: bool,
     },
+    /// Replace a node's persisted navigation history (entries + current
+    /// index). The clamping rule is: `current_index` is treated as `0` when
+    /// `entries` is empty, otherwise it is clamped to `entries.len() - 1`.
+    /// Sole sanctioned write surface for `Node::history`; the underlying
+    /// `Graph` setter is `pub(crate)` so this delta is the only way to
+    /// mutate the field from outside `graphshell-core`.
+    UpdateNodeHistory {
+        key: NodeKey,
+        entries: Vec<String>,
+        current_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,5 +283,12 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
                 graph.set_frame_split_offer_suppressed(key, suppressed),
             )
         }
+        GraphDelta::UpdateNodeHistory {
+            key,
+            entries,
+            current_index,
+        } => GraphDeltaResult::NodeMetadataUpdated(
+            graph.set_node_history_state(key, entries, current_index),
+        ),
     }
 }
