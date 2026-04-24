@@ -1594,14 +1594,27 @@ host-owned mutation helpers.
 - `partial` Runtime code still uses higher-level app helpers like
   `add_node_and_sync`, `assert_relation_and_sync`, especially in
   `app/runtime_lifecycle.rs`
-- `missing` No hard compile-boundary or contract test; enforcement is social
+- `done` (2026-04-24) Compile-time + grep-time enforcement landed for the
+  kernel-level apply seam: contract test
+  `no_unsanctioned_apply_graph_delta_kernel_calls` in
+  `app/sanctioned_writes_tests.rs` walks the repo and fails on any direct
+  call to the kernel `apply_graph_delta(graph, delta)` outside a 5-file
+  allowlist (kernel definition + kernel-internal test fixtures + WAL
+  replay path). Production durable mutations must route through
+  `apply_graph_delta_and_sync` (which composes the kernel call with
+  `post_apply_sync`); direct kernel calls bypass the sync. Complements
+  the §12.17 host-adapter guards (those forbid the sync wrapper from
+  hosts; this one forbids the un-synced kernel call from non-replay
+  paths). A new file in the allowlist is a deliberate review signal.
 
 **Targets**:
 
 - Shrink direct app helper surface so durable writes enter through one obvious
-  sanctioned path
-- Add contract tests forbidding non-reducer direct graph mutation APIs
-- Prove live-vs-replay parity for the full durable mutation set
+  sanctioned path (e.g., consolidate `add_node_and_sync`,
+  `assert_relation_and_sync` callers in `runtime_lifecycle.rs` onto the
+  typed delta path).
+- Prove live-vs-replay parity for the full durable mutation set (uses the
+  §12.12 replay-trace harness once the kernel mutation set is stable).
 
 ### 12.3. Persisted Node Navigation Memory
 
@@ -1670,35 +1683,45 @@ canonical mutation lane with both compile-time and grep-time enforcement.
 
 ### 12.4. Runtime Lifecycle Hooks
 
-**Status update (2026-04-24)**: First two webview lifecycle handlers
-(URL change + history change) split into typed plan + apply pattern.
+**Status update (2026-04-24, second pass)**: All six webview lifecycle
+handlers now split into the typed plan + apply pattern. The
+ingest-from-host surface is now a thin composition over
+`plan_*` (`&self`, read-only) + `apply_*_plan` (`&mut self`, mutation)
+across the entire lifecycle entry surface.
 
 - `done` Title updates already use `GraphDelta`: `runtime_lifecycle.rs:220`
 - `done` URL change handling split (2026-04-24): typed
   `WebviewUrlChangePlan` produced by `plan_webview_url_change(&self,
   ...)` (read-only state-query pass) consumed by
   `apply_webview_url_change_plan(&mut self, plan)` (mutation pass).
-  `handle_webview_url_changed(&mut self, ...)` is now a thin
-  composition of plan + apply. Replay paths can construct + execute
-  plans directly without going through the host event surface; tests
-  can assert plan shape without mutating state.
-- `done` History change handling already routes through the typed
-  `apply_node_history_change` helper (per §12.3 closure). Now also
-  split into typed `WebviewHistoryChangePlan` produced by
-  `plan_webview_history_change(&self, ...)` and consumed by
-  `apply_webview_history_change_plan(&mut self, plan)`. The plan
+- `done` History change handling: typed `WebviewHistoryChangePlan`
+  produced by `plan_webview_history_change(&self, ...)` and consumed
+  by `apply_webview_history_change_plan(&mut self, plan)`. The plan
   carries the full diff (`old_entries`, `old_index`, `new_entries`,
   `new_index`) so traversal-edge bookkeeping happens inside apply.
-- `partial` Other webview lifecycle handlers (`handle_webview_created`,
-  `handle_webview_scroll_changed`, `handle_webview_title_changed`,
-  `handle_webview_crashed`) still combine ingest + apply inline.
-  Pattern is established; subsequent slices apply the same
-  `plan_*` / `apply_*_plan` shape.
+- `done` (2026-04-24, second pass) Remaining four lifecycle handlers
+  split:
+  - `WebviewScrollChangePlan` — `plan_webview_scroll_change(&self,
+    webview_id, scroll_x, scroll_y)` returns `Option<…>` (None when
+    webview unmapped) consumed by `apply_webview_scroll_change_plan`.
+  - `WebviewTitleChangePlan` — `plan_webview_title_change(&self,
+    webview_id, title)` returns `Option<…>` (None when unmapped or
+    title empty/missing) consumed by `apply_webview_title_change_plan`,
+    which routes through `apply_graph_delta_and_sync(SetNodeTitle)`
+    and logs the title mutation if changed.
+  - `WebviewCreatedPlan` — `plan_webview_created(&self,
+    parent_webview_id, child_webview_id, initial_url)` (read-only,
+    deliberately NOT bumping the placeholder counter; `node_url:
+    Option<String>` carries `None` to signal "use placeholder" so the
+    plan stays side-effect-free) consumed by
+    `apply_webview_created_plan`.
+  - `WebviewCrashedPlan` — `plan_webview_crashed(&self, webview_id,
+    reason, has_backtrace)` captures the node-mapping lookup so apply
+    can branch between crash-block + demote (mapped) and bare unmap
+    (unmapped) without re-querying state.
 
 **Targets remaining**:
 
-- Apply the plan/apply split to the remaining 4 webview lifecycle
-  handlers (created, scroll_changed, title_changed, crashed).
 - Add an explicit "effects" pass for handlers whose apply ends with
   refresh calls (e.g.,
   `refresh_semantic_navigation_runtime_for_node`) — currently the
@@ -1707,7 +1730,9 @@ canonical mutation lane with both compile-time and grep-time enforcement.
   caller dispatches.
 - Build replay-test infrastructure that executes
   `apply_*_plan` directly from constructed plans, validating
-  state-transition determinism without host events.
+  state-transition determinism without host events. Now tractable
+  across the full lifecycle surface since every handler exposes
+  the typed plan.
 
 ### 12.5. Graph Mutation / Sync Paths
 
@@ -1760,17 +1785,27 @@ explicit step.
 - `partial` Egui consumption of `runtime.tick(...)` outputs has its first
   consumer (2026-04-24): `EguiHost.cached_view_model:
   Option<FrameViewModel>` field caches the post-tick view-model each
-  frame; `EguiHost::graph_surface_focused()` getter reads from
-  `cached_view_model.focus.graph_surface_focused` (with pre-first-frame
-  fallback to runtime). Establishes the consume pattern for subsequent
-  getter migrations.
+  frame. Migrated getters now reading from the cache (with
+  pre-first-frame fallbacks):
+  - `EguiHost::graph_surface_focused()` →
+    `cached_view_model.focus.graph_surface_focused` (first migration,
+    establishes the pattern).
+  - `EguiHost::is_graph_view()` (2026-04-24, second pass) →
+    `cached_view_model.is_graph_view`. Required adding `is_graph_view:
+    bool` to `FrameViewModel` (populated in
+    `gui_state.rs::project_view_model` from
+    `graph_app.workspace.graph_runtime.active_pane_rects.first().is_none()`,
+    inlined here because `pane_queries` is a private gui submodule).
 
 **Targets remaining**:
 
 - Migrate additional `EguiHost` getters onto `cached_view_model` —
   `focused_node_key`, `runtime_focus_state`, dialog-state queries
   (which all currently delegate to either runtime/shell state or
-  `interaction_queries`).
+  `interaction_queries`). Some need new view-model fields (e.g.,
+  `runtime_focus_state` is a complex composition); others can read
+  existing ones (`focused_node_key` semantics differ from
+  `vm.focus.focused_node` and need reconciliation).
 - Migrate chrome render sites that currently read `runtime.foo` /
   `graph_app.workspace.chrome_ui.foo` directly. Candidates: focus-ring
   alpha computation in `tile_render_pass.rs:723-745` (already in
@@ -2006,18 +2041,33 @@ matrix as a seam.
 
 - `done` Backend selection exists with `gl_backend.rs` and `wgpu_backend.rs`
   variants
-- `partial` Backend abstraction is still egui-shaped; iced expects to plug into
-  the same wgpu device/queue but the boundary isn't typed for that yet
-- `missing` No clear contract for what each backend must provide vs. what
-  hosts implement themselves
+- `done` (2026-04-24) Backend abstraction split into a host-neutral
+  base trait and an egui-specific extension trait:
+    - `HostNeutralRenderBackend` — wgpu / texture / surface ops
+      (`register_texture_token`, `shared_wgpu_device_queue`,
+      `upsert_native_texture`, `free_native_texture`, `submit_frame`,
+      `destroy_surface`). Iced impls just this.
+    - `UiRenderBackendContract: HostNeutralRenderBackend` — the
+      egui-specific extension (`init_surface_accesskit`,
+      `egui_context*`, `egui_winit_state_mut`,
+      `handle_window_event`, `run_ui_frame`).
+  `UiRenderBackendHandle` impls both traits. The wgpu shared-device +
+  native-texture seam introduced for the M4.5 §12.10 viewer-surface
+  path is now reachable from iced without dragging egui types across
+  the boundary.
+- `partial` Iced backend doesn't yet exist; `HostNeutralRenderBackend`
+  defines its target shape but no concrete impl has landed.
+- `partial` GL backend retention policy is documented in code comments
+  but not in a dedicated design doc.
 
-**Targets**:
+**Targets remaining**:
 
-- Type the render-backend contract so iced and egui can share the same
-  underlying wgpu surface where the OS allows
-- Document GL backend retention policy alongside the M4.5 viewer-surface
-  decisions
+- Implement `HostNeutralRenderBackend` for an iced-host backend type
+  (gates real iced wgpu integration; depends on iced-host bring-up).
+- Document GL backend retention policy in a dedicated design doc
+  alongside the M4.5 viewer-surface decisions.
 - Coordinate with the Servo wgpuification companion plan
+  (`servo-wgpu/docs/2026-04-18_servo_wgpuification_plan.md`).
 
 ### 12.14. Settings / Configurability Host-Neutrality
 
@@ -2041,6 +2091,18 @@ tracked.
   populated each frame by `gui_state.rs::project_view_model` from
   `chrome_ui.focus_ring_settings`. Iced consumes the same projection
   for free once it renders the FrameViewModel.
+- `done` (2026-04-24, second pass) `SettingsViewModel` extended to
+  mirror `ThumbnailSettings` via four new POD types in
+  graphshell-core's `frame_model.rs`:
+  - `ThumbnailSettingsView { enabled, width, height, filter, format,
+    jpeg_quality, aspect }` — direct field-for-field mirror.
+  - `ThumbnailFilterView` (Nearest, Triangle, CatmullRom, Gaussian,
+    Lanczos3), `ThumbnailFormatView` (Png, Jpeg, WebP), and
+    `ThumbnailAspectView` (Fixed, MatchSource, Square) POD enums
+    mirror their `app::*` counterparts. Conversion happens at the
+    projection site in `gui_state.rs::project_view_model`. Same
+    POD-mirror pattern as `FocusRingSettingsView` →
+    `app::FocusRingSettings`.
 - `partial` Settings panels still mutate `chrome_ui.foo_settings`
   directly — settings UI is a mutation surface that needs its own
   port-shaped design (read-only view-model is the natural part to
@@ -2051,15 +2113,15 @@ tracked.
 
 **Targets remaining**:
 
-- Extend `SettingsViewModel` to mirror `ThumbnailSettings` and
-  future settings groups (same POD-mirror pattern).
 - Migrate egui settings panels to render from
   `view_model.settings.*` instead of `chrome_ui.*_settings` direct
   reads. Mutation flows back through existing `app::set_*_settings`
   setters.
 - Add parity coverage for settings mutations (depends on §12.12
   replay infrastructure).
-- Audit older settings surfaces for setter-side clamping consistency
+- Audit older settings surfaces for setter-side clamping consistency.
+- Mirror remaining `chrome_ui.*` settings groups onto
+  `SettingsViewModel` as they're identified (same POD pattern).
 
 ### 12.15. Accessibility Above Framework Layer (Sidequest D)
 
@@ -2070,15 +2132,32 @@ boundary as a deliberate non-host seam. Currently `missing` in practice.
 - `done` Accessibility bridge exists: `shell/desktop/ui/gui/accessibility.rs`,
   `accessibility_bridge_tests.rs`
 - `partial` AccessKit integration goes through framework-specific paths
-- `missing` No host-neutral AT projection — egui and iced will each need to
-  re-implement accessibility against AccessKit if this isn't lifted first
-- `missing` No parity test for AT semantics across hosts
+- `done` (2026-04-24) Host-neutral AT projection seam landed:
+  `AccessibilityViewModel { focused_node: Option<NodeKey>,
+  snapshot_version: u32, snapshot_published: bool }` POD type in
+  graphshell-core's `frame_model.rs`. Lives on
+  `FrameViewModel.accessibility`; populated each frame by
+  `gui_state.rs::project_view_model` from the focused-node hint plus
+  `ux_tree::latest_snapshot()`. Hosts use the version + published
+  flag to decide whether to refresh their AccessKit-side AT tree;
+  the full UxTreeSnapshot stays shell-side and is fetched separately
+  via `ux_tree::latest_snapshot()` (the view-model is the "do I need
+  to look?" signal, not the data carrier — keeps the kernel
+  independent of shell-side UxTree types).
+- `missing` No parity test for AT semantics across hosts.
 
-**Targets**:
+**Targets remaining**:
 
-- Lift UxTree → AccessKit translation above the host boundary
-- Make AT semantics part of the view-model surface, not host-specific
-- Add AT parity tests so iced bring-up doesn't regress accessibility
+- Migrate egui's accessibility bridge to consume
+  `view_model.accessibility.snapshot_version` for change detection
+  rather than its current ad-hoc invalidation logic.
+- Add cross-host AT parity tests (extend the §12.12 replay-trace
+  pattern to assert `vm.accessibility` agrees across `EguiHostPorts`
+  and `IcedHostPorts`).
+- Once the shell-side `UxTreeSnapshot` types stabilize, consider
+  moving them to graphshell-core so the full snapshot can ride on
+  the view-model directly (would let iced render AT without the
+  `latest_snapshot()` global accessor).
 
 ### 12.16. Diagnostics Channel Host-Neutrality
 
@@ -2122,8 +2201,9 @@ to GraphshellRuntime — the data foundation is now host-neutral.
 
 ### 12.17. Enforcement / Regression Guards
 
-**Status update (2026-04-23)**: All three guards landed via the consolidated
-`app::sanctioned_writes_tests` module. Six contract tests now run in
+**Status update (2026-04-23, second pass 2026-04-24)**: All three guards
+plus the §12.2 kernel-call guard landed via the consolidated
+`app::sanctioned_writes_tests` module. Seven contract tests now run in
 `cargo test --lib sanctioned_writes`, sharing two reusable scanning helpers
 (`assert_no_unsanctioned_callers` for repo-wide-with-allowlist scans;
 `assert_needle_absent_from_files` for targeted host-adapter scans).
@@ -2148,6 +2228,13 @@ to GraphshellRuntime — the data foundation is now host-neutral.
     `egui_host_ports.rs`)
   - §12.17 — `host_adapters_do_not_call_apply_arrangement_snapshot`
     (same allowlist; forbids the arrangement-bridge entrypoint)
+  - §12.2 — `no_unsanctioned_apply_graph_delta_kernel_calls`
+    (forbids direct kernel `apply_graph_delta` calls outside a 5-file
+    allowlist: kernel definition, kernel-internal test fixtures, and
+    the WAL replay path. Production durable mutations must route
+    through `apply_graph_delta_and_sync` to pick up `post_apply_sync`;
+    direct kernel calls bypass it. Complements the §12.17 host-adapter
+    guards by closing the lower-level seam.)
 
   Two host-adjacent files are intentionally NOT in the §12.17 list:
   `iced_graph_canvas.rs` (graph-canvas integration with legitimate test
@@ -2155,8 +2242,9 @@ to GraphshellRuntime — the data foundation is now host-neutral.
   iced/egui adapter file to the host set is a deliberate signal during PR
   review.
 
-- `done` Receipts: `cargo test --lib sanctioned_writes` — 6 passed, 0 failed
-  (1m 52s build, 0.21s run). Full `cargo check --lib` clean.
+- `done` Receipts: `cargo test --lib sanctioned_writes` — 7 passed, 0 failed
+  (2026-04-24 second pass; 1m 03s build, 0.22s run). Full
+  `cargo check --lib` clean.
 
 **Targets remaining**:
 
