@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
@@ -66,6 +66,37 @@ mod export;
 mod pane_ui;
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
+
+/// Latest published diagnostics snapshot — mirrors the
+/// `LATEST_UX_TREE_SNAPSHOT` pattern in `ux_tree.rs`. Hosts publish a
+/// fresh snapshot each frame so webdriver-style bridge consumers (notably
+/// the `GetDiagnosticsState` UxBridge command) can read the live state
+/// without holding a runtime reference.
+static LATEST_DIAGNOSTICS_SNAPSHOT: OnceLock<Mutex<Option<Value>>> = OnceLock::new();
+
+fn diagnostics_snapshot_slot() -> &'static Mutex<Option<Value>> {
+    LATEST_DIAGNOSTICS_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn publish_diagnostics_snapshot(snapshot: Value) {
+    if let Ok(mut slot) = diagnostics_snapshot_slot().lock() {
+        *slot = Some(snapshot);
+    }
+}
+
+pub(crate) fn latest_diagnostics_snapshot() -> Option<Value> {
+    diagnostics_snapshot_slot()
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+}
+
+#[cfg(test)]
+pub(crate) fn clear_latest_diagnostics_snapshot_for_tests() {
+    if let Ok(mut slot) = diagnostics_snapshot_slot().lock() {
+        *slot = None;
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -2796,6 +2827,10 @@ impl DiagnosticsState {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0)
+    }
+
+    pub(crate) fn snapshot_json(&self) -> Value {
+        self.snapshot_json_value()
     }
 
     fn snapshot_json_value(&self) -> Value {

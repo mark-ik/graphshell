@@ -253,7 +253,11 @@ mod tests {
 
         assert_eq!(chrome_projection_node(&app, &window), Some(projected_node));
 
-        let detached = registries::phase1_detach_renderer(projected_renderer);
+        let detached = registries::phase1_detach_renderer(
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                projected_renderer,
+            ),
+        );
         assert_eq!(detached.map(|attachment| attachment.pane_id), Some(pane_id));
     }
 }

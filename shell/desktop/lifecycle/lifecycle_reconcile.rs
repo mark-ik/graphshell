@@ -594,7 +594,7 @@ mod tests {
             "reconcile should compute composited-runtime ownership before runtime handoff"
         );
         assert!(
-            production_source.contains("close_webview(webview_id)"),
+            production_source.contains("close_webview(servo_webview_id)"),
             "reconcile should close stale Servo webviews when a pane swaps away from composited runtime"
         );
         assert!(

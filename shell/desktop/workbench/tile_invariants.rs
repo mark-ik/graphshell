@@ -31,7 +31,7 @@ pub(crate) fn collect_tile_invariant_violations(
                 node_key.index()
             ));
         }
-        if !viewer_surfaces.contains_gl_context(&node_key) {
+        if !viewer_surfaces.has_surface(&node_key) {
             violations.push(format!(
                 "tile/context desync: node {} is missing rendering context",
                 node_key.index()
@@ -71,7 +71,7 @@ pub(crate) fn collect_active_tile_mapping_violations(
                 node_key.index()
             ));
         }
-        if !viewer_surfaces.contains_gl_context(&node_key) {
+        if !viewer_surfaces.has_surface(&node_key) {
             violations.push(format!(
                 "active tile desync: node {} is missing rendering context",
                 node_key.index()

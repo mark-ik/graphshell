@@ -209,6 +209,40 @@ impl ContentSurfaceHandle {
     }
 }
 
+#[derive(Clone)]
+pub(crate) enum ViewerSurfaceBacking {
+    /// Transitional backing used by the current host path: an offscreen GL
+    /// context that WebRender paints into before the compositor imports the
+    /// result into wgpu or falls back to the callback bridge.
+    CompatGlOffscreen(std::rc::Rc<OffscreenRenderingContext>),
+    /// Host-native backing: a rendering context that may expose wgpu without
+    /// any GL compatibility surface.
+    NativeRenderingContext(std::rc::Rc<dyn RenderingContextCore>),
+}
+
+impl ViewerSurfaceBacking {
+    pub(crate) fn compat_gl_offscreen(&self) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
+        match self {
+            Self::CompatGlOffscreen(ctx) => Some(ctx),
+            Self::NativeRenderingContext(_) => None,
+        }
+    }
+
+    pub(crate) fn rendering_context(&self) -> std::rc::Rc<dyn RenderingContextCore> {
+        match self {
+            Self::CompatGlOffscreen(ctx) => ctx.clone(),
+            Self::NativeRenderingContext(ctx) => ctx.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ViewerSurfaceFramePath {
+    SharedWgpuImported,
+    CallbackFallback,
+    MissingSurface,
+}
+
 // ---------------------------------------------------------------------------
 // Phase D: ViewerSurfaceRegistry — unified surface lifecycle keyed by NodeKey
 // ---------------------------------------------------------------------------
@@ -225,10 +259,16 @@ pub(crate) struct ViewerSurface {
     /// Monotonic generation counter from Servo's frame output.
     /// Incremented each time Servo produces a new frame for this webview.
     pub(crate) content_generation: u64,
-    /// GL offscreen context — compat fallback only. On the WgpuShared path
-    /// this is still needed for `paint_offscreen_content_pass` but the
-    /// surface handle is `ImportedWgpu`, not `CallbackFallback`.
-    pub(crate) gl_ctx: Option<std::rc::Rc<OffscreenRenderingContext>>,
+    /// Transitional surface backing owned by the registry. M4.5's target is
+    /// that the registry owns all viewer-surface backing state (native/shared
+    /// wgpu in steady state, explicit GL compatibility producers only where
+    /// needed) so hot-path callers stop treating "has GL context" as the
+    /// authority check.
+    pub(crate) backing: Option<ViewerSurfaceBacking>,
+    /// The last viewer-surface/content-bridge path observed for this node
+    /// during composition. Used by M4.5 diagnostics and parity work to pin
+    /// which path a host actually exercised frame-to-frame.
+    pub(crate) last_frame_path: Option<ViewerSurfaceFramePath>,
 }
 
 impl ViewerSurface {
@@ -236,15 +276,17 @@ impl ViewerSurface {
         Self {
             handle: ContentSurfaceHandle::Placeholder,
             content_generation: 0,
-            gl_ctx: None,
+            backing: None,
+            last_frame_path: None,
         }
     }
 
-    pub(crate) fn with_gl_ctx(gl_ctx: std::rc::Rc<OffscreenRenderingContext>) -> Self {
+    pub(crate) fn with_compat_gl_ctx(gl_ctx: std::rc::Rc<OffscreenRenderingContext>) -> Self {
         Self {
             handle: ContentSurfaceHandle::Placeholder,
             content_generation: 0,
-            gl_ctx: Some(gl_ctx),
+            backing: Some(ViewerSurfaceBacking::CompatGlOffscreen(gl_ctx)),
+            last_frame_path: None,
         }
     }
 }
@@ -256,9 +298,19 @@ impl ViewerSurface {
 /// authority. `NodeKey` is the owner; `WebViewId` and `PaneId` are lookup
 /// keys within, not owners.
 ///
-/// During migration, callers that still need `&Rc<OffscreenRenderingContext>`
-/// can use `gl_context()` / `gl_context_mut()`. New code should use
-/// `surface()` and `handle()`.
+/// During migration, callers that still need the current compatibility backing
+/// can use `compat_gl_context()`. New code should treat the registry as the
+/// authority for:
+///
+/// - surface backing ownership
+/// - compositor-facing handle state
+/// - content generation
+/// - the last exercised viewer-surface/content-bridge path
+///
+/// The first explicit M4.5 slice represented here is naming the current
+/// compatibility surface category (`CompatGlOffscreen`) instead of storing a
+/// naked `gl_ctx` field. That keeps today's implementation intact while making
+/// room for the eventual shared-wgpu/native surface categories.
 pub(crate) struct ViewerSurfaceRegistry {
     surfaces: HashMap<NodeKey, ViewerSurface>,
 }
@@ -288,43 +340,74 @@ impl ViewerSurfaceRegistry {
             .unwrap_or(ContentSurfaceHandle::Placeholder)
     }
 
-    /// Get the GL context for a node (compat path).
-    pub(crate) fn gl_context(
+    /// Get the rendering context for a node, regardless of whether it is a
+    /// compat GL or host-native backing.
+    pub(crate) fn rendering_context(
+        &self,
+        key: &NodeKey,
+    ) -> Option<std::rc::Rc<dyn RenderingContextCore>> {
+        self.surfaces
+            .get(key)
+            .and_then(|s| s.backing.as_ref())
+            .map(ViewerSurfaceBacking::rendering_context)
+    }
+
+    /// Get the current compatibility GL context for a node, if that is the
+    /// backing category the registry currently owns.
+    pub(crate) fn compat_gl_context(
         &self,
         key: &NodeKey,
     ) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
-        self.surfaces.get(key).and_then(|s| s.gl_ctx.as_ref())
-    }
-
-    /// Check if a GL context exists for a node.
-    pub(crate) fn contains_gl_context(&self, key: &NodeKey) -> bool {
         self.surfaces
             .get(key)
-            .map(|s| s.gl_ctx.is_some())
+            .and_then(|s| s.backing.as_ref())
+            .and_then(ViewerSurfaceBacking::compat_gl_offscreen)
+    }
+
+    /// Check if any viewer-surface backing exists for a node.
+    pub(crate) fn has_surface(&self, key: &NodeKey) -> bool {
+        self.surfaces
+            .get(key)
+            .map(|s| s.backing.is_some())
             .unwrap_or(false)
     }
 
-    /// Insert or update the GL context for a node, creating a surface entry
-    /// if one doesn't exist.
-    pub(crate) fn insert_gl_context(
-        &mut self,
-        key: NodeKey,
-        ctx: std::rc::Rc<OffscreenRenderingContext>,
-    ) {
+    /// Install a fully-typed backing for a node, creating a surface entry if
+    /// one doesn't exist.
+    pub(crate) fn insert_backing(&mut self, key: NodeKey, backing: ViewerSurfaceBacking) {
         match self.surfaces.get_mut(&key) {
             Some(surface) => {
-                surface.gl_ctx = Some(ctx);
+                surface.backing = Some(backing);
             }
             None => {
-                self.surfaces.insert(key, ViewerSurface::with_gl_ctx(ctx));
+                self.surfaces.insert(
+                    key,
+                    ViewerSurface {
+                        handle: ContentSurfaceHandle::Placeholder,
+                        content_generation: 0,
+                        backing: Some(backing),
+                        last_frame_path: None,
+                    },
+                );
             }
         }
     }
 
-    /// Get the GL context for a node, creating one via `f` if absent.
+    /// Install the current compatibility GL backing for a node, creating a
+    /// surface entry if one doesn't exist.
+    pub(crate) fn insert_compat_gl_context(
+        &mut self,
+        key: NodeKey,
+        ctx: std::rc::Rc<OffscreenRenderingContext>,
+    ) {
+        self.insert_backing(key, ViewerSurfaceBacking::CompatGlOffscreen(ctx));
+    }
+
+    /// Get the current compatibility GL context for a node, creating one via
+    /// `f` if absent.
     /// Mirrors `HashMap::entry().or_insert_with()` semantics that the legacy
     /// `tile_rendering_contexts` map used at webview creation time.
-    pub(crate) fn get_or_insert_gl_context_with<F>(
+    pub(crate) fn get_or_insert_compat_gl_context_with<F>(
         &mut self,
         key: NodeKey,
         f: F,
@@ -332,10 +415,10 @@ impl ViewerSurfaceRegistry {
     where
         F: FnOnce() -> std::rc::Rc<OffscreenRenderingContext>,
     {
-        if !self.contains_gl_context(&key) {
-            self.insert_gl_context(key, f());
+        if !self.has_surface(&key) {
+            self.insert_compat_gl_context(key, f());
         }
-        self.gl_context(&key)
+        self.compat_gl_context(&key)
             .expect("just inserted")
             .clone()
     }
@@ -357,7 +440,8 @@ impl ViewerSurfaceRegistry {
                     ViewerSurface {
                         handle,
                         content_generation: 0,
-                        gl_ctx: None,
+                        backing: None,
+                        last_frame_path: None,
                     },
                 );
             }
@@ -372,6 +456,27 @@ impl ViewerSurfaceRegistry {
         }
     }
 
+    /// Record which viewer-surface/content-bridge path the compositor actually
+    /// exercised for this node on the current frame.
+    pub(crate) fn record_frame_path(&mut self, key: NodeKey, path: ViewerSurfaceFramePath) {
+        match self.surfaces.get_mut(&key) {
+            Some(surface) => {
+                surface.last_frame_path = Some(path);
+            }
+            None => {
+                self.surfaces.insert(
+                    key,
+                    ViewerSurface {
+                        handle: ContentSurfaceHandle::Placeholder,
+                        content_generation: 0,
+                        backing: None,
+                        last_frame_path: Some(path),
+                    },
+                );
+            }
+        }
+    }
+
     /// Remove a node's surface entirely (on detach/lifecycle Cold).
     pub(crate) fn remove(&mut self, key: &NodeKey) -> Option<ViewerSurface> {
         self.surfaces.remove(key)
@@ -380,13 +485,15 @@ impl ViewerSurfaceRegistry {
 
 
 impl ViewerSurfaceRegistryHost for ViewerSurfaceRegistry {
-    type Surface = std::rc::Rc<OffscreenRenderingContext>;
+    type Surface = ViewerSurfaceBacking;
 
     fn get_or_insert_surface_with<F>(&mut self, node_key: NodeKey, create_surface: F)
     where
         F: FnOnce() -> Self::Surface,
     {
-        let _ = self.get_or_insert_gl_context_with(node_key, create_surface);
+        if !self.has_surface(&node_key) {
+            self.insert_backing(node_key, create_surface());
+        }
     }
 
     fn retire_surface(&mut self, node_key: NodeKey) {
@@ -394,7 +501,7 @@ impl ViewerSurfaceRegistryHost for ViewerSurfaceRegistry {
     }
 
     fn has_surface(&self, node_key: NodeKey) -> bool {
-        self.contains_gl_context(&node_key)
+        ViewerSurfaceRegistry::has_surface(self, &node_key)
     }
 }
 
@@ -1032,7 +1139,9 @@ pub(crate) struct CompositorAdapter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CompositedContentPassOutcome {
-    Registered,
+    SharedWgpuRegistered,
+    CallbackFallbackRegistered,
+    MissingSurface,
     InvalidTileRect,
     PaintFailed,
     MissingContentCallback,
@@ -1086,7 +1195,7 @@ impl CompositorAdapter {
         {
             Self::unregister_content_callback(node_key);
             painter.paint_native_content_texture(node_key, tile_rect, texture_token);
-            return CompositedContentPassOutcome::Registered;
+            return CompositedContentPassOutcome::SharedWgpuRegistered;
         }
 
         if !Self::register_content_callback_from_render_context(node_key, render_context) {
@@ -1094,6 +1203,89 @@ impl CompositorAdapter {
         }
 
         Self::compose_registered_content_pass_with_painter(painter, node_key, tile_rect)
+    }
+
+    pub(crate) fn compose_webview_content_pass_for_surface_with_painter(
+        painter: &mut dyn ContentPassPainter,
+        ui_render_backend: &mut UiRenderBackendHandle,
+        node_key: NodeKey,
+        tile_rect: PortableRect,
+        pixels_per_point: f32,
+        surface: &mut ViewerSurface,
+        webview: &WebView,
+    ) -> CompositedContentPassOutcome {
+        let Some(backing) = surface.backing.as_ref() else {
+            surface.handle = ContentSurfaceHandle::Placeholder;
+            return CompositedContentPassOutcome::MissingSurface;
+        };
+
+        let outcome = match backing {
+            ViewerSurfaceBacking::CompatGlOffscreen(render_context) => {
+                Self::compose_webview_content_pass_with_painter(
+                    painter,
+                    ui_render_backend,
+                    node_key,
+                    tile_rect,
+                    pixels_per_point,
+                    render_context,
+                    webview,
+                )
+            }
+            ViewerSurfaceBacking::NativeRenderingContext(rendering_context) => {
+                let egui_tile_rect = egui_rect_from_portable(tile_rect);
+                let Some((size, target_size)) = Self::prepare_composited_target(
+                    node_key,
+                    egui_tile_rect,
+                    pixels_per_point,
+                    rendering_context.as_ref(),
+                ) else {
+                    return CompositedContentPassOutcome::InvalidTileRect;
+                };
+
+                Self::reconcile_webview_target_size(webview, size, target_size);
+                webview.render();
+
+                let existing = match surface.handle {
+                    ContentSurfaceHandle::ImportedWgpu(token) => Some(token),
+                    ContentSurfaceHandle::CallbackFallback | ContentSurfaceHandle::Placeholder => {
+                        None
+                    }
+                };
+                let Some(texture) = webview.composite_texture() else {
+                    return CompositedContentPassOutcome::PaintFailed;
+                };
+                let Some(texture_token) = Self::upsert_native_content_texture_from_texture(
+                    node_key,
+                    existing,
+                    &texture,
+                    ui_render_backend,
+                ) else {
+                    return CompositedContentPassOutcome::PaintFailed;
+                };
+
+                Self::unregister_content_callback(node_key);
+                painter.paint_native_content_texture(node_key, tile_rect, texture_token);
+                surface.handle = ContentSurfaceHandle::ImportedWgpu(texture_token);
+                CompositedContentPassOutcome::SharedWgpuRegistered
+            }
+        };
+
+        match outcome {
+            CompositedContentPassOutcome::SharedWgpuRegistered => {
+                surface.handle = ContentSurfaceHandle::for_node(node_key);
+            }
+            CompositedContentPassOutcome::CallbackFallbackRegistered
+            | CompositedContentPassOutcome::MissingContentCallback => {
+                surface.handle = ContentSurfaceHandle::CallbackFallback;
+            }
+            CompositedContentPassOutcome::MissingSurface => {
+                surface.handle = ContentSurfaceHandle::Placeholder;
+            }
+            CompositedContentPassOutcome::InvalidTileRect
+            | CompositedContentPassOutcome::PaintFailed => {}
+        }
+
+        outcome
     }
 
     /// Backwards-compatible egui entry point — constructs an
@@ -1119,6 +1311,27 @@ impl CompositorAdapter {
             portable_rect_from_egui(tile_rect),
             pixels_per_point,
             render_context,
+            webview,
+        )
+    }
+
+    pub(crate) fn compose_webview_content_pass_for_surface(
+        ctx: &Context,
+        ui_render_backend: &mut UiRenderBackendHandle,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        pixels_per_point: f32,
+        surface: &mut ViewerSurface,
+        webview: &WebView,
+    ) -> CompositedContentPassOutcome {
+        let mut painter = EguiContentPassPainter { ctx };
+        Self::compose_webview_content_pass_for_surface_with_painter(
+            &mut painter,
+            ui_render_backend,
+            node_key,
+            portable_rect_from_egui(tile_rect),
+            pixels_per_point,
+            surface,
             webview,
         )
     }
@@ -1229,7 +1442,7 @@ impl CompositorAdapter {
             return CompositedContentPassOutcome::MissingContentCallback;
         };
         painter.register_content_callback_on_layer(node_key, tile_rect, callback);
-        CompositedContentPassOutcome::Registered
+        CompositedContentPassOutcome::CallbackFallbackRegistered
     }
 
     /// Backwards-compatible egui entry point — constructs an
@@ -1275,7 +1488,21 @@ impl CompositorAdapter {
             .expect("compositor native texture registry mutex poisoned")
             .get(&node_key)
             .copied();
-        let token = ui_render_backend.upsert_native_texture(existing, &imported_texture)?;
+        Self::upsert_native_content_texture_from_texture(
+            node_key,
+            existing,
+            &imported_texture,
+            ui_render_backend,
+        )
+    }
+
+    fn upsert_native_content_texture_from_texture(
+        node_key: NodeKey,
+        existing: Option<BackendTextureToken>,
+        texture: &servo::wgpu::Texture,
+        ui_render_backend: &mut UiRenderBackendHandle,
+    ) -> Option<BackendTextureToken> {
+        let token = ui_render_backend.upsert_native_texture(existing, texture)?;
         compositor_native_texture_registry()
             .lock()
             .expect("compositor native texture registry mutex poisoned")
@@ -1287,7 +1514,7 @@ impl CompositorAdapter {
         node_key: NodeKey,
         tile_rect: EguiRect,
         pixels_per_point: f32,
-        render_context: &OffscreenRenderingContext,
+        render_context: &dyn RenderingContextCore,
     ) -> Option<(Size2D<f32, DevicePixel>, PhysicalSize<u32>)> {
         if !tile_rect.width().is_finite()
             || !tile_rect.height().is_finite()
@@ -2437,7 +2664,7 @@ mod tests {
             tile_rect,
         );
 
-        assert_eq!(outcome, CompositedContentPassOutcome::Registered);
+        assert_eq!(outcome, CompositedContentPassOutcome::CallbackFallbackRegistered);
         assert_eq!(painter.registered.borrow().as_slice(), &[node]);
         assert!(painter.native_painted.borrow().is_empty());
 
@@ -2488,7 +2715,7 @@ mod tests {
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
         );
 
-        assert_eq!(outcome, CompositedContentPassOutcome::Registered);
+        assert_eq!(outcome, CompositedContentPassOutcome::CallbackFallbackRegistered);
         assert!(CompositorAdapter::unregister_content_callback(node_key));
         assert!(!CompositorAdapter::unregister_content_callback(node_key));
     }

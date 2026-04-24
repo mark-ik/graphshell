@@ -505,6 +505,10 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
             ),
         };
         ux_tree::publish_snapshot(&uxtree_snapshot);
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::publish_diagnostics_snapshot(
+            diagnostics_state.snapshot_json(),
+        );
         if let Some(lod_violation) =
             ux_tree::graph_lod_semantic_emission_violation(&uxtree_snapshot, graph_app)
         {

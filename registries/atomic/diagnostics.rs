@@ -28,6 +28,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS, CHANNEL_COMPOSITOR_TILE_ACTIVITY,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
@@ -596,7 +599,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 167] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 170] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -1354,6 +1357,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 167] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },
@@ -2173,6 +2191,7 @@ mod tests {
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_INVALID_TILE_RECT));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY));
         assert!(

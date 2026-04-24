@@ -290,7 +290,7 @@ mod tests {
             status.renderer_id,
             Some(viewer_instance_id_from_servo(webview_id))
         );
-        assert_eq!(status.load_status, LoadStatus::Complete);
+        assert_eq!(status.load_status, ContentLoadState::Complete);
         assert_eq!(status.content_zoom_level, None);
         assert_eq!(
             status.find_in_page,

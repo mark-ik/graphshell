@@ -22,9 +22,6 @@ use egui::{Color32, Stroke, TextureHandle, TextureId};
 use egui_tiles::{Tile, Tree};
 use graph_tree::GraphTree;
 use image::load_from_memory;
-#[cfg(test)]
-use servo::OffscreenRenderingContext;
-
 use crate::app::{GraphBrowserApp, RendererId, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
@@ -46,11 +43,15 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_TILE_DRAG, CHANNEL_COMPOSITOR_PAINT_NOT_CONFIRMED,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
-    CHANNEL_COMPOSITOR_TILE_ACTIVITY, phase3_resolve_active_presentation_profile,
+    CHANNEL_COMPOSITOR_TILE_ACTIVITY, CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU,
+    phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     portable_rect_from_egui, portable_stroke_from_egui, CompositedContentPassOutcome,
-    CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle, OverlayStrokePass,
+    CompositorAdapter, CompositorPassTracker, ContentSurfaceHandle, OverlayAffordanceStyle,
+    OverlayStrokePass, ViewerSurfaceFramePath,
 };
 use crate::shell::desktop::workbench::interaction_policy::{
     InteractionUiState, OverlaySuppressionReason,
@@ -530,6 +531,20 @@ fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static 
     }
 }
 
+fn viewer_surface_frame_path_channel(path: ViewerSurfaceFramePath) -> &'static str {
+    match path {
+        ViewerSurfaceFramePath::SharedWgpuImported => {
+            CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU
+        }
+        ViewerSurfaceFramePath::CallbackFallback => {
+            CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK
+        }
+        ViewerSurfaceFramePath::MissingSurface => {
+            CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE
+        }
+    }
+}
+
 fn should_cull_tile_content(
     tile_rect: egui::Rect,
     viewport_regions: &VisibleNavigationRegionSet,
@@ -749,19 +764,6 @@ fn run_composited_texture_content_pass(
         });
     }
 
-    let Some(render_context) = viewer_surfaces.gl_context(&node_key).cloned() else {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
-            byte_len: 1,
-        });
-        log::debug!("composite: no render_context for node {:?}", node_key);
-        return false;
-    };
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
-        byte_len: 1,
-    });
-
     let Some(webview) = window.webview_by_renderer_id(webview_id) else {
         log::debug!(
             "composite: runtime viewer {:?} not found in window for node {:?}",
@@ -776,18 +778,57 @@ fn run_composited_texture_content_pass(
         node_key,
         tile_rect
     );
-    match CompositorAdapter::compose_webview_content_pass(
-        ctx,
-        ui_render_backend,
-        node_key,
-        tile_rect,
-        ctx.pixels_per_point(),
-        &render_context,
-        &webview,
-    ) {
-        CompositedContentPassOutcome::Registered => {
+    let outcome = {
+        match viewer_surfaces.surface_mut(&node_key) {
+            Some(surface) => CompositorAdapter::compose_webview_content_pass_for_surface(
+                ctx,
+                ui_render_backend,
+                node_key,
+                tile_rect,
+                ctx.pixels_per_point(),
+                surface,
+                &webview,
+            ),
+            None => CompositedContentPassOutcome::MissingSurface,
+        }
+    };
+
+    match outcome {
+        CompositedContentPassOutcome::SharedWgpuRegistered => {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+                byte_len: 1,
+            });
+            viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::SharedWgpuImported);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: viewer_surface_frame_path_channel(
+                    ViewerSurfaceFramePath::SharedWgpuImported,
+                ),
+                byte_len: 1,
+            });
             log::debug!(
-                "composite: registered content pass callback for runtime viewer {:?}",
+                "composite: registered shared-wgpu content path for runtime viewer {:?}",
+                webview_id
+            );
+            pass_tracker.record_content_pass(node_key);
+            counters.composed += 1;
+            counters.composed_estimated_bytes = counters
+                .composed_estimated_bytes
+                .saturating_add(estimated_tile_bytes);
+            true
+        }
+        CompositedContentPassOutcome::CallbackFallbackRegistered => {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+                byte_len: 1,
+            });
+            viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::CallbackFallback);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::CallbackFallback),
+                byte_len: 1,
+            });
+            log::debug!(
+                "composite: registered callback fallback content path for runtime viewer {:?}",
                 webview_id
             );
             pass_tracker.record_content_pass(node_key);
@@ -798,11 +839,34 @@ fn run_composited_texture_content_pass(
             true
         }
         CompositedContentPassOutcome::MissingContentCallback => {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+                byte_len: 1,
+            });
+            viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::CallbackFallback);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::CallbackFallback),
+                byte_len: 1,
+            });
             log::debug!(
                 "composite: no adapter content callback available for runtime viewer {:?}",
                 webview_id
             );
             true
+        }
+        CompositedContentPassOutcome::MissingSurface => {
+            viewer_surfaces.set_handle(node_key, ContentSurfaceHandle::Placeholder);
+            viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::MissingSurface);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+                byte_len: 1,
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::MissingSurface),
+                byte_len: 1,
+            });
+            log::debug!("composite: no viewer surface backing for node {:?}", node_key);
+            false
         }
         CompositedContentPassOutcome::PaintFailed
         | CompositedContentPassOutcome::InvalidTileRect => false,

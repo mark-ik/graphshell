@@ -175,12 +175,14 @@ mod tests {
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use proptest::prelude::*;
     use rstest::rstest;
-    use servo::WebViewId;
     use tracing_test::traced_test;
 
     use super::{runtime_events_and_responsive_from_events, runtime_events_from_semantic_events};
-    use crate::app::RuntimeEvent;
+    use crate::app::{RendererId, RuntimeEvent};
     use crate::shell::desktop::host::window::{WebViewLifecycleEvent, WebViewLifecycleEventKind};
+    use crate::shell::desktop::lifecycle::webview_status_sync::{
+        renderer_id_from_servo, servo_webview_id_from_renderer,
+    };
 
     fn event(kind: WebViewLifecycleEventKind) -> WebViewLifecycleEvent {
         static NEXT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -190,17 +192,13 @@ mod tests {
         }
     }
 
-    fn make_webview_id() -> WebViewId {
-        ensure_namespace();
-        WebViewId::new(PainterId::next())
-    }
-
-    fn ensure_namespace() {
+    fn make_webview_id() -> RendererId {
         PIPELINE_NAMESPACE.with(|tls| {
             if tls.get().is_none() {
                 PipelineNamespace::install(TEST_NAMESPACE);
             }
         });
+        renderer_id_from_servo(servo::WebViewId::new(PainterId::next()))
     }
 
     #[rstest]
@@ -326,7 +324,9 @@ mod tests {
                     WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::UrlChanged { webview_id, .. }, .. }
                     | WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::HistoryChanged { webview_id, .. }, .. }
                     | WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::PageTitleChanged { webview_id, .. }, .. } => {
-                        set.insert(*webview_id);
+                        if let Some(servo_id) = servo_webview_id_from_renderer(*webview_id) {
+                            set.insert(servo_id);
+                        }
                     },
                     WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::HostOpenRequest { .. }, .. } => {},
                     WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { .. }, .. } => {},

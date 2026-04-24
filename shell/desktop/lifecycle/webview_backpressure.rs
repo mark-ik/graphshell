@@ -316,7 +316,7 @@ pub(crate) fn ensure_webview_for_node(
         webview_creation_backpressure.remove(&node_key);
         return;
     }
-    let Some(render_context) = viewer_surfaces.gl_context(&node_key).cloned() else {
+    let Some(render_context) = viewer_surfaces.rendering_context(&node_key) else {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
             byte_len: node_url.len(),

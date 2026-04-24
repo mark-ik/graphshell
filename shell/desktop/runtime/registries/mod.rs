@@ -382,6 +382,12 @@ pub(crate) const CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT: &str =
     "compositor.resource_reuse.context_hit";
 pub(crate) const CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS: &str =
     "compositor.resource_reuse.context_miss";
+pub(crate) const CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU: &str =
+    "compositor.viewer_surface_path.shared_wgpu";
+pub(crate) const CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK: &str =
+    "compositor.viewer_surface_path.callback_fallback";
+pub(crate) const CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE: &str =
+    "compositor.viewer_surface_path.missing_surface";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE: &str =
     "compositor.overlay.batch_size_sample";
 pub(crate) const CHANNEL_UX_DISPATCH_STARTED: &str = "ux:dispatch_started";
@@ -4873,6 +4879,20 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU)
+        );
+        assert!(
+            channels.iter().any(|entry| entry.channel_id
+                == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE)
         );
         assert!(
             channels
