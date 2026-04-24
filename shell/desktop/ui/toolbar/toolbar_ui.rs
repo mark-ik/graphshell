@@ -909,14 +909,17 @@ mod tests {
                     ui.label("Command bar");
                 });
             command_bar_rect = Some(response.response.rect);
-            status_bar_rect = Some(render_shell_status_bar(
-                ctx,
-                WorkbenchLayerState::GraphOnly,
-                &FocusedContentStatus::unavailable(None, None),
-                None,
-                #[cfg(feature = "diagnostics")]
-                None,
-            ));
+            egui::CentralPanel::default().show(ctx, |ui| {
+                status_bar_rect = Some(render_shell_status_bar(
+                    ui,
+                    ctx,
+                    WorkbenchLayerState::GraphOnly,
+                    &FocusedContentStatus::unavailable(None, None),
+                    None,
+                    #[cfg(feature = "diagnostics")]
+                    None,
+                ));
+            });
         });
 
         let command_bar_rect = command_bar_rect.expect("command bar should render a rect");

@@ -558,14 +558,17 @@ mod tests {
         let mut status_bar_rect = None;
 
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            status_bar_rect = Some(render_shell_status_bar(
-                ctx,
-                WorkbenchLayerState::WorkbenchActive,
-                &focused_content_status(),
-                Some(&runtime_focus_state()),
-                #[cfg(feature = "diagnostics")]
-                None,
-            ));
+            egui::CentralPanel::default().show(ctx, |ui| {
+                status_bar_rect = Some(render_shell_status_bar(
+                    ui,
+                    ctx,
+                    WorkbenchLayerState::WorkbenchActive,
+                    &focused_content_status(),
+                    Some(&runtime_focus_state()),
+                    #[cfg(feature = "diagnostics")]
+                    None,
+                ));
+            });
         });
 
         let status_bar_rect = status_bar_rect.expect("status bar should render a rect");
