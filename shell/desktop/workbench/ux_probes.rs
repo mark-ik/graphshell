@@ -1381,9 +1381,9 @@ mod tests {
             &harness.app, Some(&telemetry), 13,
         );
 
-        let first = evaluate_registered_probes(&snapshot, 0);
+        let first = evaluate_registered_probes_with_telemetry(&snapshot, 0, Some(&telemetry));
         age_suppression_window_for_tests("ux.probe.command_surface_observability_projection", None);
-        let second = evaluate_registered_probes(&snapshot, 0);
+        let second = evaluate_registered_probes_with_telemetry(&snapshot, 0, Some(&telemetry));
 
         assert!(
             first

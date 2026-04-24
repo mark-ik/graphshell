@@ -37,6 +37,10 @@ impl UxDriver {
         webdriver_script(serde_json::json!({ "command": "GetFocusPath" }))
     }
 
+    pub(crate) fn get_diagnostics_state_script() -> String {
+        webdriver_script(serde_json::json!({ "command": "GetDiagnosticsState" }))
+    }
+
     pub(crate) fn invoke_ux_action_script(selector: &UxNodeSelector, action: UxAction) -> String {
         webdriver_script(serde_json::json!({
             "command": "InvokeUxAction",
@@ -62,6 +66,7 @@ pub(crate) enum UxBridgeCommand {
         selector: UxNodeSelector,
     },
     GetFocusPath,
+    GetDiagnosticsState,
     InvokeUxAction {
         selector: UxNodeSelector,
         action: UxAction,
@@ -73,6 +78,7 @@ pub(crate) enum UxBridgeResponse {
     Snapshot(UxTreeSnapshot),
     Node(Option<UxSemanticNode>),
     FocusPath(Vec<String>),
+    DiagnosticsState(serde_json::Value),
     Action {
         status: UxActionStatus,
         ux_node_id: String,
@@ -89,6 +95,7 @@ pub(crate) enum UxActionStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UxBridgeErrorKind {
     SnapshotUnavailable,
+    DiagnosticsUnavailable,
     TargetNotFound,
     UnsupportedAction,
     InvalidTransportPayload,
@@ -106,6 +113,14 @@ impl UxBridgeError {
         Self {
             kind: UxBridgeErrorKind::SnapshotUnavailable,
             message: "No published UxTree snapshot is available for bridge queries.".to_string(),
+        }
+    }
+
+    fn diagnostics_unavailable() -> Self {
+        Self {
+            kind: UxBridgeErrorKind::DiagnosticsUnavailable,
+            message: "No published diagnostics snapshot is available for bridge queries."
+                .to_string(),
         }
     }
 
@@ -144,6 +159,11 @@ impl UxBridgeError {
 pub(crate) fn handle_latest_snapshot_command(
     command: UxBridgeCommand,
 ) -> Result<UxBridgeResponse, UxBridgeError> {
+    if matches!(command, UxBridgeCommand::GetDiagnosticsState) {
+        return crate::shell::desktop::runtime::diagnostics::latest_diagnostics_snapshot()
+            .map(UxBridgeResponse::DiagnosticsState)
+            .ok_or_else(UxBridgeError::diagnostics_unavailable);
+    }
     let Some(snapshot) = ux_tree::latest_snapshot() else {
         return Err(UxBridgeError::snapshot_unavailable());
     };
@@ -160,6 +180,9 @@ pub(crate) fn handle_snapshot_command(
             UxBridgeResponse::Node(find_semantic_node(snapshot, &selector).cloned())
         }
         UxBridgeCommand::GetFocusPath => UxBridgeResponse::FocusPath(focus_path(snapshot)),
+        UxBridgeCommand::GetDiagnosticsState => {
+            unreachable!("diagnostics state is sourced from the diagnostics snapshot, not the UxTree snapshot")
+        }
         UxBridgeCommand::InvokeUxAction { .. } => {
             unreachable!("snapshot-only handler cannot execute mutable bridge actions")
         }
@@ -170,17 +193,32 @@ pub(crate) fn handle_runtime_command(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     graph_tree: &mut graph_tree::GraphTree<NodeKey>,
+    command_surface_telemetry: Option<
+        &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
+    >,
     command: UxBridgeCommand,
 ) -> Result<UxBridgeResponse, UxBridgeError> {
-    let snapshot = ux_tree::build_snapshot(tiles_tree, graph_app, None, 0);
+    if matches!(command, UxBridgeCommand::GetDiagnosticsState) {
+        return crate::shell::desktop::runtime::diagnostics::latest_diagnostics_snapshot()
+            .map(UxBridgeResponse::DiagnosticsState)
+            .ok_or_else(UxBridgeError::diagnostics_unavailable);
+    }
+    let snapshot =
+        ux_tree::build_snapshot(tiles_tree, graph_app, command_surface_telemetry, 0);
     match command {
         UxBridgeCommand::GetUxSnapshot
         | UxBridgeCommand::FindUxNode { .. }
         | UxBridgeCommand::GetFocusPath => Ok(handle_snapshot_command(&snapshot, command)),
+        UxBridgeCommand::GetDiagnosticsState => unreachable!("handled above"),
         UxBridgeCommand::InvokeUxAction { selector, action } => {
             let (intent, target) = workbench_intent_for_action(&snapshot, &selector, action)?;
             apply_workbench_intent(graph_app, tiles_tree, graph_tree, &intent);
-            ux_tree::publish_snapshot(&ux_tree::build_snapshot(tiles_tree, graph_app, None, 0));
+            ux_tree::publish_snapshot(&ux_tree::build_snapshot(
+                tiles_tree,
+                graph_app,
+                command_surface_telemetry,
+                0,
+            ));
             Ok(UxBridgeResponse::Action {
                 status: UxActionStatus::Applied,
                 ux_node_id: target.ux_node_id.clone(),
@@ -221,6 +259,7 @@ pub(crate) fn parse_transport_command(payload: &str) -> Result<UxBridgeCommand, 
             selector: selector.into_selector(),
         },
         TransportCommand::GetFocusPath => UxBridgeCommand::GetFocusPath,
+        TransportCommand::GetDiagnosticsState => UxBridgeCommand::GetDiagnosticsState,
         TransportCommand::InvokeUxAction { selector, action } => UxBridgeCommand::InvokeUxAction {
             selector: selector.into_selector(),
             action,
@@ -243,6 +282,10 @@ pub(crate) fn response_json(response: &UxBridgeResponse) -> serde_json::Value {
             UxBridgeResponse::FocusPath(path) => serde_json::json!({
                 "kind": "FocusPath",
                 "path": path,
+            }),
+            UxBridgeResponse::DiagnosticsState(state) => serde_json::json!({
+                "kind": "DiagnosticsState",
+                "state": state,
             }),
             UxBridgeResponse::Action {
                 status,
@@ -549,6 +592,7 @@ enum TransportCommand {
         selector: TransportSelector,
     },
     GetFocusPath,
+    GetDiagnosticsState,
     InvokeUxAction {
         selector: TransportSelector,
         action: UxAction,
@@ -622,6 +666,57 @@ mod tests {
         }
 
         ux_tree::clear_snapshot();
+    }
+
+    #[test]
+    fn get_diagnostics_state_returns_unavailable_when_no_snapshot_published() {
+        let _guard = lock_bridge_tests();
+        crate::shell::desktop::runtime::diagnostics::clear_latest_diagnostics_snapshot_for_tests();
+
+        let err = handle_latest_snapshot_command(UxBridgeCommand::GetDiagnosticsState)
+            .expect_err("bridge query should fail without a published diagnostics snapshot");
+        assert_eq!(err.kind, UxBridgeErrorKind::DiagnosticsUnavailable);
+    }
+
+    #[test]
+    fn get_diagnostics_state_returns_published_snapshot() {
+        let _guard = lock_bridge_tests();
+        crate::shell::desktop::runtime::diagnostics::clear_latest_diagnostics_snapshot_for_tests();
+
+        let payload = serde_json::json!({
+            "channels": { "message_counts": { "test:channel": 7 } },
+            "compositor_frames": [],
+        });
+        crate::shell::desktop::runtime::diagnostics::publish_diagnostics_snapshot(payload.clone());
+
+        let response = handle_latest_snapshot_command(UxBridgeCommand::GetDiagnosticsState)
+            .expect("published diagnostics snapshot should satisfy bridge query");
+        match response {
+            UxBridgeResponse::DiagnosticsState(state) => {
+                assert_eq!(state, payload);
+            }
+            other => panic!("expected diagnostics-state bridge response, got {other:?}"),
+        }
+
+        // Verify the transport-layer JSON wrapping carries `kind: "DiagnosticsState"`.
+        let response = handle_latest_snapshot_command(UxBridgeCommand::GetDiagnosticsState)
+            .expect("published diagnostics snapshot should satisfy bridge query");
+        let json = response_json(&response);
+        assert_eq!(json["ok"], serde_json::json!(true));
+        assert_eq!(json["response"]["kind"], serde_json::json!("DiagnosticsState"));
+        assert_eq!(json["response"]["state"], payload);
+
+        crate::shell::desktop::runtime::diagnostics::clear_latest_diagnostics_snapshot_for_tests();
+    }
+
+    #[test]
+    fn get_diagnostics_state_script_round_trips_through_transport_parser() {
+        let script = UxDriver::get_diagnostics_state_script();
+        let payload = script
+            .strip_prefix(WEBDRIVER_SCRIPT_PREFIX)
+            .expect("driver script should carry the webdriver prefix");
+        let command = parse_transport_command(payload).expect("transport payload should parse");
+        assert_eq!(command, UxBridgeCommand::GetDiagnosticsState);
     }
 
     #[test]
@@ -738,6 +833,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            Some(&telemetry),
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ByRole(UxNodeRole::CommandBar),
                 action: UxAction::Open,
@@ -769,6 +865,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            Some(&telemetry),
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ByRole(UxNodeRole::CommandPalette),
                 action: UxAction::Dismiss,
@@ -816,6 +913,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(second_node.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -842,6 +940,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(second_node.ux_node_id.clone()),
                 action: UxAction::Close,
@@ -893,6 +992,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(tool.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -912,6 +1012,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(tool.ux_node_id.clone()),
                 action: UxAction::Close,
@@ -961,6 +1062,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(graph_surface.ux_node_id.clone()),
                 action: UxAction::Focus,
@@ -980,6 +1082,7 @@ mod tests {
             &mut harness.app,
             &mut harness.tiles_tree,
             &mut harness.graph_tree,
+            None,
             UxBridgeCommand::InvokeUxAction {
                 selector: UxNodeSelector::ById(graph_surface.ux_node_id.clone()),
                 action: UxAction::Close,
