@@ -49,7 +49,7 @@ impl EguiHost {
 
         Self::run_update_frame_prelude(
             ctx,
-            &mut runtime.graph_app,
+            runtime,
             pending_webview_a11y_updates,
             tiles_tree,
         );
@@ -156,13 +156,13 @@ impl EguiHost {
 
     fn run_update_frame_prelude(
         ctx: &egui::Context,
-        graph_app: &mut GraphBrowserApp,
+        runtime: &mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
         pending_webview_a11y_updates: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
         tiles_tree: &mut Tree<TileKind>,
     ) {
         frame_prelude::run_update_frame_prelude(
             ctx,
-            graph_app,
+            runtime,
             pending_webview_a11y_updates,
             tiles_tree,
         );

@@ -2,15 +2,15 @@ use super::*;
 
 pub(super) fn run_update_frame_prelude(
     ctx: &egui::Context,
-    graph_app: &mut GraphBrowserApp,
+    runtime: &mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
     pending_webview_a11y_updates: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
     tiles_tree: &mut Tree<TileKind>,
 ) {
     // `graph_app.tick_frame()` migrated onto `GraphshellRuntime::tick` in
     // M4.5b Step 4 and now runs on the runtime's per-tick path.
-    pane_queries::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
+    pane_queries::reconcile_workspace_graph_views_from_tiles(&mut runtime.graph_app, tiles_tree);
 
-    accessibility::inject_uxtree_a11y_updates(ctx, graph_app);
+    accessibility::inject_uxtree_a11y_updates(ctx, &mut runtime.graph_app);
     accessibility::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
     maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
 }

@@ -13,6 +13,13 @@
 //!
 //! - `HostToastPort::enqueue` — real: delegates to `egui_notify::Toasts`
 //! - `HostClipboardPort::{get,set}_text` — real: delegates to `arboard::Clipboard`
+//! - `HostSurfacePort::register_content_callback` — real: delegates to
+//!   `CompositorAdapter::register_content_callback` with the GL callback bridge path.
+//! - `HostSurfacePort::unregister_content_callback` — real: delegates to
+//!   `CompositorAdapter::unregister_content_callback`.
+//! - `HostSurfacePort::retire_surface` — real: delegates to
+//!   `CompositorAdapter::retire_node_content_resources` when `ui_render_backend`
+//!   is `Some` (no-op in test contexts without a backend).
 //! - All other ports — placeholders that compile but do not yet delegate.
 //!   These wire up as each consuming phase migrates onto `runtime.tick`.
 //!
@@ -30,7 +37,8 @@ use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
 };
-use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
+use crate::shell::desktop::workbench::compositor_adapter::{CompositorAdapter, PortablePoint, PortableRect};
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
 
@@ -63,6 +71,11 @@ pub(crate) struct EguiHostPorts<'a> {
     /// node; the port wiring lands now so the first caller doesn't
     /// need to revisit the port surface.
     pub(crate) pending_accesskit_focus_requests: &'a mut Vec<accesskit::NodeId>,
+
+    /// Backend handle for GPU resource operations (native texture
+    /// retirement, etc.). `None` in test contexts that don't need
+    /// backend-backed surface management.
+    pub(crate) ui_render_backend: Option<&'a mut UiRenderBackendHandle>,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,20 +120,27 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
         // and request a repaint from the egui context.
     }
 
-    fn retire_surface(&mut self, _node_key: NodeKey) {
-        // todo(m4.5): CompositorAdapter::retire_node_content_resources(...).
+    fn retire_surface(&mut self, node_key: NodeKey) {
+        if let Some(backend) = self.ui_render_backend.as_deref_mut() {
+            CompositorAdapter::retire_node_content_resources(backend, node_key);
+        }
     }
 
     fn register_content_callback(
         &mut self,
-        _node_key: NodeKey,
-        _callback: Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>,
+        node_key: NodeKey,
+        callback: Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>,
     ) {
-        // todo(m4.5): CompositorAdapter::register_content_callback(node_key, callback).
+        CompositorAdapter::register_content_callback(
+            node_key,
+            "gl.render_to_parent_callback",
+            "gl_callback",
+            callback,
+        );
     }
 
-    fn unregister_content_callback(&mut self, _node_key: NodeKey) {
-        // todo(m4.5): CompositorAdapter::unregister_content_callback(node_key).
+    fn unregister_content_callback(&mut self, node_key: NodeKey) {
+        CompositorAdapter::unregister_content_callback(node_key);
     }
 }
 
@@ -319,6 +339,7 @@ mod tests {
             clipboard,
             pending_webview_a11y_updates: a11y_updates,
             pending_accesskit_focus_requests: focus_requests,
+            ui_render_backend: None,
         }
     }
 

@@ -676,7 +676,15 @@ impl EguiHost {
     }
 
     pub(crate) fn focused_node_key(&self) -> Option<NodeKey> {
-        interaction_queries::focused_node_key(self)
+        // §12.6 (2026-04-24, third pass): consume the cached view-model
+        // rather than re-running the pane-tree lookup. Pre-first-frame
+        // fallback mirrors the live `focused_node_key` logic in
+        // `interaction_queries` so bootstrap queries return correct values.
+        if let Some(vm) = &self.cached_view_model {
+            vm.focus.focused_node
+        } else {
+            interaction_queries::focused_node_key(self)
+        }
     }
 
     pub(crate) fn primary_selected_node_key(&self) -> Option<NodeKey> {
@@ -1020,6 +1028,7 @@ impl EguiHost {
             clipboard: &mut self.clipboard,
             pending_webview_a11y_updates: &mut self.pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut self.pending_accesskit_focus_requests,
+            ui_render_backend: Some(&mut self.context),
         };
         // §12.6 (2026-04-24): cache the view-model so host getters can
         // consume runtime outputs (the projected `FrameViewModel`)

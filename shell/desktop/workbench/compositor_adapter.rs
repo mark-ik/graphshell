@@ -1186,7 +1186,7 @@ impl CompositorAdapter {
         Self::reconcile_webview_target_size(webview, size, target_size);
 
         if !Self::paint_offscreen_content_pass(render_context, target_size, || {
-            webview.paint();
+            webview.render();
         }) {
             return CompositedContentPassOutcome::PaintFailed;
         }
@@ -2221,7 +2221,8 @@ mod tests {
     use super::{
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
         COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
-        CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
+        CompositorPassTracker, ContentSurfaceHandle, GlStateSnapshot, OverlayAffordanceStyle,
+        OverlayStrokePass, ViewerSurfaceFramePath, ViewerSurfaceRegistry,
         clear_content_callbacks_for_tests, clear_native_textures_for_tests,
         clear_replay_samples_for_tests, compositor_native_texture_registry,
         content_callback_registry, push_replay_sample,
@@ -3519,6 +3520,95 @@ mod tests {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0)
                 > 0
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // ViewerSurfaceRegistry — frame-path diagnostics (M4.5 parity coverage)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn record_frame_path_creates_placeholder_for_unknown_node() {
+        let mut registry = ViewerSurfaceRegistry::new();
+        let node = NodeKey::new(1001);
+
+        assert!(registry.surface(&node).is_none());
+
+        registry.record_frame_path(node, ViewerSurfaceFramePath::MissingSurface);
+
+        let surface = registry.surface(&node).expect("surface must be auto-created");
+        assert_eq!(surface.last_frame_path, Some(ViewerSurfaceFramePath::MissingSurface));
+        assert_eq!(surface.handle, ContentSurfaceHandle::Placeholder);
+        assert!(surface.backing.is_none());
+    }
+
+    #[test]
+    fn record_frame_path_updates_existing_entry_most_recent_wins() {
+        let mut registry = ViewerSurfaceRegistry::new();
+        let node = NodeKey::new(1002);
+
+        // First call creates the placeholder entry.
+        registry.record_frame_path(node, ViewerSurfaceFramePath::SharedWgpuImported);
+        assert_eq!(
+            registry.surface(&node).and_then(|s| s.last_frame_path),
+            Some(ViewerSurfaceFramePath::SharedWgpuImported),
+        );
+
+        // Second call must overwrite (most-recent-wins).
+        registry.record_frame_path(node, ViewerSurfaceFramePath::CallbackFallback);
+        assert_eq!(
+            registry.surface(&node).and_then(|s| s.last_frame_path),
+            Some(ViewerSurfaceFramePath::CallbackFallback),
+        );
+    }
+
+    #[test]
+    fn record_frame_path_all_variants_round_trip() {
+        let mut registry = ViewerSurfaceRegistry::new();
+        let node = NodeKey::new(1003);
+
+        // Seed the entry with any path so subsequent calls exercise the update arm.
+        registry.record_frame_path(node, ViewerSurfaceFramePath::MissingSurface);
+
+        for path in [
+            ViewerSurfaceFramePath::SharedWgpuImported,
+            ViewerSurfaceFramePath::CallbackFallback,
+            ViewerSurfaceFramePath::MissingSurface,
+        ] {
+            registry.record_frame_path(node, path);
+            assert_eq!(
+                registry.surface(&node).and_then(|s| s.last_frame_path),
+                Some(path),
+                "record_frame_path round-trip failed for {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bump_content_generation_increments_counter() {
+        let mut registry = ViewerSurfaceRegistry::new();
+        let node = NodeKey::new(1004);
+
+        // Use record_frame_path to create a placeholder entry (content_generation starts at 0).
+        registry.record_frame_path(node, ViewerSurfaceFramePath::MissingSurface);
+        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(0));
+
+        registry.bump_content_generation(&node);
+        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(1));
+
+        registry.bump_content_generation(&node);
+        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(2));
+    }
+
+    #[test]
+    fn bump_content_generation_is_noop_for_missing_node() {
+        let mut registry = ViewerSurfaceRegistry::new();
+        let node = NodeKey::new(1005);
+
+        registry.bump_content_generation(&node);
+        assert!(
+            registry.surface(&node).is_none(),
+            "bump on missing node must not create an entry"
         );
     }
 }

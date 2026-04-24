@@ -225,17 +225,12 @@ impl EmbedderWindow {
             return;
         }
 
-        if let Some(gl) = self.platform_window().rendering_context().gl() {
-            gl.make_current()
-                .expect("Could not make PlatformWindow RenderingContext current");
-        }
         for webview_id in visible_renderers {
             let Some(webview) = self.webview_by_id(webview_id) else {
                 continue;
             };
-            webview.paint();
+            webview.render();
         }
-        self.platform_window().rendering_context().present();
     }
 
     /// Whether or not this [`EmbedderWindow`] should close.

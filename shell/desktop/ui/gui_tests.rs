@@ -164,7 +164,9 @@ mod tests {
         let mut runtime = GraphshellRuntime::for_testing();
         let focused = NodeKey::new(42);
 
-        runtime.focused_node_hint = Some(focused);
+        // §12.6 reconciliation: `focused_node` now comes from
+        // `active_pane_rects.first()` (same source as `focused_node_key()`),
+        // not `focused_node_hint`. Setting the pane rect is what drives it.
         runtime.graph_surface_focused = false;
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
@@ -173,6 +175,25 @@ mod tests {
         assert_eq!(view_model.focus.focused_node, Some(focused));
         assert!(!view_model.focus.graph_surface_focused);
         assert_eq!(view_model.active_pane, Some(focused));
+    }
+
+    #[test]
+    fn focus_view_model_focused_node_is_none_when_graph_surface_focused() {
+        use crate::graph::NodeKey;
+        use crate::shell::desktop::workbench::pane_model::PaneId;
+
+        let mut runtime = GraphshellRuntime::for_testing();
+        let focused = NodeKey::new(42);
+
+        // Even with a pane rect present, `focused_node` should be None
+        // when the graph surface has focus — matches `focused_node_key()`.
+        runtime.graph_surface_focused = true;
+        runtime.graph_app.workspace.graph_runtime.active_pane_rects =
+            vec![(PaneId::new(), focused, egui::Rect::ZERO)];
+
+        let view_model = runtime.project_view_model();
+        assert_eq!(view_model.focus.focused_node, None);
+        assert!(view_model.focus.graph_surface_focused);
     }
 
     #[test]

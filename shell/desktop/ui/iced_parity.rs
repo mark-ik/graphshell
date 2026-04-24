@@ -150,6 +150,7 @@ mod tests {
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
+            ui_render_backend: None,
         };
         let mut iced_ports = IcedHostPorts;
 
@@ -267,6 +268,7 @@ mod tests {
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
+            ui_render_backend: None,
         };
         let mut iced_ports = IcedHostPorts;
 
@@ -335,6 +337,7 @@ mod tests {
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
+            ui_render_backend: None,
         };
         let mut iced_ports = IcedHostPorts;
 

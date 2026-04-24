@@ -599,7 +599,21 @@ impl GraphshellRuntime {
                 .clone(),
             active_pane: active_pane_focused_node,
             focus: FocusViewModel {
-                focused_node: self.focused_node_hint,
+                // Reconciled with `EguiHost::focused_node_key()` semantics:
+                // `focused_node_hint` is a render-pass cache that can lag the
+                // authoritative value by one phase; `active_pane_rects.first()`
+                // is the same source `focused_node_key()` uses, gated on
+                // `!graph_surface_focused` to match the getter's early-return.
+                focused_node: if !self.graph_surface_focused {
+                    self.graph_app
+                        .workspace
+                        .graph_runtime
+                        .active_pane_rects
+                        .first()
+                        .map(|(_, node_key, _)| *node_key)
+                } else {
+                    None
+                },
                 graph_surface_focused: self.graph_surface_focused,
                 focus_ring,
                 focus_ring_alpha,
