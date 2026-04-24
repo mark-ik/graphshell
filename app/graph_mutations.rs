@@ -3336,20 +3336,57 @@ impl GraphBrowserApp {
         }
     }
 
+    /// Apply a typed graph delta to durable graph state and run the
+    /// post-apply sync that keeps derived caches/edges consistent.
+    ///
+    /// Composition of two steps:
+    /// 1. [`apply_domain_graph_delta`] — pure typed mutation of the
+    ///    domain graph (host-independent, replay-safe).
+    /// 2. [`post_apply_sync`] — cache invalidation + derived-edge rebuild
+    ///    triggered by the result classification.
+    ///
+    /// Replay paths that have already applied the typed delta directly
+    /// (e.g. WAL replay) can call `post_apply_sync` separately to bring
+    /// derived state into agreement.
+    ///
+    /// [`post_apply_sync`]: Self::post_apply_sync
     pub(crate) fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
         let result = apply_domain_graph_delta(&mut self.workspace.domain.graph, delta.clone());
-        if Self::graph_structure_changed(&result) {
+        self.post_apply_sync(&result);
+        result
+    }
+
+    /// Distinct post-apply sync step that owns the derived-state work
+    /// triggered by a typed graph mutation. Separated from
+    /// [`apply_graph_delta_and_sync`] (§12.5, 2026-04-24) so:
+    ///
+    /// - replay / restore paths can re-run sync after batch-applying
+    ///   typed deltas without going through the per-mutation entry,
+    /// - parity tests can verify "apply + sync == apply_and_sync",
+    /// - the contract is testable in isolation (call with synthetic
+    ///   `GraphDeltaResult` values and assert post-conditions).
+    ///
+    /// **Idempotence**: calling twice is safe. Hop-distance cache
+    /// invalidation sets the cache to `None` (second call is a no-op
+    /// against `None`); derived-containment-edge rebuild reconstructs
+    /// from current graph state (re-running yields the same edges).
+    ///
+    /// **Host-independence**: operates on `workspace.domain.graph` and
+    /// `workspace.graph_runtime.hop_distance_cache` only — no host
+    /// adapter or rendering state touched.
+    pub(crate) fn post_apply_sync(&mut self, result: &GraphDeltaResult) {
+        if Self::graph_structure_changed(result) {
             self.clear_hop_distance_cache();
         }
-        // Rebuild derived containment edges whenever the node set or a node's URL changes,
-        // so ContainmentRelation edges stay consistent without requiring an explicit refresh.
-        if Self::containment_affected(&result) {
+        // Rebuild derived containment edges whenever the node set or a
+        // node's URL changes so `ContainmentRelation` edges stay
+        // consistent without requiring an explicit refresh.
+        if Self::containment_affected(result) {
             self.workspace
                 .domain
                 .graph
                 .rebuild_derived_containment_relations();
         }
-        result
     }
 
     pub(crate) fn containment_affected(result: &GraphDeltaResult) -> bool {

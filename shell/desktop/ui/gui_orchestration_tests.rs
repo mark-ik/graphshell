@@ -1081,7 +1081,11 @@ fn pending_note_open_request_is_consumed_by_orchestration_semantic_phase() {
     let _ = app.take_pending_open_note_request();
     app.request_open_note_by_id(note_id);
 
-    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree);
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
+    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
 
     assert!(app.take_pending_open_note_request().is_none());
     assert!(node_pane_count(&tree) >= 1);
@@ -1096,7 +1100,11 @@ fn pending_unknown_note_open_request_is_cleared_by_orchestration_semantic_phase(
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     app.request_open_note_by_id(crate::app::NoteId::new());
 
-    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree);
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
+    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
 
     assert!(app.take_pending_open_note_request().is_none());
 }
@@ -1110,7 +1118,11 @@ fn pending_clip_open_request_is_consumed_by_orchestration_semantic_phase() {
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     app.request_open_clip_by_id("clip-semantic");
 
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
 
     assert!(app.take_pending_open_clip_request().is_none());
     assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
@@ -1129,7 +1141,11 @@ fn pending_clip_open_request_opens_matching_clip_node_pane() {
 
     app.request_open_clip_by_id("clip-semantic");
 
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
 
     assert!(app.take_pending_open_clip_request().is_none());
     assert!(tree.tiles.iter().any(|(_, tile)| {
@@ -1146,7 +1162,11 @@ fn pending_clip_open_request_is_noop_when_queue_empty() {
     let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
 
     assert!(app.take_pending_open_clip_request().is_none());
 }
@@ -1910,9 +1930,14 @@ fn pending_open_mode_is_one_shot_after_execution() {
     let mut open_node_tile_after_intents =
         Some(crate::shell::desktop::workbench::tile_view_ops::TileOpenMode::Tab);
 
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
     super::handle_pending_open_node_after_intents(
         &mut app,
         &mut tree,
+        Some(&mut graph_tree),
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );
@@ -1922,9 +1947,14 @@ fn pending_open_mode_is_one_shot_after_execution() {
     assert_eq!(active_node_key(&tree), Some(selected));
     let intents_after_first_pass = frame_intents.len();
 
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
     super::handle_pending_open_node_after_intents(
         &mut app,
         &mut tree,
+        Some(&mut graph_tree),
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );
@@ -1951,9 +1981,14 @@ fn pending_open_request_split_mode_uses_split_route_and_focuses_node() {
 
     app.request_open_node_tile_mode(selected, PendingTileOpenMode::SplitHorizontal);
 
+    let mut graph_tree = graph_tree::GraphTree::<crate::graph::NodeKey>::new(
+        graph_tree::LayoutMode::TreeStyleTabs,
+        graph_tree::ProjectionLens::Traversal,
+    );
     super::handle_pending_open_node_after_intents(
         &mut app,
         &mut tree,
+        Some(&mut graph_tree),
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );

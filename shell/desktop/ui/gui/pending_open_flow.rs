@@ -26,6 +26,7 @@ use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::nav_targeting;
+use crate::shell::desktop::workbench::graph_tree_dual_write as dual_write;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::TileOpenMode;
@@ -33,6 +34,7 @@ use crate::shell::desktop::workbench::tile_view_ops::TileOpenMode;
 pub(crate) fn handle_pending_open_node_after_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
@@ -62,6 +64,7 @@ pub(crate) fn handle_pending_open_node_after_intents(
         execute_pending_open_node_after_intents(
             graph_app,
             tiles_tree,
+            graph_tree,
             frame_intents,
             node_key,
             open_mode,
@@ -81,6 +84,7 @@ pub(crate) fn handle_pending_open_node_after_intents(
 pub(crate) fn handle_pending_open_note_after_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
 ) {
     let Some(note_id) = graph_app.take_pending_open_note_request() else {
         return;
@@ -92,9 +96,15 @@ pub(crate) fn handle_pending_open_note_after_intents(
     if let Some(node_key) = linked_node
         && graph_app.domain_graph().get_node(node_key).is_some()
     {
-        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
-            tiles_tree, graph_app, node_key,
-        );
+        if let Some(graph_tree) = graph_tree {
+            let _ = dual_write::open_or_focus_node(
+                tiles_tree, graph_tree, graph_app, node_key, None,
+            );
+        } else {
+            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+                tiles_tree, graph_app, node_key,
+            );
+        }
     }
 
     crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
@@ -110,15 +120,22 @@ pub(crate) fn handle_pending_open_note_after_intents(
 pub(crate) fn handle_pending_open_clip_after_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
 ) {
     let Some(clip_id) = graph_app.take_pending_open_clip_request() else {
         return;
     };
 
     if let Some(node_key) = graph_app.find_clip_node_by_id(&clip_id) {
-        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
-            tiles_tree, graph_app, node_key,
-        );
+        if let Some(graph_tree) = graph_tree {
+            let _ = dual_write::open_or_focus_node(
+                tiles_tree, graph_tree, graph_app, node_key, None,
+            );
+        } else {
+            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+                tiles_tree, graph_app, node_key,
+            );
+        }
     }
 
     crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
@@ -158,6 +175,7 @@ fn take_pending_open_node_request_selection(
 fn execute_pending_open_node_after_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    graph_tree: Option<&mut graph_tree::GraphTree<NodeKey>>,
     frame_intents: &mut Vec<GraphIntent>,
     node_key: NodeKey,
     open_mode: TileOpenMode,
@@ -170,9 +188,15 @@ fn execute_pending_open_node_after_intents(
         node_key,
         open_mode
     );
-    crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane_with_mode(
-        tiles_tree, graph_app, node_key, open_mode,
-    );
+    if let Some(graph_tree) = graph_tree {
+        let _ = dual_write::open_or_focus_node_with_mode(
+            tiles_tree, graph_tree, graph_app, node_key, anchor_before_open, open_mode,
+        );
+    } else {
+        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane_with_mode(
+            tiles_tree, graph_app, node_key, open_mode,
+        );
+    }
     maybe_push_grouped_edge_after_tab_open(
         frame_intents,
         open_mode,

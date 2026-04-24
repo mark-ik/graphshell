@@ -143,10 +143,11 @@ pub(super) fn apply_semantic_intents_and_pending_open(
     frame_intents: &mut Vec<GraphIntent>,
 ) {
     let mut workbench_intents = graph_app.take_pending_workbench_intents();
+    let mut graph_tree = graph_tree;
     handle_tool_pane_intents_with_modal_state_and_focus_authority(
         graph_app,
         tiles_tree,
-        graph_tree,
+        graph_tree.as_deref_mut(),
         &mut workbench_intents,
         modal_surface_active,
         Some(focus_authority),
@@ -156,12 +157,13 @@ pub(super) fn apply_semantic_intents_and_pending_open(
     handle_pending_open_node_after_intents(
         graph_app,
         tiles_tree,
+        graph_tree.as_deref_mut(),
         open_node_tile_after_intents,
         frame_intents,
     );
     restore_pending_transient_surface_focus(graph_app, tiles_tree, focus_authority);
-    handle_pending_open_note_after_intents(graph_app, tiles_tree);
-    handle_pending_open_clip_after_intents(graph_app, tiles_tree);
+    handle_pending_open_note_after_intents(graph_app, tiles_tree, graph_tree.as_deref_mut());
+    handle_pending_open_clip_after_intents(graph_app, tiles_tree, graph_tree.as_deref_mut());
 }
 
 pub(super) fn restore_pending_transient_surface_focus(
