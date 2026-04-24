@@ -15,7 +15,8 @@ use graphshell_core::async_host::AsyncSpawner;
 use log::warn;
 use graphshell_core::signal_router::SignalRouter;
 use servo::{
-    DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, WindowRenderingContext,
+    DeviceIndependentPixel, OffscreenRenderingContext, RenderingContextCore, WebViewId,
+    WindowRenderingContext,
 };
 use url::Url;
 use winit::event::WindowEvent;
@@ -48,7 +49,7 @@ use crate::shell::desktop::host::window::WebViewLifecycleEvent;
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::render_backend::{
     UiHostRenderBootstrap, UiRenderBackendContract, UiRenderBackendHandle, UiRenderBackendInit,
-    activate_ui_render_backend, create_ui_render_backend,
+    activate_ui_render_backend, create_shared_wgpu_rendering_context, create_ui_render_backend,
 };
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
@@ -204,6 +205,14 @@ pub struct EguiHost {
     /// Includes `diagnostics_state` (moved from EguiHost in §12.16,
     /// 2026-04-24) so iced inherits the same instance.
     pub(crate) runtime: GraphshellRuntime,
+
+    /// Most recent view-model produced by `runtime.tick(...)`. Cached
+    /// here so host getters consume runtime outputs (the projected
+    /// `FrameViewModel`) rather than reading shell state directly —
+    /// §12.6 (2026-04-24) first slice. `None` only on the first frame
+    /// before `update()` runs; getters that consume it fall back to
+    /// reading runtime state directly until the cache is populated.
+    pub(crate) cached_view_model: Option<crate::shell::desktop::ui::frame_model::FrameViewModel>,
 }
 
 impl Drop for EguiHost {
@@ -333,7 +342,7 @@ impl EguiHost {
         graph_data_dir: Option<PathBuf>,
         graph_snapshot_interval_secs: Option<u64>,
         worker_idle_threshold_secs: Option<u64>,
-    ) -> Self {
+    ) -> (Self, Rc<dyn RenderingContextCore>) {
         let mut context = create_ui_render_backend(
             event_loop,
             UiRenderBackendInit {
@@ -342,6 +351,18 @@ impl EguiHost {
             },
         );
         let (rendering_context, window_rendering_context) = render_host.into_contexts();
+        let initial_rendering_size = dpi::PhysicalSize::new(
+            winit_window.inner_size().width,
+            winit_window.inner_size().height,
+        );
+        let (shared_wgpu_device, shared_wgpu_queue) = context
+            .shared_wgpu_device_queue()
+            .expect("egui_wgpu backend did not expose a shared wgpu device/queue");
+        let root_rendering_context = create_shared_wgpu_rendering_context(
+            shared_wgpu_device.clone(),
+            shared_wgpu_queue.clone(),
+            initial_rendering_size,
+        );
 
         context.init_surface_accesskit(event_loop, winit_window, event_loop_proxy);
         winit_window.set_visible(true);
@@ -411,10 +432,15 @@ impl EguiHost {
             viewer_surfaces:
                 crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry::new(),
             viewer_surface_host: Box::new(ServoViewerSurfaceHost::new({
-                let rendering_context = rendering_context.clone();
+                let shared_wgpu_device = shared_wgpu_device.clone();
+                let shared_wgpu_queue = shared_wgpu_queue.clone();
                 move || {
                     crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceBacking::NativeRenderingContext(
-                        rendering_context.clone(),
+                        create_shared_wgpu_rendering_context(
+                            shared_wgpu_device.clone(),
+                            shared_wgpu_queue.clone(),
+                            initial_rendering_size,
+                        ),
                     )
                 }
             })),
@@ -462,6 +488,7 @@ impl EguiHost {
             pending_accesskit_focus_requests: Vec::new(),
             state: None,
             runtime,
+            cached_view_model: None,
         };
         gui.apply_runtime_theme_visuals();
 
@@ -535,7 +562,7 @@ impl EguiHost {
                 &gui.tiles_tree,
             );
 
-        gui
+        (gui, root_rendering_context)
     }
 
     pub(crate) fn try_handle_nip07_prompt(
@@ -648,7 +675,14 @@ impl EguiHost {
     }
 
     pub(crate) fn graph_surface_focused(&self) -> bool {
-        self.runtime.graph_surface_focused
+        // §12.6 (2026-04-24): consume the cached view-model output of
+        // `runtime.tick(...)` rather than reading runtime shell state
+        // directly. Pre-first-frame fallback to the runtime field keeps
+        // bootstrap queries working before `update()` runs.
+        self.cached_view_model
+            .as_ref()
+            .map(|vm| vm.focus.graph_surface_focused)
+            .unwrap_or(self.runtime.graph_surface_focused)
     }
 
     pub(crate) fn has_focused_node(&self) -> bool {
@@ -978,7 +1012,12 @@ impl EguiHost {
             pending_webview_a11y_updates: &mut self.pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut self.pending_accesskit_focus_requests,
         };
-        let _view_model = self.runtime.tick(&frame_input, &mut ports);
+        // §12.6 (2026-04-24): cache the view-model so host getters can
+        // consume runtime outputs (the projected `FrameViewModel`)
+        // rather than reading shell state directly. Currently used by
+        // `EguiHost::graph_surface_focused()`; subsequent slices migrate
+        // additional getters and chrome render sites onto the cache.
+        self.cached_view_model = Some(self.runtime.tick(&frame_input, &mut ports));
 
         GuiUpdateOutput
     }
