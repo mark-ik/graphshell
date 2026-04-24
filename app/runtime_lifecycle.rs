@@ -24,6 +24,42 @@ pub struct HostOpenRequest {
     pub pending_create_token: Option<PendingCreateToken>,
 }
 
+/// Typed lifecycle plan derived from a webview URL-change event.
+///
+/// §12.4 (2026-04-24): produced by
+/// [`GraphBrowserApp::plan_webview_url_change`] (read-only) and
+/// consumed by [`GraphBrowserApp::apply_webview_url_change_plan`]
+/// (mutation). Splits the host-event ingest from the state-apply pass
+/// so replay paths can construct + execute plans without going through
+/// the host event surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebviewUrlChangePlan {
+    pub node_key: super::NodeKey,
+    pub new_url: String,
+    /// True when the new URL differs from the node's current URL —
+    /// gates the traversal-edge + url-update pass.
+    pub url_actually_changed: bool,
+    /// Existing node that the new URL maps to, when one exists. Used
+    /// to push a history-traversal edge from the originating node to
+    /// the target.
+    pub traversal_target: Option<super::NodeKey>,
+}
+
+/// Typed lifecycle plan derived from a webview history-change event.
+///
+/// §12.4 (2026-04-24): companion to [`WebviewUrlChangePlan`] for the
+/// history-state surface. Produced by
+/// [`GraphBrowserApp::plan_webview_history_change`] and consumed by
+/// [`GraphBrowserApp::apply_webview_history_change_plan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebviewHistoryChangePlan {
+    pub node_key: super::NodeKey,
+    pub old_entries: Vec<String>,
+    pub old_index: usize,
+    pub new_entries: Vec<String>,
+    pub new_index: usize,
+}
+
 impl GraphBrowserApp {
     pub(crate) fn handle_host_open_request(&mut self, request: HostOpenRequest) {
         let parent_node = request
@@ -116,37 +152,124 @@ impl GraphBrowserApp {
         Point2D::new(400.0, 300.0)
     }
 
-    pub(crate) fn handle_webview_url_changed(&mut self, webview_id: RendererId, new_url: String) {
+    /// Plan a webview URL change (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24): split out of `handle_webview_url_changed` so
+    /// the host event parse + state-query pass produces a typed
+    /// [`WebviewUrlChangePlan`] separately from the apply pass. Replay
+    /// paths can construct + execute plans without going through the
+    /// host event surface; tests can assert plan shape without
+    /// mutating state.
+    pub(crate) fn plan_webview_url_change(
+        &self,
+        webview_id: RendererId,
+        new_url: String,
+    ) -> Option<WebviewUrlChangePlan> {
         if new_url.is_empty() {
-            return;
+            return None;
         }
-        let Some(node_key) = self.get_node_for_webview(webview_id) else {
-            return;
-        };
-        let _ = self
-            .workspace
-            .domain
-            .graph
-            .touch_node_last_visited_now(node_key);
-        if self
+        let node_key = self.get_node_for_webview(webview_id)?;
+        let url_actually_changed = self
             .workspace
             .domain
             .graph
             .get_node(node_key)
             .map(|node| node.url() != new_url)
-            .unwrap_or(false)
-        {
-            let to_key = self
-                .workspace
+            .unwrap_or(false);
+        let traversal_target = if url_actually_changed {
+            self.workspace
                 .domain
                 .graph
                 .get_node_by_url(&new_url)
-                .map(|(key, _)| key);
-            if let Some(to_key) = to_key {
-                self.push_history_traversal_and_sync(node_key, to_key, NavigationTrigger::Unknown);
+                .map(|(key, _)| key)
+        } else {
+            None
+        };
+        Some(WebviewUrlChangePlan {
+            node_key,
+            new_url,
+            url_actually_changed,
+            traversal_target,
+        })
+    }
+
+    /// Apply a previously-planned webview URL change.
+    ///
+    /// §12.4 (2026-04-24): pure state-mutation step. Composes
+    /// `touch_node_last_visited_now`, `push_history_traversal_and_sync`,
+    /// and `update_node_url_and_log` per the plan flags.
+    pub(crate) fn apply_webview_url_change_plan(&mut self, plan: WebviewUrlChangePlan) {
+        let _ = self
+            .workspace
+            .domain
+            .graph
+            .touch_node_last_visited_now(plan.node_key);
+        if plan.url_actually_changed {
+            if let Some(to_key) = plan.traversal_target {
+                self.push_history_traversal_and_sync(
+                    plan.node_key,
+                    to_key,
+                    NavigationTrigger::Unknown,
+                );
             }
-            let _ = self.update_node_url_and_log(node_key, new_url);
+            let _ = self.update_node_url_and_log(plan.node_key, plan.new_url);
         }
+    }
+
+    pub(crate) fn handle_webview_url_changed(&mut self, webview_id: RendererId, new_url: String) {
+        if let Some(plan) = self.plan_webview_url_change(webview_id, new_url) {
+            self.apply_webview_url_change_plan(plan);
+        }
+    }
+
+    /// Plan a webview history-state change (read-only `&self`).
+    ///
+    /// §12.4 (2026-04-24): split out of `handle_webview_history_changed`
+    /// so the history-projection diff produces a typed
+    /// [`WebviewHistoryChangePlan`] separately from the apply pass.
+    pub(crate) fn plan_webview_history_change(
+        &self,
+        webview_id: RendererId,
+        entries: Vec<String>,
+        current: usize,
+    ) -> Option<WebviewHistoryChangePlan> {
+        let node_key = self.get_node_for_webview(webview_id)?;
+        let (old_entries, old_index) = {
+            let node = self.workspace.domain.graph.get_node(node_key)?;
+            let history = node.history_projection();
+            (history.entries, history.current_index)
+        };
+        let new_index = if entries.is_empty() {
+            0
+        } else {
+            current.min(entries.len() - 1)
+        };
+        Some(WebviewHistoryChangePlan {
+            node_key,
+            old_entries,
+            old_index,
+            new_entries: entries,
+            new_index,
+        })
+    }
+
+    /// Apply a previously-planned webview history-state change.
+    ///
+    /// §12.4 (2026-04-24): pure state-mutation step. Composes the
+    /// traversal-edge bookkeeping (`maybe_add_history_traversal_edge`)
+    /// with the typed-delta history write (`apply_node_history_change`).
+    pub(crate) fn apply_webview_history_change_plan(
+        &mut self,
+        plan: WebviewHistoryChangePlan,
+    ) {
+        self.maybe_add_history_traversal_edge(
+            plan.node_key,
+            &plan.old_entries,
+            plan.old_index,
+            &plan.new_entries,
+            plan.new_index,
+        );
+        let _ = self.apply_node_history_change(plan.node_key, plan.new_entries, plan.new_index);
     }
 
     pub(crate) fn handle_webview_history_changed(
@@ -155,29 +278,9 @@ impl GraphBrowserApp {
         entries: Vec<String>,
         current: usize,
     ) {
-        let Some(node_key) = self.get_node_for_webview(webview_id) else {
-            return;
-        };
-        let (old_entries, old_index) =
-            if let Some(node) = self.workspace.domain.graph.get_node(node_key) {
-                let history = node.history_projection();
-                (history.entries, history.current_index)
-            } else {
-                return;
-            };
-        let new_index = if entries.is_empty() {
-            0
-        } else {
-            current.min(entries.len() - 1)
-        };
-        self.maybe_add_history_traversal_edge(
-            node_key,
-            &old_entries,
-            old_index,
-            &entries,
-            new_index,
-        );
-        let _ = self.apply_node_history_change(node_key, entries, new_index);
+        if let Some(plan) = self.plan_webview_history_change(webview_id, entries, current) {
+            self.apply_webview_history_change_plan(plan);
+        }
     }
 
     pub(crate) fn handle_webview_scroll_changed(
