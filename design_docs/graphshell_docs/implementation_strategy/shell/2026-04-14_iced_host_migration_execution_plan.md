@@ -1670,21 +1670,44 @@ canonical mutation lane with both compile-time and grep-time enforcement.
 
 ### 12.4. Runtime Lifecycle Hooks
 
-- `partial` Title updates already use `GraphDelta`: `runtime_lifecycle.rs:220`
-- `partial` URL change handling is mixed: traversal and URL mutation go through
-  app-sanctioned helpers at `runtime_lifecycle.rs:100`
-- `missing` History change handling still mutates persisted node history
-  directly at `runtime_lifecycle.rs:184`
-- `partial` Lifecycle still owns substantial app/domain behavior directly
-  rather than cleanly splitting ingest, planning, apply, and effects
+**Status update (2026-04-24)**: First two webview lifecycle handlers
+(URL change + history change) split into typed plan + apply pattern.
 
-**Targets**:
+- `done` Title updates already use `GraphDelta`: `runtime_lifecycle.rs:220`
+- `done` URL change handling split (2026-04-24): typed
+  `WebviewUrlChangePlan` produced by `plan_webview_url_change(&self,
+  ...)` (read-only state-query pass) consumed by
+  `apply_webview_url_change_plan(&mut self, plan)` (mutation pass).
+  `handle_webview_url_changed(&mut self, ...)` is now a thin
+  composition of plan + apply. Replay paths can construct + execute
+  plans directly without going through the host event surface; tests
+  can assert plan shape without mutating state.
+- `done` History change handling already routes through the typed
+  `apply_node_history_change` helper (per §12.3 closure). Now also
+  split into typed `WebviewHistoryChangePlan` produced by
+  `plan_webview_history_change(&self, ...)` and consumed by
+  `apply_webview_history_change_plan(&mut self, plan)`. The plan
+  carries the full diff (`old_entries`, `old_index`, `new_entries`,
+  `new_index`) so traversal-edge bookkeeping happens inside apply.
+- `partial` Other webview lifecycle handlers (`handle_webview_created`,
+  `handle_webview_scroll_changed`, `handle_webview_title_changed`,
+  `handle_webview_crashed`) still combine ingest + apply inline.
+  Pattern is established; subsequent slices apply the same
+  `plan_*` / `apply_*_plan` shape.
 
-- Split lifecycle into host-neutral event ingestion, mutation planning, state
-  apply, and effects
-- Remove direct persisted-history writes from lifecycle
-- Ensure all host lifecycle events can be replayed through the same
-  state-transition seams
+**Targets remaining**:
+
+- Apply the plan/apply split to the remaining 4 webview lifecycle
+  handlers (created, scroll_changed, title_changed, crashed).
+- Add an explicit "effects" pass for handlers whose apply ends with
+  refresh calls (e.g.,
+  `refresh_semantic_navigation_runtime_for_node`) — currently the
+  effect is inlined in the apply step, which is fine but a future
+  cleanup could lift it into a returned `LifecycleEffects` value the
+  caller dispatches.
+- Build replay-test infrastructure that executes
+  `apply_*_plan` directly from constructed plans, validating
+  state-transition determinism without host events.
 
 ### 12.5. Graph Mutation / Sync Paths
 
@@ -1734,15 +1757,29 @@ explicit step.
   `shell/desktop/ui/iced_host_ports.rs:44`
 - `partial` Iced host calls the same runtime tick:
   `shell/desktop/ui/iced_host.rs:65`
-- `partial` Egui still reads shell state directly in places; `runtime.tick(...)`
-  exists, but full host consumption of runtime outputs is not complete:
-  `shell/desktop/ui/gui.rs:1056`
+- `partial` Egui consumption of `runtime.tick(...)` outputs has its first
+  consumer (2026-04-24): `EguiHost.cached_view_model:
+  Option<FrameViewModel>` field caches the post-tick view-model each
+  frame; `EguiHost::graph_surface_focused()` getter reads from
+  `cached_view_model.focus.graph_surface_focused` (with pre-first-frame
+  fallback to runtime). Establishes the consume pattern for subsequent
+  getter migrations.
 
-**Targets**:
+**Targets remaining**:
 
-- Make both egui and iced consume runtime outputs, not internal shell state
-- Keep all domain mutation APIs out of host adapters
-- Add parity runs for the same replay/input traces across egui and iced
+- Migrate additional `EguiHost` getters onto `cached_view_model` —
+  `focused_node_key`, `runtime_focus_state`, dialog-state queries
+  (which all currently delegate to either runtime/shell state or
+  `interaction_queries`).
+- Migrate chrome render sites that currently read `runtime.foo` /
+  `graph_app.workspace.chrome_ui.foo` directly. Candidates: focus-ring
+  alpha computation in `tile_render_pass.rs:723-745` (already in
+  `vm.focus.focus_ring_alpha`), toolbar can_go_back/forward, dialog
+  visibility flags.
+- Iced ports: implement the bring-up stubs (`iced_host_ports.rs:44`)
+  beyond `todo(m5)` markers — gates real iced parity.
+- Add parity runs for the same replay/input traces across egui and
+  iced once iced ports are real (depends on §12.12).
 
 ### 12.7. Workbench Authority
 
@@ -1917,22 +1954,49 @@ original matrix, but the harness itself is a seam with its own state.
   divergence types
 - `done` Per-frame parity check runs in debug builds:
   `graph_tree_sync::parity_check()`
-- `partial` UX replay exists: `shell/desktop/workbench/ux_replay.rs`
-- `partial` Iced parity scaffold exists: `shell/desktop/ui/iced_parity.rs`
-- `missing` No exercising of the replay harness across both hosts on every
-  host-touching change
-- `missing` No graph-canvas packet replay (snapshots exist per M0 but not
-  exercised cross-host)
-- `missing` No CI gate that blocks divergence between egui and iced replay
-  outputs
+- `done` UX replay exists: `shell/desktop/workbench/ux_replay.rs`
+- `done` Iced parity scaffold exists: `shell/desktop/ui/iced_parity.rs`
+- `done` (2026-04-24) First cross-host replay-trace parity test landed:
+  `iced_parity::tests::replay_trace_scalar_parity_across_host_ports`.
+  Constructs a `FrameHostInput` with a small `HostEvent` trace
+  (`PointerMoved` + `PointerDown { Primary }`), drives both runtime
+  instances through `runtime.tick(input, ports)` (one with
+  `EguiHostPorts`, one with `IcedHostPorts`), and asserts the resulting
+  `FrameViewModel` portable scalar fields match across hosts (focus
+  state, toolbar location/nav, search state, command-palette state,
+  dialogs view-model, settings view-model, captures-in-flight). This
+  is the smallest meaningful cross-host parity exercise; the `runtime`
+  is host-neutral by construction so any divergence here is a kernel
+  regression. Test is gated by the `iced-host` feature.
+- `partial` Test currently asserts on portable scalar primitives only.
+  Several view-model sub-structs (`FocusViewModel`, `ToolbarViewModel`,
+  etc.) don't yet derive `PartialEq`, so a full struct-level parity
+  assertion is deferred. Adding the derives is mechanical
+  (`#[derive(PartialEq)]` + same on `OmnibarViewModel` / scope-view
+  enums) — straightforward follow-on slice.
+- `partial` `cargo test --features iced-host` currently has a
+  pre-existing `PortableRect` duplicate-import error in
+  `iced_host_ports.rs:267`; my parity test compiles cleanly under the
+  default feature set. Fixing the upstream import lets the parity test
+  actually run end-to-end.
+- `missing` No graph-canvas packet replay (snapshots exist per M0 but
+  not exercised cross-host).
+- `missing` No CI gate that blocks divergence between egui and iced
+  replay outputs.
 
-**Targets**:
+**Targets remaining**:
 
-- Wire `iced_parity.rs` to actually consume the same replay traces as the egui
-  host
-- Add a default narrow validation lane that runs replay parity for the slices
-  affected by each change
-- Treat `iced_parity.rs` as the M5 acceptance harness, not an aspirational stub
+- Add `#[derive(PartialEq)]` to view-model sub-structs so the parity
+  test can assert on full struct equality rather than scalar primitives.
+- Resolve the `PortableRect` duplicate-import in `iced_host_ports.rs`
+  to unblock `cargo test --features iced-host` end-to-end execution
+  of the parity test.
+- Build a default narrow validation lane (e.g. `cargo test --lib
+  iced_parity --features iced-host`) that runs the cross-host replay
+  parity tests for each PR.
+- Add graph-canvas packet snapshot replay (parallel structure to UX
+  replay).
+- CI gate that blocks PRs on parity divergence.
 
 ### 12.13. Render Backend Boundary
 
@@ -1968,15 +2032,33 @@ tracked.
 - `done` Settings persistence: `app/settings_persistence.rs`
 - `partial` Setter-side clamping is consistent for new settings; older settings
   surfaces vary
-- `missing` No host-neutral settings UI surface — settings panels are still
-  egui-rendered
-- `missing` No parity test that settings changes apply identically across hosts
+- `done` (2026-04-24) Host-neutral read-side projection landed:
+  `SettingsViewModel { focus_ring: FocusRingSettingsView }` POD type
+  in graphshell-core's `frame_model.rs` mirrors `app::FocusRingSettings`
+  (the canonical settings types stay in `app/settings_persistence.rs`
+  to keep the kernel independent of app/serde concerns; the POD
+  mirror carries the same fields). `FrameViewModel.settings` field
+  populated each frame by `gui_state.rs::project_view_model` from
+  `chrome_ui.focus_ring_settings`. Iced consumes the same projection
+  for free once it renders the FrameViewModel.
+- `partial` Settings panels still mutate `chrome_ui.foo_settings`
+  directly — settings UI is a mutation surface that needs its own
+  port-shaped design (read-only view-model is the natural part to
+  lift; mutation routing back through a `set_*` helper is a separate
+  slice).
+- `missing` No parity test that settings changes apply identically
+  across hosts.
 
-**Targets**:
+**Targets remaining**:
 
-- Lift settings UI projection above the host boundary (settings → view-model
-  → host-rendered widget)
-- Add parity coverage for settings mutations
+- Extend `SettingsViewModel` to mirror `ThumbnailSettings` and
+  future settings groups (same POD-mirror pattern).
+- Migrate egui settings panels to render from
+  `view_model.settings.*` instead of `chrome_ui.*_settings` direct
+  reads. Mutation flows back through existing `app::set_*_settings`
+  setters.
+- Add parity coverage for settings mutations (depends on §12.12
+  replay infrastructure).
 - Audit older settings surfaces for setter-side clamping consistency
 
 ### 12.15. Accessibility Above Framework Layer (Sidequest D)
