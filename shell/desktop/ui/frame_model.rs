@@ -24,8 +24,10 @@
 
 #[allow(unused_imports)]
 pub(crate) use graphshell_core::shell_state::frame_model::{
-    CommandPaletteScopeView, CommandPaletteViewModel, DegradedReceiptSpec, DialogsViewModel,
-    FocusRingCurve, FocusRingSettingsView, FocusRingSpec, FocusViewModel, FrameHostInput,
-    FrameViewModel, GraphSearchViewModel, OmnibarProviderStatusView, OmnibarSessionKindView,
-    OmnibarViewModel, SettingsViewModel, ToastSeverity, ToastSpec, ToolbarViewModel,
+    AccessibilityViewModel, CommandPaletteScopeView, CommandPaletteViewModel, DegradedReceiptSpec,
+    DialogsViewModel, FocusRingCurve, FocusRingSettingsView, FocusRingSpec, FocusViewModel,
+    FrameHostInput, FrameViewModel, GraphSearchViewModel, OmnibarProviderStatusView,
+    OmnibarSessionKindView, OmnibarViewModel, SettingsViewModel, ThumbnailAspectView,
+    ThumbnailFilterView, ThumbnailFormatView, ThumbnailSettingsView, ToastSeverity, ToastSpec,
+    ToolbarViewModel,
 };

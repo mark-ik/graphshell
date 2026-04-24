@@ -130,6 +130,25 @@ pub struct FrameViewModel {
     /// instead of reading `chrome_ui.focus_ring_settings` /
     /// `chrome_ui.thumbnail_settings` directly.
     pub settings: SettingsViewModel,
+
+    /// Accessibility (AT) semantics projected into a host-neutral
+    /// summary. §12.15 (2026-04-24): the full UxTreeSnapshot lives
+    /// shell-side at `shell/desktop/workbench/ux_tree::latest_snapshot()`
+    /// — the view-model carries only the correlation seam (which node
+    /// AT focus is on, whether the AT tree has been published this
+    /// frame, snapshot version counters) so hosts can decide whether
+    /// to refresh their AccessKit-side tree without the kernel
+    /// depending on the shell-side UxTree types.
+    pub accessibility: AccessibilityViewModel,
+
+    /// Whether the workbench is currently displaying the
+    /// graph-canvas-only view (no node panes mounted). §12.6
+    /// (2026-04-24, second pass): EguiHost previously derived this on
+    /// every read by walking the tile tree
+    /// (`pane_queries::tree_has_active_node_pane`); projecting it once
+    /// per frame lets hosts gate graph-vs-detail UI off the cached
+    /// view-model rather than re-running the predicate ad hoc.
+    pub is_graph_view: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +615,13 @@ pub struct SettingsViewModel {
     /// Focus-ring animation behavior (enabled toggle, fade duration,
     /// fade curve, optional color override).
     pub focus_ring: FocusRingSettingsView,
+
+    /// Thumbnail capture behavior (enabled toggle, target dimensions,
+    /// resampling filter, output format / aspect policy). §12.14
+    /// (2026-04-24, second pass): POD mirror of
+    /// `app::ThumbnailSettings` so the iced settings panel can render
+    /// without depending on the app crate.
+    pub thumbnail: ThumbnailSettingsView,
 }
 
 /// POD mirror of `app::FocusRingSettings` for host rendering.
@@ -622,4 +648,99 @@ impl Default for FocusRingSettingsView {
             color_override: None,
         }
     }
+}
+
+/// POD mirror of `app::ThumbnailSettings` for host rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThumbnailSettingsView {
+    /// Master enable for the thumbnail-capture pipeline.
+    pub enabled: bool,
+    /// Target thumbnail width in pixels.
+    pub width: u32,
+    /// Target thumbnail height in pixels.
+    pub height: u32,
+    /// Resampling filter applied during downscale.
+    pub filter: ThumbnailFilterView,
+    /// Encoded output format (PNG / JPEG / WebP).
+    pub format: ThumbnailFormatView,
+    /// JPEG encoder quality on a 1..=100 scale; ignored when
+    /// `format != ThumbnailFormatView::Jpeg`.
+    pub jpeg_quality: u8,
+    /// Aspect-ratio policy for the downscale pass.
+    pub aspect: ThumbnailAspectView,
+}
+
+impl Default for ThumbnailSettingsView {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            width: 256,
+            height: 192,
+            filter: ThumbnailFilterView::Triangle,
+            format: ThumbnailFormatView::Png,
+            jpeg_quality: 85,
+            aspect: ThumbnailAspectView::Fixed,
+        }
+    }
+}
+
+/// POD mirror of `app::ThumbnailFilter`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThumbnailFilterView {
+    Nearest,
+    #[default]
+    Triangle,
+    CatmullRom,
+    Gaussian,
+    Lanczos3,
+}
+
+/// POD mirror of `app::ThumbnailFormat`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThumbnailFormatView {
+    #[default]
+    Png,
+    Jpeg,
+    WebP,
+}
+
+/// POD mirror of `app::ThumbnailAspect`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThumbnailAspectView {
+    #[default]
+    Fixed,
+    MatchSource,
+    Square,
+}
+
+// ---------------------------------------------------------------------------
+// §12.15 — Accessibility view-model (host-neutral summary of AT semantics)
+// ---------------------------------------------------------------------------
+
+/// Host-neutral summary of accessibility (AT) state. Lives on
+/// [`FrameViewModel::accessibility`] and is populated by the runtime
+/// each frame from focus state + the published UxTreeSnapshot.
+///
+/// §12.15 (2026-04-24): the full UxTreeSnapshot (semantic / presentation
+/// / trace nodes) lives shell-side in
+/// `shell/desktop/workbench/ux_tree`. This summary carries only the
+/// fields hosts need to decide whether to refresh their AccessKit-side
+/// AT tree:
+///
+/// - `focused_node`: which graph node currently owns AT focus (mirrors
+///   `FocusViewModel::focused_node` with explicit AT semantics).
+/// - `snapshot_version`: monotonic counter the runtime bumps when the
+///   UxTreeSnapshot semantic content changes; hosts cache the last
+///   version they synced with AccessKit and refresh when it advances.
+/// - `snapshot_published`: whether the runtime has published a snapshot
+///   at all this session. Pre-first-frame, hosts skip the AT pass.
+///
+/// Hosts that need the full snapshot fetch it from
+/// `ux_tree::latest_snapshot()` independently — the view-model is the
+/// "do I need to look?" signal, not the data carrier.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccessibilityViewModel {
+    pub focused_node: Option<NodeKey>,
+    pub snapshot_version: u32,
+    pub snapshot_published: bool,
 }

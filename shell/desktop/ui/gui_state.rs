@@ -494,6 +494,7 @@ impl GraphshellRuntime {
     pub(crate) fn project_view_model(&self) -> FrameViewModel {
         let chrome_ui = &self.graph_app.workspace.chrome_ui;
         let focus_ring_settings = chrome_ui.focus_ring_settings;
+        let thumbnail_settings = chrome_ui.thumbnail_settings;
         // The fade-out duration is sourced from user settings; the
         // legacy `runtime.focus_ring_duration` field was removed in
         // the 2026-04-23 Lane B' warm-up.
@@ -659,7 +660,69 @@ impl GraphshellRuntime {
                         curve: focus_ring_settings.curve,
                         color_override: focus_ring_settings.color_override,
                     },
+                    thumbnail: graphshell_core::shell_state::frame_model::ThumbnailSettingsView {
+                        enabled: thumbnail_settings.enabled,
+                        width: thumbnail_settings.width,
+                        height: thumbnail_settings.height,
+                        filter: match thumbnail_settings.filter {
+                            crate::app::ThumbnailFilter::Nearest =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Nearest,
+                            crate::app::ThumbnailFilter::Triangle =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Triangle,
+                            crate::app::ThumbnailFilter::CatmullRom =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::CatmullRom,
+                            crate::app::ThumbnailFilter::Gaussian =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Gaussian,
+                            crate::app::ThumbnailFilter::Lanczos3 =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Lanczos3,
+                        },
+                        format: match thumbnail_settings.format {
+                            crate::app::ThumbnailFormat::Png =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::Png,
+                            crate::app::ThumbnailFormat::Jpeg =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::Jpeg,
+                            crate::app::ThumbnailFormat::WebP =>
+                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::WebP,
+                        },
+                        jpeg_quality: thumbnail_settings.jpeg_quality,
+                        aspect: match thumbnail_settings.aspect {
+                            crate::app::ThumbnailAspect::Fixed =>
+                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::Fixed,
+                            crate::app::ThumbnailAspect::MatchSource =>
+                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::MatchSource,
+                            crate::app::ThumbnailAspect::Square =>
+                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::Square,
+                        },
+                    },
                 },
+            accessibility: {
+                // §12.15 (2026-04-24): summarize AT state from the
+                // shell-side UxTreeSnapshot. Hosts use this to decide
+                // whether to refresh their AccessKit-side tree this
+                // frame; the full snapshot is fetched separately via
+                // `ux_tree::latest_snapshot()`.
+                let snapshot = crate::shell::desktop::workbench::ux_tree::latest_snapshot();
+                graphshell_core::shell_state::frame_model::AccessibilityViewModel {
+                    focused_node: self.focused_node_hint,
+                    snapshot_version: snapshot
+                        .as_ref()
+                        .map(|s| s.semantic_version)
+                        .unwrap_or(0),
+                    snapshot_published: snapshot.is_some(),
+                }
+            },
+            // §12.6 (2026-04-24, second pass): mirrors the predicate
+            // EguiHost::is_graph_view used directly. Equivalent to
+            // `pane_queries::tree_has_active_node_pane(graph_app)` —
+            // inlined here because `pane_queries` is a private gui
+            // submodule.
+            is_graph_view: self
+                .graph_app
+                .workspace
+                .graph_runtime
+                .active_pane_rects
+                .first()
+                .is_none(),
         }
     }
 }
