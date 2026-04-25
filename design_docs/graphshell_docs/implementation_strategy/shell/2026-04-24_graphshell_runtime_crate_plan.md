@@ -397,6 +397,48 @@ Progress log:
   `graph-canvas`, `graph-tree`, and `graphshell-core` and are unrelated to this
   slice.
 
+### Cross-lane additions (servo-into-verso S3a + extension slices)
+
+The 2026-04-25 servo-into-verso lane (see
+[2026-04-25_servo_into_verso_plan.md](2026-04-25_servo_into_verso_plan.md))
+added complementary surface to the same `graphshell-runtime` crate:
+
+- 2026-04-25 (S3a host-port traits): the broader host-port trait
+  surface (HostInputPort, HostSurfacePort with associated
+  `BackendContext` type, HostPaintPort, HostTexturePort,
+  HostAccessibilityPort with portable `request_focus`) moved into
+  `graphshell-runtime::ports` alongside the existing
+  RuntimeClipboardPort/RuntimeToastPort. Plus host-neutral
+  `BackendViewportInPixels` (was in `shell::desktop::render_backend`)
+  and `ViewerSurfaceId` (host-neutral viewer/webview identity, two
+  u32 fields mirroring `servo::WebViewId`'s shape). The Servo-keyed
+  tree-update injection split into a separate
+  `ServoAccessibilityInjectionPort` extension trait that lives in
+  graphshell main, gated on `servo-engine`.
+- 2026-04-25 (graph_runtime layout-cache projection): added
+  `project_graph_runtime_layout_view_model` +
+  `GraphRuntimeLayoutProjectionInput` /
+  `GraphRuntimeLayoutProjection`. Consumes the per-frame layout
+  outputs (active_pane_rects post egui→portable conversion,
+  pane_render_modes, pane_viewer_ids, cached_tree_rows,
+  cached_tab_order, cached_split_boundaries) and derives
+  `is_graph_view`. Two new unit tests pin empty-layout and
+  populated-layout passthrough behavior. `gui_state.rs::project_view_model`
+  delegates to it. `graph-tree` added as a direct
+  `graphshell-runtime` dep (already transitive via graphshell-core's
+  frame_model).
+- 2026-04-25 (portable_time relocation): `portable_now()` moved from
+  `shell::desktop::ui::portable_time` into
+  `graphshell-runtime::portable_time`. Both desktop hosts (egui +
+  iced) anchor monotonic clocks identically; the runtime crate is
+  the natural home. Shell-side `portable_time.rs` is now a tiny
+  re-export shim so existing call sites work unchanged. Two new
+  unit tests pin monotonic non-decreasing + advance-with-time
+  behavior.
+
+Validation: `cargo test -p graphshell-runtime --lib` passed at 24
+tests post-extension; `cargo check` (default features) clean.
+
 ## Risks and guardrails
 
 - Do not widen this slice into viewer/compositor extraction. That is a
