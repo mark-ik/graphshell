@@ -39,6 +39,9 @@ use graphshell_runtime::{
     project_graph_search_view_model, project_omnibar_view_model, project_settings_view_model,
     project_toolbar_view_model, project_transient_frame_outputs,
 };
+use graphshell_runtime::frame_projection::{
+    GraphRuntimeLayoutProjectionInput, project_graph_runtime_layout_view_model,
+};
 #[cfg(any(test, feature = "iced-host"))]
 use verso_host::{NoopViewerSurfaceHost, TokioAsyncSpawner};
 
@@ -556,51 +559,43 @@ impl GraphshellRuntime {
                 captures_in_flight: self.thumbnail_capture_in_flight.len(),
             });
 
+        // 2026-04-25 graphshell-runtime extraction Slice 2: shape the
+        // per-frame layout-cache block through `frame_projection::
+        // project_graph_runtime_layout_view_model`. The shell-side
+        // egui::Rect → PortableRect conversion stays here; the runtime
+        // helper consumes the already-portable form.
+        let layout_active_pane_rects: Vec<_> = self
+            .graph_app
+            .workspace
+            .graph_runtime
+            .active_pane_rects
+            .iter()
+            .map(|(pane_id, node_key, rect)| {
+                (
+                    *pane_id,
+                    *node_key,
+                    crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui(*rect),
+                )
+            })
+            .collect();
+        let layout_projection = project_graph_runtime_layout_view_model(
+            GraphRuntimeLayoutProjectionInput {
+                active_pane_rects: &layout_active_pane_rects,
+                pane_render_modes: &self.graph_app.workspace.graph_runtime.pane_render_modes,
+                pane_viewer_ids: &self.graph_app.workspace.graph_runtime.pane_viewer_ids,
+                tree_rows: &self.graph_app.workspace.graph_runtime.cached_tree_rows,
+                tab_order: &self.graph_app.workspace.graph_runtime.cached_tab_order,
+                split_boundaries: &self.graph_app.workspace.graph_runtime.cached_split_boundaries,
+            },
+        );
+
         FrameViewModel {
-            active_pane_rects: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .active_pane_rects
-                .iter()
-                .map(|(pane_id, node_key, rect)| {
-                    (
-                        *pane_id,
-                        *node_key,
-                        crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui(*rect),
-                    )
-                })
-                .collect(),
-            pane_render_modes: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .pane_render_modes
-                .clone(),
-            pane_viewer_ids: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .pane_viewer_ids
-                .clone(),
-            tree_rows: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .cached_tree_rows
-                .clone(),
-            tab_order: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .cached_tab_order
-                .clone(),
-            split_boundaries: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .cached_split_boundaries
-                .clone(),
+            active_pane_rects: layout_projection.active_pane_rects,
+            pane_render_modes: layout_projection.pane_render_modes,
+            pane_viewer_ids: layout_projection.pane_viewer_ids,
+            tree_rows: layout_projection.tree_rows,
+            tab_order: layout_projection.tab_order,
+            split_boundaries: layout_projection.split_boundaries,
             active_pane: focus_projection.active_pane,
             focus: focus_projection.focus,
             toolbar: project_toolbar_view_model(ToolbarProjectionInput {
@@ -698,18 +693,11 @@ impl GraphshellRuntime {
                     snapshot_published: snapshot.is_some(),
                 })
             },
-            // §12.6 (2026-04-24, second pass): mirrors the predicate
-            // EguiHost::is_graph_view used directly. Equivalent to
-            // `pane_queries::tree_has_active_node_pane(graph_app)` —
-            // inlined here because `pane_queries` is a private gui
-            // submodule.
-            is_graph_view: self
-                .graph_app
-                .workspace
-                .graph_runtime
-                .active_pane_rects
-                .first()
-                .is_none(),
+            // 2026-04-25 graphshell-runtime extraction Slice 2:
+            // is_graph_view derivation moved into the layout helper.
+            // True iff `active_pane_rects` is empty, i.e. the graph
+            // canvas is the only visible surface.
+            is_graph_view: layout_projection.is_graph_view,
         }
     }
 }

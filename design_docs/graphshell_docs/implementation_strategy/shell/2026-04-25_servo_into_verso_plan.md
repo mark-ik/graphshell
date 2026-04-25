@@ -477,29 +477,49 @@ Status as of 2026-04-25:
   `cfg(all(iced-host, servo-engine))` until the GraphshellRuntime
   extraction (S3b proper) lands.
 
-### S3b proper (deferred): GraphshellRuntime extraction
+### S3b proper (in flight): GraphshellRuntime extraction
 
-Pending. The blocker for fully dropping `servo-engine` from the
-iced launch path is `gui_state::GraphshellRuntime`'s field surface,
-which transitively pulls:
+> **Canonical roadmap:**
+> [2026-04-24_graphshell_runtime_crate_plan.md](2026-04-24_graphshell_runtime_crate_plan.md)
+> is the authoritative plan for this work. It predates the
+> servo-into-verso lane by a day and has already executed Slice 1
+> (toast/clipboard ports + finalize helpers + frame-vocabulary
+> re-exports) plus the AppState→FrameViewModel projection-helper
+> follow-ons for focus/settings/accessibility/graph-search/dialogs/
+> toolbar/omnibar/command-palette/transient-outputs. ~18 unit tests
+> live inside `graphshell-runtime` against tiny portable inputs.
 
-- `ViewerSurfaceRegistry` (in gated `workbench/compositor_adapter`)
-- `WebviewCreationBackpressureState` (in gated
-  `lifecycle/webview_backpressure`)
-- `GuiFrameInbox` (in gated `gui` module)
-- `BookmarkImportDialogState` (egui-coupled, defined in `gui_state`
-  itself)
-- `ProviderSuggestionDriver` (in gated `toolbar`)
-- `CommandSurfaceTelemetry`, `CommandPaletteSession`,
-  `RuntimeFocusAuthorityState` (defined in `gui_state` /
-  `command_palette_state`; not heavily Servo-coupled but tangled)
+**Important framing correction.** The earlier draft of this
+section recommended "extract `GraphshellRuntime` wholesale" or
+"split into `GraphshellRuntimeCore` + extension." Both options
+violate the canonical plan's explicit guardrail:
 
-The extraction wants either: (a) move `GraphshellRuntime` itself
-into `graphshell-runtime` and relocate the dependent types, or
-(b) split into a portable `GraphshellRuntimeCore` (no Servo deps)
-plus a Servo-specific extension struct. Option (b) is the
-recommended path since it leaves egui-host bits where they are.
-Estimated 2–3 sessions of focused work.
+> "Do not move `GraphshellRuntime` wholesale next... Do not hide
+> shell ownership behind a giant trait just to move code. If a
+> projection helper needs most of `GraphshellRuntime`, it is not
+> ready for the runtime crate."
+
+The correct approach is the slice-based incremental extraction
+already underway: each slice moves one **portable-but-shell-owned**
+input from the canonical plan's inventory (graph_runtime frame
+caches, toolbar state/drafts, command-palette state, app settings,
+graph-search match collection, dialog objects, thumbnail capture
+set) into a runtime-crate-owned type with its own focused unit
+tests. The shell side keeps owning the GraphBrowserApp /
+audit/diagnostics adapters; only the portable inputs migrate.
+
+The "iced launch path compiles without servo-engine" goal will
+come as a natural consequence once enough of the inventory has
+moved that `gui_state::GraphshellRuntime`'s remaining fields are
+either portable or feature-gated. **Do not try to short-circuit
+this with a wholesale extraction.**
+
+**Cross-lane coordination:** S3a's host-port trait extraction
+(this plan, 2026-04-25 entry) is additive to the canonical
+roadmap — Slice 1 covered toast/clipboard ports; S3a extended
+the same `graphshell-runtime::ports` module with the broader
+host-port surface (input, surface, paint, texture, accessibility).
+Both lanes write to the same crate; neither blocks the other.
 
 ## 7. Bottom line
 

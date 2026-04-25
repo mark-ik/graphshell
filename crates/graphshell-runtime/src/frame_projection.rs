@@ -8,12 +8,15 @@
 //! helpers shape already-selected shell/runtime state into host-facing frame
 //! view-models; they do not derive graph-memory aggregates.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
+use graph_tree::{OwnedTreeRow, SplitBoundary, TabEntry};
 use graphshell_core::content::ContentLoadState;
+use graphshell_core::geometry::PortableRect;
 use graphshell_core::graph::NodeKey;
 use graphshell_core::overlay::OverlayStrokePass;
-use graphshell_core::pane::PaneId;
+use graphshell_core::pane::{PaneId, TileRenderMode};
 use graphshell_core::shell_state::frame_model::{
     AccessibilityViewModel, CommandPaletteScopeView, CommandPaletteViewModel, DegradedReceiptSpec,
     DialogsViewModel, FocusRingSettingsView, FocusRingSpec, FocusViewModel, GraphSearchViewModel,
@@ -86,6 +89,65 @@ pub fn project_focus_view_model(input: FocusProjectionInput<'_>) -> FocusProject
             focus_ring,
             focus_ring_alpha,
         },
+    }
+}
+
+/// Portable inputs needed to shape the per-frame layout-cache block of
+/// `FrameViewModel`. These come from the shell's `graph_runtime` cached
+/// layout outputs (`active_pane_rects`, `pane_render_modes`,
+/// `pane_viewer_ids`, `cached_tree_rows`, `cached_tab_order`,
+/// `cached_split_boundaries`).
+///
+/// 2026-04-25: The shell-side `egui::Rect` → [`PortableRect`] conversion
+/// stays at the call site so this helper has zero shell deps. The shell
+/// adapts its egui rect roster, then hands the portable form to this
+/// helper.
+pub struct GraphRuntimeLayoutProjectionInput<'a> {
+    pub active_pane_rects: &'a [(PaneId, NodeKey, PortableRect)],
+    pub pane_render_modes: &'a HashMap<PaneId, TileRenderMode>,
+    pub pane_viewer_ids: &'a HashMap<PaneId, String>,
+    pub tree_rows: &'a [OwnedTreeRow<NodeKey>],
+    pub tab_order: &'a [TabEntry<NodeKey>],
+    pub split_boundaries: &'a [SplitBoundary<NodeKey>],
+}
+
+/// Output bundle for the layout-cache projection. Mirrors the
+/// matching `FrameViewModel` field block plus the derived
+/// `is_graph_view` boolean.
+#[derive(Clone)]
+pub struct GraphRuntimeLayoutProjection {
+    pub active_pane_rects: Vec<(PaneId, NodeKey, PortableRect)>,
+    pub pane_render_modes: HashMap<PaneId, TileRenderMode>,
+    pub pane_viewer_ids: HashMap<PaneId, String>,
+    pub tree_rows: Vec<OwnedTreeRow<NodeKey>>,
+    pub tab_order: Vec<TabEntry<NodeKey>>,
+    pub split_boundaries: Vec<SplitBoundary<NodeKey>>,
+    /// `true` when no panes are visible (i.e. the graph canvas surface
+    /// is the only thing on screen). Mirrors the predicate
+    /// `EguiHost::is_graph_view` used directly by the egui-host's
+    /// frame loop. Equivalent to
+    /// `pane_queries::tree_has_active_node_pane(graph_app)` inverted.
+    pub is_graph_view: bool,
+}
+
+/// Shape per-frame layout-cache outputs into the host-facing layout
+/// block of `FrameViewModel`. The mapping is a passthrough today —
+/// the helper exists to (1) pin the layout-cache → view-model contract
+/// with focused unit tests, (2) name the runtime-boundary entry point
+/// for layout outputs, and (3) provide a single place to add filtering
+/// or validation when richer policies arrive.
+pub fn project_graph_runtime_layout_view_model(
+    input: GraphRuntimeLayoutProjectionInput<'_>,
+) -> GraphRuntimeLayoutProjection {
+    let is_graph_view = input.active_pane_rects.is_empty();
+    GraphRuntimeLayoutProjection {
+        active_pane_rects: input.active_pane_rects.to_vec(),
+        pane_render_modes: input.pane_render_modes.clone(),
+        pane_viewer_ids: input.pane_viewer_ids.clone(),
+        tree_rows: input.tree_rows.to_vec(),
+        tab_order: input.tab_order.to_vec(),
+        split_boundaries: input.split_boundaries.to_vec(),
+        is_graph_view,
     }
 }
 
@@ -406,6 +468,73 @@ mod tests {
 
         assert!(projected.focus.focus_ring.is_none());
         assert_eq!(projected.focus.focus_ring_alpha, 0.0);
+    }
+
+    #[test]
+    fn graph_runtime_layout_projection_passthrough_for_empty_layout() {
+        let input = GraphRuntimeLayoutProjectionInput {
+            active_pane_rects: &[],
+            pane_render_modes: &HashMap::new(),
+            pane_viewer_ids: &HashMap::new(),
+            tree_rows: &[],
+            tab_order: &[],
+            split_boundaries: &[],
+        };
+
+        let projected = project_graph_runtime_layout_view_model(input);
+
+        assert!(projected.active_pane_rects.is_empty());
+        assert!(projected.pane_render_modes.is_empty());
+        assert!(projected.pane_viewer_ids.is_empty());
+        assert!(projected.tree_rows.is_empty());
+        assert!(projected.tab_order.is_empty());
+        assert!(projected.split_boundaries.is_empty());
+        // Empty layout means the graph canvas is the only visible
+        // surface — `is_graph_view` is true.
+        assert!(projected.is_graph_view);
+    }
+
+    #[test]
+    fn graph_runtime_layout_projection_preserves_populated_inputs() {
+        let pane_a = PaneId::new();
+        let pane_b = PaneId::new();
+        let node_a = NodeKey::new(1);
+        let node_b = NodeKey::new(2);
+        // PortableRect's concrete shape is `euclid::default::Rect<f32>`;
+        // tests just need two distinct values for passthrough checks.
+        let rect_a = PortableRect::default();
+        let rect_b = PortableRect::default();
+        let mut render_modes = HashMap::new();
+        render_modes.insert(pane_a, TileRenderMode::CompositedTexture);
+        render_modes.insert(pane_b, TileRenderMode::NativeOverlay);
+        let mut viewer_ids = HashMap::new();
+        viewer_ids.insert(pane_a, "viewer:webview".to_string());
+        viewer_ids.insert(pane_b, "viewer:wry".to_string());
+        let rects = vec![(pane_a, node_a, rect_a), (pane_b, node_b, rect_b)];
+
+        let input = GraphRuntimeLayoutProjectionInput {
+            active_pane_rects: &rects,
+            pane_render_modes: &render_modes,
+            pane_viewer_ids: &viewer_ids,
+            tree_rows: &[],
+            tab_order: &[],
+            split_boundaries: &[],
+        };
+
+        let projected = project_graph_runtime_layout_view_model(input);
+
+        assert_eq!(projected.active_pane_rects.len(), 2);
+        assert_eq!(projected.active_pane_rects[0], (pane_a, node_a, rect_a));
+        assert_eq!(projected.active_pane_rects[1], (pane_b, node_b, rect_b));
+        assert_eq!(projected.pane_render_modes.len(), 2);
+        assert_eq!(
+            projected.pane_render_modes.get(&pane_a),
+            Some(&TileRenderMode::CompositedTexture)
+        );
+        assert_eq!(projected.pane_viewer_ids.get(&pane_b).map(String::as_str), Some("viewer:wry"));
+        // Populated layout means at least one pane is visible —
+        // `is_graph_view` is false.
+        assert!(!projected.is_graph_view);
     }
 
     #[test]

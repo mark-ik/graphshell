@@ -19,3 +19,8 @@ graphshell-core = { path = "../graphshell-core" }
 # transitive surface for downstream crates.
 graph-canvas = { path = "../graph-canvas" }
 accesskit = { version = "0.24.0", features = ["serde"] }
+# 2026-04-25 graphshell-runtime extraction Slice 2 (graph_runtime
+# layout cache projection): `OwnedTreeRow`, `TabEntry`, and
+# `SplitBoundary` come from `graph-tree`. Already a dep of
+# graphshell main and graphshell-core's frame_model.
+graph-tree = { path = "../graph-tree" }
