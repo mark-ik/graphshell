@@ -9,14 +9,32 @@ use middlenet_engine::engine::{
 use serde::{Deserialize, Serialize};
 
 /// System-WebView (wry) backend, gated behind the `wry-engine`
-/// Cargo feature. Re-exports the upstream `wry` crate so downstream
-/// consumers (notably `iced-wry-viewer` and the future migrated
-/// `wry_manager`) depend on `verso` rather than `wry` directly,
-/// keeping the `viewer:wry` capability owned by verso per
+/// Cargo feature. Owns the manager + frame-source + types that
+/// drive `viewer:wry` overlays per
 /// [VERSO_AS_PEER.md](../../../design_docs/verso_docs/technical_architecture/VERSO_AS_PEER.md).
+/// Phase A2 (2026-04-25) moved this in from graphshell main's
+/// `mods/native/web_runtime/` so downstream crates can depend on
+/// `verso/wry-engine` rather than reaching across into graphshell.
 #[cfg(feature = "wry-engine")]
-pub mod wry_engine {
-    pub use wry::*;
+pub mod wry_engine;
+
+/// Servo backend, gated behind the `servo-engine` Cargo feature.
+///
+/// Per [VERSO_AS_PEER.md](../../../design_docs/verso_docs/technical_architecture/VERSO_AS_PEER.md),
+/// verso owns `viewer:webview` (Servo, texture mode) as the
+/// fullnet content engine for native desktop targets. The
+/// 2026-04-25 servo-into-verso lane (S1) added this re-export
+/// module so downstream consumers depend on `verso/servo-engine`
+/// rather than `servo` directly. S2 sweeps graphshell main's
+/// `use servo::*` sites onto this path.
+///
+/// Re-exports the entire `servo` crate so `verso::servo_engine::WebView`,
+/// `verso::servo_engine::wgpu::Device`, etc. are reachable. The
+/// dep ownership keeps `servo`'s heavy transitive dep tree
+/// contained within `verso/servo-engine` activations.
+#[cfg(feature = "servo-engine")]
+pub mod servo_engine {
+    pub use servo::*;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,7 +495,8 @@ mod tests {
     #[test]
     fn feeds_stay_in_middlenet_direct() {
         let request = VersoRequest::new(
-            MiddleNetSource::new(MiddleNetContentKind::Rss).with_uri("https://example.com/feed.xml"),
+            MiddleNetSource::new(MiddleNetContentKind::Rss)
+                .with_uri("https://example.com/feed.xml"),
         );
 
         let outcome = dispatch_request(&request, &HostCapabilities::default(), None);
@@ -488,10 +507,10 @@ mod tests {
 
     #[test]
     fn html_escalates_to_servo_when_middlenet_html_is_unavailable() {
-        let request =
-            VersoRequest::new(MiddleNetSource::new(MiddleNetContentKind::Html).with_uri(
-                "https://example.com/index.html",
-            ));
+        let request = VersoRequest::new(
+            MiddleNetSource::new(MiddleNetContentKind::Html)
+                .with_uri("https://example.com/index.html"),
+        );
         let caps = HostCapabilities {
             supports_servo: true,
             ..HostCapabilities::default()
@@ -505,10 +524,10 @@ mod tests {
 
     #[test]
     fn html_falls_back_to_faithful_source_before_unsupported() {
-        let request =
-            VersoRequest::new(MiddleNetSource::new(MiddleNetContentKind::Html).with_uri(
-                "https://example.com/index.html",
-            ));
+        let request = VersoRequest::new(
+            MiddleNetSource::new(MiddleNetContentKind::Html)
+                .with_uri("https://example.com/index.html"),
+        );
 
         let outcome = dispatch_request(&request, &HostCapabilities::default(), None);
 
@@ -518,10 +537,10 @@ mod tests {
 
     #[test]
     fn explicit_wry_override_is_honored() {
-        let request =
-            VersoRequest::new(MiddleNetSource::new(MiddleNetContentKind::Html).with_uri(
-                "https://example.com/index.html",
-            ));
+        let request = VersoRequest::new(
+            MiddleNetSource::new(MiddleNetContentKind::Html)
+                .with_uri("https://example.com/index.html"),
+        );
         let caps = HostCapabilities {
             supports_wry: true,
             ..HostCapabilities::default()
@@ -673,7 +692,10 @@ mod tests {
             ViewerHandle::Webview,
             ViewerHandle::Wry,
         ] {
-            assert_eq!(ViewerHandle::from_viewer_id(handle.as_viewer_id()), Some(handle));
+            assert_eq!(
+                ViewerHandle::from_viewer_id(handle.as_viewer_id()),
+                Some(handle)
+            );
         }
         assert_eq!(ViewerHandle::from_viewer_id("viewer:plaintext"), None);
     }

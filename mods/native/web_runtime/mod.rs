@@ -11,16 +11,15 @@
 //! without it (core seed mode).
 
 #[cfg(all(test, feature = "wry"))]
-use crate::mods::native::web_runtime::wry_manager::OverlaySyncState;
+use verso::wry_engine::manager::OverlaySyncState;
 use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders};
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
 #[cfg(feature = "wry")]
-use crate::{
-    graph::NodeKey,
-    mods::native::web_runtime::wry_manager::{OverlayRect, WryManager},
-};
+use crate::graph::NodeKey;
+#[cfg(feature = "wry")]
+use verso::wry_engine::manager::{OverlayRect, WryManager};
 #[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
 #[cfg(feature = "wry")]
@@ -30,12 +29,11 @@ pub(crate) mod client_storage;
 pub(crate) mod finger;
 pub(crate) mod gemini;
 pub(crate) mod gopher;
-#[cfg(feature = "wry")]
-pub(crate) mod wry_frame_source;
-#[cfg(feature = "wry")]
-pub(crate) mod wry_manager;
-#[cfg(feature = "wry")]
-pub(crate) mod wry_types;
+// Wry engine implementation moved to `crates/verso/src/wry_engine/`
+// 2026-04-25 (Phase A2 of the wry-into-verso lane). The thread-local
+// `WRY_MANAGER` + the per-node public functions below stay here
+// because they coordinate with graphshell's `NodeKey` indexing model;
+// the engine itself (manager, frame_source, types) lives in verso.
 #[cfg(feature = "wry")]
 pub(crate) mod wry_viewer;
 
@@ -80,15 +78,15 @@ pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, vi
 }
 
 #[cfg(feature = "wry")]
-pub(crate) fn wry_composited_texture_support()
--> crate::mods::native::web_runtime::wry_types::WryCompositedTextureSupport {
+pub(crate) fn wry_composited_texture_support() -> verso::wry_engine::types::WryCompositedTextureSupport
+{
     with_wry_manager(|manager| manager.composited_texture_support())
 }
 
 #[cfg(feature = "wry")]
 pub(crate) fn wry_frame_state_for_node(
     node_key: NodeKey,
-) -> Option<crate::mods::native::web_runtime::wry_frame_source::WryFrameState> {
+) -> Option<verso::wry_engine::frame_source::WryFrameState> {
     let node_id = node_key.index() as u64;
     with_wry_manager(|manager| manager.frame_state_for_node(node_id).cloned())
 }
@@ -244,7 +242,7 @@ pub(crate) fn activate() -> Result<(), String> {
     // actual handler registration when registries are mutable during app init.
     #[cfg(feature = "wry")]
     {
-        let platform = wry_types::WryPlatform::detect();
+        let platform = verso::wry_engine::types::WryPlatform::detect();
         log::debug!("verso: wry feature enabled ({platform:?})");
     }
 
@@ -299,7 +297,7 @@ mod tests {
     use crate::graph::NodeKey;
 
     #[cfg(feature = "wry")]
-    use crate::mods::native::web_runtime::wry_manager::OverlayRect;
+    use verso::wry_engine::manager::OverlayRect;
 
     #[test]
     fn verso_manifest_provides_required_capabilities() {

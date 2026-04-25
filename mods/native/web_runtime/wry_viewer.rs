@@ -7,8 +7,8 @@
 //! This adapter is intentionally minimal in the first slice and focuses on
 //! overlay synchronization contracts with the manager.
 
-use super::wry_manager::{OverlayRect, WryManager};
-use super::wry_types::WryRenderMode;
+use verso::wry_engine::manager::{OverlayRect, WryManager};
+use verso::wry_engine::types::WryRenderMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WryViewer {
@@ -36,7 +36,7 @@ impl WryViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::native::web_runtime::wry_types::WryRenderMode;
+    use verso::wry_engine::types::WryRenderMode;
 
     #[test]
     fn native_overlay_mode_reports_true() {

@@ -2,14 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Wry runtime type scaffolds for the Verso native mod.
+//! Wry runtime type scaffolds for the verso wry engine.
 //!
-//! These types intentionally stay lightweight in the first implementation slice.
-//! Runtime ownership and compositor contracts are defined in
+//! These types intentionally stay lightweight in the first
+//! implementation slice. Runtime ownership and compositor contracts
+//! are defined in
 //! `design_docs/graphshell_docs/implementation_strategy/viewer/wry_integration_spec.md`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WryPlatform {
+pub enum WryPlatform {
     Windows,
     MacOS,
     Linux,
@@ -17,7 +18,7 @@ pub(crate) enum WryPlatform {
 }
 
 impl WryPlatform {
-    pub(crate) fn detect() -> Self {
+    pub fn detect() -> Self {
         if cfg!(target_os = "windows") {
             Self::Windows
         } else if cfg!(target_os = "macos") {
@@ -31,27 +32,27 @@ impl WryPlatform {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WryRenderMode {
+pub enum WryRenderMode {
     NativeOverlay,
     CompositedTexture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WryFrameCaptureBackend {
+pub enum WryFrameCaptureBackend {
     None,
     WebView2VisualCapture,
     WkSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WryCompositedTextureSupport {
-    pub(crate) preferred_backend: WryFrameCaptureBackend,
-    pub(crate) supported: bool,
-    pub(crate) reason: &'static str,
+pub struct WryCompositedTextureSupport {
+    pub preferred_backend: WryFrameCaptureBackend,
+    pub supported: bool,
+    pub reason: &'static str,
 }
 
 impl WryRenderMode {
-    pub(crate) fn for_platform(platform: WryPlatform) -> Self {
+    pub fn for_platform(platform: WryPlatform) -> Self {
         match platform {
             // Linux is currently NativeOverlay-only in the spec.
             WryPlatform::Linux => Self::NativeOverlay,
@@ -62,7 +63,7 @@ impl WryRenderMode {
 }
 
 impl WryCompositedTextureSupport {
-    pub(crate) fn for_platform(platform: WryPlatform) -> Self {
+    pub fn for_platform(platform: WryPlatform) -> Self {
         match platform {
             WryPlatform::Windows => Self {
                 preferred_backend: WryFrameCaptureBackend::WebView2VisualCapture,

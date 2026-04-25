@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 use raw_window_handle::RawWindowHandle;
 
 #[cfg(target_os = "windows")]
-use super::wry_frame_source::WryFrameMetadata;
-use super::wry_frame_source::{WryFrameSource, WryFrameState};
-use super::wry_types::{WryCompositedTextureSupport, WryPlatform, WryRenderMode};
+use super::frame_source::WryFrameMetadata;
+use super::frame_source::{WryFrameSource, WryFrameState};
+use super::types::{WryCompositedTextureSupport, WryPlatform, WryRenderMode};
 #[cfg(target_os = "windows")]
 use image::ImageFormat;
 #[cfg(target_os = "windows")]
@@ -33,7 +33,7 @@ use windows::Win32::{
 use wry::WebViewExtWindows;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct OverlayRect {
+pub struct OverlayRect {
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -41,7 +41,7 @@ pub(crate) struct OverlayRect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct OverlaySyncState {
+pub struct OverlaySyncState {
     pub rect: OverlayRect,
     pub visible: bool,
 }
@@ -53,7 +53,7 @@ struct WebviewSlot {
     last_url: String,
 }
 
-pub(crate) struct WryManager {
+pub struct WryManager {
     platform: WryPlatform,
     default_mode: WryRenderMode,
     webviews: HashMap<u64, WebviewSlot>,
@@ -63,7 +63,7 @@ pub(crate) struct WryManager {
 }
 
 impl WryManager {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let platform = WryPlatform::detect();
         Self {
             default_mode: WryRenderMode::for_platform(platform),
@@ -75,31 +75,31 @@ impl WryManager {
         }
     }
 
-    pub(crate) fn platform(&self) -> WryPlatform {
+    pub fn platform(&self) -> WryPlatform {
         self.platform
     }
 
-    pub(crate) fn default_mode(&self) -> WryRenderMode {
+    pub fn default_mode(&self) -> WryRenderMode {
         self.default_mode
     }
 
-    pub(crate) fn composited_texture_support(&self) -> WryCompositedTextureSupport {
+    pub fn composited_texture_support(&self) -> WryCompositedTextureSupport {
         WryCompositedTextureSupport::for_platform(self.platform)
     }
 
-    pub(crate) fn frame_state_for_node(&self, node_id: u64) -> Option<&WryFrameState> {
+    pub fn frame_state_for_node(&self, node_id: u64) -> Option<&WryFrameState> {
         self.frame_source.state_for_node(node_id)
     }
 
-    pub(crate) fn frame_png_bytes_for_node(&self, node_id: u64) -> Option<&[u8]> {
+    pub fn frame_png_bytes_for_node(&self, node_id: u64) -> Option<&[u8]> {
         self.frame_source.png_bytes_for_node(node_id)
     }
 
-    pub(crate) fn refresh_frame_state_for_node(&mut self, node_id: u64) {
+    pub fn refresh_frame_state_for_node(&mut self, node_id: u64) {
         self.refresh_frame_state_for_node_impl(node_id, None);
     }
 
-    pub(crate) fn refresh_frame_state_for_node_if_stale(
+    pub fn refresh_frame_state_for_node_if_stale(
         &mut self,
         node_id: u64,
         min_interval: Duration,
@@ -164,23 +164,19 @@ impl WryManager {
 
     /// Create a wry child WebView for the given node at the given URL.
     ///
-    /// `parent_handle` is the OS window handle from
-    /// `EmbedderWindow::raw_window_handle_for_child`.  The caller guarantees
-    /// the underlying OS handle remains valid for the lifetime of this `WryManager`.
+    /// `parent_handle` is the OS window handle from the host's
+    /// raw-window-handle API. The caller guarantees the underlying
+    /// OS handle remains valid for the lifetime of this `WryManager`.
     ///
-    /// The created WebView starts hidden; call `sync_overlay` to position and show it.
-    pub(crate) fn create_webview(
-        &mut self,
-        node_id: u64,
-        url: &str,
-        parent_handle: RawWindowHandle,
-    ) {
+    /// The created WebView starts hidden; call `sync_overlay` to
+    /// position and show it.
+    pub fn create_webview(&mut self, node_id: u64, url: &str, parent_handle: RawWindowHandle) {
         if self.webviews.contains_key(&node_id) {
             return;
         }
 
         // SAFETY: The caller holds the OS window alive for the duration of this
-        // WryManager (the winit window owns the HWND and lives for the app lifetime).
+        // WryManager (the host window owns the HWND and lives for the app lifetime).
         let borrowed = unsafe { raw_window_handle::WindowHandle::borrow_raw(parent_handle) };
 
         let result = wry::WebViewBuilder::new()
@@ -213,18 +209,18 @@ impl WryManager {
         }
     }
 
-    pub(crate) fn destroy_webview(&mut self, node_id: u64) {
+    pub fn destroy_webview(&mut self, node_id: u64) {
         self.webviews.remove(&node_id);
         self.frame_source.unregister_node(node_id);
     }
 
-    pub(crate) fn has_webview(&self, node_id: u64) -> bool {
+    pub fn has_webview(&self, node_id: u64) -> bool {
         self.webviews.contains_key(&node_id)
     }
 
-    /// Returns the URL most recently loaded (or navigated to) in the webview,
-    /// or `None` if no webview exists for this node.
-    pub(crate) fn last_url(&self, node_id: u64) -> Option<&str> {
+    /// Returns the URL most recently loaded (or navigated to) in
+    /// the webview, or `None` if no webview exists for this node.
+    pub fn last_url(&self, node_id: u64) -> Option<&str> {
         self.webviews
             .get(&node_id)
             .map(|slot| slot.last_url.as_str())
@@ -232,9 +228,9 @@ impl WryManager {
 
     /// Navigate an existing wry WebView to a new URL.
     ///
-    /// No-ops if no webview exists for `node_id` (caller should call
-    /// `ensure_wry_overlay_for_node` first).
-    pub(crate) fn navigate_webview(&mut self, node_id: u64, url: &str) {
+    /// No-ops if no webview exists for `node_id` (caller should
+    /// ensure one is created first via `create_webview`).
+    pub fn navigate_webview(&mut self, node_id: u64, url: &str) {
         let Some(slot) = self.webviews.get_mut(&node_id) else {
             return;
         };
@@ -248,7 +244,7 @@ impl WryManager {
         slot.last_url = url.to_string();
     }
 
-    pub(crate) fn sync_overlay(&mut self, node_id: u64, rect: OverlayRect, visible: bool) {
+    pub fn sync_overlay(&mut self, node_id: u64, rect: OverlayRect, visible: bool) {
         let Some(slot) = self.webviews.get_mut(&node_id) else {
             #[cfg(test)]
             {
@@ -271,7 +267,7 @@ impl WryManager {
         }
     }
 
-    pub(crate) fn last_sync_state(&self, node_id: u64) -> Option<OverlaySyncState> {
+    pub fn last_sync_state(&self, node_id: u64) -> Option<OverlaySyncState> {
         self.webviews
             .get(&node_id)
             .and_then(|slot| slot.last_sync)
@@ -283,6 +279,12 @@ impl WryManager {
                 #[allow(unreachable_code)]
                 None
             })
+    }
+}
+
+impl Default for WryManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -354,8 +356,8 @@ fn decode_png_metadata(png_bytes: &[u8]) -> Result<WryFrameMetadata, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::WryPlatform;
     use super::*;
-    use crate::mods::native::web_runtime::wry_types::WryPlatform;
 
     /// Smoke test: WryManager is constructable and reports no webviews.
     #[test]

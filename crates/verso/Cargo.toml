@@ -5,21 +5,47 @@ edition = "2024"
 
 [features]
 default = []
-# Pull in the `wry` crate (system WebView wrapper). Per VERSO_AS_PEER.md,
-# verso owns `viewer:wry` as the platform-overlay engine for fullnet
-# content on environments where Servo isn't appropriate (mobile, lighter
-# desktop deployments). The actual wry-manager implementation currently
-# lives in graphshell's `mods/native/web_runtime/` (Phase A2 of the
-# 2026-04-25 wry-into-verso lane); this feature gate establishes the
-# architectural ownership of the dep and lets downstream crates (e.g.
-# `iced-wry-viewer`) depend on `verso/wry-engine` cleanly.
-wry-engine = ["dep:wry"]
+# Per VERSO_AS_PEER.md, verso owns `viewer:wry` as the platform-overlay
+# engine for fullnet content. Phase A2 (2026-04-25) moved the wry
+# manager + frame-source + type implementations from graphshell main's
+# `mods/native/web_runtime/` into `crates/verso/src/wry_engine/`.
+# Downstream crates depend on `verso/wry-engine` and consume types
+# from `verso::wry_engine::*` rather than `wry` directly.
+wry-engine = [
+    "dep:wry",
+    "dep:raw-window-handle",
+    "dep:image",
+    "dep:log",
+    "dep:webview2-com",
+    "dep:windows",
+]
+# Per VERSO_AS_PEER.md, verso also owns `viewer:webview` (Servo).
+# 2026-04-25 servo-into-verso lane (S1): adds the Cargo dep + a
+# `verso::servo_engine` re-export module so downstream consumers
+# (graphshell main today, future portable crates) depend on
+# `verso/servo-engine` rather than `servo` directly. Future slices
+# (S2/S3) move graphshell main's ~75 `use servo::*` sites onto
+# this re-export and gate them so a no-Servo build is achievable.
+servo-engine = ["dep:servo"]
 
 [dependencies]
 middlenet-core = { path = "../middlenet-core" }
 middlenet-engine = { path = "../middlenet-engine" }
 serde = { version = "1.0.228", features = ["derive"] }
 wry = { version = "0.55", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+image = { version = "0.25", default-features = false, optional = true, features = ["png"] }
+log = { version = "0.4", optional = true }
+servo = { path = "../../../servo-wgpu/components/servo", default-features = false, features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = { version = "0.38.2", optional = true }
+windows = { version = "0.61", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Memory",
+] }
 
 [lib]
 path = "src/lib.rs"

@@ -4,16 +4,16 @@
 
 //! Wry composited-frame source skeleton.
 //!
-//! This module does not implement platform frame capture yet. It establishes
-//! the runtime state shape that a future Windows/macOS capture bridge can
-//! populate without overloading the overlay manager API.
+//! Establishes the runtime state shape that a future Windows/macOS
+//! capture bridge can populate without overloading the overlay
+//! manager API.
 
 use std::time::{Duration, Instant};
 
-use super::wry_types::WryFrameCaptureBackend;
+use super::types::WryFrameCaptureBackend;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WryFrameAvailability {
+pub enum WryFrameAvailability {
     Unsupported,
     Pending,
     Ready,
@@ -21,26 +21,23 @@ pub(crate) enum WryFrameAvailability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct WryFrameMetadata {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) revision: u64,
+pub struct WryFrameMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WryFrameState {
-    pub(crate) availability: WryFrameAvailability,
-    pub(crate) backend: WryFrameCaptureBackend,
-    pub(crate) metadata: Option<WryFrameMetadata>,
-    pub(crate) message: String,
-    pub(crate) last_refresh_at: Option<Instant>,
+pub struct WryFrameState {
+    pub availability: WryFrameAvailability,
+    pub backend: WryFrameCaptureBackend,
+    pub metadata: Option<WryFrameMetadata>,
+    pub message: String,
+    pub last_refresh_at: Option<Instant>,
 }
 
 impl WryFrameState {
-    pub(crate) fn unsupported<M: Into<String>>(
-        backend: WryFrameCaptureBackend,
-        message: M,
-    ) -> Self {
+    pub fn unsupported<M: Into<String>>(backend: WryFrameCaptureBackend, message: M) -> Self {
         Self {
             availability: WryFrameAvailability::Unsupported,
             backend,
@@ -50,7 +47,7 @@ impl WryFrameState {
         }
     }
 
-    pub(crate) fn pending<M: Into<String>>(backend: WryFrameCaptureBackend, message: M) -> Self {
+    pub fn pending<M: Into<String>>(backend: WryFrameCaptureBackend, message: M) -> Self {
         Self {
             availability: WryFrameAvailability::Pending,
             backend,
@@ -61,7 +58,7 @@ impl WryFrameState {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn ready(backend: WryFrameCaptureBackend, metadata: WryFrameMetadata) -> Self {
+    pub fn ready(backend: WryFrameCaptureBackend, metadata: WryFrameMetadata) -> Self {
         Self {
             availability: WryFrameAvailability::Ready,
             backend,
@@ -72,7 +69,7 @@ impl WryFrameState {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn failed<M: Into<String>>(backend: WryFrameCaptureBackend, message: M) -> Self {
+    pub fn failed<M: Into<String>>(backend: WryFrameCaptureBackend, message: M) -> Self {
         Self {
             availability: WryFrameAvailability::Failed,
             backend,
@@ -82,11 +79,11 @@ impl WryFrameState {
         }
     }
 
-    pub(crate) fn mark_refreshed(&mut self, refreshed_at: Instant) {
+    pub fn mark_refreshed(&mut self, refreshed_at: Instant) {
         self.last_refresh_at = Some(refreshed_at);
     }
 
-    pub(crate) fn should_refresh(&self, now: Instant, min_interval: Duration) -> bool {
+    pub fn should_refresh(&self, now: Instant, min_interval: Duration) -> bool {
         self.last_refresh_at
             .map(|last| now.saturating_duration_since(last) >= min_interval)
             .unwrap_or(true)
@@ -94,50 +91,56 @@ impl WryFrameState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WryFrameSource {
+pub struct WryFrameSource {
     state_by_node: std::collections::HashMap<u64, WryFrameState>,
     png_bytes_by_node: std::collections::HashMap<u64, Vec<u8>>,
 }
 
 impl WryFrameSource {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             state_by_node: std::collections::HashMap::new(),
             png_bytes_by_node: std::collections::HashMap::new(),
         }
     }
 
-    pub(crate) fn register_node(&mut self, node_id: u64, initial_state: WryFrameState) {
+    pub fn register_node(&mut self, node_id: u64, initial_state: WryFrameState) {
         self.state_by_node.insert(node_id, initial_state);
     }
 
-    pub(crate) fn unregister_node(&mut self, node_id: u64) {
+    pub fn unregister_node(&mut self, node_id: u64) {
         self.state_by_node.remove(&node_id);
         self.png_bytes_by_node.remove(&node_id);
     }
 
-    pub(crate) fn state_for_node(&self, node_id: u64) -> Option<&WryFrameState> {
+    pub fn state_for_node(&self, node_id: u64) -> Option<&WryFrameState> {
         self.state_by_node.get(&node_id)
     }
 
-    pub(crate) fn set_state_for_node(&mut self, node_id: u64, state: WryFrameState) {
+    pub fn set_state_for_node(&mut self, node_id: u64, state: WryFrameState) {
         if let Some(slot) = self.state_by_node.get_mut(&node_id) {
             *slot = state;
         }
     }
 
-    pub(crate) fn png_bytes_for_node(&self, node_id: u64) -> Option<&[u8]> {
+    pub fn png_bytes_for_node(&self, node_id: u64) -> Option<&[u8]> {
         self.png_bytes_by_node.get(&node_id).map(Vec::as_slice)
     }
 
-    pub(crate) fn set_png_bytes_for_node(&mut self, node_id: u64, png_bytes: Vec<u8>) {
+    pub fn set_png_bytes_for_node(&mut self, node_id: u64, png_bytes: Vec<u8>) {
         if self.state_by_node.contains_key(&node_id) {
             self.png_bytes_by_node.insert(node_id, png_bytes);
         }
     }
 
-    pub(crate) fn clear_png_bytes_for_node(&mut self, node_id: u64) {
+    pub fn clear_png_bytes_for_node(&mut self, node_id: u64) {
         self.png_bytes_by_node.remove(&node_id);
+    }
+}
+
+impl Default for WryFrameSource {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

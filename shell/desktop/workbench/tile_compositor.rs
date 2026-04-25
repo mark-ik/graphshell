@@ -60,7 +60,9 @@ use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 #[cfg(test)]
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 #[cfg(feature = "wry")]
-use crate::{mods::native::web_runtime, mods::native::web_runtime::wry_manager::OverlayRect as WryOverlayRect};
+use crate::mods::native::web_runtime;
+#[cfg(feature = "wry")]
+use verso::wry_engine::manager::OverlayRect as WryOverlayRect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TileSelectionState {
