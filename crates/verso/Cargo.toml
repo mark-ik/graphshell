@@ -3,10 +3,23 @@ name = "verso"
 version = "0.0.1"
 edition = "2024"
 
+[features]
+default = []
+# Pull in the `wry` crate (system WebView wrapper). Per VERSO_AS_PEER.md,
+# verso owns `viewer:wry` as the platform-overlay engine for fullnet
+# content on environments where Servo isn't appropriate (mobile, lighter
+# desktop deployments). The actual wry-manager implementation currently
+# lives in graphshell's `mods/native/web_runtime/` (Phase A2 of the
+# 2026-04-25 wry-into-verso lane); this feature gate establishes the
+# architectural ownership of the dep and lets downstream crates (e.g.
+# `iced-wry-viewer`) depend on `verso/wry-engine` cleanly.
+wry-engine = ["dep:wry"]
+
 [dependencies]
 middlenet-core = { path = "../middlenet-core" }
 middlenet-engine = { path = "../middlenet-engine" }
 serde = { version = "1.0.228", features = ["derive"] }
+wry = { version = "0.55", optional = true }
 
 [lib]
 path = "src/lib.rs"

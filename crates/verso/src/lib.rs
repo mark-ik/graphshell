@@ -8,6 +8,17 @@ use middlenet_engine::engine::{
 };
 use serde::{Deserialize, Serialize};
 
+/// System-WebView (wry) backend, gated behind the `wry-engine`
+/// Cargo feature. Re-exports the upstream `wry` crate so downstream
+/// consumers (notably `iced-wry-viewer` and the future migrated
+/// `wry_manager`) depend on `verso` rather than `wry` directly,
+/// keeping the `viewer:wry` capability owned by verso per
+/// [VERSO_AS_PEER.md](../../../design_docs/verso_docs/technical_architecture/VERSO_AS_PEER.md).
+#[cfg(feature = "wry-engine")]
+pub mod wry_engine {
+    pub use wry::*;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EngineChoice {
     Middlenet,
