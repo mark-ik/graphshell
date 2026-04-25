@@ -6,6 +6,16 @@
 
 **Date**: 2026-04-16
 **Status**: Research / future vision (not actionable until iced migration completes)
+
+**2026-04-24 follow-on**: The
+[Blitz-shaped chrome scoping doc](../implementation_strategy/shell/2026-04-24_blitz_shaped_chrome_scoping.md)
+fleshes out the "we own the assembly" variant of this vision in
+concrete terms: component inventory, sliced execution plan with
+estimates (~3.5–5 months), risks, decision criteria for when to
+start. Updated with the
+[2026-04-24 renderer-boot research](2026-04-24_iced_renderer_boot_and_isolation_model.md)'s
+finding that iced's wgpu version split with Servo is **permanent**,
+not temporary, which strengthens this vision's long-term case.
 **Scope**: Could graphshell's chrome layer eventually move from iced to an
 HTML/CSS/JS-based stack using Blitz (Stylo + Taffy) + anyrender + WebRender,
 unifying the rendering pipeline with Servo and gaining CSS expressiveness?

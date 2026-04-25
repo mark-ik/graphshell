@@ -23,9 +23,29 @@ contract authoritative.
 - `../graph/GRAPH.md`
 - `../aspect_render/2026-04-12_rendering_pipeline_status_quo_plan.md`
 - Servo companion plan: `servo-wgpu/docs/2026-04-18_servo_wgpuification_plan.md`
+- Companion extraction lane: `2026-04-24_graphshell_runtime_crate_plan.md`
+  (host-neutral runtime kernel pulled out of `graphshell` into
+  `crates/graphshell-runtime/` to lighten the parity-test compile surface)
+- Iced content-surface scoping: `2026-04-24_iced_content_surface_scoping.md`
+  (what it takes to mount Servo/webview content inside iced graph node
+  panes; §M4.5 follow-on)
+- Renderer-boot + isolation research:
+  `../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md`
+  (synthesis of three surveys: iced 0.14 renderer architecture,
+  Firefox/Chromium/Servo process-isolation model, and middlenet as
+  a near-term test surface — shifts the content-surface scoping
+  doc's plan toward a middlenet-first sequence)
+- Blitz-shaped chrome scoping:
+  `2026-04-24_blitz_shaped_chrome_scoping.md` — long-horizon
+  alternative to iced chrome. ~3.5–5 months of focused work to
+  replace iced with a Stylo + Taffy + Parley + WebRender stack
+  rendered in HTML/CSS. Not the next slice, but startable when
+  conditions warrant; documents what we'd build, what survives
+  from the iced migration, and the slice plan.
 - `../../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md`
 - `../../technical_architecture/graph_tree_spec.md`
 - `../../technical_architecture/graph_canvas_spec.md`
+- `../../technical_architecture/2026-04-22_portable_shell_state_in_graphshell_core.md`
 
 **Implementation anchors**:
 
@@ -150,6 +170,25 @@ These rules are part of the plan, not optional style preferences.
   arrangement, graph truth, or persisted history state. Host migration is
   allowed to move host/runtime ownership; it is not allowed to fork the
   reducer-owned durable mutation boundary.
+- **The two hosts need not share implementation shape.** Since egui is
+  destined for retirement, the iced host is free to adopt iced-idiomatic
+  patterns (canvas-local `Program::State` for camera, direct view-model
+  consumption in `view`, inline painting inside canvas `draw`) rather than
+  mirroring egui's compositor-with-static-painter model. The only
+  cross-host contract is the portable crate surface — `graphshell-core`,
+  `graphshell-runtime`, `graph-canvas`, `graph-tree` — and the
+  `FrameHostInput` / `FrameViewModel` / `HostPorts` vocabulary. Trait
+  implementations that egui needs (e.g. `OverlayAffordancePainter`,
+  `ContentPassPainter`, `HostPaintPort::draw_*`) may remain as
+  unimplemented stubs on iced when iced's architecture paints directly
+  from portable descriptors instead. Recorded 2026-04-24.
+- **Iced chrome isn't blocked on Servo readiness.** Per the
+  [2026-04-24 renderer-boot + isolation research](../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md),
+  middlenet's CPU-side `RenderScene` gives iced a real content
+  surface that doesn't require wgpu device sharing or Servo
+  wgpuification. Chrome polish (command palette, settings,
+  overlays) can proceed against a real content-rendering substrate
+  by exercising the middlenet path. Recorded 2026-04-24.
 
 ---
 
@@ -204,7 +243,7 @@ Checklist:
   — removed 2026-04-15; parity check retained as `log::warn!` to catch any
   remaining dual-write gaps
 - [x] Keep only startup import from tile state plus explicit repair tooling
-  — startup `incremental_sync_from_tiles` at `gui.rs:482` is the sole
+  — startup `incremental_sync_from_tiles` at `gui.rs:528` is the sole
   remaining caller; per-frame follower path is gone
 - [x] Route open/activate/dismiss/reveal/toggle-expand through
   `graph_tree_commands` first, closing the remaining direct tile-mutation paths
@@ -600,14 +639,17 @@ Done gate:
 
 ### M4.5. Make Viewer Surfaces Host-Native
 
-**Status**: In progress (2026-04-24). Three `HostSurfacePort` methods wired in
-`EguiHostPorts` this session: `register_content_callback` (→
-`CompositorAdapter::register_content_callback`), `unregister_content_callback`
-(→ `CompositorAdapter::unregister_content_callback`), and `retire_surface` (→
-`CompositorAdapter::retire_node_content_resources` when backend is present).
-`present_surface` wiring deferred — borrow conflict with `self.runtime.tick`.
-`ViewerSurfaceRegistry` status-quo plan note updated from "scaffolded" to
-reflect real state. Diagnostics coverage landed (see checklist).
+**Status**: In progress (2026-04-24). All four `HostSurfacePort` methods wired
+in `EguiHostPorts`: `register_content_callback`, `unregister_content_callback`,
+`retire_surface`, and `present_surface` (deferred-queue pattern resolves the
+double-borrow on `runtime.tick`; host drains post-tick). All five `HostInputPort`
+accessors wired: `pointer_hover_position`, `wants_keyboard_input`,
+`wants_pointer_input`, `modifiers` delegate to `egui::Context`; `poll_events` is
+a documented no-op (events enter via `FrameHostInput`). Dual-authority on
+`COMPOSITOR_NATIVE_TEXTURES` resolved: `compose_webview_content_pass_for_surface_with_painter`
+restructured so `surface.handle` updates are per-backing-arm; the static is
+write-through for retirement only on the `NativeRenderingContext` path.
+`ViewerSurfaceRegistry` is now the sole live-handle authority for that path.
 
 **Goal**: make the viewer/compositor surface model authoritative and
 host-portable before iced depends on it.
@@ -765,16 +807,43 @@ This is the recommended first task stack, in order.
 - [x] Content-callback executor trait (M3.5 slice 1) — landed 2026-04-21
 - [x] Euclid-typed descriptors + iced stub-painter verification (M3.5 final slice) — landed 2026-04-21
 - [~] Split `Gui` into runtime/presenter plus egui adapter responsibilities (M4)
-  — substantially landed via transitional bundles (`FocusAuthorityMut`,
-  `ToolbarAuthorityMut`, `CommandAuthorityMut`, `GraphSearchAuthorityMut`,
-  `ThumbnailChannel` + `BackendThumbnailPort`). Remaining: collapse
-  bundle parameters into `&mut GraphshellRuntime` at the phase-args
-  level, and move host-side view-model reads to consume `runtime.tick()`
-  output rather than reaching into shell state directly.
-- [~] Scaffold iced host entry point with one graph surface — partially landed: `shell/desktop/ui/iced_app.rs`, `iced_events.rs`, `iced_graph_canvas.rs`, `iced_host.rs`, `iced_host_ports.rs` (M5 skeleton, all no-op todo stubs), `iced_parity.rs` exist. Full wiring (event translation, focus, texture cache, clipboard, toast, accesskit) remains per iced_host_ports.rs `todo(m5)` markers.
+  — substantially landed via authority bundles now mostly promoted to
+  `graphshell-core` (`FocusAuthorityMut`, `CommandAuthorityMut`,
+  `GraphSearchAuthorityMut` live in `crates/graphshell-core/src/shell_state/authorities.rs`;
+  `ToolbarAuthorityMut` remains shell-local in `gui_state.rs`).
+  `ThumbnailChannel` + `BackendThumbnailPort` consolidated as host-neutral
+  port. Phase-args bundle collapse onto `&mut GraphshellRuntime` landed
+  2026-04-24 (§12.20 Tier 1). `runtime.tick(input, ports) -> view_model`
+  is live on both hosts: egui at `gui.rs:1047`, iced at `iced_host.rs:67`.
+  Remaining: migrate more host-side view-model reads to consume
+  `runtime.tick()` output rather than reading shell state directly
+  (chrome render sites require `tick()` to run before the render pass).
+- [~] Scaffold iced host entry point with one graph surface — landed as six
+  files (~1,480 lines) under `shell/desktop/ui/`: `iced_app.rs`,
+  `iced_events.rs`, `iced_graph_canvas.rs`, `iced_host.rs`,
+  `iced_host_ports.rs`, `iced_parity.rs`. `iced_host.rs::run_frame()` calls
+  `self.runtime.tick(input, &mut ports)` on the live iced path — the same
+  runtime kernel the egui host calls at `gui.rs:1047`. Remaining: most
+  `HostInputPort` / `HostSurfacePort` / `HostClipboardPort` methods on
+  `IcedHostPorts` are still `todo(m5)` no-ops (24 markers in
+  `iced_host_ports.rs`); event translation, texture cache, clipboard, toast,
+  and accesskit bridges are the unclosed slices.
 - [ ] Add iced `GraphTree` adapter
-- [ ] Add iced `graph-canvas` adapter — note: `iced_graph_canvas.rs` scaffold exists
-- [ ] Add host parity replay tests — note: `iced_parity.rs` scaffold exists
+- [~] Add iced `graph-canvas` adapter — `iced_graph_canvas.rs` is an
+  M5.4 "first real surface" impl (~248 lines): renders the shared graph
+  (nodes as circles, edges as lines) via `iced::widget::canvas::Canvas`,
+  reading `GraphshellRuntime.graph_app.domain_graph()`. Documented scope
+  limits: no hit testing, no interaction, no labels, frozen snapshot at
+  `view()` build time. Follow-on converts it into a real
+  `CanvasBackend<NodeKey>` impl so both hosts drive off the same
+  `ProjectedScene`.
+- [~] Add host parity replay tests — `iced_parity.rs` has 8 `#[test]`
+  blocks driving `runtime.tick(&input, &mut ports)` against both
+  `EguiHostPorts` and `IcedHostPorts` from the same `FrameHostInput`
+  trace. First cross-host scalar-parity test landed 2026-04-24
+  (see §12.12). Remaining: `#[derive(PartialEq)]` on view-model
+  sub-structs for full struct-level equality; graph-canvas packet
+  snapshot replay; CI gate on divergence.
 
 ---
 
@@ -925,7 +994,7 @@ This migration path is successful when Graphshell can truthfully say:
 - Retained the parity check as `log::warn!` in debug builds to catch any
   remaining bypass gaps.
 - `incremental_sync_from_tiles` has exactly one remaining caller: the startup
-  import at `gui.rs:482`, which reconciles GraphTree with tiles restored from
+  import at `gui.rs:528`, which reconciles GraphTree with tiles restored from
   persistence.
 
 **Also landed**: `WorkflowSavepoint` — registry-level transaction savepoint
@@ -1559,6 +1628,953 @@ Findings:
   `focus_view_model_focused_node_is_none_when_graph_surface_focused` to pin
   the gate.
 
+### 2026-04-24 — Cross-host parity floor + shared ProjectedScene surface
+
+**Context**: Three Tier-2 items from §12.20 landed end-to-end in one session,
+following the 2026-04-24 audit pass below.
+
+**Slice 1 — `PortableRect` duplicate-import fixed (§12.12 blocker)**:
+
+- Removed the duplicate `PortableRect` import in
+  `shell/desktop/ui/iced_host_ports.rs` (line 267 previously re-imported a
+  type already brought in at line 29). This had been preventing
+  `cargo check --lib --features iced-host` from succeeding, which in turn
+  meant `cargo test --features iced-host` could not actually run the
+  cross-host parity tests.
+- Receipt: `cargo check --lib --features iced-host` now completes clean
+  (2 pre-existing egui-deprecation warnings unrelated to this change).
+
+**Slice 2 — `#[derive(PartialEq)]` on view-model sub-structs**:
+
+- Added `PartialEq` to 9 view-model sub-types in
+  `crates/graphshell-core/src/shell_state/frame_model.rs`:
+  `FocusRingSpec`, `FocusViewModel`, `ToolbarViewModel`, `OmnibarViewModel`,
+  `GraphSearchViewModel`, `CommandPaletteViewModel`, `DialogsViewModel`,
+  `ToastSpec`, `DegradedReceiptSpec`. All transitive types (`PortableInstant`,
+  `PaneId`, `ToolbarDraft`/`ToolbarEditable`, `ContentLoadState`, `NodeKey`)
+  already had `PartialEq`, so the derives are mechanical.
+- Expanded the §12.12 cross-host parity test
+  (`replay_trace_scalar_parity_across_host_ports` in `iced_parity.rs`) from
+  ~13 scalar-primitive asserts to 13 struct-level asserts covering every
+  projected sub-model. Any field-level divergence across hosts is now caught
+  by a single `assert_eq!` rather than requiring a scalar allowlist.
+- Receipt: `cargo test --lib --features iced-host -- iced_parity` —
+  8 passed, 0 failed.
+
+**Slice 3 — iced graph-canvas now consumes shared `ProjectedScene`**:
+
+- New module `shell/desktop/ui/iced_canvas_painter.rs` (mirror of
+  `render/canvas_egui_painter.rs`): converts portable `SceneDrawItem`s into
+  iced `canvas::Frame` draw calls. Layers paint in background → world →
+  overlays order, matching the egui painter. Handles `Circle`, `Line`,
+  `RoundedRect`, `Label`; defers `ImageRef` on the same texture-registry
+  dependency as egui.
+- Refactored `shell/desktop/ui/iced_graph_canvas.rs::GraphCanvasProgram` to
+  hold `CanvasSceneInput<NodeKey>` + derived `ProjectedScene<NodeKey>`.
+  `from_graph_app` now routes through
+  `canvas_bridge::build_scene_input(...)` + `graph_canvas::derive::derive_scene(...)`
+  with identity camera + zero-size viewport — the same portable pipeline the
+  egui host's `canvas_bridge::run_graph_canvas_frame` uses minus physics +
+  input handling. `draw()` computes a fit-to-bounds transform from the scene
+  input's node bounding box, applies it via iced's canvas transform stack,
+  and hands the scene to `iced_canvas_painter::paint_projected_scene`.
+- Iced 0.14 API notes (captured while landing): `advanced` module is
+  feature-gated, so we construct `Text::align_x` via
+  `alignment::Horizontal::Center.into()` rather than naming
+  `iced_core::text::Alignment` directly; `rounded_rectangle` takes
+  `border::Radius` not `Pixels`; canvas `Text` fields renamed to `align_x`
+  / `align_y`.
+- Module registered at `shell/desktop/ui/mod.rs` behind the `iced-host`
+  feature gate.
+- Receipt: `cargo test --lib --features iced-host -- iced_parity
+  iced_graph_canvas iced_canvas_painter` — 15 passed, 0 failed (4 new
+  `iced_graph_canvas` tests replacing old raw-position tests, 3 new
+  `iced_canvas_painter` tests, 8 pre-existing `iced_parity` tests
+  including the newly expanded struct-level parity).
+
+**Net effect**: iced host now paints graph nodes + edges through exactly
+the same portable `ProjectedScene<NodeKey>` type the egui host paints.
+Any divergence in scene content between the two hosts is now observable
+cross-host via `iced_parity`'s struct-level asserts (for the view-model
+surface) and — once a graph-canvas packet replay test lands — via
+scene-packet equality too (§12.11 remaining target).
+
+### 2026-04-25 — Iced raw-window-handle audit + wry→verso ownership + iced-graph-canvas-viewer extraction
+
+**Context**: Three slices in one session, in user-requested order
+(2 → 1 → 3). Each landed without touching the still-broken
+`webrender-wgpu` working tree.
+
+**Slice 28 — iced raw-window-handle audit (Option 2)**:
+
+- `iced 0.14` exposes raw window handles via the public trait
+  [`iced_runtime::window::Window: HasWindowHandle + HasDisplayHandle`](.cargo/registry/iced_runtime-0.14.0/src/window.rs)
+  at line 196.
+- Public access surface:
+  [`iced::runtime::window::run(id, |handle: &dyn Window| -> T)`](.cargo/registry/iced_runtime-0.14.0/src/window.rs)
+  at line 463 — takes a `FnOnce` callback that receives a
+  `&dyn Window` for any `iced::window::Id`. Returns `Task<T>`.
+- **Conclusion**: iced-on-wry is feasible without forking iced.
+  wry's `WebViewBuilder::new_as_child(parent_window)` accepts the
+  `&dyn Window` handle iced exposes. Caveat: handle access is
+  async via the `Task` model — wry creation flows through a
+  Task callback rather than synchronously inside `view()`/`update()`.
+  Structural, not blocking.
+- Phase B (iced-wry-viewer) is real architectural work; not a
+  fork-iced project.
+
+**Slice 29 — wry dep ownership moves to verso (Option 1, Phase A1)**:
+
+- `crates/verso/Cargo.toml` gained a `wry-engine` Cargo feature
+  pulling `wry = { version = "0.55", optional = true }`.
+- New module `crates/verso/src/lib.rs::wry_engine` re-exports the
+  upstream `wry` crate behind the feature gate, so downstream
+  crates (notably the future `iced-wry-viewer`) depend on
+  `verso/wry-engine` rather than `wry` directly.
+- Graphshell main's `wry` feature now activates `verso/wry-engine`:
+  `wry = ["dep:wry", "verso/wry-engine"]`. Existing wry-using code
+  in `mods/native/web_runtime/wry_manager.rs` (~800 lines) still
+  imports `wry::*` directly via graphshell main's wry dep — that's
+  Phase A2 (the actual code move into verso). Phase A1 establishes
+  ownership.
+- Receipt: `cargo check -p verso --features wry-engine` clean
+  (20.16s; pulls wry 0.55 + webview2-com on Windows).
+
+**Slice 30 — iced-graph-canvas-viewer crate extraction (Option 3)**:
+
+- New crate
+  [`crates/iced-graph-canvas-viewer/`](../../../crates/iced-graph-canvas-viewer)
+  with deps `iced` 0.14 + `graph-canvas` (framework-agnostic) +
+  `graphshell-core` (for `NodeKey`) + `euclid`. **No Servo, no
+  webrender, no graphshell main-crate dep tree.**
+- Public API:
+  - `pub struct GraphCanvasProgram` — wraps a pre-built
+    `CanvasSceneInput<NodeKey>`. New `pub fn new(scene_input)`
+    constructor replaces the old `from_graph_app` (moved to host
+    shim — viewer crate doesn't know about `GraphBrowserApp`).
+  - `pub struct GraphCanvasState` — canvas-local camera +
+    drag-origin state (was `pub(crate)`, now `pub`).
+  - `pub enum GraphCanvasMessage::CameraChanged { pan, zoom }` —
+    self-emitted event the host maps via `Element::map`.
+  - `pub mod painter` — was `iced_canvas_painter` in graphshell
+    main; mirrors `canvas_egui_painter`. `paint_projected_scene<N>`
+    is `pub` so callers who want to compose multiple scenes can
+    paint directly.
+- `examples/demo.rs`: hand-built `CanvasSceneInput` with 5 nodes +
+  6 edges. Runnable via
+  `cargo run -p iced-graph-canvas-viewer --example demo` —
+  drag with primary button to pan, wheel to zoom, status line
+  shows current camera state.
+- Tests moved + adapted: 9 tests pass (8 logic + 1 painter color
+  roundtrip). Tests previously needing `GraphBrowserApp` now build
+  fixture `CanvasSceneInput` directly using
+  `graph_canvas::scene::{CanvasNode, CanvasEdge, ViewId}`.
+
+**Slice 31 — Graphshell shim + cleanup**:
+
+- [`shell/desktop/ui/iced_graph_canvas.rs`](../../../shell/desktop/ui/iced_graph_canvas.rs)
+  rewrote as a thin shim (~50 lines):
+  - Re-exports `iced_graph_canvas_viewer::{GraphCanvasProgram,
+    GraphCanvasState, GraphCanvasMessage}` so existing call sites
+    in `iced_app.rs` resolve unchanged via
+    `super::iced_graph_canvas::GraphCanvasMessage::*`.
+  - `pub(crate) fn from_graph_app(app, view_id) -> GraphCanvasProgram`
+    — host-side conversion that builds `CanvasSceneInput` via
+    `canvas_bridge::build_scene_input` and constructs the program
+    with the new `::new(scene_input)` constructor.
+- `iced_app.rs` updated: imports `from_graph_app as graph_canvas_from_app`
+  and calls `graph_canvas_from_app(&app, view_id)` instead of the
+  old `GraphCanvasProgram::from_graph_app(...)`.
+- **Deleted**:
+  [`shell/desktop/ui/iced_canvas_painter.rs`](../../../shell/desktop/ui/iced_canvas_painter.rs)
+  — its content moved to the new crate's `painter` module.
+  Removed from `shell/desktop/ui/mod.rs`. No legacy parallel
+  copy retained per DOC_POLICY's no-legacy-friction rule.
+- `iced-host` Cargo feature now activates both viewer crates:
+  `iced-host = ["dep:iced", "dep:iced-middlenet-viewer", "dep:iced-graph-canvas-viewer"]`.
+
+**Receipts (slices 28–31)**:
+
+- `cargo test -p iced-graph-canvas-viewer --lib` — **9 passed**,
+  0 failed (47.22s first build, 0.00s run).
+- `cargo build -p iced-graph-canvas-viewer --example demo` — clean
+  (11.25s).
+- `cargo test -p iced-graph-canvas-viewer -p iced-middlenet-viewer
+  -p verso` — **29 total passed** (9 + 6 + 14), 0 failed.
+- `cargo check -p verso --features wry-engine` — clean.
+- Graphshell main bin verification still gated on
+  `webrender-wgpu` working-tree state; no slice in this session
+  required it.
+
+**Net architectural effect**: The iced host's portable surface
+(viewer crates + verso routing) is now a meaningful set of
+standalone, testable, demoable workspace crates that **don't
+depend on Servo/webrender/wry-impl directly**. Pattern is firmly
+established: portable viewer crate + thin host shim + standalone
+demo binary. The iced host's own portable footprint ratio has
+flipped — viewers live in their own crates; only the host adapter
+glue remains in graphshell main.
+
+**Follow-on lanes available, no blockers**:
+
+- **Phase A2** (move wry_manager into verso) — ~2-3 sessions,
+  doable any time, doesn't block iced-wry-viewer Phase B.
+- **Phase B (iced-wry-viewer)** — feasible per Slice 28 audit;
+  needs to handle async raw-window-handle access via the
+  `iced::runtime::window::run(id, ...)` Task pattern.
+- **C3 prototype** (iced-Servo screenshot loop) — still a real
+  option once webrender-wgpu unblocks.
+
+### 2026-04-25 — M1.1 follow-on: Extracted iced-middlenet-viewer crate
+
+**Context**: The 2026-04-24 M1.1 work landed in the main graphshell
+crate, where build verification was blocked by an in-progress
+edit in the `webrender-wgpu` fork. To unblock iced-side work
+that doesn't actually need Servo or webrender, the viewer was
+**extracted into its own workspace crate**.
+
+**Slice 25 — `crates/iced-middlenet-viewer` standalone crate**:
+
+- New crate at
+  [`crates/iced-middlenet-viewer/`](../../../crates/iced-middlenet-viewer)
+  with deps `iced` 0.14 + `middlenet-engine` only. **No Servo, no
+  webrender, no graphshell dep tree.** Compiles + tests in
+  ~3.89 s without touching the broken `webrender-wgpu` working
+  tree.
+- Self-emitted event type: `pub enum MiddlenetViewerEvent { LinkActivated(LinkTarget) }`.
+  Hosts map via `iced::Element::map` (same pattern as
+  `graph_canvas::GraphCanvasMessage`).
+- All 6 tests from the original M1.1 module moved to the new
+  crate + added one more (`event_partial_eq`) for downstream
+  parity-test composability.
+
+**Slice 26 — Graphshell-side shim**:
+
+- [`shell/desktop/ui/iced_middlenet_viewer.rs`](../../../shell/desktop/ui/iced_middlenet_viewer.rs)
+  rewritten as a thin shim (~30 lines): re-exports
+  `render_scene(&RenderScene) -> Element<'_, Message>` calling
+  the crate-side `render_scene` and `Element::map`-ing
+  `MiddlenetViewerEvent::LinkActivated` into `Message::LinkActivated`.
+- `iced-host` Cargo feature now also pulls in
+  `iced-middlenet-viewer` (added under `[dependencies]` with
+  `optional = true`).
+- Workspace `[members]` updated to include the new crate.
+
+**Slice 27 — Runnable demo**:
+
+- [`crates/iced-middlenet-viewer/examples/demo.rs`](../../../crates/iced-middlenet-viewer/examples/demo.rs):
+  a hand-built `RenderScene` exercising every `RenderBlockKind`
+  variant (Title, Heading, MetadataRow, Rule, Paragraph, Quote,
+  List, CodeFence, Link, Badge, FeedHeader, FeedEntry,
+  RawSourceNotice). Run with:
+
+  ```bash
+  cargo run -p iced-middlenet-viewer --example demo
+  ```
+
+  Window title "iced-middlenet-viewer demo" opens with the
+  rendered scene; clicking a link updates a status line at the
+  top showing the activated `LinkTarget`. Useful for visual
+  iteration on styling and end-to-end event-routing
+  verification — no Servo/webrender needed.
+
+**Receipts**:
+
+- `cargo test -p iced-middlenet-viewer --lib` — **6 passed**, 0
+  failed, 3.89 s build, 0.00 s run.
+- `cargo build -p iced-middlenet-viewer --example demo` — clean,
+  10.42 s.
+- `cargo check -p graphshell-core --lib` — clean, confirms the
+  portable side compiles with `iced-middlenet-viewer` registered
+  in the workspace.
+
+**Net effect**: M1.1 is now buildable, testable, and
+demoable today, completely independent of the
+`webrender-wgpu` working-tree state. Bonus architectural win —
+the iced viewer joins `graph-canvas` and `graph-tree` as a
+portable crate with no Servo coupling. The pattern (portable
+viewer crate + thin host shim) is reusable for future iced
+content surfaces (Wry-backed viewer, future custom protocol
+viewers, etc.).
+
+**Follow-on**: M1.2 (route `viewer:middlenet` nodes through
+the shim from `IcedApp::view`) and M1.3 (end-to-end Gemini
+fetch test) still wait on `webrender-wgpu` unblocking, since
+they touch the main graphshell crate. But the viewer logic
+itself can iterate freely now.
+
+### 2026-04-24 — M1.1: Iced middlenet viewer (first content surface)
+
+**Context**: First slice of the
+[content-surface scoping doc](2026-04-24_iced_content_surface_scoping.md)'s
+new §M1 — middlenet-in-iced as the first non-Servo content surface.
+Iced now has a real content-rendering capability that doesn't require
+wgpu device sharing or Servo wgpuification readiness.
+
+**Slice 22 — `iced_middlenet_viewer` module**:
+
+- New module
+  [`shell/desktop/ui/iced_middlenet_viewer.rs`](../../../shell/desktop/ui/iced_middlenet_viewer.rs)
+  (~330 lines). Public function `render_scene(&RenderScene) -> Element<'_, Message>`
+  walks `scene.blocks` and dispatches by `RenderBlockKind` to per-kind
+  sub-renderers using iced primitives (`text`, `column`, `row`,
+  `container`, `mouse_area`, `rule::horizontal`).
+- Block dispatch mirrors the egui implementation at
+  [registries/viewers/middlenet.rs:902-956](../../../registries/viewers/middlenet.rs):
+  - `Rule` → `rule::horizontal(1.0)`
+  - `CodeFence` → monospace text inside a padded `container`
+  - `List { ordered: _ }` → `column!` of `row![bullet, line]` per
+    newline in the first text run
+  - `FeedHeader` / `FeedEntry` / `Heading{}` / `Paragraph` / `Link`
+    / `Quote` / `MetadataRow` / `Badge` / `RawSourceNotice` →
+    text-run loop
+- Helper `style_for_run(&RenderTextRun) -> (text, font, size, color)`
+  maps each `TextStyle` variant to iced presentation parameters.
+  Mirrors the egui `RichText` styling at
+  [registries/viewers/middlenet.rs:1024](../../../registries/viewers/middlenet.rs):
+  - `Title`/`Heading` → bold weight, larger size
+  - `Quote` → italic style, prefixed with "&gt; ", gray color
+  - `Code` → monospace
+  - `Link` → cornflower blue color (iced equivalent of the egui `(100, 149, 237)`)
+  - etc.
+- Link-clickable text uses `mouse_area(label).on_press(Message::LinkActivated(target))`.
+  Avoids `button` styling and lets the text widget keep its
+  TextStyle-driven color (links render in cornflower blue and
+  click on press).
+
+**Slice 23 — `Message::LinkActivated` + spatial-browsing semantics**:
+
+- New `Message::LinkActivated(LinkTarget)` variant in
+  [`iced_app.rs`](../../../shell/desktop/ui/iced_app.rs).
+- `update::LinkActivated` queues a
+  `HostIntent::CreateNodeAtUrl { url: target.href, position: origin }`
+  through the same path `LocationSubmitted` uses, then ticks. **A
+  link click creates a new graph node** rather than navigating in
+  place — spatial-browsing semantics consistent with the
+  graph-as-tabs product framing. Modifier-based "follow in place"
+  could come later if needed, but the default for v1 is "every
+  click grows the graph."
+- Refactored `LocationSubmitted` to share a new
+  `queue_create_node_at_url(url)` helper with `LinkActivated` so
+  both routes flow through one sanctioned-writes path.
+
+**Slice 24 — Tests + module registration**:
+
+- `iced_middlenet_viewer.rs` has 5 unit tests:
+  - `empty_scene_renders_without_panic`
+  - `each_block_kind_renders_without_panic` (regression-pin against
+    new `RenderBlockKind` variants landing without dispatch
+    coverage)
+  - `style_for_run_maps_each_text_style` (spot-checks Title, Code,
+    Quote, Body)
+  - `link_run_renders_clickable_text`
+  - `list_block_splits_on_newlines`
+- Module registered in
+  [`shell/desktop/ui/mod.rs`](../../../shell/desktop/ui/mod.rs)
+  behind the `iced-host` feature.
+
+**Verification posture**:
+
+- `cargo check -p graphshell-core --lib` — **clean** (4.63s).
+  Confirms `HostIntent` + `FrameHostInput.host_intents` changes
+  compile in the portable core.
+- `cargo check --lib --features iced-host` — **blocked** by an
+  uncommitted in-progress edit in
+  [webrender-wgpu/webrender/src/renderer/mod.rs:1264](../../../../webrender-wgpu/webrender/src/renderer/mod.rs)
+  (`color_cache_formats` moved-then-used). This is part of the
+  user's active SPIR-V shader pipeline migration (per the
+  [2026-04-18 plan](../../../../webrender-wgpu/wr-wgpu-notes/2026-04-18_spirv_shader_pipeline_plan.md))
+  and not my territory. The iced_middlenet_viewer changes use
+  iced 0.14 APIs verified directly in the iced_widget-0.14.2
+  registry source (rule::horizontal, mouse_area::on_press,
+  Pixels::from(f32)).
+- Test verification (`cargo test --lib --features iced-host -- iced_middlenet_viewer`)
+  blocked on the same webrender-wgpu issue. Tests will run when
+  the fork's working tree clears or stabilizes. Manual code review
+  against the iced API surface is the active gate.
+
+**Net effect**: M1.1 of the content-surface scoping doc landed in
+code. Once webrender-wgpu unblocks, M1.2 (route wiring in
+`IcedApp::view` to dispatch `viewer:middlenet` nodes through the
+new viewer) and M1.3 (end-to-end Gemini fetch test) follow on as
+~1-session each. After M1, iced is a usable spatial browser for
+middlenet content (Gemini, RSS, Markdown, plain text) — shipping-
+quality even before Servo wgpu integration is ready.
+
+**Follow-on (M1.2)**: `IcedApp::view` decides per-node whether
+to render the graph canvas (existing) or the middlenet viewer
+(new), keyed on the node's viewer kind from `FrameViewModel` /
+runtime state. Probably a `match vm.node_viewer_for(node_key)`
+dispatch.
+
+### 2026-04-24 — Runtime-intent routing + iced wgpu-context slot (C1)
+
+**Context**: Unblocks the `LocationSubmitted` navigation follow-on
+flagged in the editable-toolbar session, and lands the first
+content-surface scoping slice (C1).
+
+**Slice 17 — Portable `HostIntent` enum in graphshell-core**:
+
+- New module [`graphshell-core/src/shell_state/host_intent.rs`](../../../crates/graphshell-core/src/shell_state/host_intent.rs)
+  defines `pub enum HostIntent` with one initial variant:
+  `CreateNodeAtUrl { url: String, position: PortablePoint }`.
+- This is a **parallel portable enum**, not a move of the shell
+  crate's `GraphIntent` into core. Host adapters only need a narrow
+  surface of intent variants (what chrome can express); the larger
+  `GraphIntent` surface (PendingTileOpenMode, workbench layout
+  commands, etc.) stays shell-side because it references shell-only
+  types.
+- Serde-roundtrip test included for future replay-harness use.
+
+**Slice 18 — `FrameHostInput::host_intents` channel**:
+
+- `FrameHostInput` gained `pub host_intents: Vec<HostIntent>` field.
+  Existing `..FrameHostInput::default()` construction patterns
+  continue to work (the field defaults to an empty vec via `Default`).
+- Egui's `build_frame_host_input` in [gui.rs:274](../../../shell/desktop/ui/gui.rs#L274)
+  constructs the field as `Vec::new()` — egui's toolbar submit
+  still calls the shell-side reducer path directly (not a host
+  adapter file, so §12.17 doesn't apply). iced routes through the
+  new channel instead.
+
+**Slice 19 — Runtime drains `host_intents` during tick**:
+
+- New `GraphshellRuntime::apply_host_intents` method in
+  [gui_state.rs](../../../shell/desktop/ui/gui_state.rs) translates
+  portable intents into runtime-internal reducer actions.
+- `CreateNodeAtUrl` delegates to `GraphBrowserApp::add_node_and_sync`
+  — the same entrypoint the egui toolbar submit flow uses today.
+  Preserves protocol-probe triggering and physics re-heat behavior
+  for free.
+- Called from `tick(input, ports)` immediately after `ingest_frame_input`
+  so the frame's `project_view_model` output reflects the applied
+  intents.
+- §12.17 boundary check: `apply_host_intents` lives on the runtime
+  (not in a host adapter file). Host adapters push intents through
+  `FrameHostInput.host_intents`; the runtime owns the reducer call.
+  Sanctioned-writes contract tests pass unchanged.
+
+**Slice 20 — Iced host plumbs intents through the tick pipeline**:
+
+- `IcedHost.pending_host_intents: Vec<HostIntent>` queue matches the
+  `pending_present_requests` pattern — populated by
+  [iced_app.rs](../../../shell/desktop/ui/iced_app.rs) message
+  handlers, drained into `FrameHostInput.host_intents` on the next
+  tick.
+- `IcedApp::update::LocationSubmitted` now:
+  1. Takes the draft URL.
+  2. Pushes `HostIntent::CreateNodeAtUrl { url, position: (0, 0) }`
+     onto `host.pending_host_intents`.
+  3. Ticks immediately so the runtime drains the intent in the same
+     frame the submit happened.
+  4. Enqueues a success toast ("opened: …") confirming the submit.
+- `IcedHost::tick_with_input` merges `pending_host_intents` into a
+  cloned `FrameHostInput` before calling `runtime.tick`. No cost
+  when the queue is empty (early return); cheap clone when present.
+
+**Slice 21 — C1: iced wgpu device/queue slot on `IcedHost`**:
+
+- Added `IcedWgpuContext { device: servo::wgpu::Device, queue:
+  servo::wgpu::Queue }` struct in iced_host.rs.
+- `IcedHost.wgpu_context: Option<IcedWgpuContext>` — `None` at
+  startup; populated via `install_wgpu_context(ctx)` when iced's
+  renderer boot path exposes device handles.
+- `wgpu_context()` accessor for consumers (future
+  `WebViewSurface<NodeKey>` widget per C3 of the content-surface
+  scoping doc).
+- Uses `servo::wgpu` types because graphshell's shared wgpu path is
+  already on that version; if iced's wgpu version diverges, a
+  compatibility shim lands alongside C2 (token-less texture flow).
+  C1 is exposure-only — no consumers yet.
+- Documented the wiring-invocation path: iced renderer boot calls
+  `install_wgpu_context`. Actual boot-path wiring lands when iced's
+  advanced-renderer exposure is pinned down.
+
+**Receipts (slices 17–21)**:
+
+- `cargo test --lib --features iced-host -- iced sanctioned_writes`
+  — **53 passed**, 0 failed (2m 31s first-build; rebuild 0.34s).
+  New coverage:
+  - `location_submitted_clears_draft_and_creates_node` — end-to-end
+    toolbar submit → runtime tick → graph node creation.
+  - `wgpu_context_slot_starts_none_and_accepts_install` — C1 slot
+    lifecycle.
+  - All 5 §12.17 sanctioned-writes tests still green; no host
+    adapter file references `apply_graph_delta_and_sync` or
+    `apply_arrangement_snapshot`.
+- `cargo check --lib --features iced-host` clean (22s rebuild).
+
+**Net effect**: iced's toolbar is now a real navigation surface —
+typing a URL and pressing Enter creates a graph node via the
+sanctioned `HostIntent` path. The architecture is ready for
+additional chrome-driven intents (command palette actions, omnibar
+submissions) without further core-crate plumbing — new variants are
+just added to the `HostIntent` enum and translated in
+`apply_host_intents`. C1's wgpu slot is in place for the
+`WebViewSurface<NodeKey>` widget (C3) to consume once Servo
+wgpuification is ready.
+
+### 2026-04-24 — Editable toolbar + hotkey + confirmed CLI entry point
+
+**Context**: "Make iced actually runnable, then interactive" — the
+first two slices after the stateful-ports session.
+
+**Slice 14 — iced CLI entry point confirmed**:
+
+- `shell/desktop/runtime/cli.rs::main()` already gates an iced launch
+  on `--iced` flag or `GRAPHSHELL_ICED=1` env var, invoking
+  `iced_app::run_application(GraphshellRuntime::new_minimal())`
+  (feature-gated on `iced-host`). No code change needed.
+- Verified `cargo check --bin graphshell --features iced-host` builds
+  clean (1m 25s; 3 pre-existing warnings). The iced host is launchable
+  from the binary; what was missing was only the runtime state
+  (clipboard, toast queue, etc.) and interactive chrome — both now in
+  place.
+
+**Slice 15 — Editable toolbar location input**:
+
+- Replaced the read-only `text(location_display)` widget in
+  `IcedApp::view` with an `iced::widget::text_input` bound to a new
+  `IcedApp::location_draft: Option<String>` field. Draft-takes-
+  precedence semantics: typing updates the draft, submitting clears
+  it so the widget resumes mirroring `last_view_model.toolbar.location`.
+- New messages:
+  - `Message::LocationEdited(String)` — update draft, no tick.
+  - `Message::LocationSubmitted` — for now, enqueue an ack toast
+    through `IcedHost::toast_queue` and clear the draft. Actual
+    navigation wiring is deferred; see "Follow-on" below.
+- New helper `IcedApp::location_value()` picks draft-or-view-model
+  as the text-input's current string.
+- Toolbar row now aligns items with `align_y(Alignment::Center)` so
+  the larger text_input doesn't baseline-drift against the nav/focus
+  hints.
+
+**Slice 16 — Ctrl+L focuses the location bar**:
+
+- Location text_input now carries a stable `iced::widget::Id` keyed
+  on the `LOCATION_INPUT_ID` constant. Any iced widget that wants
+  programmatic focus follows this named-id convention.
+- `IcedApp::update::IcedEvent` intercepts Ctrl+L (via modifier-
+  agnostic `iced::keyboard::Modifiers::command()` so macOS Cmd+L
+  also works) before the runtime translation path, and returns
+  `iced::widget::operation::focus(Id)` as the update's `Task`. The
+  tick is skipped for this event since host-chrome hotkeys aren't
+  part of the runtime's `HostEvent` vocabulary.
+- Bare 'l' keypresses flow through normally (the hotkey predicate
+  gates on `command()`), so text-input typing is unaffected.
+
+**Receipts (slices 14–16)**:
+
+- `cargo test --lib --features iced-host -- iced` — **46 passed**,
+  0 failed (3m compile, 0.04s run). 6 new `iced_app` tests:
+  - `location_edited_updates_draft_without_ticking`
+  - `location_submitted_clears_draft_and_enqueues_ack_toast`
+  - `location_submitted_empty_is_noop`
+  - `location_value_prefers_draft_over_view_model`
+  - `ctrl_l_hotkey_bypasses_runtime_tick`
+  - `bare_l_keypress_is_not_a_hotkey`
+
+**Follow-on — runtime-intent routing for `LocationSubmitted`**:
+
+- §12.17's sanctioned-writes contract forbids host adapter files
+  (`iced_app.rs`, `iced_host.rs`, etc.) from calling
+  `apply_graph_delta_and_sync` or `apply_arrangement_snapshot`
+  directly. The correct path is: host produces a `GraphIntent`, the
+  runtime applies it through its reducer.
+- Current `FrameHostInput` has an `events: Vec<HostEvent>` channel
+  but no `intents: Vec<GraphIntent>` channel. Adding one requires
+  either:
+  - Moving `GraphIntent` from `graph_app.rs` into `graphshell-core`
+    so `FrameHostInput` (in core) can hold it, or
+  - Introducing a parallel portable-intent enum in core that the
+    runtime translates into `GraphIntent` at tick time.
+- Either option is a core-crate slice, not a host slice. Tracked
+  here as the blocker on wiring `LocationSubmitted` into actual
+  navigation; current iced UX enqueues an ack toast as a
+  placeholder so submit is observably happening.
+- Once the intent channel lands, iced host wiring is trivial:
+  `LocationSubmitted` pushes `GraphIntent::CreateNodeAtUrl { url,
+  position }` onto the next tick's `FrameHostInput.intents`, and
+  the runtime applies it through its reducer (same path egui's
+  toolbar uses directly today, but routed through the contract
+  boundary).
+
+### 2026-04-24 — Iced host becomes a real adapter (stateful ports, camera round-trip, toast overlay)
+
+**Context**: Building on the morning's "iced-idiomatic deviation"
+license, this session turned `IcedHost` from a thin wrapper around the
+runtime into a real host adapter with stateful fields, and drained
+most of the remaining `todo(m5)` markers in `iced_host_ports.rs`.
+
+**Slice 10 — `IcedHost` becomes stateful**:
+
+- Fields added to `IcedHost`:
+  - `view_id: GraphViewId` — stable per-host identity for camera
+    persistence + view-scoped runtime state.
+  - `clipboard: Option<arboard::Clipboard>` — OS-level clipboard,
+    lazily constructed (same shape egui uses — this is an OS
+    concern, not a framework concern).
+  - `cursor_position: Option<iced::Point>` — cached from
+    `CursorMoved` / `CursorLeft` events.
+  - `modifiers: iced::keyboard::Modifiers` — cached from
+    `ModifiersChanged` and key events.
+  - `toast_queue: Vec<ToastSpec>` — bounded by `MAX_TOAST_QUEUE = 8`;
+    trimmed post-tick so unbounded enqueue streams can't grow memory.
+  - `texture_cache: HashMap<String, CachedTexture>` — iced-dep-free
+    handle (key + width + height + `Arc<[u8]>` RGBA); production
+    iced host rehydrates via `iced::image::Handle::from_rgba` when
+    image display lands.
+  - `pending_present_requests: Vec<NodeKey>` — deferred queue
+    matching egui's pattern (registry lives on `GraphshellRuntime`,
+    which is mutably borrowed during `tick`).
+
+**Slice 11 — `IcedHostPorts` becomes a borrowed bundle**:
+
+- `IcedHostPorts<'a>` holds mutable refs into `IcedHost` fields.
+  Constructed fresh each tick in `IcedHost::tick_with_input` so the
+  port traits delegate to live state, mirroring `EguiHostPorts<'a>`'s
+  shape at the borrow level even though the trait methods deviate.
+- Real port implementations:
+  - `HostInputPort::pointer_hover_position` → maps cached
+    `iced::Point` to `PortablePoint`.
+  - `HostInputPort::modifiers` → projects
+    `iced::keyboard::Modifiers` to portable `ModifiersState`
+    (reuses the same projection `iced_events::modifiers_from_iced`
+    uses, keeping a single mapping definition).
+  - `HostInputPort::wants_keyboard_input` / `wants_pointer_input`
+    → documented `false`: iced widgets handle capture locally via
+    `Action::capture()`, so the runtime doesn't need to gate
+    dispatch. Deliberate deviation from egui's `ctx.wants_*` path.
+  - `HostSurfacePort::present_surface` → deferred-queue pattern
+    (pushes to `pending_present_requests`, drained post-tick).
+  - `HostSurfacePort::retire_surface` / `register_content_callback`
+    / `unregister_content_callback` → deliberate no-ops pending
+    the iced-native content-surface registry design.
+  - `HostPaintPort::draw_*` → intentional no-ops. iced paints
+    overlays inline inside `GraphCanvasProgram::draw` and chrome
+    inside `IcedApp::view`, not through a shared host painter.
+    Documented architectural deviation; the trait impl exists for
+    type-level portability only.
+  - `HostTexturePort` → real cache via `IcedTextureHandle` (key +
+    dimensions, iced-dep-free) backed by `CachedTexture`. Full
+    `load_texture` / `texture` / `drop_texture` round-trip
+    covered by tests.
+  - `HostClipboardPort::{get,set}_text` → delegates to `arboard`
+    via the lazily-constructed handle, exact parity with egui.
+  - `HostToastPort::enqueue` → pushes to `toast_queue`. No drain
+    semantics at the port layer — the queue lives until
+    `IcedApp::view` renders it or the bounded-queue policy trims
+    the oldest.
+  - `HostAccessibilityPort` → deferred stubs until the iced
+    accesskit bridge lands (same blocker the chrome-port cleanup
+    plan §5.2 calls out).
+
+**Slice 12 — Canvas-captured camera round-trips through the runtime**:
+
+- New `GraphCanvasMessage` child-message type with a single variant
+  `CameraChanged { pan, zoom }`. Canvas widget emits these via
+  `Action::publish(...).and_capture()` after wheel-zoom or
+  drag-pan mutates `GraphCanvasState.camera`.
+- `GraphCanvasProgram::from_graph_app(app, view_id)` now takes the
+  view_id as a parameter so camera persistence keys on a stable
+  identity across `view()` rebuilds.
+- `IcedApp::view` bridges the child message to the app message via
+  `Element::map(|gcm| match gcm { ... Message::CameraChanged })`
+  — the canonical iced pattern for child-widget-emits-typed-event.
+- `IcedApp::update::CameraChanged` writes to
+  `runtime.graph_app.workspace.graph_runtime.canvas_cameras.insert(view_id, camera)`.
+  Both hosts now share camera state through the runtime's
+  authoritative map (already used by the egui host via
+  `canvas_bridge::run_graph_canvas_frame`).
+- `Message::IcedEvent` updates `IcedHost::{cursor_position, modifiers}`
+  *before* translating to `HostEvent`s — these are state snapshots,
+  not events, so they sync regardless of whether the event translates.
+
+**Slice 13 — Toast rendering in `view`**:
+
+- `render_toast_stack(&host.toast_queue)` renders the queued
+  `ToastSpec`s as a column of severity-tagged `text` widgets
+  (ℹ Info / ✓ Success / ⚠ Warning / ✗ Error) at the bottom of
+  the app body. Iced-native — no `egui_notify`-style
+  host-framework dependency, just iced primitives.
+- Auto-dismiss is a follow-on (needs a `time::every(...)`
+  subscription driving periodic redraws and a queue pruner); for
+  now toasts persist until the bounded-queue policy drops them.
+
+**Receipts (slices 10–13)**:
+
+- `cargo test --lib --features iced-host -- iced` — **40 passed**,
+  0 failed, 0.03s runtime. 10 new tests across the iced modules:
+  - `iced_host` (4): `iced_host_drives_runtime_tick`,
+    `host_starts_with_stable_view_id`,
+    `tick_drains_pending_present_requests`, `toast_queue_is_bounded`.
+  - `iced_host_ports` (5): `pointer_hover_position_maps_cursor_to_portable_point`,
+    `modifiers_projects_iced_state`, `toast_enqueue_pushes_to_queue`,
+    `texture_roundtrip_through_port`, `present_surface_defers_to_pending_queue`.
+  - `iced_app` (2): `camera_changed_persists_to_runtime_canvas_cameras`,
+    `cursor_cache_syncs_from_iced_events`.
+  - `iced_graph_canvas`: `wheel_scroll_inside_bounds_captures_and_zooms`
+    extended to assert the published `CameraChanged` payload.
+
+**todo(m5) marker audit**:
+
+- Started: 23 markers.
+- After this session: 0 markers remaining in `iced_host_ports.rs`
+  (all either replaced with real impls or with documented
+  intentional-deviation comments).
+- Remaining deferred items are architectural rather than
+  wiring-level: iced-native content-surface registry design,
+  iced accesskit bridge, iced image display (for populated
+  texture cache consumers), auto-dismiss toasts. Each has its
+  own follow-on when the broader iced host matures.
+
+**Net effect**: the iced host is no longer a skeleton with stubs — it
+has real state (clipboard, cursor, modifiers, toast queue, texture
+cache, camera), real event-driven mutation of that state, real
+round-trip of camera state between the canvas widget and the runtime,
+and real chrome rendering directly from `FrameViewModel`. The
+remaining `todo(m5)` markers in the file are all explicit
+"deferred-by-design until content/accesskit/image lands" comments,
+not wiring placeholders.
+
+### 2026-04-24 — Iced-idiomatic canvas architecture (pan/zoom, view-model chrome, painter-trait deviation)
+
+**Context**: User guidance — "if we can do the iced host in a way
+that's better for iced's architecture instead of directly copying egui,
+i'm ok with the two hosts not being the same as long as our crates
+work." This session took that license: iced's camera state,
+event-capture model, chrome projection, and paint approach now follow
+iced's retained-mode widget idiom rather than mirroring egui's
+immediate-mode compositor-with-static-painter pattern.
+
+**Slice 7 — Camera in `canvas::Program::State`**:
+
+- `GraphCanvasProgram` no longer owns or computes camera state per
+  frame via a host-side helper; it only owns the portable
+  `CanvasSceneInput<NodeKey>`.
+- New `GraphCanvasState { camera: Option<CanvasCamera>, drag_origin: Option<Point> }`
+  is the `canvas::Program::State`. iced persists one instance per
+  canvas widget across frames.
+- Implemented `canvas::Program::update(&self, &mut State, &Event, bounds, cursor)`:
+  - Wheel scroll inside bounds → zoom state.camera (seeded from
+    fit-to-bounds on first interaction); returns
+    `Action::request_redraw().and_capture()` so the app-level
+    `event::listen()` subscription does not double-process the event.
+  - ButtonPressed(Left) inside bounds → set drag_origin, capture.
+  - CursorMoved while drag_origin is Some → pan state.camera by
+    (dx/zoom, dy/zoom) world units, capture.
+  - ButtonReleased(Left) → clear drag_origin.
+- Implemented `canvas::Program::mouse_interaction` — `Grab` when
+  hovering, `Grabbing` while dragging, default otherwise.
+- `draw(state, ...)` uses `state.camera.unwrap_or(fit_camera)` so
+  first-frame auto-fit continues to work; subsequent user interaction
+  takes precedence.
+- Added 5 new canvas-update tests: wheel zoom in/out of bounds,
+  drag pan end-to-end, bare cursor move is ignored,
+  state.camera beats fit-camera in derivation.
+
+**Why this deviates from the egui host**: egui runs `canvas_bridge::run_graph_canvas_frame`
+host-side per frame because egui has no widget-local retained state —
+everything is rebuilt from scratch each immediate-mode pass. iced's
+retained-mode widget lifecycle makes `canvas::Program::State` the
+natural camera owner, and iced's `event::Status::Captured` mechanism
+means the canvas widget can consume pointer/wheel events without the
+app's `event::listen()` also seeing them. Trying to share one event
+flow across both hosts would force iced into an unnatural shape and
+make the canvas re-process events the app already handled (or vice
+versa). The portable contract (`CanvasSceneInput`, `CanvasCamera`,
+`CanvasViewport`, `ProjectedScene`) is unchanged — only the *owner*
+of camera state differs.
+
+**Slice 8 — `view` consumes `last_view_model`**:
+
+- `IcedApp::view` now renders a toolbar row (`row![location, nav
+  hint, focus hint]`) above the graph canvas, reading directly from
+  `self.last_view_model.as_ref()`. Before the first tick the row
+  shows "waiting for first tick…"; after, it shows the portable
+  projection the runtime produced.
+- This is also iced-idiomatic deviation from egui: egui would route
+  chrome painting through `HostPaintPort::draw_*` methods against
+  the compositor's static painter. iced reads portable projections
+  directly inside `view` — no painter-port plumbing required, since
+  `view` is a pure function of app state and `FrameViewModel` is
+  that state. The `HostPaintPort::draw_*` methods on `IcedHostPorts`
+  remain as stubs and are not expected to be called in the iced
+  production path.
+
+**Slice 9 — Painter-trait deviation documented**:
+
+- Updated `iced_host_ports.rs` docstrings on
+  `IcedOverlayAffordancePainter` / `IcedContentPassPainter` to
+  explicitly state: "the production iced host paints overlays by
+  walking `FrameViewModel.overlays` inside
+  `GraphCanvasProgram::draw`, not by plugging into the compositor's
+  `execute_overlay_affordance_pass_with_painter` flow."
+- Retained the stubs as type-level trait-compilation validators
+  (proving no egui types leak through the narrow-painter trait
+  surface). Marked their `todo(m5)` markers as deferred, not
+  blocking.
+- This formalizes the retirement-path insight: when the egui host
+  eventually retires, the compositor's painter-trait surface may be
+  retired with it — iced never needed it, and the portable descriptor
+  flow through `FrameViewModel` is sufficient. §12.8's
+  painter-trait work remains relevant for the overlap period, not
+  as a long-term contract.
+
+**Receipts (combined slices 7–9)**:
+
+- `cargo test --lib --features iced-host -- iced` — **30 passed**,
+  0 failed, 0.02s runtime (3m 16s compile). 5 new
+  `iced_graph_canvas` canvas-update tests verify pan/zoom/drag
+  behavior end-to-end through `canvas::Program::update`.
+
+**Net effect**: iced is now natively interactive in the canvas.
+Wheel-zoom + drag-pan work through iced's `Action::capture()` model;
+camera state persists across frames in iced's widget state; `view`
+renders portable view-model fields directly. The iced host has
+diverged from the egui host's architectural shape deliberately — the
+portable contracts (crate types) are unchanged, but the host shape
+follows iced's retained-mode idiom. This is the first slice where
+"iced host" means "iced-native" rather than "iced-shaped port of
+egui."
+
+### 2026-04-24 — Live camera + packet parity + event subscription
+
+**Context**: Three follow-on slices to the morning session, proceeding
+down the §12.20 Tier 2 list without pause.
+
+**Slice 4 — live `CanvasCamera` + `CanvasViewport` in iced**:
+
+- `shell/desktop/ui/iced_graph_canvas.rs::GraphCanvasProgram` now derives
+  the `ProjectedScene<NodeKey>` **per frame** inside `draw` against iced's
+  live canvas bounds, instead of pre-deriving with an identity
+  camera/viewport and fitting-to-bounds at paint time.
+- Added `GraphCanvasProgram::camera_and_viewport(bounds) -> Option<(CanvasCamera, CanvasViewport)>`
+  and `project_scene(bounds) -> Option<ProjectedScene<NodeKey>>`. Both
+  route through `CanvasCamera::fit_to_bounds` + a `CanvasViewport` with
+  `rect.size = bounds.size()`, matching the camera/viewport pair the
+  egui host threads through `canvas_bridge::run_graph_canvas_frame`.
+- Drops the `iced_canvas_painter::compute_fit_transform` helper
+  (~50 lines + 2 tests removed) — the portable camera owns fit math
+  now, and the painter stays minimal (SceneDrawItem → canvas::Frame).
+- New tests: `project_scene_yields_canvas_local_coordinates` (asserts
+  nodes project inside viewport), `camera_and_viewport_reflects_bounds`,
+  `project_scene_returns_none_for_zero_bounds`,
+  `empty_program_has_no_nodes_and_no_projection`.
+
+**Slice 5 — cross-host packet parity test (§12.11 target)**:
+
+- New test `iced_projection_matches_reference_derivation`: builds a
+  `GraphCanvasProgram` from a small graph, calls `project_scene(bounds)`
+  (iced's path), then calls `derive_scene` directly with the same
+  camera + viewport the program computed. Asserts the resulting
+  `ProjectedScene<NodeKey>` instances are `==`.
+- This pins §12.11's packet contract: if iced ever diverges from the
+  portable derive path (e.g. by injecting its own overlay defaults, or
+  by computing a camera differently), the test fails. Companion to
+  §12.12's view-model scalar parity.
+
+**Slice 6 — iced event subscription → runtime.tick**:
+
+- `IcedApp` subscribes to `iced::event::listen()` via a `Subscription`
+  wired into `iced::application(...).subscription(IcedApp::subscription)`.
+  Each raw `iced::Event` arrives in `update` as `Message::IcedEvent(...)`.
+- `update` translates the event through
+  `iced_events::from_iced_event` (already tested in `iced_parity`) and
+  feeds the resulting `HostEvent` through `host.tick_with_input(input)`
+  where `input.events = vec![host_event]; input.had_input_events = true`.
+- Untranslatable events (`CursorEntered`, unsupported keys, IME) are
+  dropped at the translation boundary without ticking — no spurious
+  runtime work per iced event.
+- Added `IcedApp::last_view_model: Option<FrameViewModel>` to cache the
+  most recent runtime projection so `view` can consume it in a
+  follow-on slice. Currently populated but not read by `view`.
+- `IcedHostPorts::HostInputPort::poll_events` flipped from `todo(m5)`
+  to an intentional-no-op matching the egui host's pattern — events
+  flow via `FrameHostInput.events`, not port polling, on both hosts.
+- New tests: `iced_app_tick_drives_runtime`,
+  `iced_event_drives_runtime_tick_via_update`,
+  `untranslatable_iced_event_does_not_tick`.
+
+**Receipts (combined slices 4–6)**:
+
+- `cargo test --lib --features iced-host -- iced` — 25 passed, 0
+  failed, 0.02s runtime (3m 03s compile). Covers `iced_events`,
+  `iced_graph_canvas`, `iced_canvas_painter`, `iced_parity`,
+  `iced_host`, and the new `iced_app` tests.
+
+**Net effect**: iced is now interactive on the runtime-tick side —
+events flow end-to-end from iced's native event loop into
+`GraphshellRuntime::tick` through the same portable `HostEvent`
+vocabulary the egui host uses, and the graph canvas derives scenes
+through a real camera+viewport that matches what the egui host
+produces. The remaining work for "useful M5" is (a) plumbing pan/zoom
+from translated events into `GraphCanvasProgram` camera state (requires
+moving camera from per-frame fit-to-bounds into iced `State`), (b)
+making `view` consume `last_view_model` to render toolbar/focus
+chrome, and (c) the remaining `todo(m5)` markers in iced_host_ports
+(paint ports, texture cache, clipboard, toast).
+
+### 2026-04-24 — Plan-vs-code audit pass
+
+**Context**: Full audit of the plan against live code to catch staleness
+that had built up over ~10 days of rapid execution.
+
+**Verified accurate**:
+
+- All implementation anchors exist on disk.
+- M1/M2/M3/M3.5/M3.6 done gates all hold up under re-verification
+  (`rebuild_from_tiles` removed; no `egui_graphs` in shell or `Cargo.toml`;
+  `OverlayAffordancePainter` / `ContentPassPainter` traits at
+  `compositor_adapter.rs:949,1019`; `HostPaintPort` uses portable types
+  throughout; all four compositor statics keyed on `NodeKey`).
+- M4: `GraphshellRuntime::tick(&FrameHostInput, &mut H) -> FrameViewModel`
+  at `gui_state.rs:382`; live on egui (`gui.rs:1047`) and iced
+  (`iced_host.rs:67`).
+- M4.5: `ViewerSurfaceRegistry` / `ViewerSurfaceBacking` /
+  `record_frame_path` at `compositor_adapter.rs:214,272,462`; 5+ unit
+  tests for frame-path recording.
+- §12.17 enforcement: 7 contract tests in `app/sanctioned_writes_tests.rs`
+  enforce §12.1, §12.2, §12.3, and §12.17 boundaries.
+
+**Staleness fixed in this pass**:
+
+- Line-number drift on `incremental_sync_from_tiles` fixed in three sites
+  (`gui.rs:482` / `gui.rs:504` → actual `gui.rs:528`).
+- §6 Immediate Ticket Queue updated: iced host, iced graph-canvas, and
+  parity test rows were marked `[ ]` scaffold-only but are substantively
+  partial (M5.4 first surface for iced graph-canvas; 8-test cross-host
+  parity harness driving both `EguiHostPorts` and `IcedHostPorts` through
+  `runtime.tick`).
+- §12.11 iced graph-canvas row updated from "`todo(m5)` stub" to
+  "M5.4 first real surface" reflecting ~248 lines of real rendering.
+- §12.19 Bottom Line reorganized: moved cross-host parity, contract
+  tests, `HostNeutralRenderBackend` split, `SettingsViewModel`, and
+  dual-host `runtime.tick` from `missing`/`partial` into `done`; the
+  `missing` row now correctly reflects graph-canvas packet replay,
+  CI parity gate, iced render backend impl, and PartialEq-deferred
+  struct parity.
+- §12.20 Tier 2 and Tier 3 entries struck where landed:
+  `ViewerSurfaceRegistry` first ownership slice (§12.10), first
+  cross-host parity test (§12.12), and the three-guard contract-test
+  set (§12.17) all now crossed out with pointers to their §12 rows.
+- M4 [~] entry rewritten: authority bundles are mostly in
+  `graphshell-core`, not shell-local; phase-args collapse onto
+  `&mut GraphshellRuntime` is done; dual-host `runtime.tick` is live.
+- Related section gained two links: the runtime-crate companion plan
+  (`2026-04-24_graphshell_runtime_crate_plan.md`) and the portable
+  shell-state architecture doc.
+
+**Notes left for the next pass** (flagged, not fixed):
+
+- `LAST_SENT_NATIVE_OVERLAY_RECTS: HashMap<NodeKey, egui::Rect>` at
+  `tile_compositor.rs:265` still carries an egui type in a private
+  implementation detail. Not a public boundary, but if iced gains its
+  own compositor glue it'll need a portable analog. Candidate M3.6
+  follow-on or M5 prerequisite.
+- Cross-section terminology: "Lane A / Lane B / Lane B'" coexists with
+  "Lane 1" in the 2026-04-24 entry above; should pick one vocabulary.
+
 ---
 
 ## 11. Summary
@@ -1848,20 +2864,25 @@ explicit step.
     pins the gate. `has_focused_node()` follows for free since it delegates
     to `focused_node_key()`.
 
+  - ~~`tile_render_pass.rs:723-745` focus-ring alpha~~ **done 2026-04-24**:
+    `cached_view_model` threaded through `ExecuteUpdateFrameArgs` →
+    `SemanticAndPostRenderPhaseArgs` → `PostRenderPhaseArgs` →
+    `TileRenderPassArgs`. The inline computation is retained as fallback
+    for the first-frame case (no prior view-model) and falls through
+    transparently in all other frames via `if let Some(vm) = cached_view_model`.
+    The "blocked" note in the prior entry was overly conservative — ~16ms
+    staleness for a 300ms animation is imperceptible, and the tick-ordering
+    concern only matters for animations that start/stop on transition frames
+    (one-frame gap, invisible at 60fps). 223 `graphshell-core` tests pass.
+
 **Targets remaining**:
 
 - Migrate additional `EguiHost` getters onto `cached_view_model` —
   `runtime_focus_state`, dialog-state queries (complex compositions;
   need new view-model fields or the result as a projection).
-- Migrate chrome render sites (`tile_render_pass.rs:723-745` focus-ring
-  alpha) — blocked on moving `tick()` to run before the render pass rather
-  than after. The view-model value (`vm.focus.focus_ring_alpha`) is already
-  correct but would be stale (previous frame) if read during render.
-- Migrate chrome render sites that currently read `runtime.foo` /
-  `graph_app.workspace.chrome_ui.foo` directly. Candidates: focus-ring
-  alpha computation in `tile_render_pass.rs:723-745` (already in
-  `vm.focus.focus_ring_alpha`), toolbar can_go_back/forward, dialog
-  visibility flags.
+- Migrate remaining chrome render sites that read `runtime.foo` /
+  `graph_app.workspace.chrome_ui.foo` directly: toolbar can_go_back/forward,
+  dialog visibility flags.
 - Iced ports: implement the bring-up stubs (`iced_host_ports.rs:44`)
   beyond `todo(m5)` markers — gates real iced parity.
 - Add parity runs for the same replay/input traces across egui and
@@ -1872,7 +2893,7 @@ explicit step.
 - `partial` `GraphTree` authority is real and parity-checked in practice;
   `parity_check(...)` runs in `shell/desktop/ui/gui.rs:1030`
 - `done by design` Startup import from tiles is intentionally retained:
-  `incremental_sync_from_tiles(...)` at `shell/desktop/ui/gui.rs:504`
+  `incremental_sync_from_tiles(...)` at `shell/desktop/ui/gui.rs:528`
   reconciles GraphTree with tile state restored from persistence on startup.
   Per M1's done-gate: "Keep only startup import from tile state plus explicit
   repair tooling" — this is the only remaining caller; per-frame follower
@@ -2020,15 +3041,36 @@ is a distinct seam from compositor identity. M2 was a major milestone here.
   rendering convergence point
 - `done` Host-neutral `canvas_bridge::run_graph_canvas_frame(...)` seam
   (`render/canvas_bridge.rs`)
-- `partial` Iced-side scaffold exists at `shell/desktop/ui/iced_graph_canvas.rs`
-  but is a `todo(m5)` stub
+- `done` (2026-04-24, second pass) `shell/desktop/ui/iced_graph_canvas.rs` now
+  consumes the shared `ProjectedScene<NodeKey>`: `GraphCanvasProgram` holds a
+  `CanvasSceneInput<NodeKey>` + derived `ProjectedScene<NodeKey>` built via
+  `canvas_bridge::build_scene_input(...)` + `graph_canvas::derive::derive_scene(...)`.
+  Painting goes through a new `shell/desktop/ui/iced_canvas_painter.rs`
+  module (mirror of `render/canvas_egui_painter.rs`) that converts portable
+  `SceneDrawItem`s into iced `canvas::Frame` calls (layers in
+  background → world → overlays order, matching egui). `draw()` applies a
+  fit-to-bounds transform via iced's canvas transform stack so the world-
+  space scene lands inside the iced widget. Scope limits now: no physics
+  tick, no input handling, no overlay inputs (frame regions, scene regions,
+  highlighted edges) — each is a targeted follow-on slice.
 - `missing` No parity test that the same `CanvasInputEvent` sequence produces
-  identical packets across hosts
+  identical packets across hosts (scalar/view-model parity is already there;
+  graph-canvas packet parity is the missing piece)
 
 **Targets**:
 
-- Implement iced graph-canvas adapter consuming the same Vello backend
-- Add cross-host packet parity tests
+- Replace `iced_graph_canvas`'s identity camera + zero-size viewport with a
+  `CanvasCamera` that tracks pan/zoom + a `CanvasViewport` derived from
+  iced bounds, so iced gets live camera state the egui host already has via
+  `canvas_bridge::run_graph_canvas_frame(...)`
+- Implement `graph_canvas::backend::CanvasBackend<NodeKey>` for an iced-side
+  type, ideally routing through the shared Vello backend where iced can
+  accept Vello scenes (once iced Vello integration stabilizes)
+- Wire overlay inputs (frame regions, scene regions, highlighted edge)
+  through iced's graph canvas
+- Add cross-host **packet** parity tests (companion to §12.12's scalar
+  parity) — assert identical `ProjectedScene<NodeKey>` from identical
+  `CanvasSceneInput<NodeKey>` across hosts
 - Keep all camera / interaction grammar in the portable crate
 
 ### 12.12. Replay / Parity Harness (M0)
@@ -2332,18 +3374,27 @@ async/effect surfaces before iced tries to mirror them.
 since viewer-surface decisions can't fully land without Servo-side
 coordination on shared wgpu device/queue ownership.
 
-### 12.19. Bottom Line (updated)
+### 12.19. Bottom Line (updated 2026-04-24)
 
 - `done`: arrangement bridge; host-neutral runtime/ports; compositor identity;
   graph-canvas live surface; portable settings substrate; UxTree exists;
-  diagnostics registry exists
-- `partial`: durable graph mutation lane (still has app/helper leakage);
-  GraphTree/runtime authority transfer; iced port stubs; settings UI surface;
-  AccessKit integration
-- `missing`: persisted node navigation memory boundary; M4.5 viewer-surface
-  host-nativity; replay/parity harness exercised cross-host; render-backend
-  contract typed for shared wgpu; AT projection above host; enforcement tests
-  for the three guard rules
+  diagnostics registry exists; `runtime.tick(input, ports) -> view_model` live
+  on both egui (`gui.rs:1047`) and iced (`iced_host.rs:67`); §12.17 + §12.2
+  sanctioned-writes contract tests (7 guards landed); first cross-host scalar
+  parity test (§12.12); `HostNeutralRenderBackend` / `UiRenderBackendContract`
+  trait split (§12.13); portable `SettingsViewModel` (§12.14)
+- `partial`: durable graph mutation lane (app/helper leakage outside the
+  kernel remains, but direct-kernel calls are now guarded); GraphTree/runtime
+  authority transfer; iced host (graph-canvas first surface + parity harness
+  landed; input translation, texture cache, clipboard/toast/accesskit still
+  stubbed); settings UI surface; AccessKit integration; persisted node
+  navigation memory boundary (Lane A landed; Lane B guards pending); M4.5
+  viewer-surface host-nativity (`ViewerSurfaceRegistry` typed backing +
+  native rendering context allocation landed)
+- `missing`: graph-canvas packet replay exercised cross-host; CI gate on
+  replay parity divergence; iced render backend impl; AT projection above
+  host; full struct-level view-model parity assertion (`PartialEq` derives
+  pending on sub-structs)
 
 ### 12.20. Highest-Leverage Next Targets (updated)
 
@@ -2367,14 +3418,29 @@ coordination on shared wgpu device/queue ownership.
 
 **Tier 2 — unblocks useful M5 (iced as a real second host)**:
 
-- Begin M4.5: retire `tile_rendering_contexts` hot-path ownership in favor of
-  `ViewerSurfaceRegistry`
-- Wire `iced_parity.rs` to consume the same replay traces as the egui host
+- ~~Begin M4.5: retire `tile_rendering_contexts` hot-path ownership in favor
+  of `ViewerSurfaceRegistry`~~ — first ownership slice landed 2026-04-23
+  (§12.10); native `RenderingContextCore` path now primary, compat GL
+  contained. Remaining targets are listed in §12.10.
+- ~~Wire `iced_parity.rs` to consume the same replay traces as the egui
+  host~~ — first cross-host scalar-parity test landed 2026-04-24 (§12.12).
+  Remaining: `#[derive(PartialEq)]` on view-model sub-structs + graph-canvas
+  packet replay.
 - Implement real iced `OverlayAffordancePainter` / `ContentPassPainter`
+  (stubs exist at `iced_host_ports.rs`; painter traits upstream are stable)
+- Drain `todo(m5)` markers in `iced_host_ports.rs` — event translation,
+  texture cache, clipboard, toast, accesskit bridges
+- Convert `iced_graph_canvas::GraphCanvasProgram` into a real
+  `CanvasBackend<NodeKey>` impl so both hosts drive off the same
+  `ProjectedScene` (§12.11)
 
 **Tier 3 — enforcement and durability**:
 
-- Contract tests for: arrangement-bridge sole-writer, no direct node-history
-  writes, no new host-owned graph/history mutation setters
+- ~~Contract tests for: arrangement-bridge sole-writer, no direct
+  node-history writes, no new host-owned graph/history mutation setters~~
+  — all landed via `app::sanctioned_writes_tests` (§12.17); now 7 guards
+  covering §12.1, §12.2, §12.3, and §12.17. Export the scanner as a
+  test-utils helper so other crates can extend.
 - Lift UxTree → AccessKit translation above the host boundary
-- Type the render-backend contract for shared wgpu
+- Type the render-backend contract for shared wgpu (first trait split
+  landed — §12.13; concrete iced impl pending)
