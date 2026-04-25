@@ -1,0 +1,18 @@
+[package]
+name = "iced-middlenet-viewer"
+version = "0.0.1"
+authors = ["@mark-ik"]
+license = "MPL-2.0"
+edition = "2024"
+publish = false
+rust-version = "1.92.0"
+description = "Iced widget that paints middlenet RenderScenes (Gemini, RSS, Markdown, plain text)."
+
+[dependencies]
+iced = { version = "0.14", features = ["canvas"] }
+middlenet-engine = { path = "../middlenet-engine" }
+middlenet-core = { path = "../middlenet-core" }
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"

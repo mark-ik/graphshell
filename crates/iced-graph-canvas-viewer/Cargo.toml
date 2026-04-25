@@ -1,0 +1,19 @@
+[package]
+name = "iced-graph-canvas-viewer"
+version = "0.0.1"
+authors = ["@mark-ik"]
+license = "MPL-2.0"
+edition = "2024"
+publish = false
+rust-version = "1.92.0"
+description = "Iced canvas widget that renders graph-canvas ProjectedScenes with pan/zoom + camera state."
+
+[dependencies]
+iced = { version = "0.14", features = ["canvas"] }
+graph-canvas = { path = "../graph-canvas" }
+graphshell-core = { path = "../graphshell-core" }
+euclid = { version = "0.22", features = ["serde"] }
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
