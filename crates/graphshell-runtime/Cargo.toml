@@ -10,3 +10,12 @@ description = "Portable runtime boundary traits for Graphshell hosts"
 
 [dependencies]
 graphshell-core = { path = "../graphshell-core" }
+# 2026-04-25 servo-into-verso S3a: graphshell-runtime now owns the
+# host-port trait surface (HostInputPort, HostPaintPort,
+# HostSurfacePort, HostTexturePort, HostAccessibilityPort), so it
+# needs `graph-canvas::packet` types (Stroke, Color) and `accesskit`
+# (TreeUpdate, NodeId) at the trait signature level. These are
+# already pulled in by graphshell main's default deps; no new
+# transitive surface for downstream crates.
+graph-canvas = { path = "../graph-canvas" }
+accesskit = { version = "0.24.0", features = ["serde"] }

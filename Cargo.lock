@@ -4996,6 +4996,8 @@ dependencies = [
 name = "graphshell-runtime"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
+ "graph-canvas",
  "graphshell-core",
 ]
 

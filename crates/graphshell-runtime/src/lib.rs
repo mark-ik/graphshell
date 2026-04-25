@@ -14,6 +14,14 @@ pub mod finalize_actions;
 pub mod frame_projection;
 pub mod ports;
 
+// 2026-04-25 servo-into-verso S3a: re-export the host-port trait
+// surface (added in S3a) at the crate root for ergonomic imports
+// from host-side adapters (egui, iced).
+pub use ports::{
+    BackendViewportInPixels, HostAccessibilityPort, HostInputPort, HostPaintPort, HostPorts,
+    HostSurfacePort, HostTexturePort, ViewerSurfaceId,
+};
+
 pub use finalize_actions::{
     CLIPBOARD_STATUS_EMPTY_TEXT, CLIPBOARD_STATUS_FAILURE_PREFIX,
     CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT, CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT,

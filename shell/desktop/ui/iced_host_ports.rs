@@ -31,18 +31,16 @@
 
 use std::collections::HashMap;
 
-use graphshell_runtime::ToastSpec;
+use graphshell_core::geometry::{PortablePoint, PortableRect};
+use graphshell_core::host_event::{HostEvent, ModifiersState};
+use graphshell_runtime::{
+    BackendViewportInPixels, HostAccessibilityPort, HostInputPort, HostPaintPort, HostSurfacePort,
+    HostTexturePort, ToastSpec, ViewerSurfaceId,
+};
+use graphshell_runtime::ports::{RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
-use crate::shell::desktop::ui::host_ports::{
-    HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
-    HostTexturePort, HostToastPort,
-};
 use crate::shell::desktop::ui::iced_host::CachedTexture;
-use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
-use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
-use servo::WebViewId;
 
 /// iced-side bundle of host port implementations.
 ///
@@ -128,6 +126,12 @@ impl<'a> HostInputPort for IcedHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostSurfacePort for IcedHostPorts<'a> {
+    /// Iced paints inline through `canvas::Program::draw`; it has no
+    /// borrowed graphics-context handle to hand to content callbacks.
+    /// `()` is the canonical "no backend context" choice for the
+    /// associated type.
+    type BackendContext = ();
+
     fn present_surface(&mut self, node_key: NodeKey) {
         // Defer to post-tick drain on `IcedHost`; the registry lives
         // on `GraphshellRuntime`, which is already mutably borrowed
@@ -146,7 +150,7 @@ impl<'a> HostSurfacePort for IcedHostPorts<'a> {
         &mut self,
         _node_key: NodeKey,
         _callback: std::sync::Arc<
-            dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync,
+            dyn Fn(&Self::BackendContext, BackendViewportInPixels) + Send + Sync,
         >,
     ) {
         // Iced's canvas primitive doesn't take wgpu callbacks the
@@ -291,25 +295,35 @@ impl<'a> HostToastPort for IcedHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostAccessibilityPort for IcedHostPorts<'a> {
-    fn inject_tree_update(
-        &mut self,
-        _webview_id: WebViewId,
-        _update: servo::accesskit::TreeUpdate,
-    ) {
+    fn request_focus(&mut self, _node_id: accesskit::NodeId) {
         // Iced's accesskit bridge lands with the chrome-port cleanup
         // effort (§5.2 of 2026-04-17_chrome_port_cleanup_plan.md).
-        // Until then, runtime-driven webview a11y tree updates are
-        // dropped on the iced host.
+        // Until then, focus requests are dropped on the iced host.
     }
+}
 
-    fn request_focus(&mut self, _node_id: accesskit::NodeId) {
-        // Paired with `inject_tree_update` — deferred until the iced
-        // accesskit bridge lands.
+// Tree-update injection is gated on servo-engine (Servo's accesskit
+// stream is keyed on `servo::WebViewId`). When servo-engine is on,
+// implement the Servo-specific extension trait so the egui +
+// runtime accesskit pipeline that already exists keeps working
+// against this iced ports bundle. Iced's own accesskit consumer
+// will land separately and consume `accesskit::TreeUpdate`
+// directly without a `WebViewId` key.
+#[cfg(feature = "servo-engine")]
+impl<'a> crate::shell::desktop::ui::host_ports::ServoAccessibilityInjectionPort
+    for IcedHostPorts<'a>
+{
+    fn inject_tree_update(
+        &mut self,
+        _webview_id: verso::servo_engine::WebViewId,
+        _update: verso::servo_engine::accesskit::TreeUpdate,
+    ) {
+        // No-op stub for now.
     }
 }
 
 // ---------------------------------------------------------------------------
-// Narrow painter-trait stubs — trait-compile validation only
+// Narrow painter-trait stubs — gated behind servo-engine
 // ---------------------------------------------------------------------------
 //
 // The compositor exposes two narrow painter traits alongside the broader
@@ -322,50 +336,61 @@ impl<'a> HostAccessibilityPort for IcedHostPorts<'a> {
 // **Iced-idiomatic deviation**: the iced host does NOT paint overlays or
 // content through these traits in production. iced's canvas widget paints
 // everything inline inside `canvas::Program::draw`. Overlay descriptors
-// flow from `FrameViewModel.overlays` directly. These stubs remain only
-// to prove the trait surface is host-portable (type-level guarantee).
+// flow from `FrameViewModel.overlays` directly. The stubs below remain
+// only to prove the trait surface is host-portable, but they consume
+// `compositor_adapter` and `render_backend` types which are gated behind
+// servo-engine by the S2b sweep — so the stubs themselves are
+// servo-engine-gated for now. Decoupling them is part of S3b
+// (compositor-side painter trait extraction).
 
-use crate::shell::desktop::render_backend::BackendCustomPass;
-use crate::shell::desktop::workbench::compositor_adapter::{
-    ContentPassPainter, OverlayAffordancePainter, OverlayStrokePass,
-};
+#[cfg(feature = "servo-engine")]
+mod servo_engine_painter_stubs {
+    use super::*;
+    use crate::shell::desktop::render_backend::BackendCustomPass;
+    use crate::shell::desktop::workbench::compositor_adapter::{
+        ContentPassPainter, OverlayAffordancePainter, OverlayStrokePass,
+    };
 
-#[derive(Default)]
-pub(crate) struct IcedOverlayAffordancePainter {
-    pub(crate) seen_count: usize,
-}
+    #[derive(Default)]
+    pub(crate) struct IcedOverlayAffordancePainter {
+        pub(crate) seen_count: usize,
+    }
 
-impl OverlayAffordancePainter for IcedOverlayAffordancePainter {
-    fn paint(&mut self, _overlay: &OverlayStrokePass) {
-        self.seen_count += 1;
+    impl OverlayAffordancePainter for IcedOverlayAffordancePainter {
+        fn paint(&mut self, _overlay: &OverlayStrokePass) {
+            self.seen_count += 1;
+        }
+    }
+
+    #[derive(Default)]
+    pub(crate) struct IcedContentPassPainter {
+        pub(crate) registered_count: usize,
+        pub(crate) native_painted_count: usize,
+    }
+
+    impl ContentPassPainter for IcedContentPassPainter {
+        fn register_content_callback_on_layer(
+            &mut self,
+            _node_key: NodeKey,
+            _tile_rect: PortableRect,
+            _callback: BackendCustomPass,
+        ) {
+            self.registered_count += 1;
+        }
+
+        fn paint_native_content_texture(
+            &mut self,
+            _node_key: NodeKey,
+            _tile_rect: PortableRect,
+            _texture_token: crate::shell::desktop::render_backend::BackendTextureToken,
+        ) {
+            self.native_painted_count += 1;
+        }
     }
 }
 
-#[derive(Default)]
-pub(crate) struct IcedContentPassPainter {
-    pub(crate) registered_count: usize,
-    pub(crate) native_painted_count: usize,
-}
-
-impl ContentPassPainter for IcedContentPassPainter {
-    fn register_content_callback_on_layer(
-        &mut self,
-        _node_key: NodeKey,
-        _tile_rect: PortableRect,
-        _callback: BackendCustomPass,
-    ) {
-        self.registered_count += 1;
-    }
-
-    fn paint_native_content_texture(
-        &mut self,
-        _node_key: NodeKey,
-        _tile_rect: PortableRect,
-        _texture_token: crate::shell::desktop::render_backend::BackendTextureToken,
-    ) {
-        self.native_painted_count += 1;
-    }
-}
+#[cfg(feature = "servo-engine")]
+pub(crate) use servo_engine_painter_stubs::{IcedContentPassPainter, IcedOverlayAffordancePainter};
 
 #[cfg(test)]
 mod tests {

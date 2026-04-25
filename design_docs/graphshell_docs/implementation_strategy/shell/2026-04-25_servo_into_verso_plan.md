@@ -439,6 +439,29 @@ Status as of 2026-04-25:
   wry`; default build (servo-engine on) remains clean. Remaining
   75 are body-level cascades that S3a (host_ports trait
   extraction) should supersede; deferred to S2c post-S3.
+- **2026-04-25 (S3a host-port trait extraction)**: moved the
+  host-port trait surface into `graphshell-runtime`:
+  `HostInputPort`, `HostSurfacePort`, `HostPaintPort`,
+  `HostTexturePort`, `HostAccessibilityPort`, plus
+  `BackendViewportInPixels` and the new host-neutral
+  `ViewerSurfaceId`. `HostSurfacePort` gained an associated
+  `BackendContext` type so iced (`= ()`) and egui (`= glow::Context`)
+  can ship without trait-signature churn. Tree-update injection
+  was split out into a Servo-specific extension trait
+  `ServoAccessibilityInjectionPort` that lives in graphshell-main
+  (gated on `servo-engine`) since the egui-host's accesskit anchor
+  derivation is `servo::WebViewId`-shaped today; the portable
+  `HostAccessibilityPort` retains only `request_focus`. Shell-side
+  `host_ports.rs` is now a thin re-export shim, so existing call
+  sites work unchanged. `iced_host_ports.rs` no longer imports
+  `render_backend` or `compositor_adapter` (it imports from
+  graphshell-runtime + graphshell-core directly); the
+  type-level painter stubs that did consume those gated modules
+  are themselves gated on `servo-engine`. Default build clean.
+  No-servo error count holds at 74 (S3a doesn't reduce body-level
+  cascade count; that's S2c work). The architectural seam is the
+  point: future iced launch path decoupling (S3b) can proceed
+  without re-doing port plumbing.
 
 ## 7. Bottom line
 

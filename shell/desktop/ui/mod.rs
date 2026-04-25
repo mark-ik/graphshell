@@ -36,12 +36,16 @@ pub(crate) mod gui_orchestration;
 // runtime surface; for now the whole module is gated.
 #[cfg(feature = "servo-engine")]
 pub(crate) mod gui_state;
-// 2026-04-25 servo-into-verso S2b: host_ports / nav_targeting /
-// persistence_ops / toolbar* / toolbar_routing / workbench_host
-// all consume Servo embedder, render_backend, or compositor_adapter
-// types and only run on the Servo+egui-host path. Gated together.
-#[cfg(feature = "servo-engine")]
+// 2026-04-25 servo-into-verso S3a: host_ports is now a thin
+// re-export shim over the trait surface in `graphshell-runtime`.
+// The Servo-specific WebViewId converter helper inside is itself
+// gated behind servo-engine, but the file as a whole is host-neutral
+// and reachable from both egui and iced launch paths.
 pub(crate) mod host_ports;
+// nav_targeting / persistence_ops / toolbar* / toolbar_routing /
+// workbench_host all consume Servo embedder, render_backend, or
+// compositor_adapter types and only run on the Servo+egui-host
+// path. Gated together until they're refactored.
 // 2026-04-25 servo-into-verso S2b: the in-tree iced launch path
 // (iced_app + iced_host + iced_host_ports etc.) consumes host_ports
 // traits, render_backend types, and WebViewId today, so it's gated

@@ -153,6 +153,11 @@ impl<'a> HostInputPort for EguiHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostSurfacePort for EguiHostPorts<'a> {
+    /// The egui host's compositor expects a `glow::Context` as the
+    /// content-callback graphics context (legacy GL path through
+    /// Servo's compositor).
+    type BackendContext = BackendGraphicsContext;
+
     fn present_surface(&mut self, node_key: NodeKey) {
         // Defer the bump_content_generation call: the registry lives on
         // GraphshellRuntime which is already mutably borrowed by tick. The host
@@ -366,10 +371,6 @@ impl<'a> HostToastPort for EguiHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
-    fn inject_tree_update(&mut self, webview_id: WebViewId, update: servo::accesskit::TreeUpdate) {
-        enqueue_pending_webview_a11y_update(self.pending_webview_a11y_updates, webview_id, update);
-    }
-
     fn request_focus(&mut self, node_id: accesskit::NodeId) {
         // Enqueue for host-side consumption. The egui frame prelude
         // forwards these through `egui_winit`'s accesskit adapter; iced
@@ -377,6 +378,21 @@ impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
         // `iced_accesskit` once that bridge is wired (M6 §5.2
         // follow-on).
         self.pending_accesskit_focus_requests.push(node_id);
+    }
+}
+
+// 2026-04-25 servo-into-verso S3a: tree-update injection is the
+// Servo-keyed extension trait; lives outside the portable
+// HostAccessibilityPort surface in graphshell-runtime.
+impl<'a> crate::shell::desktop::ui::host_ports::ServoAccessibilityInjectionPort
+    for EguiHostPorts<'a>
+{
+    fn inject_tree_update(
+        &mut self,
+        webview_id: WebViewId,
+        update: servo::accesskit::TreeUpdate,
+    ) {
+        enqueue_pending_webview_a11y_update(self.pending_webview_a11y_updates, webview_id, update);
     }
 }
 

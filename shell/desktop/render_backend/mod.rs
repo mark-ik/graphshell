@@ -315,13 +315,13 @@ pub(crate) fn backend_content_bridge_mode_label(mode: BackendContentBridgeMode) 
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BackendViewportInPixels {
-    pub(crate) left_px: i32,
-    pub(crate) from_bottom_px: i32,
-    pub(crate) width_px: i32,
-    pub(crate) height_px: i32,
-}
+// 2026-04-25 servo-into-verso S3a: BackendViewportInPixels was
+// extracted into `graphshell_runtime::ports::BackendViewportInPixels`
+// so the host-port trait surface (HostSurfacePort) can ship a
+// host-neutral viewport type. Re-export the canonical type here so
+// the egui-host compositor + render_backend internals keep their
+// existing import path while the trait surface stays portable.
+pub(crate) use graphshell_runtime::ports::BackendViewportInPixels;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendParentRenderRegionInPixels {
