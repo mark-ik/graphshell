@@ -1699,6 +1699,139 @@ cross-host via `iced_parity`'s struct-level asserts (for the view-model
 surface) and — once a graph-canvas packet replay test lands — via
 scene-packet equality too (§12.11 remaining target).
 
+### 2026-04-25 — Phase A2 (wry impl → verso) + Phase B (iced-wry-viewer)
+
+**Context**: Two big slices in one session, completing the wry-into-verso
+lane and landing the first iced-on-wry adapter the audit unblocked.
+
+**Slice 32 — Phase A2: wry implementation moves into verso**:
+
+- The ~800-line wry implementation moved out of graphshell main's
+  `mods/native/web_runtime/` and into
+  [`crates/verso/src/wry_engine/`](../../../crates/verso/src/wry_engine/):
+  - `wry_manager.rs` → `verso::wry_engine::manager` (`WryManager`,
+    `OverlayRect`, `OverlaySyncState`, plus the Windows
+    `CapturePreview` PNG-capture path).
+  - `wry_frame_source.rs` → `verso::wry_engine::frame_source`
+    (`WryFrameSource`, `WryFrameState`, `WryFrameAvailability`,
+    `WryFrameMetadata`).
+  - `wry_types.rs` → `verso::wry_engine::types` (`WryPlatform`,
+    `WryRenderMode`, `WryFrameCaptureBackend`,
+    `WryCompositedTextureSupport`).
+- All items bumped from `pub(crate)` → `pub` so they're reachable
+  across the crate boundary.
+- verso `Cargo.toml` gained the deps the moved impl needs:
+  `raw-window-handle`, `image` (default-features-off, png-only),
+  `log`, `wry`, plus Windows-only `webview2-com` + `windows`. All
+  gated behind the `wry-engine` feature.
+- Graphshell main's `mods/native/web_runtime/mod.rs` now imports
+  from `verso::wry_engine::*`. The thread-local `WRY_MANAGER` and
+  per-node public functions (`ensure_wry_overlay_for_node`,
+  `sync_wry_overlay_for_node`, etc.) **stay in graphshell main**
+  because they coordinate with graphshell's `NodeKey` indexing
+  model; the engine itself lives in verso.
+- Other consumers updated: `tile_compositor.rs` (uses
+  `WryOverlayRect` directly), `wry_viewer.rs` (the in-tree shim).
+- **Three files deleted** from graphshell main:
+  `mods/native/web_runtime/wry_manager.rs`,
+  `wry_frame_source.rs`, `wry_types.rs`. No legacy parallel
+  copies retained per DOC_POLICY's no-legacy-friction rule.
+- Receipt: `cargo test -p verso --features wry-engine` —
+  **22 passed, 0 failed**, including the 8 migrated `wry_engine`
+  tests now running inside verso's test cycle.
+
+**Slice 33 — Phase B: `iced-wry-viewer` crate**:
+
+- New crate
+  [`crates/iced-wry-viewer/`](../../../crates/iced-wry-viewer)
+  with deps `iced` 0.14 + `verso (with wry-engine)` +
+  `raw-window-handle` + `log`. **No graphshell main, no Servo,
+  no webrender.** `verso` brings the wry implementation in
+  through its `wry-engine` feature.
+- Public API:
+  - **`request_window_handle(window_id) -> Task<WindowHandleOutcome>`**
+    — wraps `iced::window::run(id, |&dyn Window| ...)` (the
+    public Task helper from the 2026-04-25 audit) to extract a
+    `RawWindowHandle` from an iced window asynchronously.
+  - **`WindowHandleOutcome::{Got(SendableWindowHandle), Unavailable}`**
+    — async result. The "Unavailable" arm lets callers retry
+    on next frame if the OS hasn't given iced a real winit window
+    yet at task fire time.
+  - **`SendableWindowHandle(RawWindowHandle)`** — newtype with
+    documented `unsafe impl Send + Sync`. The handle's bits move
+    safely between threads; only operating on the window
+    off-thread would be unsafe (and we don't, because
+    `wry::WebView` is `!Send` on Windows/macOS and we always
+    drive iced from the main thread).
+  - **`WryHost`** — host-side state container holding a
+    `WryManager` + a `OnceCell<RawWindowHandle>`. Methods:
+    `set_window_handle`, `apply_window_handle_outcome`, `mount`,
+    `sync_overlay`, `hide`, `unmount`, `navigate`, `last_url`,
+    `last_sync_state`, `has_webview`, `manager` /
+    `manager_mut`. Mirrors graphshell main's per-node free
+    functions but exposes them as methods on a value the iced
+    app owns (no thread-local needed since iced apps are
+    main-thread-only).
+- The viewer is **not a `canvas::Program` widget** because wry
+  overlays are native OS WebView windows positioned over the
+  iced window — they aren't rendered through iced's widget tree.
+  The iced application owns layout (where to put the overlay
+  rect) and tells wry directly via `WryHost::sync_overlay`.
+  Future slice: a custom iced widget that exposes its laid-out
+  rect to the host so positioning is automatic.
+- 7 tests cover the host's lifecycle (fresh state, mount-without-
+  handle refusal, outcome handling, no-op syncs/hides/unmounts
+  for unmounted nodes, manager accessor sanity).
+- `examples/demo.rs`: opens an iced window, requests the raw
+  handle via `request_window_handle`, mounts a wry WebView at
+  `https://example.com/` in a fixed 800×500 region. Buttons:
+  Home / Gemini-info / Unmount / Re-mount. Run with:
+
+  ```bash
+  cargo run -p iced-wry-viewer --example demo
+  ```
+
+  First runnable iced+wry combo on this codebase, demonstrating
+  the raw-handle extraction pattern end-to-end without
+  webrender-wgpu.
+
+**Slice 34 — Workspace + iced-host wiring**:
+
+- `iced-wry-viewer` added to workspace `[members]`.
+- Graphshell main's `iced-host` feature now activates the
+  full iced viewer suite + the wry impl: `iced-host = ["dep:iced",
+  "dep:iced-middlenet-viewer", "dep:iced-graph-canvas-viewer",
+  "dep:iced-wry-viewer", "wry"]`. Pulling `wry` cascades into
+  `verso/wry-engine` via the existing `wry = ["dep:wry",
+  "verso/wry-engine"]` chain.
+
+**Aggregate receipts (slices 32–34)**:
+
+- `cargo test -p iced-graph-canvas-viewer -p iced-middlenet-viewer
+  -p iced-wry-viewer -p verso --features verso/wry-engine` —
+  **44 passed, 0 failed**:
+  - iced-graph-canvas-viewer: 9
+  - iced-middlenet-viewer: 6
+  - iced-wry-viewer: 7
+  - verso (incl. 8 migrated wry_engine tests): 22
+- `cargo build -p iced-wry-viewer --example demo` — clean.
+
+**Net architectural effect**:
+
+- `viewer:wry` capability is now fully owned by verso per
+  VERSO_AS_PEER's spec. Graphshell main keeps only the
+  `NodeKey`-coordinating thread-local + public per-node
+  functions; the engine itself migrated cleanly.
+- The portable iced surface is now **four crates**:
+  `iced-middlenet-viewer`, `iced-graph-canvas-viewer`,
+  `iced-wry-viewer`, plus `verso` (routing + wry impl). All
+  testable + demoable today, all bypass the still-broken
+  webrender-wgpu working tree.
+- Phase B unlocks a real iced+wry binary path. The remaining
+  big lane is (a) wiring iced-wry-viewer's overlay rect to iced
+  layout (currently fixed-coords in the demo), and (b) the
+  iced+Servo screenshot loop once webrender-wgpu unblocks.
+
 ### 2026-04-25 — Iced raw-window-handle audit + wry→verso ownership + iced-graph-canvas-viewer extraction
 
 **Context**: Three slices in one session, in user-requested order

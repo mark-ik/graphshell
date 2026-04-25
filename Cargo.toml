@@ -23,6 +23,7 @@ members = [
     "crates/middlenet-engine",
     "crates/iced-middlenet-viewer",
     "crates/iced-graph-canvas-viewer",
+    "crates/iced-wry-viewer",
     "crates/verso",
     "crates/verso-host",
 ]
@@ -58,7 +59,7 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge", "gl_compat"]
+default = ["servo-engine", "gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge", "gl_compat"]
 diagnostics = []
 gl_compat = []
 diagnostics_tests = []
@@ -66,24 +67,32 @@ ux-semantics = []
 ux-probes = ["ux-semantics"]
 ux-bridge = ["ux-semantics"]
 test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
-crown = ["servo/crown"]
-debugmozjs = ["servo/debugmozjs"]
-gamepad = ["servo/gamepad"]
-jitspew = ["servo/jitspew"]
-js_backtrace = ["servo/js_backtrace"]
-js_jit = ["servo/js_jit"]
+# 2026-04-25 servo-into-verso lane (S2): graphshell main's servo
+# dep is now optional and gated behind this feature, which also
+# activates `verso/servo-engine` so verso owns the dep ownership
+# per VERSO_AS_PEER.md. All previously-existing servo-forwarded
+# features (gamepad, webgpu, etc.) require `servo-engine` so
+# they pull in the dep transitively. To build without Servo:
+# `cargo build --no-default-features --features iced-host,wry,…`.
+servo-engine = ["dep:servo", "verso/servo-engine"]
+crown = ["servo-engine", "servo/crown"]
+debugmozjs = ["servo-engine", "servo/debugmozjs"]
+gamepad = ["servo-engine", "servo/gamepad"]
+jitspew = ["servo-engine", "servo/jitspew"]
+js_backtrace = ["servo-engine", "servo/js_backtrace"]
+js_jit = ["servo-engine", "servo/js_jit"]
 max_log_level = ["log/release_max_level_info"]
-media-gstreamer = ["servo/media-gstreamer"]
-native-bluetooth = ["servo/native-bluetooth"]
-profilemozjs = ["servo/profilemozjs"]
-refcell_backtrace = ["servo/refcell_backtrace"]
-tracing = ["dep:tracing", "dep:tracing-subscriber", "servo/tracing"]
+media-gstreamer = ["servo-engine", "servo/media-gstreamer"]
+native-bluetooth = ["servo-engine", "servo/native-bluetooth"]
+profilemozjs = ["servo-engine", "servo/profilemozjs"]
+refcell_backtrace = ["servo-engine", "servo/refcell_backtrace"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "servo-engine", "servo/tracing"]
 tracing-hitrace = ["tracing", "dep:hitrace"]
 tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
-vello = ["servo/vello"]
-webgl_backtrace = ["servo/webgl_backtrace"]
-webgpu = ["servo/webgpu"]
-webxr = ["servo/webxr"]
+vello = ["servo-engine", "servo/vello"]
+webgl_backtrace = ["servo-engine", "servo/webgl_backtrace"]
+webgpu = ["servo-engine", "servo/webgpu"]
+webxr = ["servo-engine", "servo/webxr"]
 wry = ["dep:wry", "verso/wry-engine"]
 pdf = ["dep:pdfium-render"]
 audio = ["dep:symphonia", "dep:rodio"]
@@ -91,7 +100,13 @@ audio = ["dep:symphonia", "dep:rodio"]
 # Currently stands up a placeholder `IcedHost` + `IcedHostPorts` that
 # implement the `HostPorts` trait bundle; M5.1 adds the real iced crate
 # dep so `IcedHost` can grow an iced `Program`-shaped surface next.
-iced-host = ["dep:iced", "dep:iced-middlenet-viewer", "dep:iced-graph-canvas-viewer"]
+iced-host = [
+    "dep:iced",
+    "dep:iced-middlenet-viewer",
+    "dep:iced-graph-canvas-viewer",
+    "dep:iced-wry-viewer",
+    "wry",
+]
 
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }
@@ -123,11 +138,16 @@ iced-middlenet-viewer = { path = "crates/iced-middlenet-viewer", optional = true
 # or webrender. The graphshell-side host adapter wraps it and
 # Element-maps the viewer's `GraphCanvasMessage` into iced_app::Message.
 iced-graph-canvas-viewer = { path = "crates/iced-graph-canvas-viewer", optional = true }
+# Iced wry viewer (extracted 2026-04-25, Phase B). Mounts wry::WebView
+# overlays as children of the iced window using the raw-window-handle
+# extracted via `iced::window::run`. Depends on `verso/wry-engine`
+# (Phase A2 — verso owns the wry impl).
+iced-wry-viewer = { path = "crates/iced-wry-viewer", optional = true }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
-servo = { path = "../servo-wgpu/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false }
+servo = { path = "../servo-wgpu/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false, optional = true }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
@@ -240,7 +260,7 @@ rodio = { version = "0.20", optional = true, default-features = false }
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo = { path = "../servo-wgpu/components/servo", features = ["no-wgl"] }
+servo = { path = "../servo-wgpu/components/servo", features = ["no-wgl"], optional = true }
 webview2-com = "0.38.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",

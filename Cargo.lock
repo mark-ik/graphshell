@@ -4851,6 +4851,7 @@ dependencies = [
  "gilrs",
  "glow 0.17.0",
  "graph-canvas",
+ "graph-cartography",
  "graph-tree",
  "graphshell-comms",
  "graphshell-core",
@@ -4862,6 +4863,7 @@ dependencies = [
  "iced",
  "iced-graph-canvas-viewer",
  "iced-middlenet-viewer",
+ "iced-wry-viewer",
  "image",
  "infer",
  "insta",
@@ -5920,6 +5922,16 @@ dependencies = [
  "iced",
  "middlenet-core",
  "middlenet-engine",
+]
+
+[[package]]
+name = "iced-wry-viewer"
+version = "0.0.1"
+dependencies = [
+ "iced",
+ "log",
+ "raw-window-handle",
+ "verso",
 ]
 
 [[package]]
@@ -15915,9 +15927,15 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "verso"
 version = "0.0.1"
 dependencies = [
+ "image",
+ "log",
  "middlenet-core",
  "middlenet-engine",
+ "raw-window-handle",
  "serde",
+ "servo",
+ "webview2-com",
+ "windows 0.61.3",
  "wry",
 ]
 
