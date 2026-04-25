@@ -462,6 +462,44 @@ Status as of 2026-04-25:
   cascade count; that's S2c work). The architectural seam is the
   point: future iced launch path decoupling (S3b) can proceed
   without re-doing port plumbing.
+- **2026-04-25 (S3b.1 IcedWgpuContext gate + iced_host_ports
+  ungating)**: smaller incremental S3b slice. `IcedWgpuContext`
+  (slot for iced-side wgpu device/queue) was Servo-typed because
+  its only intended consumer was Servo-produced texture imports;
+  gated on `servo-engine` so iced-only builds don't carry the
+  Servo wgpu surface. `CachedTexture` relocated from `iced_host.rs`
+  into `iced_host_ports.rs` so the ports module has no shell-side
+  gated deps; `iced_host_ports` is now ungated from `servo-engine`
+  in `ui/mod.rs` and ships under just `iced-host`. The remaining
+  iced launch path (`iced_app`, `iced_host`, `iced_graph_canvas`,
+  `iced_events`, `iced_middlenet_viewer`) still consumes
+  `gui_state::GraphshellRuntime` and stays gated on
+  `cfg(all(iced-host, servo-engine))` until the GraphshellRuntime
+  extraction (S3b proper) lands.
+
+### S3b proper (deferred): GraphshellRuntime extraction
+
+Pending. The blocker for fully dropping `servo-engine` from the
+iced launch path is `gui_state::GraphshellRuntime`'s field surface,
+which transitively pulls:
+
+- `ViewerSurfaceRegistry` (in gated `workbench/compositor_adapter`)
+- `WebviewCreationBackpressureState` (in gated
+  `lifecycle/webview_backpressure`)
+- `GuiFrameInbox` (in gated `gui` module)
+- `BookmarkImportDialogState` (egui-coupled, defined in `gui_state`
+  itself)
+- `ProviderSuggestionDriver` (in gated `toolbar`)
+- `CommandSurfaceTelemetry`, `CommandPaletteSession`,
+  `RuntimeFocusAuthorityState` (defined in `gui_state` /
+  `command_palette_state`; not heavily Servo-coupled but tangled)
+
+The extraction wants either: (a) move `GraphshellRuntime` itself
+into `graphshell-runtime` and relocate the dependent types, or
+(b) split into a portable `GraphshellRuntimeCore` (no Servo deps)
+plus a Servo-specific extension struct. Option (b) is the
+recommended path since it leaves egui-host bits where they are.
+Estimated 2–3 sessions of focused work.
 
 ## 7. Bottom line
 

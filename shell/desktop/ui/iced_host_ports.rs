@@ -35,12 +35,26 @@ use graphshell_core::geometry::{PortablePoint, PortableRect};
 use graphshell_core::host_event::{HostEvent, ModifiersState};
 use graphshell_runtime::{
     BackendViewportInPixels, HostAccessibilityPort, HostInputPort, HostPaintPort, HostSurfacePort,
-    HostTexturePort, ToastSpec, ViewerSurfaceId,
+    HostTexturePort, ToastSpec,
 };
 use graphshell_runtime::ports::{RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::ui::iced_host::CachedTexture;
+
+/// Cached texture payload: raw RGBA plus dimensions. iced's
+/// `image::Handle::from_rgba(width, height, pixels)` can rehydrate
+/// this on demand when the iced host grows an image-display surface.
+///
+/// 2026-04-25 servo-into-verso S3b.1: relocated here from
+/// `iced_host.rs` so this module has no shell-side gated
+/// dependencies. iced_host now imports `CachedTexture` from this
+/// module instead.
+#[derive(Debug, Clone)]
+pub(crate) struct CachedTexture {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) rgba: std::sync::Arc<[u8]>,
+}
 
 /// iced-side bundle of host port implementations.
 ///

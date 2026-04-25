@@ -46,14 +46,19 @@ pub(crate) mod host_ports;
 // workbench_host all consume Servo embedder, render_backend, or
 // compositor_adapter types and only run on the Servo+egui-host
 // path. Gated together until they're refactored.
-// 2026-04-25 servo-into-verso S2b: the in-tree iced launch path
-// (iced_app + iced_host + iced_host_ports etc.) consumes host_ports
-// traits, render_backend types, and WebViewId today, so it's gated
-// to require both `iced-host` AND `servo-engine`. Decoupling is S3
-// architectural work (extract host_ports traits + WebViewId-shaped
-// vocabulary into graphshell-core/graphshell-runtime). The
-// standalone iced demos in `crates/iced-{middlenet,graph-canvas,
-// wry}-viewer` are already fully no-Servo and remain so.
+// 2026-04-25 servo-into-verso S2b/S3b.1: iced launch path modules.
+// `iced_host_ports` is fully decoupled from Servo-coupled modules
+// after S3a (trait extraction → graphshell-runtime) + S3b.1
+// (CachedTexture relocation), so it ships under just `iced-host`.
+// The remaining iced launch path (iced_app, iced_host,
+// iced_graph_canvas, iced_events, iced_middlenet_viewer) still
+// consumes `gui_state::GraphshellRuntime` (gated) so they require
+// both features for now. Extracting GraphshellRuntime is the next
+// S3b slice; until then, the iced no-Servo path is via the
+// standalone `crates/iced-{middlenet,graph-canvas,wry}-viewer`
+// demo crates.
+#[cfg(feature = "iced-host")]
+pub(crate) mod iced_host_ports;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_app;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
@@ -62,8 +67,6 @@ pub(crate) mod iced_events;
 pub(crate) mod iced_graph_canvas;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_host;
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
-pub(crate) mod iced_host_ports;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_middlenet_viewer;
 #[cfg(all(feature = "iced-host", feature = "servo-engine", test))]

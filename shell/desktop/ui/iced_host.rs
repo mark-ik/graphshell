@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use crate::app::GraphViewId;
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
-use crate::shell::desktop::ui::iced_host_ports::{IcedHostPorts, IcedTextureHandle};
+use crate::shell::desktop::ui::iced_host_ports::{CachedTexture, IcedHostPorts, IcedTextureHandle};
 use graphshell_runtime::{FrameHostInput, FrameViewModel, ToastSpec};
 
 /// Wgpu device + queue handles iced's renderer hands to the host.
@@ -33,13 +33,15 @@ use graphshell_runtime::{FrameHostInput, FrameViewModel, ToastSpec};
 /// `WebViewSurface<NodeKey>` widget and any Servo-produced wgpu
 /// texture that iced imports for in-pane content rendering.
 ///
-/// Uses `servo::wgpu` types because graphshell's shared wgpu path
-/// is already on that version; iced's wgpu version may differ, in
-/// which case a compatibility shim lands alongside C2's token-less
-/// texture flow. For C1 (exposure only, no consumers yet) we align
-/// on the version servo expects so the slot shape matches the
-/// existing `SharedWgpuRenderingContext` pattern in
-/// `shell/desktop/render_backend/shared_wgpu_context.rs`.
+/// 2026-04-25 servo-into-verso S3b: gated on `servo-engine`. The
+/// fields use `servo::wgpu` types because the original C1 use case
+/// was holding Servo-produced textures for iced consumption. When
+/// servo-engine is off there's no Servo producer, so the slot is
+/// also off; iced-only builds get `wgpu_context: ()` instead.
+/// A future slice can introduce a host-neutral wgpu vocabulary
+/// (e.g., the upstream `wgpu` crate at iced's pinned version) once
+/// real iced-side wgpu consumers land.
+#[cfg(feature = "servo-engine")]
 #[derive(Clone)]
 pub(crate) struct IcedWgpuContext {
     pub(crate) device: servo::wgpu::Device,
@@ -112,19 +114,16 @@ pub(crate) struct IcedHost {
     /// widget that mounts Servo-produced wgpu textures inside graph
     /// node panes. Required for C3 of the content-surface scoping
     /// doc; exposed here as C1 so the slot exists before any
-    /// consumer wires up.
+    /// consumer wires up. Gated behind servo-engine since the slot
+    /// today only holds Servo-produced textures.
+    #[cfg(feature = "servo-engine")]
     pub(crate) wgpu_context: Option<IcedWgpuContext>,
 }
 
-/// Cached texture payload: raw RGBA plus dimensions. iced's
-/// `image::Handle::from_rgba(width, height, pixels)` can rehydrate this
-/// on demand when the iced host grows an image-display surface.
-#[derive(Debug, Clone)]
-pub(crate) struct CachedTexture {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) rgba: std::sync::Arc<[u8]>,
-}
+// `CachedTexture` was relocated to `iced_host_ports.rs` (2026-04-25
+// servo-into-verso S3b.1) so the iced_host_ports module has no
+// gated shell-side deps and can be unconditionally available
+// alongside its trait surface in graphshell-runtime.
 
 /// Upper bound on the toast queue. Older entries drop when the queue
 /// grows past this. Chosen to be small enough to render in a corner
@@ -144,6 +143,7 @@ impl IcedHost {
             texture_cache: HashMap::new(),
             pending_present_requests: Vec::new(),
             pending_host_intents: Vec::new(),
+            #[cfg(feature = "servo-engine")]
             wgpu_context: None,
         }
     }
@@ -153,6 +153,7 @@ impl IcedHost {
     /// renderer is reachable; no-op if called twice (last write wins).
     /// Consumers can then acquire a `&IcedWgpuContext` via
     /// [`wgpu_context`](Self::wgpu_context).
+    #[cfg(feature = "servo-engine")]
     pub(crate) fn install_wgpu_context(&mut self, ctx: IcedWgpuContext) {
         self.wgpu_context = Some(ctx);
     }
@@ -161,6 +162,7 @@ impl IcedHost {
     /// need wgpu access (e.g. `WebViewSurface<NodeKey>`) bail out
     /// gracefully when this returns `None` — iced hosts without a
     /// wgpu-capable renderer attached fall back to chrome-only mode.
+    #[cfg(feature = "servo-engine")]
     pub(crate) fn wgpu_context(&self) -> Option<&IcedWgpuContext> {
         self.wgpu_context.as_ref()
     }
@@ -286,7 +288,9 @@ mod tests {
     /// C1 slot test — `wgpu_context` starts None and `install_wgpu_context`
     /// populates it. Doesn't boot a real wgpu adapter; just verifies the
     /// slot lifecycle. A real adapter-boot test lands alongside the first
-    /// consumer (C3 `WebViewSurface<NodeKey>`).
+    /// consumer (C3 `WebViewSurface<NodeKey>`). Gated on servo-engine
+    /// since the slot itself only exists on Servo-producing builds.
+    #[cfg(feature = "servo-engine")]
     #[test]
     fn wgpu_context_slot_starts_none_and_accepts_install() {
         let host = IcedHost::new_for_testing();
