@@ -12,7 +12,12 @@
 
 pub mod finalize_actions;
 pub mod frame_projection;
+pub mod portable_time;
 pub mod ports;
+
+// 2026-04-25 graphshell-runtime extraction Slice 3: portable_now()
+// re-exported at the crate root for ergonomic imports.
+pub use portable_time::portable_now;
 
 // 2026-04-25 servo-into-verso S3a: re-export the host-port trait
 // surface (added in S3a) at the crate root for ergonomic imports
