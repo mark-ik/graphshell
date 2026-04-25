@@ -21,9 +21,11 @@ use crate::app::{
 };
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::render::radial_menu::latest_semantic_snapshot;
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     NodePaneAttachAttemptMetadata, take_node_pane_attach_attempt_metadata,
 };
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     CommandRouteEventSequenceMetadata, OmnibarMailboxEventSequenceMetadata,
     latest_command_surface_semantic_snapshot,

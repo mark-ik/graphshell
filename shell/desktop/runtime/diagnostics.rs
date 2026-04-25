@@ -55,6 +55,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositorReplaySample, replay_samples_snapshot,
 };

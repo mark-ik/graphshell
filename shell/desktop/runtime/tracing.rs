@@ -154,6 +154,10 @@ pub(crate) trait LogTarget {
     fn log_target(&self) -> &'static str;
 }
 
+// 2026-04-25 servo-into-verso S2b: from_winit log-target impls use
+// host::event_loop::AppEvent (gated). The whole submodule is for
+// the Servo+egui-host launch path's tracing instrumentation.
+#[cfg(feature = "servo-engine")]
 mod from_winit {
     use super::LogTarget;
     use crate::shell::desktop::host::event_loop::AppEvent;

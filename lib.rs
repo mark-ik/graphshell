@@ -20,6 +20,11 @@ mod graph;
 mod input;
 pub use middlenet_engine as middlenet;
 mod model;
+// 2026-04-25 servo-into-verso S2b: render/ is the egui-host
+// rendering layer (canvas_egui_painter, panels, radial_menu, etc.).
+// Gated together with servo-engine; iced-host paints inline via
+// canvas::Program::draw and doesn't need this module.
+#[cfg(feature = "servo-engine")]
 mod render;
 mod services;
 mod shell;
@@ -35,11 +40,35 @@ mod egl;
 mod mods;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod panic_hook;
+// 2026-04-25 servo-into-verso S2b: parser is Servo-typed at its
+// public surface (ServoUrl). Its only consumers in graphshell main
+// are themselves gated behind servo-engine (host/, lifecycle/) or
+// behind egl/* (mobile/ohos paths).
+#[cfg(feature = "servo-engine")]
 mod parser;
+// prefs is Servo-typed at most of its surface (Opts, Preferences,
+// PrefValue, OutputOptions, etc.). The only host-neutral piece
+// graph_app.rs depends on is `FileAccessPolicy`. When servo-engine
+// is off, expose a tiny stub module with just that type so the
+// app shell still compiles.
+#[cfg(feature = "servo-engine")]
 mod prefs;
+#[cfg(not(feature = "servo-engine"))]
+mod prefs {
+    use std::path::PathBuf;
+
+    /// No-Servo stub of `prefs::FileAccessPolicy` for graph_app.rs.
+    /// The full prefs module (Servo Opts/Preferences) only exists
+    /// when servo-engine is on.
+    #[derive(Clone, Debug, Default)]
+    pub(crate) struct FileAccessPolicy {
+        pub allowed_directories: Vec<PathBuf>,
+        pub home_directory_auto_allow: bool,
+    }
+}
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod registries;
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), feature = "servo-engine"))]
 #[path = "graph_resources.rs"]
 mod resources;
 
@@ -57,6 +86,14 @@ pub mod platform {
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn main() {
     shell::desktop::runtime::cli::main()
+}
+
+/// Initialize Servo's bundled resource files. No-op when servo-engine
+/// is off (the resource pipeline only exists for the Servo path).
+#[cfg(not(target_os = "android"))]
+pub(crate) fn init_resources() {
+    #[cfg(feature = "servo-engine")]
+    crate::resources::init();
 }
 
 pub fn init_crypto() {

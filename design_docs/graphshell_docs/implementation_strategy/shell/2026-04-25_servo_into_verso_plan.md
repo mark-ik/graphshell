@@ -110,7 +110,100 @@ done) and S2b (file-level sweep, in progress).
 2026-04-25, completes in 4m 17s, no regressions, two pre-existing
 egui deprecation warnings only.
 
-#### S2b — File-level sweep (🚧 in progress)
+#### S2b — File-level sweep (🚧 module-level pass landed; body-level cascades remain)
+
+**Module-level pass (2026-04-25 evening)**: gated Servo-coupled
+submodules at their parent `mod.rs` level. The structural cuts:
+
+- `shell/desktop/mod.rs`: gate `host` + `render_backend` (entirely
+  Servo-coupled).
+- `shell/desktop/lifecycle/mod.rs`: gate `lifecycle_reconcile`,
+  `semantic_event_pipeline`, `webview_backpressure`,
+  `webview_controller`, `webview_status_sync` (kept
+  `lifecycle_intents` open).
+- `shell/desktop/workbench/mod.rs`: gate `compositor_adapter`,
+  `tile_render_pass`, `tile_runtime`, `tile_view_ops`, +
+  consumer cascades: `graph_tree_dual_write`, `tile_behavior`,
+  `tile_compositor`, `tile_invariants`, `tile_post_render`,
+  `graph_tree_projection`, `semantic_tabs`, `ux_probes`.
+- `shell/desktop/runtime/protocols/mod.rs`: gate `resource`,
+  `router`, `servo`, `urlinfo` (kept `registry` open).
+- `shell/desktop/runtime/registries/mod.rs`: gate
+  `workbench_surface` + `workflow`; `ServoUrl` aliased to
+  `url::Url` when servo-engine is off.
+- `shell/desktop/ui/mod.rs`: gate `dialog`, `dialog_panels`,
+  `egui_host_ports`, `gui`, `gui_frame`, `gui_orchestration`,
+  `host_ports`, `nav_targeting`, `persistence_ops`,
+  `thumbnail_pipeline`, `toolbar`, `toolbar_routing`,
+  `workbench_host`, plus the consumer cascade `gui_state`,
+  `finalize_actions`, `graph_search_flow`, `graph_search_ui`,
+  `overview_plane`, `shell_layout_pass`. The in-tree iced
+  launch path (`iced_app` etc.) now requires both `iced-host`
+  AND `servo-engine` (see "iced launch path coupling" below).
+- `lib.rs`: gate `mod render` (egui rendering layer);
+  `mod parser`, `mod prefs`, `mod resources` behind
+  servo-engine; provide a tiny stub `mod prefs { ... }` exposing
+  `FileAccessPolicy` so `graph_app.rs` still compiles.
+- `shell/desktop/runtime/cli.rs`: split into `main()` (host-neutral
+  prelude + iced-host branch + no-servo exit warning) and
+  `run_servo_launch_path()` (Servo+egui boot, gated).
+- `shell/desktop/runtime/tracing.rs`: gate `from_winit` LogTarget
+  impls (use host::event_loop::AppEvent).
+- `shell/desktop/runtime/diagnostics.rs`: gate
+  compositor_adapter import.
+- `panic_hook.rs`: gate `servo::opts` use; SIGSEGV path becomes
+  no-op without servo-engine.
+- `graph_app.rs`: bug fix — disambiguate `use
+  ::graph_cartography::*` (workspace crate, vs. local
+  `mod graph_cartography` shim).
+
+**Receipt (module-level pass)**:
+
+- ✅ Default build (`cargo check`, servo-engine + wry on) clean,
+  no regressions, ~18s incremental.
+- ⏳ `cargo check --no-default-features --features wry`:
+  **down to 75 errors** from 142, all body-level cascades.
+
+**iced launch path coupling**: the in-tree iced launch path
+(`shell::desktop::ui::iced_app`, `iced_host`, `iced_host_ports`,
+etc.) consumes `host_ports::*` traits, `render_backend::Backend*`
+types, `compositor_adapter`-re-exported `PortableRect`, and
+`servo::WebViewId` directly. Achieving a true no-Servo iced
+launch path requires extracting these to host-neutral locations
+(graphshell-core for vocab; graphshell-runtime for traits) which
+is **S3 architectural work**, not S2b mechanical sweep. For now,
+the iced-host launch path inside graphshell main is gated with
+`cfg(all(feature = "iced-host", feature = "servo-engine"))`.
+The standalone iced demo crates (`crates/iced-{middlenet,graph-canvas,
+wry}-viewer`) are unaffected — they remain fully no-Servo and
+demonstrate the Phase B portable surface.
+
+**Remaining 75 errors (deferred to S3 / S2c body-level pass)**:
+
+- `shell/desktop/runtime/registries/mod.rs` body (~30 refs to
+  `WorkbenchSurfaceRegistry`, `WorkflowRegistry`, etc.) — needs
+  per-line gating in fields, function signatures, match arms.
+- `shell/desktop/runtime/diagnostics.rs` body (`CompositorReplaySample`,
+  `replay_samples_snapshot`).
+- `app/persistence_facade.rs`, `app/settings_persistence.rs`
+  (use `prefs::read_user_stylesheet_source`, `crate::render::*`,
+  `ui::persistence_ops`).
+- `app/workspace_state.rs` (uses `crate::render::*`).
+- `registries/atomic/viewer.rs`, `registries/viewers/{directory,
+  image_viewer, middlenet, plaintext}.rs` (5 files: use
+  `workbench::tile_behavior`).
+- `shell/desktop/workbench/ux_tree.rs` body (gated types in
+  function signatures).
+- `shell/desktop/ui/tag_panel.rs` (uses `crate::render`).
+
+These are body-level uses of gated types. Gating them per-line is
+mechanical but tedious; the proper fix is the S3 trait/vocab
+extraction so the consumers don't depend on Servo-coupled modules
+in the first place. **Recommendation: S2c body-level pass should
+follow S3a (host_ports trait extraction) so the body-level work
+isn't redone.**
+
+#### S2b — Original file-level sweep target (✅ catalogued, ⏳ deferred)
 
 `cargo check --no-default-features --features iced-host,wry` against
 post-S2a tree surfaces **141 errors across 58 unique files**
@@ -305,8 +398,12 @@ Status as of 2026-04-25:
 - ✅ `cargo check -p verso --features servo-engine` — clean (S1).
 - ✅ `cargo check` (default features) — clean (S2a; servo-engine + wry
   on, no regressions, 4m 17s).
+- 🚧 `cargo check --no-default-features --features wry` — 75 errors
+  remaining (down from 142 after S2b module-level pass; remaining
+  75 are body-level cascades pending S3a trait extraction).
 - ⏳ `cargo check --no-default-features --features iced-host,wry` —
-  141 errors / 58 files (S2b sweep target).
+  same 75 errors plus iced launch path coupling (currently gated
+  on servo-engine; decoupling is S3 work).
 - ⏳ `cargo check --no-default-features --features iced-host` — not
   yet attempted (depends on S2b + S3).
 - ⏳ `cargo check --no-default-features --features
@@ -333,6 +430,15 @@ Status as of 2026-04-25:
   S2b for the full inventory. Discovered concurrent
   `webrender-wgpu` working-tree breakage that blocks further
   cargo-check iteration; flagged as sweep prerequisite.
+- **2026-04-25 (S2b module-level pass)**: webrender-wgpu blocker
+  cleared; ran the module-level gating pass across `lib.rs`,
+  `shell/desktop/{mod,lifecycle/mod,workbench/mod,ui/mod,
+  runtime/{mod,cli,tracing,diagnostics,registries/mod,protocols/mod}}`,
+  plus `panic_hook.rs` and `graph_app.rs`. Down from 142 → 75
+  errors against `cargo check --no-default-features --features
+  wry`; default build (servo-engine on) remains clean. Remaining
+  75 are body-level cascades that S3a (host_ports trait
+  extraction) should supersede; deferred to S2c post-S3.
 
 ## 7. Bottom line
 

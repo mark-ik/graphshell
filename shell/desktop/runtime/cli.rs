@@ -12,20 +12,31 @@ use crate::shell::desktop::runtime::registries::{
 };
 
 use crate::panic_hook;
+// 2026-04-25 servo-into-verso S2b: prefs, the Servo embedder host,
+// and Servo argument parsing are all gated behind servo-engine.
+// Without that feature the iced-host branch below is the only
+// available launch path.
+#[cfg(feature = "servo-engine")]
 use crate::prefs::{ArgumentParsingResult, parse_command_line_arguments};
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::host::app::App;
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::host::event_loop::AppEventLoop;
 
 pub fn main() {
     crate::crash_handler::install();
     crate::init_crypto();
-    crate::resources::init();
+    crate::init_resources();
 
     // M5 iced host bring-up: opt-in via `--iced` flag or `GRAPHSHELL_ICED=1`.
     // Launches the iced `Program`-shaped app against a minimal runtime —
     // no Servo webviews, no persistence restore. Production chrome stays
     // on the egui path below until iced reaches parity.
-    #[cfg(feature = "iced-host")]
+    //
+    // 2026-04-25 servo-into-verso S2b: also requires servo-engine for
+    // now since iced_host_ports / iced_host pull in host_ports traits
+    // and render_backend types. Decoupling is S3 architectural work.
+    #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
     if iced_requested() {
         let runtime = crate::shell::desktop::ui::gui_state::GraphshellRuntime::new_minimal();
         if let Err(err) = crate::shell::desktop::ui::iced_app::run_application(runtime) {
@@ -35,6 +46,24 @@ pub fn main() {
         return;
     }
 
+    // 2026-04-25 servo-into-verso S2b: everything below is the
+    // Servo+egui-host launch path. Without servo-engine we have
+    // already returned via the iced-host branch above; if neither
+    // feature is on, the binary exits cleanly with a hint.
+    #[cfg(not(feature = "servo-engine"))]
+    {
+        log::warn!(
+            "graphshell built without `servo-engine`; launch with `--iced` (requires `iced-host` feature) for the iced launch path."
+        );
+        return;
+    }
+
+    #[cfg(feature = "servo-engine")]
+    run_servo_launch_path();
+}
+
+#[cfg(feature = "servo-engine")]
+fn run_servo_launch_path() {
     // Initialize Verse mod (P2P sync capabilities) off the main thread to avoid
     // COM apartment conflicts with winit's OleInitialize path on Windows.
     // If initialization fails (e.g., keychain unavailable), log error and continue without sync.

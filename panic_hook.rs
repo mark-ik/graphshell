@@ -7,7 +7,11 @@ use std::panic::PanicHookInfo;
 use std::{env, thread};
 
 use log::{error, warn};
-use servo::opts;
+// 2026-04-25 servo-into-verso S2b: Servo's hard_fail/multiprocess
+// opts only inform behavior when servo-engine is on; otherwise the
+// panic hook still prints diagnostics but skips the SIGSEGV path.
+#[cfg(feature = "servo-engine")]
+use verso::servo_engine::opts;
 
 use crate::crash_handler::raise_signal_or_exit_with_error;
 
@@ -43,6 +47,7 @@ pub(crate) fn panic_hook(info: &PanicHookInfo) {
 
     // TODO: This shouldn't be using internal Servo options here. Perhaps this functionality should
     // move into libservo itself.
+    #[cfg(feature = "servo-engine")]
     if opts::get().hard_fail && !opts::get().multiprocess {
         // When we are exiting due to a hard-failure mode, we trigger a segfault so that crash
         // tests detect that we crashed. If we exit normally it just looks like a non-crash exit.

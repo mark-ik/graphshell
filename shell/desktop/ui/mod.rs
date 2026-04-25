@@ -4,42 +4,87 @@
 
 pub(crate) mod command_palette_state;
 pub(crate) mod command_surface_telemetry;
+// 2026-04-25 servo-into-verso S2b: dialog + egui-host modules
+// surface Servo embedder events through egui widgets. Gated with
+// servo-engine since the egui-host path is the only consumer; the
+// iced-host path uses its own surfaces (iced_host*, gui_state).
+#[cfg(feature = "servo-engine")]
 pub(crate) mod dialog;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod dialog_panels;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod egui_host_ports;
+// 2026-04-25 servo-into-verso S2b: these UI flow files all consume
+// gated `gui` / `gui_orchestration` / `persistence_ops`. Gated with
+// servo-engine until the egui-host UI flow is decoupled from the
+// shared finalize/search/palette paths in S3.
+#[cfg(feature = "servo-engine")]
 pub(crate) mod finalize_actions;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod graph_search_flow;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod graph_search_ui;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod gui;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod gui_frame;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod gui_orchestration;
+// 2026-04-25 servo-into-verso S2b: gui_state holds GraphshellRuntime
+// which threads through host_ports, webview_backpressure, and
+// compositor_adapter (all gated). S3 will extract a host-neutral
+// runtime surface; for now the whole module is gated.
+#[cfg(feature = "servo-engine")]
 pub(crate) mod gui_state;
+// 2026-04-25 servo-into-verso S2b: host_ports / nav_targeting /
+// persistence_ops / toolbar* / toolbar_routing / workbench_host
+// all consume Servo embedder, render_backend, or compositor_adapter
+// types and only run on the Servo+egui-host path. Gated together.
+#[cfg(feature = "servo-engine")]
 pub(crate) mod host_ports;
-#[cfg(feature = "iced-host")]
+// 2026-04-25 servo-into-verso S2b: the in-tree iced launch path
+// (iced_app + iced_host + iced_host_ports etc.) consumes host_ports
+// traits, render_backend types, and WebViewId today, so it's gated
+// to require both `iced-host` AND `servo-engine`. Decoupling is S3
+// architectural work (extract host_ports traits + WebViewId-shaped
+// vocabulary into graphshell-core/graphshell-runtime). The
+// standalone iced demos in `crates/iced-{middlenet,graph-canvas,
+// wry}-viewer` are already fully no-Servo and remain so.
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_app;
-#[cfg(feature = "iced-host")]
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_events;
-#[cfg(feature = "iced-host")]
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_graph_canvas;
-#[cfg(feature = "iced-host")]
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_host;
-#[cfg(feature = "iced-host")]
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_host_ports;
-#[cfg(feature = "iced-host")]
+#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_middlenet_viewer;
-#[cfg(all(feature = "iced-host", test))]
+#[cfg(all(feature = "iced-host", feature = "servo-engine", test))]
 pub(crate) mod iced_parity;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod omnibar_state;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod overview_plane;
 pub(crate) mod portable_time;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod persistence_ops;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod shell_layout_pass;
 pub(crate) mod swatch;
 pub(crate) mod tag_panel;
+// 2026-04-25 servo-into-verso S2b: thumbnail capture pulls Servo
+// screenshot frames; gated together with servo-engine.
+#[cfg(feature = "servo-engine")]
 pub(crate) mod thumbnail_pipeline;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod toolbar;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod toolbar_routing;
 pub(crate) mod undo_boundary;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod workbench_host;

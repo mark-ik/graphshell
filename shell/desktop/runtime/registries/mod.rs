@@ -13,7 +13,13 @@ pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
 pub(crate) mod theme;
+// 2026-04-25 servo-into-verso S2b: workbench_surface is the
+// egui-host tile-tree registry; gated together with the workbench
+// tile pipeline. workflow consumes workbench_surface, so it's gated
+// too. Iced-host path doesn't use these registries today.
+#[cfg(feature = "servo-engine")]
 pub(crate) mod workbench_surface;
+#[cfg(feature = "servo-engine")]
 pub(crate) mod workflow;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -96,16 +102,27 @@ use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
 use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
-use servo::ServoUrl;
+// 2026-04-25 servo-into-verso S2b: ServoUrl is a Servo-side
+// `Arc<url::Url>` wrapper. When servo-engine is off, alias it to
+// `url::Url` so registries-layer URL handling (parse + accessors)
+// continues to compile. Code paths that hand ServoUrl to Servo APIs
+// are themselves gated behind servo-engine, so the alias only flows
+// through host-neutral registry/protocol policy paths.
+#[cfg(feature = "servo-engine")]
+use verso::servo_engine::ServoUrl;
+#[cfg(not(feature = "servo-engine"))]
+use url::Url as ServoUrl;
 use signal_routing::{
     AsyncSignalSubscription, InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId,
     RegistryEventSignal, SignalBus, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
     SignalTopic,
 };
 use theme::{ThemeCapability, ThemeRegistry, ThemeResolution};
+#[cfg(feature = "servo-engine")]
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
+#[cfg(feature = "servo-engine")]
 use workflow::{
     WorkflowActivation, WorkflowActivationError, WorkflowCapability, WorkflowRegistry,
     WorkflowSavepoint,

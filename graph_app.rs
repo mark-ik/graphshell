@@ -56,7 +56,7 @@ use crate::util::{
 use euclid::default::Point2D;
 use log::{debug, warn};
 use uuid::Uuid;
-use graph_cartography::{CartographyInvalidationEmission, CartographyInvalidationEmitter};
+use ::graph_cartography::{CartographyInvalidationEmission, CartographyInvalidationEmitter};
 
 macro_rules! impl_display_from_str {
     ($ty:ty { $($variant:path => $value:literal),+ $(,)? }) => {
