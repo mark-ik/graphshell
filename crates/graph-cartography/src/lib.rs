@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub const CARTOGRAPHY_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 pub const DETERMINISTIC_AGGREGATE_TABLE_VERSION: u32 = 1;
 pub const LEARNED_AFFINITY_CACHE_TABLE_VERSION: u32 = 1;
+pub const DEFAULT_CLUSTER_HYSTERESIS_MARGIN: f32 = 0.05;
 
 /// Substrate-owned opaque identity for a graph-memory entry.
 ///
@@ -128,12 +129,75 @@ impl PrivacyScope {
         }
     }
 
+    pub fn can_surface_in(self, destination: Self) -> bool {
+        match destination {
+            Self::LocalOnly => true,
+            Self::DeviceSync => matches!(self, Self::DeviceSync | Self::Shared),
+            Self::Shared => matches!(self, Self::Shared),
+        }
+    }
+
+    pub fn requires_explicit_promotion_to(self, destination: Self) -> bool {
+        !self.can_surface_in(destination)
+    }
+
+    pub fn can_surface_with_policy(self, policy: &CartographyPrivacyPolicy) -> bool {
+        self.can_surface_in(policy.destination_scope)
+            || policy
+                .explicit_promotions
+                .iter()
+                .any(|promotion| promotion.allows(self, policy.destination_scope))
+    }
+
     pub fn from_memory_privacy(privacy: EntryPrivacy) -> Self {
         match privacy {
             EntryPrivacy::LocalOnly => Self::LocalOnly,
             EntryPrivacy::ShareCandidate => Self::DeviceSync,
             EntryPrivacy::Shared => Self::Shared,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplicitPrivacyPromotion {
+    pub from_scope: PrivacyScope,
+    pub to_scope: PrivacyScope,
+    pub authorized_at_ms: u64,
+    pub rationale: String,
+}
+
+impl ExplicitPrivacyPromotion {
+    pub fn allows(&self, from_scope: PrivacyScope, to_scope: PrivacyScope) -> bool {
+        self.from_scope == from_scope
+            && self.to_scope == to_scope
+            && self
+                .from_scope
+                .requires_explicit_promotion_to(self.to_scope)
+            && !self.rationale.trim().is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CartographyPrivacyPolicy {
+    pub destination_scope: PrivacyScope,
+    pub explicit_promotions: Vec<ExplicitPrivacyPromotion>,
+}
+
+impl CartographyPrivacyPolicy {
+    pub fn new(destination_scope: PrivacyScope) -> Self {
+        Self {
+            destination_scope,
+            explicit_promotions: Vec::new(),
+        }
+    }
+
+    pub fn with_explicit_promotion(mut self, promotion: ExplicitPrivacyPromotion) -> Self {
+        self.explicit_promotions.push(promotion);
+        self
+    }
+
+    pub fn can_surface(&self, scope: PrivacyScope) -> bool {
+        scope.can_surface_with_policy(self)
     }
 }
 
@@ -211,6 +275,34 @@ pub struct StableClusterAssignmentSnapshot {
     pub version: String,
     pub last_recomputed_at_ms: u64,
     pub privacy_scope: PrivacyScope,
+}
+
+impl StableClusterAssignmentSnapshot {
+    pub fn hysteresis_decision_against(
+        &self,
+        candidate: &Self,
+        confidence_margin: f32,
+    ) -> HysteresisDecision {
+        let shares_member = self
+            .members
+            .iter()
+            .any(|entry| candidate.members.contains(entry));
+        if !shares_member || self.cluster_id == candidate.cluster_id {
+            return HysteresisDecision::Replace;
+        }
+
+        if candidate.confidence >= self.confidence + confidence_margin {
+            HysteresisDecision::Replace
+        } else {
+            HysteresisDecision::KeepExisting
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HysteresisDecision {
+    KeepExisting,
+    Replace,
 }
 
 /// Agent-produced task-region membership cache row.
@@ -493,6 +585,550 @@ pub enum CartographySnapshotValidationError {
         from_entry: EntryKey,
         to_entry: EntryKey,
     },
+    EmptyAgentOutputProducer,
+    EmptyAgentOutputVersion,
+    EmptyAgentInvalidationVersion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DeterministicAggregateKind {
+    EntryEdgeRollups,
+    ActivationFreshness,
+    TraversalCentrality,
+    RepeatedPathPriors,
+    CoActivationPairs,
+    FrameReformationPatterns,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum LearnedAffinityCacheKind {
+    StableClusterAssignments,
+    TaskRegionMemberships,
+    BridgeNodes,
+    StableRelationPromotionCandidates,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SubstrateMutationKind {
+    VisitEntry,
+    EnsureOwner,
+    ReplaceLinearHistory,
+    ResetOwner,
+    DeleteOwner,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphTruthMutationKind {
+    AddNode,
+    RemoveNode,
+    ResetGraph,
+    EdgeAssertion,
+    TagChange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WalTimelineEventKind {
+    NavigateNode,
+    AppendNodeAuditEvent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LifecycleState {
+    Active,
+    Warm,
+    Cold,
+    Tombstone,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CartographyInvalidationSignal {
+    SubstrateMutation {
+        kind: SubstrateMutationKind,
+        owner: Option<WorkspaceOwner>,
+        entry: Option<EntryKey>,
+    },
+    GraphTruthMutation {
+        kind: GraphTruthMutationKind,
+        node: Option<NodeKey>,
+        entry: Option<EntryKey>,
+    },
+    WalTimelineEvent {
+        kind: WalTimelineEventKind,
+        entry: Option<EntryKey>,
+    },
+    SessionBoundary {
+        session_bucket: String,
+    },
+    LifecycleTransition {
+        state: LifecycleState,
+        entry: Option<EntryKey>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CartographyRuntimeInvalidationEvent {
+    VisitEntry {
+        owner: Option<WorkspaceOwner>,
+        entry: Option<EntryKey>,
+    },
+    EnsureOwner {
+        owner: WorkspaceOwner,
+    },
+    ReplaceLinearHistory {
+        owner: Option<WorkspaceOwner>,
+    },
+    ResetOwner {
+        owner: Option<WorkspaceOwner>,
+    },
+    DeleteOwner {
+        owner: Option<WorkspaceOwner>,
+    },
+    GraphNodeAdded {
+        node: NodeKey,
+        entry: Option<EntryKey>,
+    },
+    GraphNodeRemoved {
+        node: NodeKey,
+        entry: Option<EntryKey>,
+    },
+    GraphReset,
+    GraphEdgeAsserted {
+        node: Option<NodeKey>,
+        entry: Option<EntryKey>,
+    },
+    GraphTagChanged {
+        node: NodeKey,
+        entry: Option<EntryKey>,
+    },
+    WalNavigateNode {
+        entry: Option<EntryKey>,
+    },
+    WalAppendNodeAuditEvent {
+        entry: Option<EntryKey>,
+    },
+    SessionBoundary {
+        session_bucket: String,
+    },
+    LifecycleActive {
+        entry: Option<EntryKey>,
+    },
+    LifecycleWarm {
+        entry: Option<EntryKey>,
+    },
+    LifecycleCold {
+        entry: Option<EntryKey>,
+    },
+    LifecycleTombstone {
+        entry: Option<EntryKey>,
+    },
+}
+
+impl From<CartographyRuntimeInvalidationEvent> for CartographyInvalidationSignal {
+    fn from(event: CartographyRuntimeInvalidationEvent) -> Self {
+        match event {
+            CartographyRuntimeInvalidationEvent::VisitEntry { owner, entry } => {
+                Self::SubstrateMutation {
+                    kind: SubstrateMutationKind::VisitEntry,
+                    owner,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::EnsureOwner { owner } => Self::SubstrateMutation {
+                kind: SubstrateMutationKind::EnsureOwner,
+                owner: Some(owner),
+                entry: None,
+            },
+            CartographyRuntimeInvalidationEvent::ReplaceLinearHistory { owner } => {
+                Self::SubstrateMutation {
+                    kind: SubstrateMutationKind::ReplaceLinearHistory,
+                    owner,
+                    entry: None,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::ResetOwner { owner } => Self::SubstrateMutation {
+                kind: SubstrateMutationKind::ResetOwner,
+                owner,
+                entry: None,
+            },
+            CartographyRuntimeInvalidationEvent::DeleteOwner { owner } => Self::SubstrateMutation {
+                kind: SubstrateMutationKind::DeleteOwner,
+                owner,
+                entry: None,
+            },
+            CartographyRuntimeInvalidationEvent::GraphNodeAdded { node, entry } => {
+                Self::GraphTruthMutation {
+                    kind: GraphTruthMutationKind::AddNode,
+                    node: Some(node),
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::GraphNodeRemoved { node, entry } => {
+                Self::GraphTruthMutation {
+                    kind: GraphTruthMutationKind::RemoveNode,
+                    node: Some(node),
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::GraphReset => Self::GraphTruthMutation {
+                kind: GraphTruthMutationKind::ResetGraph,
+                node: None,
+                entry: None,
+            },
+            CartographyRuntimeInvalidationEvent::GraphEdgeAsserted { node, entry } => {
+                Self::GraphTruthMutation {
+                    kind: GraphTruthMutationKind::EdgeAssertion,
+                    node,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::GraphTagChanged { node, entry } => {
+                Self::GraphTruthMutation {
+                    kind: GraphTruthMutationKind::TagChange,
+                    node: Some(node),
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::WalNavigateNode { entry } => {
+                Self::WalTimelineEvent {
+                    kind: WalTimelineEventKind::NavigateNode,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::WalAppendNodeAuditEvent { entry } => {
+                Self::WalTimelineEvent {
+                    kind: WalTimelineEventKind::AppendNodeAuditEvent,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::SessionBoundary { session_bucket } => {
+                Self::SessionBoundary { session_bucket }
+            }
+            CartographyRuntimeInvalidationEvent::LifecycleActive { entry } => {
+                Self::LifecycleTransition {
+                    state: LifecycleState::Active,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::LifecycleWarm { entry } => {
+                Self::LifecycleTransition {
+                    state: LifecycleState::Warm,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::LifecycleCold { entry } => {
+                Self::LifecycleTransition {
+                    state: LifecycleState::Cold,
+                    entry,
+                }
+            }
+            CartographyRuntimeInvalidationEvent::LifecycleTombstone { entry } => {
+                Self::LifecycleTransition {
+                    state: LifecycleState::Tombstone,
+                    entry,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CartographyInvalidationEmission {
+    pub signal: CartographyInvalidationSignal,
+    pub plan: CartographyInvalidationPlan,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CartographyInvalidationEmitter {
+    pending: Vec<CartographyInvalidationEmission>,
+}
+
+impl CartographyInvalidationEmitter {
+    pub fn emit_signal(
+        &mut self,
+        signal: CartographyInvalidationSignal,
+    ) -> CartographyInvalidationEmission {
+        let emission = CartographyInvalidationEmission::from_signal(signal);
+        self.pending.push(emission.clone());
+        emission
+    }
+
+    pub fn emit_runtime_event(
+        &mut self,
+        event: CartographyRuntimeInvalidationEvent,
+    ) -> CartographyInvalidationEmission {
+        self.emit_signal(event.into())
+    }
+
+    pub fn pending(&self) -> &[CartographyInvalidationEmission] {
+        &self.pending
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    pub fn drain(&mut self) -> Vec<CartographyInvalidationEmission> {
+        self.pending.drain(..).collect()
+    }
+}
+
+impl CartographyInvalidationEmission {
+    pub fn from_signal(signal: CartographyInvalidationSignal) -> Self {
+        let plan = CartographyInvalidationPlan::from_signal(&signal);
+        Self { signal, plan }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CartographyInvalidationPlan {
+    pub deterministic: BTreeSet<DeterministicAggregateKind>,
+    pub learned_affinity: BTreeSet<LearnedAffinityCacheKind>,
+    pub full_recompute_allowed: bool,
+}
+
+impl CartographyInvalidationPlan {
+    pub fn from_signals<'a, I>(signals: I) -> Self
+    where
+        I: IntoIterator<Item = &'a CartographyInvalidationSignal>,
+    {
+        let mut merged = Self::default();
+        for signal in signals {
+            merged.merge(Self::from_signal(signal));
+        }
+        merged
+    }
+
+    pub fn from_signal(signal: &CartographyInvalidationSignal) -> Self {
+        let mut plan = Self::default();
+        match signal {
+            CartographyInvalidationSignal::SubstrateMutation { kind, .. } => match kind {
+                SubstrateMutationKind::VisitEntry => {
+                    plan.invalidate_deterministic([
+                        DeterministicAggregateKind::EntryEdgeRollups,
+                        DeterministicAggregateKind::ActivationFreshness,
+                        DeterministicAggregateKind::TraversalCentrality,
+                        DeterministicAggregateKind::RepeatedPathPriors,
+                        DeterministicAggregateKind::CoActivationPairs,
+                        DeterministicAggregateKind::FrameReformationPatterns,
+                    ]);
+                    plan.invalidate_learned_affinity([
+                        LearnedAffinityCacheKind::StableClusterAssignments,
+                        LearnedAffinityCacheKind::TaskRegionMemberships,
+                        LearnedAffinityCacheKind::BridgeNodes,
+                        LearnedAffinityCacheKind::StableRelationPromotionCandidates,
+                    ]);
+                }
+                SubstrateMutationKind::EnsureOwner => {
+                    plan.invalidate_deterministic([
+                        DeterministicAggregateKind::CoActivationPairs,
+                        DeterministicAggregateKind::FrameReformationPatterns,
+                    ]);
+                }
+                SubstrateMutationKind::ReplaceLinearHistory
+                | SubstrateMutationKind::ResetOwner
+                | SubstrateMutationKind::DeleteOwner => {
+                    plan.invalidate_all();
+                }
+            },
+            CartographyInvalidationSignal::GraphTruthMutation { kind, .. } => {
+                if matches!(kind, GraphTruthMutationKind::ResetGraph) {
+                    plan.invalidate_all();
+                } else {
+                    plan.invalidate_deterministic([
+                        DeterministicAggregateKind::ActivationFreshness,
+                        DeterministicAggregateKind::EntryEdgeRollups,
+                    ]);
+                    plan.invalidate_learned_affinity([
+                        LearnedAffinityCacheKind::StableClusterAssignments,
+                        LearnedAffinityCacheKind::BridgeNodes,
+                        LearnedAffinityCacheKind::StableRelationPromotionCandidates,
+                    ]);
+                }
+            }
+            CartographyInvalidationSignal::WalTimelineEvent { .. } => {
+                plan.invalidate_deterministic([
+                    DeterministicAggregateKind::ActivationFreshness,
+                    DeterministicAggregateKind::TraversalCentrality,
+                    DeterministicAggregateKind::RepeatedPathPriors,
+                ]);
+            }
+            CartographyInvalidationSignal::SessionBoundary { .. } => {
+                plan.invalidate_deterministic([
+                    DeterministicAggregateKind::CoActivationPairs,
+                    DeterministicAggregateKind::FrameReformationPatterns,
+                ]);
+            }
+            CartographyInvalidationSignal::LifecycleTransition { .. } => {
+                plan.invalidate_deterministic([DeterministicAggregateKind::ActivationFreshness]);
+            }
+        }
+        plan
+    }
+
+    pub fn invalidate_all(&mut self) {
+        self.invalidate_deterministic([
+            DeterministicAggregateKind::EntryEdgeRollups,
+            DeterministicAggregateKind::ActivationFreshness,
+            DeterministicAggregateKind::TraversalCentrality,
+            DeterministicAggregateKind::RepeatedPathPriors,
+            DeterministicAggregateKind::CoActivationPairs,
+            DeterministicAggregateKind::FrameReformationPatterns,
+        ]);
+        self.invalidate_learned_affinity([
+            LearnedAffinityCacheKind::StableClusterAssignments,
+            LearnedAffinityCacheKind::TaskRegionMemberships,
+            LearnedAffinityCacheKind::BridgeNodes,
+            LearnedAffinityCacheKind::StableRelationPromotionCandidates,
+        ]);
+        self.full_recompute_allowed = true;
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.deterministic.extend(other.deterministic);
+        self.learned_affinity.extend(other.learned_affinity);
+        self.full_recompute_allowed |= other.full_recompute_allowed;
+    }
+
+    fn invalidate_deterministic<I>(&mut self, kinds: I)
+    where
+        I: IntoIterator<Item = DeterministicAggregateKind>,
+    {
+        self.deterministic.extend(kinds);
+    }
+
+    fn invalidate_learned_affinity<I>(&mut self, kinds: I)
+    where
+        I: IntoIterator<Item = LearnedAffinityCacheKind>,
+    {
+        self.learned_affinity.extend(kinds);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeterministicAggregateCacheRecord {
+    pub table_version: u32,
+    pub built_at_ms: u64,
+    pub tables: DeterministicAggregateTables,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LearnedAffinityCacheRecord {
+    pub cache_version: u32,
+    pub written_at_ms: u64,
+    pub rows: LearnedAffinityCacheTables,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyPersistenceEnvelope {
+    pub schema_version: u32,
+    pub deterministic: DeterministicAggregateCacheRecord,
+    pub learned_affinity: LearnedAffinityCacheRecord,
+}
+
+impl CartographyPersistenceEnvelope {
+    pub fn from_snapshot(snapshot: CartographySnapshot, persisted_at_ms: u64) -> Self {
+        Self {
+            schema_version: snapshot.schema_version,
+            deterministic: DeterministicAggregateCacheRecord {
+                table_version: snapshot.deterministic_table_version,
+                built_at_ms: snapshot.built_at_ms,
+                tables: snapshot.deterministic,
+            },
+            learned_affinity: LearnedAffinityCacheRecord {
+                cache_version: snapshot.learned_affinity_cache_version,
+                written_at_ms: persisted_at_ms,
+                rows: snapshot.learned_affinity,
+            },
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), Vec<CartographySnapshotValidationError>> {
+        self.clone().into_snapshot().validate()
+    }
+
+    pub fn into_snapshot(self) -> CartographySnapshot {
+        CartographySnapshot {
+            schema_version: self.schema_version,
+            deterministic_table_version: self.deterministic.table_version,
+            learned_affinity_cache_version: self.learned_affinity.cache_version,
+            built_at_ms: self.deterministic.built_at_ms,
+            deterministic: self.deterministic.tables,
+            learned_affinity: self.learned_affinity.rows,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CartographyPersistenceTrigger {
+    Manual,
+    InvalidationPlan,
+    Shutdown,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyPersistenceWriteRequest {
+    pub trigger: CartographyPersistenceTrigger,
+    pub envelope: CartographyPersistenceEnvelope,
+    pub invalidation_plan: Option<CartographyInvalidationPlan>,
+}
+
+impl CartographyPersistenceWriteRequest {
+    pub fn from_snapshot(
+        snapshot: CartographySnapshot,
+        persisted_at_ms: u64,
+        trigger: CartographyPersistenceTrigger,
+    ) -> Self {
+        Self {
+            trigger,
+            envelope: CartographyPersistenceEnvelope::from_snapshot(snapshot, persisted_at_ms),
+            invalidation_plan: None,
+        }
+    }
+
+    pub fn with_invalidation_plan(mut self, plan: CartographyInvalidationPlan) -> Self {
+        self.invalidation_plan = Some(plan);
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), Vec<CartographySnapshotValidationError>> {
+        self.envelope.validate()
+    }
+}
+
+pub trait CartographyPersistenceSink {
+    type Error;
+
+    fn write_cartography_cache(
+        &mut self,
+        request: CartographyPersistenceWriteRequest,
+    ) -> Result<(), Self::Error>;
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InMemoryCartographyPersistenceSink {
+    writes: Vec<CartographyPersistenceWriteRequest>,
+}
+
+impl InMemoryCartographyPersistenceSink {
+    pub fn writes(&self) -> &[CartographyPersistenceWriteRequest] {
+        &self.writes
+    }
+
+    pub fn drain(&mut self) -> Vec<CartographyPersistenceWriteRequest> {
+        std::mem::take(&mut self.writes)
+    }
+}
+
+impl CartographyPersistenceSink for InMemoryCartographyPersistenceSink {
+    type Error = std::convert::Infallible;
+
+    fn write_cartography_cache(
+        &mut self,
+        request: CartographyPersistenceWriteRequest,
+    ) -> Result<(), Self::Error> {
+        self.writes.push(request);
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -716,6 +1352,187 @@ pub struct CanvasBridgeEmphasis {
     pub confidence: f32,
     pub invalidation_version: String,
     pub privacy_scope: PrivacyScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyContributionAssemblyInput {
+    pub schema_version: u32,
+    pub built_at_ms: u64,
+    pub destination_scope: PrivacyScope,
+    pub edge_rollups: Vec<ContributionEdgeRollup>,
+    pub relation_promotion_candidates: Vec<ContributionRelationPromotionCandidate>,
+    pub privacy_scope: PrivacyScope,
+}
+
+impl CartographyContributionAssemblyInput {
+    pub fn is_empty(&self) -> bool {
+        self.edge_rollups.is_empty() && self.relation_promotion_candidates.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContributionEdgeRollup {
+    pub from_entry: EntryKey,
+    pub to_entry: EntryKey,
+    pub from_node: Option<NodeKey>,
+    pub to_node: Option<NodeKey>,
+    pub traversal_count: u64,
+    pub latest_transition_at_ms: u64,
+    pub transition_counts: HashMap<TransitionKind, u64>,
+    pub privacy_scope: PrivacyScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContributionRelationPromotionCandidate {
+    pub from_entry: EntryKey,
+    pub to_entry: EntryKey,
+    pub from_node: Option<NodeKey>,
+    pub to_node: Option<NodeKey>,
+    pub confidence: f32,
+    pub reason: String,
+    pub version: String,
+    pub privacy_scope: PrivacyScope,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationPromotionTarget {
+    AgentDerived,
+    UserGroupedProposal,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRelationPromotionSurface {
+    pub schema_version: u32,
+    pub built_at_ms: u64,
+    pub destination_scope: PrivacyScope,
+    pub aggregate_evidence: Vec<CartographyRelationEvidence>,
+    pub proposals: Vec<CartographyRelationPromotionProposal>,
+    pub privacy_scope: PrivacyScope,
+}
+
+impl CartographyRelationPromotionSurface {
+    pub fn is_empty(&self) -> bool {
+        self.aggregate_evidence.is_empty() && self.proposals.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CartographyRelationEvidence {
+    TraversalRollup {
+        from_entry: EntryKey,
+        to_entry: EntryKey,
+        traversal_count: u64,
+        latest_transition_at_ms: u64,
+        privacy_scope: PrivacyScope,
+    },
+    CoActivation {
+        a: EntryKey,
+        b: EntryKey,
+        count: u64,
+        last_seen_at_ms: u64,
+        decay_bucket: Option<String>,
+        privacy_scope: PrivacyScope,
+    },
+}
+
+impl CartographyRelationEvidence {
+    pub fn privacy_scope(&self) -> PrivacyScope {
+        match self {
+            Self::TraversalRollup { privacy_scope, .. }
+            | Self::CoActivation { privacy_scope, .. } => *privacy_scope,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRelationPromotionProposal {
+    pub from_entry: EntryKey,
+    pub to_entry: EntryKey,
+    pub from_node: Option<NodeKey>,
+    pub to_node: Option<NodeKey>,
+    pub target: RelationPromotionTarget,
+    pub confidence: f32,
+    pub reason: String,
+    pub version: String,
+    pub graph_intent: CartographyGraphIntentProposal,
+    pub privacy_scope: PrivacyScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CartographyGraphIntentProposal {
+    ProposeAgentDerivedRelation {
+        from_node: Option<NodeKey>,
+        to_node: Option<NodeKey>,
+        confidence: f32,
+        reason: String,
+        version: String,
+    },
+    ProposeUserGroupedRelation {
+        from_node: Option<NodeKey>,
+        to_node: Option<NodeKey>,
+        reason: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyAgentInputSurface {
+    pub schema_version: u32,
+    pub deterministic_table_version: u32,
+    pub built_at_ms: u64,
+    pub destination_scope: PrivacyScope,
+    pub aggregates: DeterministicAggregateTables,
+    pub privacy_scope: PrivacyScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CartographyAgentOutputEnvelope {
+    pub cache_version: u32,
+    pub producer_id: String,
+    pub output_version: String,
+    pub invalidation_version: String,
+    pub produced_at_ms: u64,
+    pub rows: LearnedAffinityCacheTables,
+    pub privacy_scope: PrivacyScope,
+}
+
+impl CartographyAgentOutputEnvelope {
+    pub fn validate(&self) -> Result<(), Vec<CartographySnapshotValidationError>> {
+        let mut errors = Vec::new();
+        if self.cache_version != LEARNED_AFFINITY_CACHE_TABLE_VERSION {
+            errors.push(
+                CartographySnapshotValidationError::UnsupportedLearnedAffinityCacheVersion {
+                    found: self.cache_version,
+                    expected: LEARNED_AFFINITY_CACHE_TABLE_VERSION,
+                },
+            );
+        }
+        if self.producer_id.trim().is_empty() {
+            errors.push(CartographySnapshotValidationError::EmptyAgentOutputProducer);
+        }
+        if self.output_version.trim().is_empty() {
+            errors.push(CartographySnapshotValidationError::EmptyAgentOutputVersion);
+        }
+        if self.invalidation_version.trim().is_empty() {
+            errors.push(CartographySnapshotValidationError::EmptyAgentInvalidationVersion);
+        }
+        if let Err(row_errors) = self.rows.validate() {
+            errors.extend(row_errors);
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    pub fn into_cache_record(self) -> LearnedAffinityCacheRecord {
+        LearnedAffinityCacheRecord {
+            cache_version: self.cache_version,
+            written_at_ms: self.produced_at_ms,
+            rows: self.rows,
+        }
+    }
 }
 
 /// Versioned GC handoff snapshot for consumers and cache persistence.
@@ -1187,6 +2004,236 @@ impl CartographySnapshot {
         }
     }
 
+    pub fn contribution_assembly_input(
+        &self,
+        destination_scope: PrivacyScope,
+    ) -> CartographyContributionAssemblyInput {
+        let mut privacy_scope = PrivacyScope::Shared;
+
+        let mut edge_rollups = Vec::new();
+        for row in &self.deterministic.entry_edge_rollups {
+            if !row.privacy_scope.can_surface_in(destination_scope) {
+                continue;
+            }
+            privacy_scope = privacy_scope.combine(row.privacy_scope);
+            edge_rollups.push(ContributionEdgeRollup {
+                from_entry: row.from_entry,
+                to_entry: row.to_entry,
+                from_node: self.graph_node_for_entry(row.from_entry),
+                to_node: self.graph_node_for_entry(row.to_entry),
+                traversal_count: row.traversal_count,
+                latest_transition_at_ms: row.latest_transition_at_ms,
+                transition_counts: row.transition_counts.clone(),
+                privacy_scope: row.privacy_scope,
+            });
+        }
+
+        let mut relation_promotion_candidates = Vec::new();
+        for row in &self.learned_affinity.stable_relation_promotion_candidates {
+            if !row.privacy_scope.can_surface_in(destination_scope) {
+                continue;
+            }
+            privacy_scope = privacy_scope.combine(row.privacy_scope);
+            relation_promotion_candidates.push(ContributionRelationPromotionCandidate {
+                from_entry: row.from_entry,
+                to_entry: row.to_entry,
+                from_node: self.graph_node_for_entry(row.from_entry),
+                to_node: self.graph_node_for_entry(row.to_entry),
+                confidence: row.confidence,
+                reason: row.reason.clone(),
+                version: row.version.clone(),
+                privacy_scope: row.privacy_scope,
+            });
+        }
+
+        CartographyContributionAssemblyInput {
+            schema_version: self.schema_version,
+            built_at_ms: self.built_at_ms,
+            destination_scope,
+            edge_rollups,
+            relation_promotion_candidates,
+            privacy_scope,
+        }
+    }
+
+    pub fn relation_promotion_surface(
+        &self,
+        destination_scope: PrivacyScope,
+    ) -> CartographyRelationPromotionSurface {
+        self.relation_promotion_surface_with_policy(&CartographyPrivacyPolicy::new(
+            destination_scope,
+        ))
+    }
+
+    pub fn relation_promotion_surface_with_policy(
+        &self,
+        policy: &CartographyPrivacyPolicy,
+    ) -> CartographyRelationPromotionSurface {
+        let mut privacy_scope = PrivacyScope::Shared;
+        let mut aggregate_evidence = Vec::new();
+        let mut proposals = Vec::new();
+
+        for row in &self.deterministic.entry_edge_rollups {
+            if !policy.can_surface(row.privacy_scope) {
+                continue;
+            }
+            privacy_scope = privacy_scope.combine(row.privacy_scope);
+            aggregate_evidence.push(CartographyRelationEvidence::TraversalRollup {
+                from_entry: row.from_entry,
+                to_entry: row.to_entry,
+                traversal_count: row.traversal_count,
+                latest_transition_at_ms: row.latest_transition_at_ms,
+                privacy_scope: row.privacy_scope,
+            });
+        }
+
+        for row in &self.deterministic.co_activation_pairs {
+            if !policy.can_surface(row.privacy_scope) {
+                continue;
+            }
+            privacy_scope = privacy_scope.combine(row.privacy_scope);
+            aggregate_evidence.push(CartographyRelationEvidence::CoActivation {
+                a: row.a,
+                b: row.b,
+                count: row.count,
+                last_seen_at_ms: row.last_seen_at_ms,
+                decay_bucket: row.decay_bucket.clone(),
+                privacy_scope: row.privacy_scope,
+            });
+        }
+
+        for row in &self.learned_affinity.stable_relation_promotion_candidates {
+            if row.from_entry == row.to_entry
+                || row.reason.trim().is_empty()
+                || !policy.can_surface(row.privacy_scope)
+            {
+                continue;
+            }
+
+            let from_node = self.graph_node_for_entry(row.from_entry);
+            let to_node = self.graph_node_for_entry(row.to_entry);
+            privacy_scope = privacy_scope.combine(row.privacy_scope);
+            proposals.push(CartographyRelationPromotionProposal {
+                from_entry: row.from_entry,
+                to_entry: row.to_entry,
+                from_node,
+                to_node,
+                target: RelationPromotionTarget::AgentDerived,
+                confidence: row.confidence,
+                reason: row.reason.clone(),
+                version: row.version.clone(),
+                graph_intent: CartographyGraphIntentProposal::ProposeAgentDerivedRelation {
+                    from_node,
+                    to_node,
+                    confidence: row.confidence,
+                    reason: row.reason.clone(),
+                    version: row.version.clone(),
+                },
+                privacy_scope: row.privacy_scope,
+            });
+        }
+
+        CartographyRelationPromotionSurface {
+            schema_version: self.schema_version,
+            built_at_ms: self.built_at_ms,
+            destination_scope: policy.destination_scope,
+            aggregate_evidence,
+            proposals,
+            privacy_scope,
+        }
+    }
+
+    pub fn agent_input_surface(
+        &self,
+        destination_scope: PrivacyScope,
+    ) -> CartographyAgentInputSurface {
+        self.agent_input_surface_with_policy(&CartographyPrivacyPolicy::new(destination_scope))
+    }
+
+    pub fn agent_input_surface_with_policy(
+        &self,
+        policy: &CartographyPrivacyPolicy,
+    ) -> CartographyAgentInputSurface {
+        let mut privacy_scope = PrivacyScope::Shared;
+
+        let entry_edge_rollups = self
+            .deterministic
+            .entry_edge_rollups
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+        let activation_freshness = self
+            .deterministic
+            .activation_freshness
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+        let traversal_centrality = self
+            .deterministic
+            .traversal_centrality
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+        let repeated_path_priors = self
+            .deterministic
+            .repeated_path_priors
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+        let co_activation_pairs = self
+            .deterministic
+            .co_activation_pairs
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+        let frame_reformation_patterns = self
+            .deterministic
+            .frame_reformation_patterns
+            .iter()
+            .filter(|row| policy.can_surface(row.privacy_scope))
+            .map(|row| {
+                privacy_scope = privacy_scope.combine(row.privacy_scope);
+                row.clone()
+            })
+            .collect();
+
+        CartographyAgentInputSurface {
+            schema_version: self.schema_version,
+            deterministic_table_version: self.deterministic_table_version,
+            built_at_ms: self.built_at_ms,
+            destination_scope: policy.destination_scope,
+            aggregates: DeterministicAggregateTables {
+                entry_edge_rollups,
+                activation_freshness,
+                traversal_centrality,
+                repeated_path_priors,
+                co_activation_pairs,
+                frame_reformation_patterns,
+            },
+            privacy_scope,
+        }
+    }
+
     fn graph_node_for_entry(&self, entry: EntryKey) -> Option<NodeKey> {
         self.activation_for_entry(entry)?.graph_node_id
     }
@@ -1515,6 +2562,53 @@ mod tests {
     }
 
     #[test]
+    fn phase_one_workspace_memory_shares_entry_identity_and_visit_context() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let graph_owner = memory.ensure_owner(WorkspaceOwner::GraphNode(NodeKey::new(7)), None);
+        let pane_owner = memory.ensure_owner(WorkspaceOwner::Pane("pane-a".into()), None);
+        let (key, payload) = entry(1, "https://a.test/");
+        let payload = payload
+            .with_graph_node(NodeKey::new(7))
+            .with_content_fingerprint("sha256:abc");
+        let graph_entry =
+            memory.resolve_or_create_entry(key, payload.clone(), 10, EntryPrivacy::Shared);
+        let pane_entry = memory.resolve_or_create_entry(key, payload, 20, EntryPrivacy::Shared);
+
+        assert_eq!(graph_entry, pane_entry);
+
+        memory
+            .visit_entry(
+                graph_owner,
+                graph_entry,
+                VisitContext::new(TransitionKind::UrlTyped)
+                    .with_dwell_ms(25)
+                    .with_session_bucket("session-a"),
+                TransitionKind::UrlTyped,
+                10,
+            )
+            .unwrap();
+        memory
+            .visit_entry(
+                pane_owner,
+                pane_entry,
+                VisitContext::new(TransitionKind::LinkClick)
+                    .with_referrer(key)
+                    .with_dwell_ms(75)
+                    .with_session_bucket("session-a"),
+                TransitionKind::LinkClick,
+                20,
+            )
+            .unwrap();
+
+        let snapshot = CartographySnapshot::from_memory_at(&memory, 30);
+        let activation = snapshot.activation_for_entry(key).unwrap();
+        assert_eq!(activation.graph_node_id, Some(NodeKey::new(7)));
+        assert_eq!(activation.revisit_count, 2);
+        assert_eq!(activation.dwell_ms_total, 100);
+        assert_eq!(activation.session_bucket.as_deref(), Some("session-a"));
+    }
+
+    #[test]
     fn entry_edge_rollups_expose_entry_keys_and_privacy_scope() {
         let mut memory = WorkspaceGraphMemory::new();
         let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
@@ -1769,6 +2863,55 @@ mod tests {
         let tables = DeterministicAggregateTables::from_memory(&memory);
         assert_eq!(tables.co_activation_pairs.len(), 1);
         assert_eq!(tables.frame_reformation_patterns.len(), 1);
+    }
+
+    #[test]
+    fn phase_two_keeps_deterministic_tables_and_learned_caches_split() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (a_key, a_payload) = entry(1, "https://a.test/");
+        let (b_key, b_payload) = entry(2, "https://b.test/");
+        let a = memory.resolve_or_create_entry(a_key, a_payload, 10, EntryPrivacy::Shared);
+        let b = memory.resolve_or_create_entry(b_key, b_payload, 20, EntryPrivacy::Shared);
+        for (entry_id, at_ms) in [(a, 10), (b, 20), (a, 30), (b, 40)] {
+            memory
+                .visit_entry(
+                    owner,
+                    entry_id,
+                    VisitContext::default().with_session_bucket("session-a"),
+                    TransitionKind::LinkClick,
+                    at_ms,
+                )
+                .unwrap();
+        }
+
+        let learned = LearnedAffinityCacheTables {
+            stable_cluster_assignments: vec![StableClusterAssignmentSnapshot {
+                cluster_id: "cluster-a".into(),
+                members: vec![a_key, b_key],
+                centroid_label: None,
+                confidence: 0.8,
+                version: "agent-v1".into(),
+                last_recomputed_at_ms: 50,
+                privacy_scope: PrivacyScope::Shared,
+            }],
+            ..LearnedAffinityCacheTables::default()
+        };
+        let snapshot =
+            CartographySnapshot::from_memory_at(&memory, 60).with_learned_affinity(learned);
+
+        assert_eq!(snapshot.deterministic.entry_edge_rollups.len(), 2);
+        assert_eq!(snapshot.deterministic.activation_freshness.len(), 2);
+        assert_eq!(snapshot.deterministic.repeated_path_priors.len(), 1);
+        assert_eq!(
+            snapshot.deterministic.repeated_path_priors[0].recurrence_count,
+            2,
+        );
+        assert_eq!(
+            snapshot.learned_affinity.stable_cluster_assignments.len(),
+            1
+        );
+        assert!(snapshot.validate().is_ok());
     }
 
     #[test]
@@ -2288,5 +3431,528 @@ mod tests {
         assert_eq!(summary.cluster_halos[0].nodes, vec![a_node, b_node]);
         assert_eq!(summary.bridge_emphasis.len(), 1);
         assert_eq!(summary.bridge_emphasis[0].node, b_node);
+    }
+
+    #[test]
+    fn contribution_assembly_input_filters_rows_by_destination_scope() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (a_key, a_payload) = entry(1, "https://a.test/");
+        let (b_key, b_payload) = entry(2, "https://b.test/");
+        let (c_key, c_payload) = entry(3, "https://c.test/");
+        let a_node = NodeKey::new(10);
+        let b_node = NodeKey::new(20);
+        let c_node = NodeKey::new(30);
+        let a = memory.resolve_or_create_entry(
+            a_key,
+            a_payload.with_graph_node(a_node),
+            10,
+            EntryPrivacy::Shared,
+        );
+        let b = memory.resolve_or_create_entry(
+            b_key,
+            b_payload.with_graph_node(b_node),
+            20,
+            EntryPrivacy::ShareCandidate,
+        );
+        let c = memory.resolve_or_create_entry(
+            c_key,
+            c_payload.with_graph_node(c_node),
+            30,
+            EntryPrivacy::LocalOnly,
+        );
+
+        for (entry_id, at_ms) in [(a, 10), (b, 20), (c, 30), (a, 40)] {
+            memory
+                .visit_entry(
+                    owner,
+                    entry_id,
+                    VisitContext::default().with_session_bucket("session-a"),
+                    TransitionKind::LinkClick,
+                    at_ms,
+                )
+                .unwrap();
+        }
+
+        let learned = LearnedAffinityCacheTables {
+            stable_relation_promotion_candidates: vec![
+                StableRelationPromotionCandidate {
+                    from_entry: a_key,
+                    to_entry: b_key,
+                    confidence: 0.8,
+                    reason: "device-safe relation".into(),
+                    version: "agent-v4".into(),
+                    privacy_scope: PrivacyScope::DeviceSync,
+                },
+                StableRelationPromotionCandidate {
+                    from_entry: a_key,
+                    to_entry: c_key,
+                    confidence: 0.7,
+                    reason: "local relation".into(),
+                    version: "agent-v4".into(),
+                    privacy_scope: PrivacyScope::LocalOnly,
+                },
+            ],
+            ..LearnedAffinityCacheTables::default()
+        };
+        let snapshot =
+            CartographySnapshot::from_memory_at(&memory, 70).with_learned_affinity(learned);
+
+        let shared_input = snapshot.contribution_assembly_input(PrivacyScope::Shared);
+        assert!(shared_input.is_empty());
+        assert_eq!(
+            shared_input.schema_version,
+            CARTOGRAPHY_SNAPSHOT_SCHEMA_VERSION
+        );
+        assert_eq!(shared_input.built_at_ms, 70);
+        assert_eq!(shared_input.destination_scope, PrivacyScope::Shared);
+        assert_eq!(shared_input.privacy_scope, PrivacyScope::Shared);
+
+        let device_input = snapshot.contribution_assembly_input(PrivacyScope::DeviceSync);
+        assert!(!device_input.is_empty());
+        assert_eq!(device_input.edge_rollups.len(), 1);
+        assert_eq!(device_input.edge_rollups[0].from_entry, a_key);
+        assert_eq!(device_input.edge_rollups[0].to_entry, b_key);
+        assert_eq!(device_input.edge_rollups[0].from_node, Some(a_node));
+        assert_eq!(device_input.edge_rollups[0].to_node, Some(b_node));
+        assert_eq!(device_input.relation_promotion_candidates.len(), 1);
+        assert_eq!(
+            device_input.relation_promotion_candidates[0].reason,
+            "device-safe relation",
+        );
+        assert_eq!(device_input.privacy_scope, PrivacyScope::DeviceSync);
+
+        let local_input = snapshot.contribution_assembly_input(PrivacyScope::LocalOnly);
+        assert_eq!(local_input.edge_rollups.len(), 3);
+        assert_eq!(local_input.relation_promotion_candidates.len(), 2);
+        assert_eq!(local_input.privacy_scope, PrivacyScope::LocalOnly);
+    }
+
+    #[test]
+    fn phase_five_relation_surface_keeps_aggregates_as_evidence_not_edges() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (a_key, a_payload) = entry(1, "https://a.test/");
+        let (b_key, b_payload) = entry(2, "https://b.test/");
+        let a_node = NodeKey::new(10);
+        let b_node = NodeKey::new(20);
+        let a = memory.resolve_or_create_entry(
+            a_key,
+            a_payload.with_graph_node(a_node),
+            10,
+            EntryPrivacy::Shared,
+        );
+        let b = memory.resolve_or_create_entry(
+            b_key,
+            b_payload.with_graph_node(b_node),
+            20,
+            EntryPrivacy::ShareCandidate,
+        );
+
+        for (entry_id, at_ms) in [(a, 10), (b, 20), (a, 30), (b, 40)] {
+            memory
+                .visit_entry(
+                    owner,
+                    entry_id,
+                    VisitContext::default().with_session_bucket("session-a"),
+                    TransitionKind::LinkClick,
+                    at_ms,
+                )
+                .unwrap();
+        }
+
+        let learned = LearnedAffinityCacheTables {
+            stable_relation_promotion_candidates: vec![StableRelationPromotionCandidate {
+                from_entry: a_key,
+                to_entry: b_key,
+                confidence: 0.82,
+                reason: "stable bridge candidate".into(),
+                version: "agent-v5".into(),
+                privacy_scope: PrivacyScope::DeviceSync,
+            }],
+            ..LearnedAffinityCacheTables::default()
+        };
+        let snapshot =
+            CartographySnapshot::from_memory_at(&memory, 50).with_learned_affinity(learned);
+
+        let surface = snapshot.relation_promotion_surface(PrivacyScope::DeviceSync);
+
+        assert!(!surface.is_empty());
+        assert!(surface.aggregate_evidence.iter().any(|evidence| matches!(
+            evidence,
+            CartographyRelationEvidence::TraversalRollup { from_entry, to_entry, .. }
+                if *from_entry == a_key && *to_entry == b_key
+        )));
+        assert!(surface.aggregate_evidence.iter().any(|evidence| matches!(
+            evidence,
+            CartographyRelationEvidence::CoActivation { a, b, .. }
+                if *a == a_key && *b == b_key
+        )));
+        assert_eq!(surface.proposals.len(), 1);
+        assert_eq!(
+            surface.proposals[0].target,
+            RelationPromotionTarget::AgentDerived
+        );
+        assert!(matches!(
+            surface.proposals[0].graph_intent,
+            CartographyGraphIntentProposal::ProposeAgentDerivedRelation { .. }
+        ));
+        assert_eq!(surface.proposals[0].from_node, Some(a_node));
+        assert_eq!(surface.proposals[0].to_node, Some(b_node));
+        assert_eq!(surface.privacy_scope, PrivacyScope::DeviceSync);
+    }
+
+    #[test]
+    fn phase_six_agent_surfaces_filter_inputs_and_ingest_outputs() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (a_key, a_payload) = entry(1, "https://a.test/");
+        let (b_key, b_payload) = entry(2, "https://b.test/");
+        let a = memory.resolve_or_create_entry(a_key, a_payload, 10, EntryPrivacy::Shared);
+        let b = memory.resolve_or_create_entry(b_key, b_payload, 20, EntryPrivacy::LocalOnly);
+
+        for (entry_id, at_ms) in [(a, 10), (b, 20), (a, 30)] {
+            memory
+                .visit_entry(
+                    owner,
+                    entry_id,
+                    VisitContext::default().with_session_bucket("session-a"),
+                    TransitionKind::LinkClick,
+                    at_ms,
+                )
+                .unwrap();
+        }
+
+        let snapshot = CartographySnapshot::from_memory_at(&memory, 40);
+        let input = snapshot.agent_input_surface(PrivacyScope::DeviceSync);
+        assert_eq!(input.schema_version, CARTOGRAPHY_SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(
+            input.deterministic_table_version,
+            DETERMINISTIC_AGGREGATE_TABLE_VERSION
+        );
+        assert_eq!(input.aggregates.activation_freshness.len(), 1);
+        assert_eq!(input.aggregates.activation_freshness[0].entry, a_key);
+        assert!(input.aggregates.entry_edge_rollups.is_empty());
+        assert_eq!(input.privacy_scope, PrivacyScope::Shared);
+
+        let rows = LearnedAffinityCacheTables {
+            stable_cluster_assignments: vec![StableClusterAssignmentSnapshot {
+                cluster_id: "cluster-a".into(),
+                members: vec![a_key],
+                centroid_label: Some("work".into()),
+                confidence: 0.91,
+                version: "agent-v6".into(),
+                last_recomputed_at_ms: 50,
+                privacy_scope: PrivacyScope::DeviceSync,
+            }],
+            ..LearnedAffinityCacheTables::default()
+        };
+        let output = CartographyAgentOutputEnvelope {
+            cache_version: LEARNED_AFFINITY_CACHE_TABLE_VERSION,
+            producer_id: "agent-registry".into(),
+            output_version: "agent-v6".into(),
+            invalidation_version: "gc-v1".into(),
+            produced_at_ms: 60,
+            rows: rows.clone(),
+            privacy_scope: PrivacyScope::DeviceSync,
+        };
+
+        assert!(output.validate().is_ok());
+        let record = output.into_cache_record();
+        assert_eq!(record.cache_version, LEARNED_AFFINITY_CACHE_TABLE_VERSION);
+        assert_eq!(record.written_at_ms, 60);
+        assert_eq!(record.rows, rows);
+
+        let invalid_output = CartographyAgentOutputEnvelope {
+            cache_version: LEARNED_AFFINITY_CACHE_TABLE_VERSION,
+            producer_id: " ".into(),
+            output_version: "".into(),
+            invalidation_version: " ".into(),
+            produced_at_ms: 70,
+            rows: LearnedAffinityCacheTables::default(),
+            privacy_scope: PrivacyScope::Shared,
+        };
+        let errors = invalid_output
+            .validate()
+            .expect_err("agent output metadata should be required");
+        assert!(errors.contains(&CartographySnapshotValidationError::EmptyAgentOutputProducer));
+        assert!(errors.contains(&CartographySnapshotValidationError::EmptyAgentOutputVersion));
+        assert!(
+            errors.contains(&CartographySnapshotValidationError::EmptyAgentInvalidationVersion)
+        );
+    }
+
+    #[test]
+    fn phase_seven_privacy_policy_blocks_implicit_escalation() {
+        let local = PrivacyScope::LocalOnly;
+        assert!(local.requires_explicit_promotion_to(PrivacyScope::Shared));
+        assert!(!CartographyPrivacyPolicy::new(PrivacyScope::Shared).can_surface(local));
+        assert!(
+            !CartographyPrivacyPolicy::new(PrivacyScope::Shared)
+                .with_explicit_promotion(ExplicitPrivacyPromotion {
+                    from_scope: PrivacyScope::LocalOnly,
+                    to_scope: PrivacyScope::Shared,
+                    authorized_at_ms: 10,
+                    rationale: "   ".into(),
+                })
+                .can_surface(local)
+        );
+        assert!(
+            CartographyPrivacyPolicy::new(PrivacyScope::Shared)
+                .with_explicit_promotion(ExplicitPrivacyPromotion {
+                    from_scope: PrivacyScope::LocalOnly,
+                    to_scope: PrivacyScope::Shared,
+                    authorized_at_ms: 20,
+                    rationale: "user-approved contribution".into(),
+                })
+                .can_surface(local)
+        );
+    }
+
+    #[test]
+    fn phase_four_invalidation_plans_map_events_to_tables() {
+        let visit_plan = CartographyInvalidationPlan::from_signal(
+            &CartographyInvalidationSignal::SubstrateMutation {
+                kind: SubstrateMutationKind::VisitEntry,
+                owner: Some(WorkspaceOwner::Session("s1".into())),
+                entry: Some(EntryKey::from_raw(1)),
+            },
+        );
+        assert!(
+            visit_plan
+                .deterministic
+                .contains(&DeterministicAggregateKind::ActivationFreshness)
+        );
+        assert!(
+            visit_plan
+                .deterministic
+                .contains(&DeterministicAggregateKind::EntryEdgeRollups)
+        );
+        assert!(
+            visit_plan
+                .learned_affinity
+                .contains(&LearnedAffinityCacheKind::StableClusterAssignments)
+        );
+        assert!(!visit_plan.full_recompute_allowed);
+
+        let reset_plan = CartographyInvalidationPlan::from_signal(
+            &CartographyInvalidationSignal::SubstrateMutation {
+                kind: SubstrateMutationKind::ResetOwner,
+                owner: None,
+                entry: None,
+            },
+        );
+        assert_eq!(reset_plan.deterministic.len(), 6);
+        assert_eq!(reset_plan.learned_affinity.len(), 4);
+        assert!(reset_plan.full_recompute_allowed);
+    }
+
+    #[test]
+    fn follow_on_invalidation_emitter_records_signals_and_plans() {
+        let mut emitter = CartographyInvalidationEmitter::default();
+        assert!(emitter.is_empty());
+
+        let emission =
+            emitter.emit_runtime_event(CartographyRuntimeInvalidationEvent::VisitEntry {
+                owner: Some(WorkspaceOwner::GraphNode(NodeKey::new(7))),
+                entry: Some(EntryKey::from_raw(1)),
+            });
+
+        assert!(matches!(
+            emission.signal,
+            CartographyInvalidationSignal::SubstrateMutation {
+                kind: SubstrateMutationKind::VisitEntry,
+                ..
+            }
+        ));
+        assert!(
+            emission
+                .plan
+                .deterministic
+                .contains(&DeterministicAggregateKind::ActivationFreshness)
+        );
+        assert!(
+            emission
+                .plan
+                .learned_affinity
+                .contains(&LearnedAffinityCacheKind::StableRelationPromotionCandidates)
+        );
+        assert_eq!(emitter.pending().len(), 1);
+
+        let drained = emitter.drain();
+        assert_eq!(drained, vec![emission]);
+        assert!(emitter.is_empty());
+    }
+
+    #[test]
+    fn follow_on_runtime_events_map_to_existing_invalidation_vocabulary() {
+        let node = NodeKey::new(9);
+        let entry = EntryKey::from_raw(3);
+
+        let graph_signal: CartographyInvalidationSignal =
+            CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
+                node: Some(node),
+                entry: Some(entry),
+            }
+            .into();
+        assert_eq!(
+            graph_signal,
+            CartographyInvalidationSignal::GraphTruthMutation {
+                kind: GraphTruthMutationKind::EdgeAssertion,
+                node: Some(node),
+                entry: Some(entry),
+            }
+        );
+
+        let wal_signal: CartographyInvalidationSignal =
+            CartographyRuntimeInvalidationEvent::WalNavigateNode { entry: Some(entry) }.into();
+        assert_eq!(
+            wal_signal,
+            CartographyInvalidationSignal::WalTimelineEvent {
+                kind: WalTimelineEventKind::NavigateNode,
+                entry: Some(entry),
+            }
+        );
+
+        let lifecycle_signal: CartographyInvalidationSignal =
+            CartographyRuntimeInvalidationEvent::LifecycleTombstone { entry: Some(entry) }.into();
+        assert_eq!(
+            lifecycle_signal,
+            CartographyInvalidationSignal::LifecycleTransition {
+                state: LifecycleState::Tombstone,
+                entry: Some(entry),
+            }
+        );
+    }
+
+    #[test]
+    fn follow_on_invalidation_plans_merge_batched_runtime_signals() {
+        let signals = [
+            CartographyRuntimeInvalidationEvent::SessionBoundary {
+                session_bucket: "session-a".into(),
+            }
+            .into(),
+            CartographyRuntimeInvalidationEvent::ResetOwner { owner: None }.into(),
+        ];
+
+        let plan = CartographyInvalidationPlan::from_signals(signals.iter());
+
+        assert_eq!(plan.deterministic.len(), 6);
+        assert_eq!(plan.learned_affinity.len(), 4);
+        assert!(plan.full_recompute_allowed);
+        assert!(
+            plan.deterministic
+                .contains(&DeterministicAggregateKind::FrameReformationPatterns)
+        );
+    }
+
+    #[test]
+    fn phase_four_persistence_envelope_round_trips_snapshot_versions() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (entry_key, payload) = entry(1, "https://a.test/");
+        let entry_id = memory.resolve_or_create_entry(entry_key, payload, 10, EntryPrivacy::Shared);
+        memory
+            .visit_entry(
+                owner,
+                entry_id,
+                VisitContext::default().with_dwell_ms(10),
+                TransitionKind::UrlTyped,
+                10,
+            )
+            .unwrap();
+        let snapshot = CartographySnapshot::from_memory_at(&memory, 20);
+
+        let envelope = CartographyPersistenceEnvelope::from_snapshot(snapshot.clone(), 30);
+        assert_eq!(envelope.schema_version, CARTOGRAPHY_SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(
+            envelope.deterministic.table_version,
+            DETERMINISTIC_AGGREGATE_TABLE_VERSION
+        );
+        assert_eq!(
+            envelope.learned_affinity.cache_version,
+            LEARNED_AFFINITY_CACHE_TABLE_VERSION
+        );
+        assert_eq!(envelope.learned_affinity.written_at_ms, 30);
+        assert!(envelope.validate().is_ok());
+        assert_eq!(envelope.into_snapshot(), snapshot);
+    }
+
+    #[test]
+    fn follow_on_persistence_sink_accepts_versioned_write_requests() {
+        let mut memory = WorkspaceGraphMemory::new();
+        let owner = memory.ensure_owner(WorkspaceOwner::Session("s1".into()), None);
+        let (entry_key, payload) = entry(1, "https://a.test/");
+        let entry_id = memory.resolve_or_create_entry(entry_key, payload, 10, EntryPrivacy::Shared);
+        memory
+            .visit_entry(
+                owner,
+                entry_id,
+                VisitContext::default().with_dwell_ms(10),
+                TransitionKind::UrlTyped,
+                10,
+            )
+            .unwrap();
+
+        let snapshot = CartographySnapshot::from_memory_at(&memory, 20);
+        let request = CartographyPersistenceWriteRequest::from_snapshot(
+            snapshot,
+            30,
+            CartographyPersistenceTrigger::InvalidationPlan,
+        )
+        .with_invalidation_plan(CartographyInvalidationPlan::from_signal(
+            &CartographyInvalidationSignal::SessionBoundary {
+                session_bucket: "s1".into(),
+            },
+        ));
+        assert!(request.validate().is_ok());
+
+        let mut sink = InMemoryCartographyPersistenceSink::default();
+        sink.write_cartography_cache(request).unwrap();
+
+        assert_eq!(sink.writes().len(), 1);
+        assert_eq!(
+            sink.writes()[0].trigger,
+            CartographyPersistenceTrigger::InvalidationPlan
+        );
+        assert!(sink.writes()[0].invalidation_plan.is_some());
+        assert_eq!(sink.drain().len(), 1);
+        assert!(sink.writes().is_empty());
+    }
+
+    #[test]
+    fn phase_four_cluster_hysteresis_blocks_low_confidence_reassignment() {
+        let entry_key = EntryKey::from_raw(1);
+        let existing = StableClusterAssignmentSnapshot {
+            cluster_id: "cluster-a".into(),
+            members: vec![entry_key],
+            centroid_label: Some("alpha".into()),
+            confidence: 0.80,
+            version: "agent-v1".into(),
+            last_recomputed_at_ms: 10,
+            privacy_scope: PrivacyScope::Shared,
+        };
+        let weak_candidate = StableClusterAssignmentSnapshot {
+            cluster_id: "cluster-b".into(),
+            confidence: 0.83,
+            version: "agent-v2".into(),
+            last_recomputed_at_ms: 20,
+            ..existing.clone()
+        };
+        let strong_candidate = StableClusterAssignmentSnapshot {
+            confidence: 0.90,
+            ..weak_candidate.clone()
+        };
+
+        assert_eq!(
+            existing
+                .hysteresis_decision_against(&weak_candidate, DEFAULT_CLUSTER_HYSTERESIS_MARGIN),
+            HysteresisDecision::KeepExisting,
+        );
+        assert_eq!(
+            existing
+                .hysteresis_decision_against(&strong_candidate, DEFAULT_CLUSTER_HYSTERESIS_MARGIN),
+            HysteresisDecision::Replace,
+        );
     }
 }

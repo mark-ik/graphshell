@@ -615,6 +615,151 @@ Deferred beyond plan completion:
 - Verified both P3.2/P3.3 adapter slices with
   `cargo test -p graph-cartography --lib` (17 tests).
 
+### 2026-04-25 — Contribution assembly input adapter slice
+
+- Added owned, serializable `CartographyContributionAssemblyInput` for P3.4
+  contribution-assembly consumers, containing filtered edge rollups and stable
+  relation promotion candidates.
+- Added `PrivacyScope::can_surface_in` so contribution input assembly can
+  select rows for local, device-sync, or shared destinations without implicit
+  privacy escalation.
+- `CartographySnapshot::contribution_assembly_input` preserves aggregate row
+  order, maps available `EntryKey` rows back to graph-node identities, clones
+  transition counts for downstream canonicalization, and filters rows by the
+  requested destination scope.
+- Verified the slice with `cargo test -p graph-cartography --lib` (18 tests).
+
+### 2026-04-25 — Phase 1/2/3 validation pass
+
+- Added direct Phase 1 coverage that proves the GC-owned
+  `WorkspaceGraphMemory` alias preserves shared entry identity across graph
+  and pane owners while retaining real `VisitContext` data (`transition`,
+  `referrer_entry`, `dwell_ms`, and `session_bucket`).
+- Added direct Phase 2 coverage that keeps deterministic aggregate tables and
+  learned-affinity cache rows split: deterministic tables rebuild from
+  substrate history, while learned rows stay cache-owned and versioned.
+- Revalidated Phase 3 consumer adapters in order: Navigator projection hints,
+  History Manager annotations, canvas summaries, and contribution assembly
+  input.
+- Receipts: `cargo test -p graph-cartography phase_one --lib`,
+  `cargo test -p graph-cartography phase_two --lib`, plus focused P3 adapter
+  filters for `projection`, `history_annotations`, `canvas_summary`, and
+  `contribution_assembly`.
+
+### 2026-04-25 — Phase 4 invalidation/persistence/hysteresis slice
+
+- Added explicit invalidation vocabulary for P4.1:
+  `CartographyInvalidationSignal`, substrate/graph/WAL/lifecycle event kinds,
+  aggregate/cache table kind enums, and `CartographyInvalidationPlan`.
+- `CartographyInvalidationPlan::from_signal` now maps workspace substrate
+  mutations, graph-truth mutations, WAL timeline events, session boundaries,
+  and lifecycle transitions to deterministic aggregate and learned-affinity
+  cache invalidations. Destructive owner-history mutations explicitly allow a
+  full recompute.
+- Added the P4.2 persistence shape as a two-store
+  `CartographyPersistenceEnvelope`: deterministic aggregate cache record plus
+  learned-affinity cache record, with version-preserving conversion back into
+  `CartographySnapshot` and validation through the existing snapshot checker.
+- Added the P4.3 hysteresis helper on `StableClusterAssignmentSnapshot`, with
+  `DEFAULT_CLUSTER_HYSTERESIS_MARGIN`, so cluster reassignment candidates must
+  clear the existing assignment by a confidence margin before replacing it.
+- Verified Phase 4 with `cargo test -p graph-cartography phase_four --lib`
+  (3 tests), then verified the whole crate with
+  `cargo test -p graph-cartography --lib` (23 tests).
+
+### 2026-04-25 — Phase 5/6/7 boundary-hardening slice
+
+- Added the Phase 5 relation-promotion surface as a crate-local handoff:
+  `CartographyRelationPromotionSurface` emits edge-shaped deterministic
+  aggregates as evidence only, while learned stable-relation candidates become
+  explicit `AgentDerived` graph-intent proposals. GC still does not add a new
+  edge kind or mutate graph truth directly.
+- Added the Phase 6 agent handoff surfaces: `CartographyAgentInputSurface`
+  exposes privacy-filtered deterministic aggregate tables as read-only agent
+  input, and `CartographyAgentOutputEnvelope` ingests versioned learned-cache
+  rows through the existing validation and cache-record path.
+- Added the Phase 7 privacy policy helpers: `CartographyPrivacyPolicy` and
+  `ExplicitPrivacyPromotion` make cross-scope escalation opt-in, preserving the
+  no-implicit-escalation rule for `LocalOnly`, `DeviceSync`, and `Shared` rows.
+- Verified the slice with focused receipts:
+  `cargo test -p graph-cartography phase_five --lib`,
+  `cargo test -p graph-cartography phase_six --lib`, and
+  `cargo test -p graph-cartography phase_seven --lib`, then verified the whole
+  crate with `cargo test -p graph-cartography --lib` (26 tests).
+
+### 2026-04-25 — Follow-on v1 invalidation emission seam
+
+- Added `CartographyRuntimeInvalidationEvent` as the thin adapter vocabulary
+  that runtime/app surfaces can translate into without making GC depend on the
+  root app crate. It covers substrate visits/owners/history resets, graph truth
+  mutations, WAL timeline events, session boundaries, and lifecycle changes.
+- Added `CartographyInvalidationEmission` and `CartographyInvalidationEmitter`
+  so callers can emit a signal and receive the corresponding
+  `CartographyInvalidationPlan` in one step, queue emissions, inspect pending
+  emissions, and drain them into a future runtime reducer/event bus.
+- Added `CartographyInvalidationPlan::from_signals` and `merge` so batched
+  runtime signals can be coalesced before cache refresh work is scheduled.
+- This is still intentionally a seam, not full runtime wiring: no host reducer,
+  event bus subscription, disk persistence writer, or agent scheduler has been
+  attached yet.
+- Verified the slice with `cargo test -p graph-cartography follow_on --lib`,
+  rechecked Phase 4 with `cargo test -p graph-cartography phase_four --lib`,
+  and verified the whole crate with `cargo test -p graph-cartography --lib`
+  (29 tests).
+
+### 2026-04-25 — Follow-on reducer emission and persistence handoff seam
+
+- Added `graph-cartography` as a root app dependency and gave
+  `GraphBrowserApp` a `CartographyInvalidationEmitter` queue.
+- Added the app-local `app/graph_cartography.rs` adapter so root
+  `GraphIntent` values can emit GC runtime invalidation events without making
+  the GC crate depend on graphshell's app crate. Current mappings are
+  conservative: lifecycle intents emit lifecycle invalidations, URL/history
+  runtime events emit WAL navigation invalidations, graph tag/edge mutations
+  emit graph-truth invalidations, and create/remove/clear cases that cannot
+  resolve a precise post-dispatch `NodeKey` yet emit a broad graph reset.
+- Hooked `apply_reducer_intent_internal` to record GC invalidations before
+  existing reducer phase dispatch. Callers can inspect pending emissions via
+  `pending_cartography_invalidations()` and drain them via
+  `drain_cartography_invalidations()`.
+- Added `GraphTruthMutationKind::ResetGraph` and `GraphReset` runtime events
+  so whole-graph resets request a full aggregate/cache recompute instead of
+  pretending to be a single-node mutation.
+- Added a minimal persistence handoff seam:
+  `CartographyPersistenceWriteRequest`, `CartographyPersistenceTrigger`,
+  `CartographyPersistenceSink`, and `InMemoryCartographyPersistenceSink`.
+  This gives a future storage owner a typed, validated write request containing
+  the existing versioned persistence envelope plus the invalidation plan that
+  caused the write, without choosing a disk schema or background writer yet.
+- Deferred the agent scheduler slice: starting a scheduler now would introduce
+  new orchestration ownership, thresholds, timing policy, and agent-run
+  lifecycle beyond this follow-on's narrow v1-enablement scope. The Phase 6
+  agent input/output handoffs remain the intended boundary for that later
+  subsystem.
+- Verified crate-local behavior with `cargo test -p graph-cartography
+  follow_on --lib` (4 tests) and `cargo test -p graph-cartography --lib`
+  (30 tests). A root `cargo test -p graphshell cartography_adapter --lib
+  --no-default-features --features test-utils` compile was attempted but
+  stopped after it continued deep into native browser/graphics dependencies
+  (`spirv-tools`, TLS/WebView stack) without reaching the filtered app tests.
+
+### Deferred/follow-on aspects after Phase 1-7 and follow-on v1 seams
+
+- Phase 1 app integration is still intentionally unwired: existing
+  graphshell runtime surfaces have not been converted from any legacy per-node
+  history holder to the GC `WorkspaceGraphMemory` alias. That would be a
+  cross-subsystem host/runtime migration, not a crate-local GC completion.
+- Phase 4 live subscriptions now have an app reducer emission queue, but no
+  cache refresh scheduler or host event-bus subscriber drains the queue yet.
+- Persistence now has a typed write-request/sink boundary; no disk location,
+  database schema, retention policy, or background cache writer has been added.
+- Hysteresis is available as a pure decision helper for learned cluster rows;
+  agent-run ingestion and threshold tuning remain follow-on work.
+- The plan's explicit post-v1 items remain deferred: likely-next-node
+  prediction, user-personalized behavioral models, cross-workspace/community
+  aggregate merging, learned labels without agent provenance, and any `Shared`
+  privacy escalation path.
+
 ### Implementation readiness
 
 - ~~Crate/layer name decision (Phase 0).~~ **Resolved 2026-04-24: `graph-cartography`.**

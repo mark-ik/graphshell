@@ -56,6 +56,7 @@ use crate::util::{
 use euclid::default::Point2D;
 use log::{debug, warn};
 use uuid::Uuid;
+use graph_cartography::{CartographyInvalidationEmission, CartographyInvalidationEmitter};
 
 macro_rules! impl_display_from_str {
     ($ty:ty { $($variant:path => $value:literal),+ $(,)? }) => {
@@ -176,6 +177,9 @@ pub use runtime_lifecycle::{HostOpenRequest, OpenSurfaceSource, PendingCreateTok
 mod graph_mutations;
 pub use graph_mutations::{NoteId, NoteRecord};
 
+#[path = "app/graph_cartography.rs"]
+mod graph_cartography;
+
 #[path = "app/ux_navigation.rs"]
 mod ux_navigation;
 pub use ux_navigation::ModalSurface;
@@ -282,6 +286,7 @@ pub struct GraphBrowserApp {
     pub workspace: GraphWorkspace,
     workbench_tile_selection: WorkbenchTileSelectionState,
     services: AppServices,
+    cartography_invalidation_emitter: CartographyInvalidationEmitter,
     pub(crate) file_access_policy: crate::prefs::FileAccessPolicy,
 }
 
@@ -621,6 +626,7 @@ impl GraphBrowserApp {
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(persistence),
+            cartography_invalidation_emitter: CartographyInvalidationEmitter::default(),
             file_access_policy: crate::prefs::FileAccessPolicy::default(),
         };
         app.load_persisted_ui_settings();
@@ -822,8 +828,21 @@ impl GraphBrowserApp {
             },
             workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(None),
+            cartography_invalidation_emitter: CartographyInvalidationEmitter::default(),
             file_access_policy: crate::prefs::FileAccessPolicy::default(),
         }
+    }
+
+    pub(crate) fn pending_cartography_invalidations(
+        &self,
+    ) -> &[CartographyInvalidationEmission] {
+        self.cartography_invalidation_emitter.pending()
+    }
+
+    pub(crate) fn drain_cartography_invalidations(
+        &mut self,
+    ) -> Vec<CartographyInvalidationEmission> {
+        self.cartography_invalidation_emitter.drain()
     }
 
     /// Whether the graph was recovered from persistence (has nodes on startup)
@@ -1780,6 +1799,8 @@ impl GraphBrowserApp {
                 .workbench_session
                 .workspace_has_unsaved_changes = true;
         }
+
+        self.record_cartography_invalidation_for_intent(&intent);
 
         if self.handle_workspace_view_intent(&intent) {
             return;

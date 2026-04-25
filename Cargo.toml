@@ -214,6 +214,7 @@ egui-winit = { version = "0.34.1", default-features = false, features = ["access
 egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"] }
 egui_tiles = { version = "0.15.0", features = ["serde"] }
 graph-canvas = { path = "crates/graph-canvas" }
+graph-cartography = { path = "crates/graph-cartography" }
 graph-tree = { path = "crates/graph-tree" }
 graphshell-core = { path = "crates/graphshell-core" }
 egui-notify = "0.22.0"
