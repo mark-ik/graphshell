@@ -25,14 +25,16 @@
 //! directly.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
-use crate::shell::desktop::ui::frame_model::{ToastSeverity, ToastSpec};
 use crate::shell::desktop::workbench::compositor_adapter::{PortablePoint, PortableRect};
 use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
 use servo::WebViewId;
+
+pub(crate) use graphshell_runtime::ports::{
+    RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort,
+};
 
 // ---------------------------------------------------------------------------
 // HostInputPort — raw input ingress
@@ -173,49 +175,13 @@ pub(crate) trait HostTexturePort {
 }
 
 // ---------------------------------------------------------------------------
-// HostClipboardPort — clipboard access
+// HostClipboardPort / HostToastPort — runtime-owned finalize-action services
 // ---------------------------------------------------------------------------
 
-/// Clipboard get/set. Both egui and iced use `arboard` under the hood today,
-/// so this port is essentially host-neutral — it exists so runtime code
-/// doesn't reach directly into the host's clipboard holder.
-pub(crate) trait HostClipboardPort {
-    /// Read current clipboard text. Returns `None` if unavailable or empty.
-    fn get_text(&mut self) -> Option<String>;
-
-    /// Write text to the clipboard. The `Err(String)` case carries a
-    /// short user-presentable description of the failure; callers may
-    /// surface it via `HostToastPort` for feedback. The `Err` branch also
-    /// covers "clipboard unavailable" — the port caller does not need to
-    /// probe availability separately.
-    fn set_text(&mut self, text: &str) -> Result<(), String>;
-}
-
-// ---------------------------------------------------------------------------
-// HostToastPort — transient notifications
-// ---------------------------------------------------------------------------
-
-/// Transient notification delivery. The runtime pushes `ToastSpec` values;
-/// the host renders them in whatever notification UI it has (egui_notify,
-/// iced's toast system, a native macOS notification, etc.).
-pub(crate) trait HostToastPort {
-    /// Enqueue a toast for display.
-    fn enqueue(&mut self, toast: ToastSpec);
-
-    /// Convenience helper — build a `ToastSpec` and enqueue it.
-    fn enqueue_message(
-        &mut self,
-        severity: ToastSeverity,
-        message: impl Into<String>,
-        duration: Option<Duration>,
-    ) {
-        self.enqueue(ToastSpec {
-            severity,
-            message: message.into(),
-            duration,
-        });
-    }
-}
+// These two traits now live in the lightweight `graphshell-runtime` crate
+// because `GraphshellRuntime::tick` only depends on this portable subset
+// today. Re-exporting them here preserves the existing shell-side import path
+// while the rest of the host boundary remains local to the main crate.
 
 // ---------------------------------------------------------------------------
 // HostAccessibilityPort — accesskit bridging

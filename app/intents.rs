@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use euclid::default::Point2D;
+use graphshell_runtime::finalize_actions::NodeStatusNotice;
 
 use crate::graph::{NodeKey, RelationSelector};
 use crate::services::persistence::types::NodeAuditEventKind;
@@ -57,18 +58,9 @@ pub struct RuntimeUserStylesheetSpec {
     pub source: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UiNotificationLevel {
-    Success,
-    Warning,
-    Error,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeStatusNoticeRequest {
-    pub key: NodeKey,
-    pub level: UiNotificationLevel,
-    pub message: String,
+    pub notice: NodeStatusNotice,
     pub audit_event: Option<NodeAuditEventKind>,
 }
 

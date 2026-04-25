@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use graphshell_runtime::FrameViewModel;
+
 use super::*;
 use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::ui::dialog::DialogCommand;
@@ -172,6 +174,10 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     /// function destructures internally and assembles the bundles for the
     /// downstream tile-render pass.
     pub(crate) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
+    /// §12.6 (2026-04-24): previous-frame view-model forwarded to
+    /// tile_render_pass so chrome render sites can consume projected
+    /// state rather than reading runtime fields directly.
+    pub(crate) cached_view_model: Option<&'a FrameViewModel>,
 }
 
 pub(crate) fn run_post_render_phase<FActive>(
@@ -202,6 +208,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         #[cfg(feature = "diagnostics")]
         runtime_focus_inspector,
         runtime,
+        cached_view_model,
     } = args;
 
     // Lane B' (2026-04-24): runtime is no longer destructured up-front.
@@ -352,6 +359,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         #[cfg(feature = "diagnostics")]
                         runtime_focus_inspector: runtime_focus_inspector.clone(),
                         runtime: &mut *runtime,
+                        cached_view_model,
                     },
                 ));
             });
@@ -387,6 +395,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                         #[cfg(feature = "diagnostics")]
                         runtime_focus_inspector: runtime_focus_inspector.clone(),
                         runtime: &mut *runtime,
+                        cached_view_model,
                     },
                 ));
             } else {
@@ -561,6 +570,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                                 #[cfg(feature = "diagnostics")]
                                 runtime_focus_inspector: runtime_focus_inspector.clone(),
                                 runtime: &mut *runtime,
+                                cached_view_model,
                             },
                         ));
                     });

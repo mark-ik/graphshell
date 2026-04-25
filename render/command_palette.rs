@@ -2544,10 +2544,10 @@ mod tests {
         let request = app
             .take_pending_node_status_notice()
             .expect("webfinger import should queue a notice");
-        assert_eq!(request.key, node);
-        assert_eq!(request.level, crate::app::UiNotificationLevel::Error);
-        assert!(request.message.contains("WebFinger import failed"));
-        assert!(request.message.contains("misfin://friend@example.net"));
+        assert_eq!(request.notice.key, node);
+        assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Error);
+        assert!(request.notice.message.contains("WebFinger import failed"));
+        assert!(request.notice.message.contains("misfin://friend@example.net"));
         assert!(matches!(
             request.audit_event,
             Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
@@ -2643,14 +2643,15 @@ mod tests {
             let request = app
                 .take_pending_node_status_notice()
                 .expect("webfinger import should queue a success notice");
-            assert_eq!(request.key, subject_key);
-            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(request.notice.key, subject_key);
+            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
             assert!(
                 request
+                    .notice
                     .message
                     .contains("Imported WebFinger discovery for https://social.example/users/mark")
             );
-            assert!(request.message.contains("+4 node(s)"));
+            assert!(request.notice.message.contains("+4 node(s)"));
             assert!(matches!(
                 request.audit_event,
                 Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
@@ -2708,10 +2709,11 @@ mod tests {
             let request = app
                 .take_pending_node_status_notice()
                 .expect("nip-05 resolve should queue a success notice");
-            assert_eq!(request.key, subject_key);
-            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(request.notice.key, subject_key);
+            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
             assert!(
                 request
+                    .notice
                     .message
                     .contains("Resolved NIP-05 identity for mark@example.net")
             );
@@ -2772,10 +2774,11 @@ mod tests {
             let request = app
                 .take_pending_node_status_notice()
                 .expect("matrix resolve should queue a success notice");
-            assert_eq!(request.key, subject_key);
-            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(request.notice.key, subject_key);
+            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
             assert!(
                 request
+                    .notice
                     .message
                     .contains("Resolved Matrix profile for @mark:matrix.example")
             );
@@ -2826,10 +2829,11 @@ mod tests {
             let request = app
                 .take_pending_node_status_notice()
                 .expect("activitypub import should queue a success notice");
-            assert_eq!(request.key, subject_key);
-            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(request.notice.key, subject_key);
+            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
             assert!(
                 request
+                    .notice
                     .message
                     .contains("Imported ActivityPub actor for https://social.example/users/mark")
             );
@@ -2882,14 +2886,15 @@ mod tests {
             let request = app
                 .take_pending_node_status_notice()
                 .expect("identity refresh should queue a success notice");
-            assert_eq!(request.key, person);
-            assert_eq!(request.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(request.notice.key, person);
+            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
             assert!(
                 request
+                    .notice
                     .message
                     .contains("Refreshed 1 identity resolution(s) for person")
             );
-            assert!(request.message.contains("+changes"));
+            assert!(request.notice.message.contains("+changes"));
         });
     }
 

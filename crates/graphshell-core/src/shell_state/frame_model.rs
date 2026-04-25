@@ -225,7 +225,7 @@ impl std::str::FromStr for FocusRingCurve {
 }
 
 /// Focus-ring animation state the host renders over a node pane.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FocusRingSpec {
     pub node_key: NodeKey,
     pub started_at: PortableInstant,
@@ -276,7 +276,7 @@ impl FocusRingSpec {
 // ---------------------------------------------------------------------------
 
 /// Aggregate focus state exposed to the host.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct FocusViewModel {
     /// Currently focused node (for node-pane focus; None for
     /// graph-surface focus or no focus).
@@ -298,7 +298,7 @@ pub struct FocusViewModel {
 }
 
 /// Toolbar / location-bar projection for the host.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ToolbarViewModel {
     pub location: String,
     pub location_dirty: bool,
@@ -320,7 +320,7 @@ pub struct ToolbarViewModel {
 /// Captures the state the host must paint this frame when the omnibar
 /// is active: query text, current match slate, active-match cursor,
 /// and provider-suggestion status.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OmnibarViewModel {
     pub kind: OmnibarSessionKindView,
     pub query: String,
@@ -351,7 +351,7 @@ pub enum OmnibarProviderStatusView {
 }
 
 /// Graph-search panel (Ctrl+G) projection.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GraphSearchViewModel {
     pub open: bool,
     pub query: String,
@@ -361,7 +361,7 @@ pub struct GraphSearchViewModel {
 }
 
 /// Command-palette projection.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct CommandPaletteViewModel {
     pub open: bool,
     pub contextual_mode: bool,
@@ -383,7 +383,7 @@ pub enum CommandPaletteScopeView {
 
 /// Which dialogs / overlays are open. Flags for booleans; detailed
 /// state for dialogs with content.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DialogsViewModel {
     pub bookmark_import_open: bool,
     pub command_palette_toggle_requested: bool,
@@ -403,7 +403,7 @@ pub struct DialogsViewModel {
 
 /// Host-neutral toast spec. The host maps this onto its notification
 /// system (egui_notify::Toasts, iced's toast widget, etc.).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ToastSpec {
     pub severity: ToastSeverity,
     pub message: String,
@@ -422,7 +422,7 @@ pub enum ToastSeverity {
 /// `DegradedReceipt` inside `tile_compositor`; the view-model exposes
 /// it so any host can render the receipts without reaching into
 /// compositor internals.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DegradedReceiptSpec {
     pub tile_rect: PortableRect,
     pub message: String,
@@ -467,6 +467,17 @@ pub struct FrameHostInput {
     /// idle-watchdog timing. Populated even when `events` is still
     /// empty during the partial event-translation migration.
     pub had_input_events: bool,
+
+    /// Portable host-originated intents the runtime applies during
+    /// this tick. Populated when chrome surfaces (toolbar submit,
+    /// command palette action, omnibar selection) express a user
+    /// decision that needs to reach the reducer without the host
+    /// directly calling `apply_graph_delta_and_sync` — per §12.17.
+    ///
+    /// Runtime drain order: `apply_host_intents` runs immediately
+    /// after `ingest_frame_input` so any view-model the tick
+    /// projects reflects the applied intents.
+    pub host_intents: Vec<crate::shell_state::host_intent::HostIntent>,
 }
 
 #[cfg(test)]

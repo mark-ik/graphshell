@@ -7,7 +7,7 @@ pub(crate) mod command_surface_telemetry;
 pub(crate) mod dialog;
 pub(crate) mod dialog_panels;
 pub(crate) mod egui_host_ports;
-pub(crate) mod frame_model;
+pub(crate) mod finalize_actions;
 pub(crate) mod graph_search_flow;
 pub(crate) mod graph_search_ui;
 pub(crate) mod gui;
@@ -25,6 +25,8 @@ pub(crate) mod iced_graph_canvas;
 pub(crate) mod iced_host;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_host_ports;
+#[cfg(feature = "iced-host")]
+pub(crate) mod iced_middlenet_viewer;
 #[cfg(all(feature = "iced-host", test))]
 pub(crate) mod iced_parity;
 pub(crate) mod nav_targeting;

@@ -842,9 +842,11 @@ fn queue_node_notice(
 ) {
     app_commands.push(crate::app::AppCommand::NodeStatusNotice {
         request: crate::app::NodeStatusNoticeRequest {
-            key,
-            level,
-            message,
+            notice: graphshell_runtime::NodeStatusNotice {
+                key,
+                level,
+                message,
+            },
             audit_event: Some(NodeAuditEventKind::ActionRecorded { action, detail }),
         },
     });
@@ -1118,8 +1120,8 @@ mod tests {
         assert!(matches!(
             app_commands.as_slice(),
             [crate::app::AppCommand::NodeStatusNotice { request }]
-                if request.level == crate::app::UiNotificationLevel::Warning
-                    && request.message == "Titan status 31: /next"
+                if request.notice.level == crate::app::UiNotificationLevel::Warning
+                    && request.notice.message == "Titan status 31: /next"
         ));
     }
 
@@ -1146,8 +1148,8 @@ mod tests {
         assert!(matches!(
             app_commands.as_slice(),
             [crate::app::AppCommand::NodeStatusNotice { request }]
-                if request.level == crate::app::UiNotificationLevel::Success
-                    && request.message == "Misfin status 20 for queen@localhost: abcdef"
+                if request.notice.level == crate::app::UiNotificationLevel::Success
+                    && request.notice.message == "Misfin status 20 for queen@localhost: abcdef"
         ));
     }
 
@@ -1180,8 +1182,8 @@ mod tests {
         assert!(matches!(
             app_commands.as_slice(),
             [crate::app::AppCommand::NodeStatusNotice { request }]
-                if request.level == crate::app::UiNotificationLevel::Warning
-                    && request.message == "Misfin status 20 for queen2@localhost: fedcba"
+                if request.notice.level == crate::app::UiNotificationLevel::Warning
+                    && request.notice.message == "Misfin status 20 for queen2@localhost: fedcba"
         ));
     }
 }

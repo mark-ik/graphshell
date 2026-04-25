@@ -33,6 +33,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
         open_node_tile_after_intents,
         frame_intents,
         runtime,
+        cached_view_model,
     } = args;
 
     // Lane B' (2026-04-23): SemanticLifecycle takes runtime directly;
@@ -101,6 +102,7 @@ pub(super) fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPha
             #[cfg(feature = "diagnostics")]
             runtime_focus_inspector,
             runtime: &mut *runtime,
+            cached_view_model,
         },
         |matches, active_index| gui_orchestration::active_graph_search_match(matches, active_index),
     );

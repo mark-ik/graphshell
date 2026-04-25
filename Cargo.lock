@@ -4790,6 +4790,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph-cartography"
+version = "0.0.1"
+dependencies = [
+ "graph-memory",
+ "graphshell-core",
+ "serde",
+]
+
+[[package]]
 name = "graph-memory"
 version = "0.1.0"
 dependencies = [
@@ -4845,11 +4854,14 @@ dependencies = [
  "graph-tree",
  "graphshell-comms",
  "graphshell-core",
+ "graphshell-runtime",
  "headers",
  "hilog",
  "hitrace",
  "http 1.4.0",
  "iced",
+ "iced-graph-canvas-viewer",
+ "iced-middlenet-viewer",
  "image",
  "infer",
  "insta",
@@ -4976,6 +4988,13 @@ dependencies = [
  "time",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "graphshell-runtime"
+version = "0.0.1"
+dependencies = [
+ "graphshell-core",
 ]
 
 [[package]]
@@ -5882,6 +5901,25 @@ dependencies = [
  "iced_widget",
  "iced_winit",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "iced-graph-canvas-viewer"
+version = "0.0.1"
+dependencies = [
+ "euclid",
+ "graph-canvas",
+ "graphshell-core",
+ "iced",
+]
+
+[[package]]
+name = "iced-middlenet-viewer"
+version = "0.0.1"
+dependencies = [
+ "iced",
+ "middlenet-core",
+ "middlenet-engine",
 ]
 
 [[package]]
@@ -15880,6 +15918,7 @@ dependencies = [
  "middlenet-core",
  "middlenet-engine",
  "serde",
+ "wry",
 ]
 
 [[package]]

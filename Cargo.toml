@@ -12,13 +12,17 @@ rust-version = "1.92.0"
 [workspace]
 members = [
     "crates/graph-canvas",
+    "crates/graph-cartography",
     "crates/graph-memory",
     "crates/graph-tree",
     "crates/graphshell-core",
+    "crates/graphshell-runtime",
     "crates/middlenet-core",
     "crates/middlenet-adapters",
     "crates/middlenet-render",
     "crates/middlenet-engine",
+    "crates/iced-middlenet-viewer",
+    "crates/iced-graph-canvas-viewer",
     "crates/verso",
     "crates/verso-host",
 ]
@@ -80,20 +84,21 @@ vello = ["servo/vello"]
 webgl_backtrace = ["servo/webgl_backtrace"]
 webgpu = ["servo/webgpu"]
 webxr = ["servo/webxr"]
-wry = ["dep:wry"]
+wry = ["dep:wry", "verso/wry-engine"]
 pdf = ["dep:pdfium-render"]
 audio = ["dep:symphonia", "dep:rodio"]
 # M5 scaffolding: gate an iced-backed host adapter behind this feature.
 # Currently stands up a placeholder `IcedHost` + `IcedHostPorts` that
 # implement the `HostPorts` trait bundle; M5.1 adds the real iced crate
 # dep so `IcedHost` can grow an iced `Program`-shaped surface next.
-iced-host = ["dep:iced"]
+iced-host = ["dep:iced", "dep:iced-middlenet-viewer", "dep:iced-graph-canvas-viewer"]
 
 [dependencies]
 middlenet-engine = { path = "crates/middlenet-engine" }
 verso = { path = "crates/verso" }
 verso-host = { path = "crates/verso-host" }
 graphshell-comms = { path = "crates/graphshell-comms" }
+graphshell-runtime = { path = "crates/graphshell-runtime" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }
 backon = "1"
@@ -107,6 +112,17 @@ hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = t
 # M5: iced is the second host backend. Pulled only under the `iced-host`
 # feature; egui remains the default host until M5/M6 reach parity.
 iced = { version = "0.14", optional = true, features = ["canvas"] }
+# Iced middlenet viewer lives in its own crate so it can be developed,
+# tested, and demoed without pulling in the heavy Servo/webrender deps
+# of the main graphshell crate. The graphshell-side host adapter
+# re-exports + Element-maps the viewer's events into iced_app::Message.
+iced-middlenet-viewer = { path = "crates/iced-middlenet-viewer", optional = true }
+# Iced graph canvas viewer (extracted 2026-04-25). Same portability
+# rationale as iced-middlenet-viewer: pulls only `iced + graph-canvas
+# + graphshell-core`, can be developed/tested/demoed without Servo
+# or webrender. The graphshell-side host adapter wraps it and
+# Element-maps the viewer's `GraphCanvasMessage` into iced_app::Message.
+iced-graph-canvas-viewer = { path = "crates/iced-graph-canvas-viewer", optional = true }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }

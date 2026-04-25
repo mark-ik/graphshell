@@ -17,6 +17,16 @@
 //!   `CompositorAdapter::register_content_callback` with the GL callback bridge path.
 //! - `HostSurfacePort::unregister_content_callback` — real: delegates to
 //!   `CompositorAdapter::unregister_content_callback`.
+//! - `HostInputPort::pointer_hover_position` — real: `ctx.input(|i| i.pointer.hover_pos())`.
+//! - `HostInputPort::wants_keyboard_input` — real: `ctx.wants_keyboard_input()`.
+//! - `HostInputPort::wants_pointer_input` — real: `ctx.wants_pointer_input()`.
+//! - `HostInputPort::modifiers` — real: `ctx.input(|i| modifiers_from_egui(i.modifiers))`.
+//! - `HostInputPort::poll_events` — intentional no-op: events enter via `FrameHostInput`,
+//!   not through the port.
+//! - `HostSurfacePort::present_surface` — real: enqueues the node key into
+//!   `pending_present_requests`; the host drains this after tick returns and
+//!   calls `ViewerSurfaceRegistry::bump_content_generation` for each entry.
+//!   The deferred-queue pattern sidesteps the double-borrow on `runtime.tick`.
 //! - `HostSurfacePort::retire_surface` — real: delegates to
 //!   `CompositorAdapter::retire_node_content_resources` when `ui_render_backend`
 //!   is `Some` (no-op in test contexts without a backend).
@@ -29,17 +39,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arboard::Clipboard;
+use graphshell_runtime::{ToastSeverity, ToastSpec};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
-use crate::shell::desktop::ui::frame_model::{ToastSeverity, ToastSpec};
 use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
 };
 use crate::shell::desktop::render_backend::UiRenderBackendHandle;
-use crate::shell::desktop::workbench::compositor_adapter::{CompositorAdapter, PortablePoint, PortableRect};
-use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState};
+use crate::shell::desktop::workbench::compositor_adapter::{
+    CompositorAdapter, OverlayAffordanceStyle, PortablePoint, PortableRect,
+    egui_rect_from_portable, egui_stroke_from_portable, portable_point_from_egui,
+};
+use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState, modifiers_from_egui};
 use servo::WebViewId;
 
 /// egui-side bundle of host port implementations.
@@ -76,6 +89,21 @@ pub(crate) struct EguiHostPorts<'a> {
     /// retirement, etc.). `None` in test contexts that don't need
     /// backend-backed surface management.
     pub(crate) ui_render_backend: Option<&'a mut UiRenderBackendHandle>,
+
+    /// Deferred present requests accumulated during `runtime.tick`.
+    ///
+    /// `HostSurfacePort::present_surface` cannot call
+    /// `ViewerSurfaceRegistry::bump_content_generation` directly because the
+    /// registry lives on `GraphshellRuntime`, which is already mutably borrowed
+    /// by `tick`. Instead, node keys are pushed here and the host drains the
+    /// vec after tick returns, calling `bump_content_generation` for each.
+    pub(crate) pending_present_requests: &'a mut Vec<NodeKey>,
+
+    /// egui context used by `HostPaintPort` implementations.
+    /// `egui::Context` is internally `Arc`-backed — clone is a cheap
+    /// reference count bump. `None` in test contexts that don't exercise
+    /// painting.
+    pub(crate) ctx: Option<egui::Context>,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,29 +112,39 @@ pub(crate) struct EguiHostPorts<'a> {
 
 impl<'a> HostInputPort for EguiHostPorts<'a> {
     fn poll_events(&mut self) -> Vec<HostEvent> {
-        // todo(m4.5): translate egui's accumulated input into HostEvent vocabulary.
+        // Intentionally empty: egui events are translated once per frame by
+        // `build_frame_host_input` and passed to `runtime.tick` via
+        // `FrameHostInput.events` before this port is constructed. There are
+        // no mid-tick events to drain on the egui path.
         Vec::new()
     }
 
     fn pointer_hover_position(&self) -> Option<PortablePoint> {
-        // todo(m4.5): read from egui::Context::input(|i| i.pointer.hover_pos())
-        // and convert via `portable_point_from_egui`.
-        None
+        self.ctx
+            .as_ref()?
+            .input(|i| i.pointer.hover_pos())
+            .map(portable_point_from_egui)
     }
 
     fn wants_keyboard_input(&self) -> bool {
-        // todo(m4.5): ctx.wants_keyboard_input().
-        false
+        self.ctx
+            .as_ref()
+            .map(|ctx| ctx.wants_keyboard_input())
+            .unwrap_or(false)
     }
 
     fn wants_pointer_input(&self) -> bool {
-        // todo(m4.5): ctx.wants_pointer_input().
-        false
+        self.ctx
+            .as_ref()
+            .map(|ctx| ctx.wants_pointer_input())
+            .unwrap_or(false)
     }
 
     fn modifiers(&self) -> ModifiersState {
-        // todo(m4.5): read egui::Context::input(|i| i.modifiers) and translate.
-        ModifiersState::default()
+        self.ctx
+            .as_ref()
+            .map(|ctx| ctx.input(|i| modifiers_from_egui(i.modifiers)))
+            .unwrap_or_default()
     }
 }
 
@@ -115,9 +153,12 @@ impl<'a> HostInputPort for EguiHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostSurfacePort for EguiHostPorts<'a> {
-    fn present_surface(&mut self, _node_key: NodeKey) {
-        // todo(m4.5): bump_content_generation on the ViewerSurfaceRegistry
-        // and request a repaint from the egui context.
+    fn present_surface(&mut self, node_key: NodeKey) {
+        // Defer the bump_content_generation call: the registry lives on
+        // GraphshellRuntime which is already mutably borrowed by tick. The host
+        // drains this queue after tick returns and calls bump_content_generation
+        // for each entry. Repaint scheduling is a host-side follow-on (M4.5).
+        self.pending_present_requests.push(node_key);
     }
 
     fn retire_surface(&mut self, node_key: NodeKey) {
@@ -151,49 +192,94 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
 impl<'a> HostPaintPort for EguiHostPorts<'a> {
     fn draw_overlay_stroke(
         &mut self,
-        _node_key: NodeKey,
-        _rect: PortableRect,
-        _stroke: graph_canvas::packet::Stroke,
-        _rounding: f32,
+        node_key: NodeKey,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
+        rounding: f32,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_stroke via
-        // egui_rect_from_portable / egui_stroke_from_portable.
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        CompositorAdapter::draw_overlay_stroke(
+            ctx,
+            node_key,
+            egui_rect_from_portable(rect),
+            rounding,
+            egui_stroke_from_portable(stroke),
+        );
     }
 
     fn draw_dashed_overlay_stroke(
         &mut self,
-        _node_key: NodeKey,
-        _rect: PortableRect,
-        _stroke: graph_canvas::packet::Stroke,
+        node_key: NodeKey,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_dashed_overlay_stroke
-        // via the boundary helpers.
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        CompositorAdapter::draw_dashed_overlay_stroke(
+            ctx,
+            node_key,
+            egui_rect_from_portable(rect),
+            egui_stroke_from_portable(stroke),
+        );
     }
 
     fn draw_overlay_glyphs(
         &mut self,
-        _node_key: NodeKey,
-        _rect: PortableRect,
-        _glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
-        _color: graph_canvas::packet::Color,
+        node_key: NodeKey,
+        rect: PortableRect,
+        glyphs: &[crate::registries::atomic::lens::GlyphOverlay],
+        color: graph_canvas::packet::Color,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_glyphs via
-        // the boundary helpers.
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        let egui_color = egui::Color32::from_rgba_premultiplied(
+            (color.r * 255.0).round().clamp(0.0, 255.0) as u8,
+            (color.g * 255.0).round().clamp(0.0, 255.0) as u8,
+            (color.b * 255.0).round().clamp(0.0, 255.0) as u8,
+            (color.a * 255.0).round().clamp(0.0, 255.0) as u8,
+        );
+        CompositorAdapter::draw_overlay_glyphs(
+            ctx,
+            node_key,
+            egui_rect_from_portable(rect),
+            glyphs,
+            egui_color,
+            OverlayAffordanceStyle::RectStroke,
+        );
     }
 
     fn draw_overlay_chrome_markers(
         &mut self,
-        _node_key: NodeKey,
-        _rect: PortableRect,
-        _stroke: graph_canvas::packet::Stroke,
+        node_key: NodeKey,
+        rect: PortableRect,
+        stroke: graph_canvas::packet::Stroke,
     ) {
-        // todo(m4.5): delegate to CompositorAdapter::draw_overlay_chrome_markers
-        // via the boundary helpers.
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        CompositorAdapter::draw_overlay_chrome_markers(
+            ctx,
+            node_key,
+            egui_rect_from_portable(rect),
+            egui_stroke_from_portable(stroke),
+        );
     }
 
-    fn draw_degraded_receipt(&mut self, _rect: PortableRect, _message: &str) {
-        // todo(m4.5): implement via egui::Painter on a foreground layer
-        // after converting via egui_rect_from_portable.
+    fn draw_degraded_receipt(&mut self, rect: PortableRect, message: &str) {
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        let egui_rect = egui_rect_from_portable(rect);
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("graphshell_degraded_receipt"),
+        ));
+        painter.rect_filled(
+            egui_rect.shrink(2.0),
+            4.0,
+            egui::Color32::from_black_alpha(200),
+        );
+        painter.text(
+            egui_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            message,
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_white_alpha(230),
+        );
     }
 }
 
@@ -333,6 +419,7 @@ mod tests {
         clipboard: &'a mut Option<Clipboard>,
         a11y_updates: &'a mut HashMap<WebViewId, servo::accesskit::TreeUpdate>,
         focus_requests: &'a mut Vec<accesskit::NodeId>,
+        present_requests: &'a mut Vec<NodeKey>,
     ) -> EguiHostPorts<'a> {
         EguiHostPorts {
             toasts,
@@ -340,6 +427,8 @@ mod tests {
             pending_webview_a11y_updates: a11y_updates,
             pending_accesskit_focus_requests: focus_requests,
             ui_render_backend: None,
+            pending_present_requests: present_requests,
+            ctx: None,
         }
     }
 
@@ -397,7 +486,8 @@ mod tests {
         let mut clipboard: Option<Clipboard> = None;
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+        let mut present: Vec<NodeKey> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
 
         ports.inject_tree_update(webview_id, stub_tree_update());
 
@@ -414,7 +504,8 @@ mod tests {
         let mut clipboard: Option<Clipboard> = None;
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+        let mut present: Vec<NodeKey> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
 
         ports.inject_tree_update(webview_id, stub_tree_update());
         ports.inject_tree_update(webview_id, stub_tree_update());
@@ -429,11 +520,80 @@ mod tests {
         let mut clipboard: Option<Clipboard> = None;
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus);
+        let mut present: Vec<NodeKey> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
 
         ports.request_focus(accesskit::NodeId(17));
         ports.request_focus(accesskit::NodeId(42));
 
         assert_eq!(focus, vec![accesskit::NodeId(17), accesskit::NodeId(42)]);
+    }
+
+    #[test]
+    fn present_surface_enqueues_node_key_for_host_drain() {
+        use crate::shell::desktop::ui::host_ports::HostSurfacePort;
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut present: Vec<NodeKey> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+
+        let key_a = NodeKey::new(42);
+        let key_b = NodeKey::new(99);
+        ports.present_surface(key_a);
+        ports.present_surface(key_b);
+
+        // Both keys queued in order; host drains after tick to call
+        // ViewerSurfaceRegistry::bump_content_generation for each.
+        assert_eq!(present, vec![key_a, key_b]);
+    }
+
+    #[test]
+    fn host_input_port_returns_none_for_hover_position_without_ctx() {
+        use crate::shell::desktop::ui::host_ports::HostInputPort;
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut present: Vec<NodeKey> = Vec::new();
+        let ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+
+        // ctx is None in test contexts — graceful fallback expected.
+        assert!(ports.pointer_hover_position().is_none());
+        assert!(!ports.wants_keyboard_input());
+        assert!(!ports.wants_pointer_input());
+        assert_eq!(ports.modifiers(), ModifiersState::default());
+    }
+
+    #[test]
+    fn host_input_port_reads_modifiers_from_egui_ctx() {
+        use crate::shell::desktop::ui::host_ports::HostInputPort;
+
+        let ctx = egui::Context::default();
+        // Simulate a frame so egui processes input; inject shift modifier.
+        ctx.begin_pass(egui::RawInput {
+            modifiers: egui::Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        ctx.end_pass();
+
+        let mut toasts = egui_notify::Toasts::default();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
+        let mut focus: Vec<accesskit::NodeId> = Vec::new();
+        let mut present: Vec<NodeKey> = Vec::new();
+        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        ports.ctx = Some(ctx);
+
+        let modifiers = ports.modifiers();
+        assert!(modifiers.shift, "shift modifier must propagate from egui ctx");
+        assert!(!modifiers.ctrl);
+        assert!(!modifiers.alt);
     }
 }

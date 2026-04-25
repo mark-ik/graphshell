@@ -1220,9 +1220,11 @@ impl CompositorAdapter {
             return CompositedContentPassOutcome::MissingSurface;
         };
 
-        let outcome = match backing {
+        match backing {
             ViewerSurfaceBacking::CompatGlOffscreen(render_context) => {
-                Self::compose_webview_content_pass_with_painter(
+                // `render_context` borrow ends when `compose_webview_content_pass_with_painter`
+                // returns, so `surface.handle` is writable below (NLL split-borrow).
+                let outcome = Self::compose_webview_content_pass_with_painter(
                     painter,
                     ui_render_backend,
                     node_key,
@@ -1230,7 +1232,25 @@ impl CompositorAdapter {
                     pixels_per_point,
                     render_context,
                     webview,
-                )
+                );
+                // GL compat path: the texture token was written to
+                // COMPOSITOR_NATIVE_TEXTURES by upsert_native_content_texture.
+                // Read it back here — for_node is the only caller of the static
+                // on the read path for this compat arm. Removed when this arm
+                // is replaced by NativeRenderingContext.
+                match outcome {
+                    CompositedContentPassOutcome::SharedWgpuRegistered => {
+                        surface.handle = ContentSurfaceHandle::for_node(node_key);
+                    }
+                    CompositedContentPassOutcome::CallbackFallbackRegistered
+                    | CompositedContentPassOutcome::MissingContentCallback => {
+                        surface.handle = ContentSurfaceHandle::CallbackFallback;
+                    }
+                    CompositedContentPassOutcome::InvalidTileRect
+                    | CompositedContentPassOutcome::PaintFailed
+                    | CompositedContentPassOutcome::MissingSurface => {}
+                }
+                outcome
             }
             ViewerSurfaceBacking::NativeRenderingContext(rendering_context) => {
                 let egui_tile_rect = egui_rect_from_portable(tile_rect);
@@ -1243,6 +1263,8 @@ impl CompositorAdapter {
                     return CompositedContentPassOutcome::InvalidTileRect;
                 };
 
+                // `rendering_context` borrow ends here — prepare_composited_target
+                // is its last use, so `surface.handle` is writable below.
                 Self::reconcile_webview_target_size(webview, size, target_size);
                 webview.render();
 
@@ -1266,27 +1288,13 @@ impl CompositorAdapter {
 
                 Self::unregister_content_callback(node_key);
                 painter.paint_native_content_texture(node_key, tile_rect, texture_token);
+                // ViewerSurfaceRegistry is the sole live-handle authority for this
+                // path. COMPOSITOR_NATIVE_TEXTURES is a write-through for retirement
+                // only (retire_node_content_resources reads it to free GPU memory).
                 surface.handle = ContentSurfaceHandle::ImportedWgpu(texture_token);
                 CompositedContentPassOutcome::SharedWgpuRegistered
             }
-        };
-
-        match outcome {
-            CompositedContentPassOutcome::SharedWgpuRegistered => {
-                surface.handle = ContentSurfaceHandle::for_node(node_key);
-            }
-            CompositedContentPassOutcome::CallbackFallbackRegistered
-            | CompositedContentPassOutcome::MissingContentCallback => {
-                surface.handle = ContentSurfaceHandle::CallbackFallback;
-            }
-            CompositedContentPassOutcome::MissingSurface => {
-                surface.handle = ContentSurfaceHandle::Placeholder;
-            }
-            CompositedContentPassOutcome::InvalidTileRect
-            | CompositedContentPassOutcome::PaintFailed => {}
         }
-
-        outcome
     }
 
     /// Backwards-compatible egui entry point — constructs an

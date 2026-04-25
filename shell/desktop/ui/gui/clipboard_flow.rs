@@ -18,15 +18,24 @@
 //! Uses toast helpers from [`super::toast_flow`].
 
 use arboard::Clipboard;
+pub(crate) use graphshell_runtime::CLIPBOARD_STATUS_EMPTY_TEXT;
+pub(crate) use graphshell_runtime::CLIPBOARD_STATUS_FAILURE_PREFIX;
+pub(crate) use graphshell_runtime::CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT;
+pub(crate) use graphshell_runtime::CLIPBOARD_STATUS_SUCCESS_URL_TEXT;
+pub(crate) use graphshell_runtime::CLIPBOARD_STATUS_UNAVAILABLE_TEXT;
+use graphshell_runtime::ClipboardCopyKind;
+use graphshell_runtime::ClipboardCopyRequest;
+use graphshell_runtime::ClipboardCopySource;
+use graphshell_runtime::RuntimeClipboardCopyState;
+pub(crate) use graphshell_runtime::clipboard_copy_failure_text;
+pub(crate) use graphshell_runtime::clipboard_copy_missing_node_failure_text;
+pub(crate) use graphshell_runtime::clipboard_copy_success_text;
+use graphshell_runtime::drain_pending_clipboard_copy_requests;
 
-use crate::app::{ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp};
-use crate::graph::NodeKey;
+use crate::app::GraphBrowserApp;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
-use crate::shell::desktop::ui::frame_model::ToastSeverity;
 use crate::shell::desktop::ui::host_ports::{HostClipboardPort, HostToastPort};
-
-use super::toast_flow::port_error;
 
 /// Adapter that bridges a raw `&mut Option<Clipboard>` into
 /// `HostClipboardPort`. Mirrors the wiring in `EguiHostPorts::clipboard`
@@ -52,97 +61,37 @@ impl<'a> HostClipboardPort for ClipboardAdapter<'a> {
     }
 }
 
+impl RuntimeClipboardCopyState for GraphBrowserApp {
+    fn take_pending_clipboard_copy(&mut self) -> Option<ClipboardCopyRequest> {
+        GraphBrowserApp::take_pending_clipboard_copy(self)
+    }
+
+    fn clipboard_copy_source(
+        &self,
+        key: crate::graph::NodeKey,
+    ) -> Option<ClipboardCopySource> {
+        let node = self.domain_graph().get_node(key)?;
+        let visible_url = self
+            .user_visible_node_url(key)
+            .unwrap_or_else(|| node.url().to_string());
+        let visible_title = self
+            .user_visible_node_title(key)
+            .unwrap_or_else(|| node.title.clone());
+
+        Some(ClipboardCopySource {
+            visible_url,
+            visible_title,
+        })
+    }
+}
+
 pub(crate) fn handle_pending_clipboard_copy_requests<P>(
     graph_app: &mut GraphBrowserApp,
     ports: &mut P,
 ) where
     P: HostToastPort + HostClipboardPort,
 {
-    while let Some(ClipboardCopyRequest { key, kind }) = graph_app.take_pending_clipboard_copy() {
-        handle_pending_clipboard_copy_request(graph_app, ports, key, kind);
-    }
-}
-
-fn handle_pending_clipboard_copy_request<P>(
-    graph_app: &GraphBrowserApp,
-    ports: &mut P,
-    key: NodeKey,
-    kind: ClipboardCopyKind,
-) where
-    P: HostToastPort + HostClipboardPort,
-{
-    let Some(value) = clipboard_copy_value_for_node(graph_app, key, kind, ports) else {
-        return;
-    };
-
-    match ports.set_text(&value) {
-        Ok(()) => emit_clipboard_copy_success_toast(ports, kind),
-        Err(e) => {
-            emit_clipboard_copy_failure(e.len());
-            let failure_text = if e == "clipboard unavailable" {
-                CLIPBOARD_STATUS_UNAVAILABLE_TEXT.to_string()
-            } else {
-                clipboard_copy_failure_text(&e)
-            };
-            port_error(ports, failure_text);
-        }
-    }
-}
-
-pub(crate) const CLIPBOARD_STATUS_SUCCESS_URL_TEXT: &str = "Copied URL";
-pub(crate) const CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT: &str = "Copied title";
-pub(crate) const CLIPBOARD_STATUS_UNAVAILABLE_TEXT: &str = "Clipboard unavailable";
-pub(crate) const CLIPBOARD_STATUS_EMPTY_TEXT: &str = "Nothing to copy";
-pub(crate) const CLIPBOARD_STATUS_FAILURE_PREFIX: &str = "Copy failed";
-pub(crate) const CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT: &str =
-    "select a node and try again";
-
-fn clipboard_copy_value_for_node<P>(
-    graph_app: &GraphBrowserApp,
-    key: NodeKey,
-    kind: ClipboardCopyKind,
-    port: &mut P,
-) -> Option<String>
-where
-    P: HostToastPort + ?Sized,
-{
-    let Some(node) = graph_app.domain_graph().get_node(key) else {
-        port.enqueue_message(
-            ToastSeverity::Error,
-            clipboard_copy_missing_node_failure_text(),
-            None,
-        );
-        return None;
-    };
-
-    let visible_url = graph_app
-        .user_visible_node_url(key)
-        .unwrap_or_else(|| node.url().to_string());
-    let visible_title = graph_app
-        .user_visible_node_title(key)
-        .unwrap_or_else(|| node.title.clone());
-
-    let value = match kind {
-        ClipboardCopyKind::Url => visible_url,
-        ClipboardCopyKind::Title => {
-            clipboard_title_or_url(visible_title.as_str(), visible_url.as_str())
-        }
-    };
-
-    if value.trim().is_empty() {
-        port.enqueue_message(ToastSeverity::Warning, CLIPBOARD_STATUS_EMPTY_TEXT, None);
-        return None;
-    }
-
-    Some(value)
-}
-
-fn clipboard_title_or_url(title: &str, url: &str) -> String {
-    if title.is_empty() {
-        url.to_owned()
-    } else {
-        title.to_owned()
-    }
+    drain_pending_clipboard_copy_requests(graph_app, ports, emit_clipboard_copy_failure);
 }
 
 fn emit_clipboard_copy_failure(byte_len: usize) {
@@ -150,32 +99,4 @@ fn emit_clipboard_copy_failure(byte_len: usize) {
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
         byte_len,
     });
-}
-
-fn emit_clipboard_copy_success_toast<P>(port: &mut P, kind: ClipboardCopyKind)
-where
-    P: HostToastPort + ?Sized,
-{
-    port.enqueue_message(
-        ToastSeverity::Success,
-        clipboard_copy_success_text(kind).to_string(),
-        None,
-    );
-}
-
-pub(crate) fn clipboard_copy_success_text(kind: ClipboardCopyKind) -> &'static str {
-    match kind {
-        ClipboardCopyKind::Url => CLIPBOARD_STATUS_SUCCESS_URL_TEXT,
-        ClipboardCopyKind::Title => CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT,
-    }
-}
-
-pub(crate) fn clipboard_copy_failure_text(detail: &str) -> String {
-    format!("{CLIPBOARD_STATUS_FAILURE_PREFIX}: {detail}")
-}
-
-pub(crate) fn clipboard_copy_missing_node_failure_text() -> String {
-    clipboard_copy_failure_text(
-        format!("node no longer exists; {CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT}").as_str(),
-    )
 }

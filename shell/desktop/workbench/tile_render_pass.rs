@@ -9,6 +9,7 @@ use std::time::Instant;
 #[cfg(feature = "diagnostics")]
 use egui_tiles::TileId;
 use egui_tiles::{Container, Tile, Tree};
+use graphshell_runtime::{FocusRingSpec, FrameViewModel};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use super::graph_tree_adapter::EguiTreeCtx;
@@ -63,6 +64,11 @@ pub(crate) struct TileRenderPassArgs<'a> {
     /// (wrapping 4 more fields) now flows through this single ref. Phase
     /// function destructures internally and assembles the focus bundle.
     pub runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
+    /// §12.6 (2026-04-24): previous-frame view-model. `None` on the first
+    /// frame. Chrome render sites consume the pre-projected values (e.g.
+    /// `focus.focus_ring_alpha`) instead of reading runtime fields directly,
+    /// aligning egui and future iced hosts on the same data path.
+    pub cached_view_model: Option<&'a FrameViewModel>,
 }
 
 fn primary_graph_view_id(graph_app: &GraphBrowserApp, tiles_tree: &Tree<TileKind>) -> GraphViewId {
@@ -239,6 +245,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
         #[cfg(feature = "diagnostics")]
         runtime_focus_inspector,
         runtime,
+        cached_view_model,
     } = args;
     // Lane B' (2026-04-24): destructure runtime into individual `&mut` field
     // bindings so the existing function body shape (~1100 lines) stays
@@ -715,33 +722,38 @@ pub(crate) fn run_tile_render_pass_in_ui(
         crate::shell::desktop::ui::portable_time::portable_now(),
     );
 
-    // Delegate alpha derivation to the host-neutral helper on
-    // `FocusRingSpec` so egui (here) and iced share the same
-    // animation math. `project_view_model` uses the same path at
-    // its population site. Both source fade duration from
-    // `chrome_ui.focus_ring_settings`.
-    let focus_ring_settings = graph_app.workspace.chrome_ui.focus_ring_settings;
-    let focus_ring_alpha = if focus_ring_settings.enabled {
-        (*focus.focus_ring_node_key)
-            .and_then(|node_key| {
-                (*focus.focus_ring_started_at).map(|started_at| {
-                    crate::shell::desktop::ui::frame_model::FocusRingSpec {
-                        node_key,
-                        started_at,
-                        duration: focus_ring_settings.duration(),
-                    }
-                })
-            })
-            .map(|spec| {
-                spec.alpha_at_with_curve(
-                    focused_node_key,
-                    crate::shell::desktop::ui::portable_time::portable_now(),
-                    focus_ring_settings.curve,
-                )
-            })
-            .unwrap_or(0.0)
+    // §12.6 (2026-04-24): consume the pre-projected alpha from the
+    // previous frame's view-model. The ~16ms staleness for a 300ms
+    // animation is imperceptible. The fallback re-computes inline for
+    // the first-frame case (cached_view_model is None) and for the
+    // single frame when latch_ring just fired with a node not yet
+    // reflected in the cached view-model.
+    let focus_ring_alpha = if let Some(vm) = cached_view_model {
+        vm.focus.focus_ring_alpha
     } else {
-        0.0
+        let focus_ring_settings = graph_app.workspace.chrome_ui.focus_ring_settings;
+        if focus_ring_settings.enabled {
+            (*focus.focus_ring_node_key)
+                .and_then(|node_key| {
+                    (*focus.focus_ring_started_at).map(|started_at| {
+                        FocusRingSpec {
+                            node_key,
+                            started_at,
+                            duration: focus_ring_settings.duration(),
+                        }
+                    })
+                })
+                .map(|spec| {
+                    spec.alpha_at_with_curve(
+                        focused_node_key,
+                        crate::shell::desktop::ui::portable_time::portable_now(),
+                        focus_ring_settings.curve,
+                    )
+                })
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        }
     };
 
     #[cfg(feature = "diagnostics")]

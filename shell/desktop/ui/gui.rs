@@ -12,6 +12,7 @@ use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
 use graphshell_core::async_host::AsyncSpawner;
+use graphshell_runtime::{FrameHostInput, FrameViewModel};
 use log::warn;
 use graphshell_core::signal_router::SignalRouter;
 use servo::{
@@ -24,7 +25,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
 use super::egui_host_ports::EguiHostPorts;
-use super::frame_model::FrameHostInput;
 use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
@@ -213,7 +213,7 @@ pub struct EguiHost {
     /// §12.6 (2026-04-24) first slice. `None` only on the first frame
     /// before `update()` runs; getters that consume it fall back to
     /// reading runtime state directly until the cache is populated.
-    pub(crate) cached_view_model: Option<crate::shell::desktop::ui::frame_model::FrameViewModel>,
+    pub(crate) cached_view_model: Option<FrameViewModel>,
 }
 
 impl Drop for EguiHost {
@@ -279,6 +279,10 @@ fn build_frame_host_input(ctx: &egui::Context) -> FrameHostInput {
         wants_pointer: ctx.egui_wants_pointer_input(),
         modifiers,
         had_input_events,
+        // Egui toolbar submit goes through the shell-side reducer path
+        // directly (not a host adapter file, so §12.17 doesn't apply).
+        // Iced hosts route through `host_intents` instead.
+        host_intents: Vec::new(),
     }
 }
 
@@ -966,6 +970,7 @@ impl EguiHost {
             pending_webview_a11y_updates,
             state: app_state,
             runtime,
+            cached_view_model,
             ..
         } = self;
 
@@ -995,6 +1000,10 @@ impl EguiHost {
                 rendering_context,
                 window_rendering_context,
                 runtime,
+                // §12.6 (2026-04-24): pass previous-frame view-model so
+                // downstream render sites can consume projected state rather
+                // than reading runtime fields directly.
+                cached_view_model: cached_view_model.as_ref(),
             });
         });
 
@@ -1023,12 +1032,16 @@ impl EguiHost {
         // the host-side pipeline above; as each migrates it will start
         // consuming tick output instead of reading shell state directly.
         let frame_input = build_frame_host_input(self.context.egui_context());
+        let egui_ctx = self.context.egui_context().clone();
+        let mut pending_present_requests = Vec::new();
         let mut ports = EguiHostPorts {
             toasts: &mut self.toasts,
             clipboard: &mut self.clipboard,
             pending_webview_a11y_updates: &mut self.pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut self.pending_accesskit_focus_requests,
             ui_render_backend: Some(&mut self.context),
+            pending_present_requests: &mut pending_present_requests,
+            ctx: Some(egui_ctx),
         };
         // §12.6 (2026-04-24): cache the view-model so host getters can
         // consume runtime outputs (the projected `FrameViewModel`)
@@ -1036,6 +1049,11 @@ impl EguiHost {
         // `EguiHost::graph_surface_focused()`; subsequent slices migrate
         // additional getters and chrome render sites onto the cache.
         self.cached_view_model = Some(self.runtime.tick(&frame_input, &mut ports));
+        // Drain present requests accumulated during tick. The registry borrow
+        // is safe here because tick has returned and released &mut runtime.
+        for key in pending_present_requests {
+            self.runtime.viewer_surfaces.bump_content_generation(&key);
+        }
 
         GuiUpdateOutput
     }

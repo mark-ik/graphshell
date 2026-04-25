@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use graphshell_runtime::FrameViewModel;
+
 use super::*;
 
 pub(super) struct GraphSearchAndKeyboardPhaseArgs<'a> {
@@ -108,6 +110,10 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     /// the bundles for the deeper sub-phases (post-render, semantic
     /// lifecycle).
     pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
+    /// §12.6 (2026-04-24): previous-frame view-model; forwarded to
+    /// post-render so tile_render_pass can consume pre-projected state
+    /// instead of reading runtime fields directly.
+    pub(super) cached_view_model: Option<&'a FrameViewModel>,
 }
 
 pub(super) struct PreFrameAndIntentInitArgs<'a> {
@@ -165,6 +171,11 @@ pub(super) struct ExecuteUpdateFrameArgs<'a> {
     /// 2026-04-24) now lives on the runtime; phases reach for it via
     /// `runtime.diagnostics_state` directly.
     pub(super) runtime: &'a mut crate::shell::desktop::ui::gui_state::GraphshellRuntime,
+    /// §12.6 (2026-04-24): the FrameViewModel produced by the previous
+    /// frame's tick(). `None` on the very first frame. Downstream
+    /// render sites (tile_render_pass focus-ring alpha) consume this
+    /// instead of re-reading runtime fields directly.
+    pub(super) cached_view_model: Option<&'a FrameViewModel>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

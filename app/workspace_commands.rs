@@ -620,9 +620,11 @@ impl GraphBrowserApp {
     ) {
         self.enqueue_app_command(AppCommand::NodeStatusNotice {
             request: NodeStatusNoticeRequest {
-                key,
-                level,
-                message: message.into(),
+                notice: graphshell_runtime::NodeStatusNotice {
+                    key,
+                    level,
+                    message: message.into(),
+                },
                 audit_event,
             },
         });

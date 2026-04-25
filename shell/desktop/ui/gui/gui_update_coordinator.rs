@@ -39,6 +39,7 @@ impl EguiHost {
             rendering_context,
             window_rendering_context,
             runtime,
+            cached_view_model,
         } = args;
         // Lane B' (2026-04-23): split-borrow runtime fields per call site
         // instead of destructuring up-front. Calls that consume `runtime`
@@ -141,6 +142,7 @@ impl EguiHost {
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
             frame_intents: &mut frame_intents,
             runtime: &mut *runtime,
+            cached_view_model,
         });
         Self::finalize_update_frame(ctx, &mut runtime.graph_app, clipboard, toasts);
     }

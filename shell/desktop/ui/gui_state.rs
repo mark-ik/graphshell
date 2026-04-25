@@ -7,31 +7,38 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use graphshell_core::async_host::AsyncSpawner;
 use crate::app::{GraphBrowserApp, GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::registries::RegistryRuntime;
 #[cfg(any(test, feature = "iced-host"))]
 use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
-use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::ui::command_palette_state::CommandPaletteSession;
-use crate::shell::desktop::ui::frame_model::{
-    CommandPaletteViewModel, DialogsViewModel, FocusRingSpec, FocusViewModel, FrameHostInput,
-    FrameViewModel, GraphSearchViewModel, OmnibarProviderStatusView, OmnibarSessionKindView,
-    OmnibarViewModel, ToolbarViewModel,
-};
+use crate::shell::desktop::ui::finalize_actions::drain_pending_runtime_finalize_actions;
 use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
-use crate::shell::desktop::ui::host_ports::HostPorts;
 use crate::shell::desktop::ui::omnibar_state::{
     OmnibarSearchSession, OmnibarSessionKind, ProviderSuggestionError, ProviderSuggestionStatus,
 };
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
+use graphshell_core::async_host::AsyncSpawner;
 use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
 use graphshell_core::signal_router::SignalRouter;
 use graphshell_core::viewer_host::ViewerSurfaceHost;
+use graphshell_runtime::ports::RuntimeTickPorts;
+use graphshell_runtime::{
+    AccessibilityProjectionInput, CommandPaletteProjectionInput, CommandPaletteScopeView,
+    DialogsProjectionInput, FocusProjectionInput, FocusRingSettingsView, FrameHostInput,
+    FrameViewModel, GraphSearchProjectionInput, OmnibarProjectionInput, OmnibarProviderStatusView,
+    OmnibarSessionKindView, SettingsProjectionInput, ThumbnailAspectView, ThumbnailFilterView,
+    ThumbnailFormatView, ThumbnailSettingsView, ToolbarProjectionInput,
+    TransientFrameOutputsProjectionInput, project_accessibility_view_model,
+    project_command_palette_view_model, project_dialogs_view_model, project_focus_view_model,
+    project_graph_search_view_model, project_omnibar_view_model, project_settings_view_model,
+    project_toolbar_view_model, project_transient_frame_outputs,
+};
 #[cfg(any(test, feature = "iced-host"))]
 use verso_host::{NoopViewerSurfaceHost, TokioAsyncSpawner};
 
@@ -355,8 +362,7 @@ pub(crate) struct GraphshellRuntime {
     /// shape to a host-neutral view-model so iced can render the same
     /// data through its own widget set.
     #[cfg(feature = "diagnostics")]
-    pub(crate) diagnostics_state:
-        crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    pub(crate) diagnostics_state: crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 }
 
 impl GraphshellRuntime {
@@ -379,11 +385,39 @@ impl GraphshellRuntime {
     /// is consulted; other ports are held for forward compatibility.
     pub(crate) fn tick<H>(&mut self, input: &FrameHostInput, ports: &mut H) -> FrameViewModel
     where
-        H: HostPorts + crate::shell::desktop::ui::host_ports::HostClipboardPort,
+        H: RuntimeTickPorts,
     {
         self.ingest_frame_input(input);
+        self.apply_host_intents(&input.host_intents);
         self.drain_pending_finalize_actions(ports);
         self.project_view_model()
+    }
+
+    /// Translate portable `HostIntent`s (coming from chrome surfaces —
+    /// iced toolbar, command palette, omnibar) into runtime-internal
+    /// reducer actions and apply them. Runs before `project_view_model`
+    /// so the tick's view-model output reflects the new state.
+    ///
+    /// §12.17: this is the sanctioned path for hosts to mutate graph
+    /// state. Host adapter files push `HostIntent`s onto
+    /// `FrameHostInput.host_intents`; the runtime owns the translation.
+    pub(crate) fn apply_host_intents(
+        &mut self,
+        intents: &[graphshell_core::shell_state::host_intent::HostIntent],
+    ) {
+        use graphshell_core::shell_state::host_intent::HostIntent;
+        for intent in intents {
+            match intent {
+                HostIntent::CreateNodeAtUrl { url, position } => {
+                    // `add_node_and_sync` is the same entrypoint the
+                    // egui toolbar submit flow uses today. Translating
+                    // to it preserves protocol-probe triggering and
+                    // physics re-heat behavior for free.
+                    let pos = euclid::default::Point2D::new(position.x, position.y);
+                    let _ = self.graph_app.add_node_and_sync(url.clone(), pos);
+                }
+            }
+        }
     }
 
     /// Drain pending node-status notices and clipboard-copy requests
@@ -392,17 +426,9 @@ impl GraphshellRuntime {
     /// gets these user-visible side effects for free.
     fn drain_pending_finalize_actions<P>(&mut self, ports: &mut P)
     where
-        P: crate::shell::desktop::ui::host_ports::HostToastPort
-            + crate::shell::desktop::ui::host_ports::HostClipboardPort,
+        P: RuntimeTickPorts,
     {
-        crate::shell::desktop::ui::gui_orchestration::handle_pending_node_status_notices(
-            &mut self.graph_app,
-            ports,
-        );
-        crate::shell::desktop::ui::gui_orchestration::handle_pending_clipboard_copy_requests(
-            &mut self.graph_app,
-            ports,
-        );
+        drain_pending_runtime_finalize_actions(&mut self.graph_app, ports);
     }
 
     /// Ingest host-supplied frame input.
@@ -495,17 +521,6 @@ impl GraphshellRuntime {
         let chrome_ui = &self.graph_app.workspace.chrome_ui;
         let focus_ring_settings = chrome_ui.focus_ring_settings;
         let thumbnail_settings = chrome_ui.thumbnail_settings;
-        // The fade-out duration is sourced from user settings; the
-        // legacy `runtime.focus_ring_duration` field was removed in
-        // the 2026-04-23 Lane B' warm-up.
-        let effective_duration = focus_ring_settings.duration();
-        let ring_spec_candidate = self.focus_ring_node_key.map(|node_key| FocusRingSpec {
-            node_key,
-            started_at: self
-                .focus_ring_started_at
-                .unwrap_or_else(crate::shell::desktop::ui::portable_time::portable_now),
-            duration: effective_duration,
-        });
         // Derive the active pane's focused node by correlating the
         // focus-authority's tracked pane activation with the rect
         // roster. Falls back to the first rendered pane when no pane
@@ -518,39 +533,28 @@ impl GraphshellRuntime {
         // the view-model could lag the user's actual selection by one
         // frame when pane activation changed via keyboard.
         let pane_rects = &self.graph_app.workspace.graph_runtime.active_pane_rects;
-        let active_pane_focused_node = self
-            .focus_authority
-            .pane_activation
-            .and_then(|active_id| {
-                pane_rects
-                    .iter()
-                    .find(|(pane_id, _, _)| *pane_id == active_id)
-                    .map(|(_, node_key, _)| *node_key)
-            })
-            .or_else(|| pane_rects.first().map(|(_, node_key, _)| *node_key));
-        // Evaluate alpha honoring the user-chosen curve; gate hard on
-        // the enabled toggle so reduced-motion preferences get an
-        // instantly-zero ring regardless of timing state.
-        let focus_ring_alpha = if focus_ring_settings.enabled {
-            ring_spec_candidate
-                .as_ref()
-                .map(|spec| {
-                    spec.alpha_at_with_curve(
-                        active_pane_focused_node,
-                        crate::shell::desktop::ui::portable_time::portable_now(),
-                        focus_ring_settings.curve,
-                    )
-                })
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        };
-        // Bugfix (slice 1d): the raw `focus_ring_node_key` is latched on
-        // every transition but never cleared when a ring expires, so a
-        // direct projection kept `focus_ring: Some(..)` forever. Hosts
-        // that gate on `focus_ring.is_some()` would loop repainting.
-        // Only publish the spec while the ring is actually painting.
-        let focus_ring = ring_spec_candidate.filter(|_| focus_ring_alpha > 0.0);
+        let pane_node_order: Vec<_> = pane_rects
+            .iter()
+            .map(|(pane_id, node_key, _)| (*pane_id, *node_key))
+            .collect();
+        let focus_projection = project_focus_view_model(FocusProjectionInput {
+            graph_surface_focused: self.graph_surface_focused,
+            focus_ring_node_key: self.focus_ring_node_key,
+            focus_ring_started_at: self.focus_ring_started_at,
+            focus_ring_settings: FocusRingSettingsView {
+                enabled: focus_ring_settings.enabled,
+                duration_ms: focus_ring_settings.duration_ms,
+                curve: focus_ring_settings.curve,
+                color_override: focus_ring_settings.color_override,
+            },
+            pane_activation: self.focus_authority.pane_activation,
+            pane_node_order: &pane_node_order,
+            now: crate::shell::desktop::ui::portable_time::portable_now(),
+        });
+        let transient_outputs =
+            project_transient_frame_outputs(TransientFrameOutputsProjectionInput {
+                captures_in_flight: self.thumbnail_capture_in_flight.len(),
+            });
 
         FrameViewModel {
             active_pane_rects: self
@@ -597,28 +601,9 @@ impl GraphshellRuntime {
                 .graph_runtime
                 .cached_split_boundaries
                 .clone(),
-            active_pane: active_pane_focused_node,
-            focus: FocusViewModel {
-                // Reconciled with `EguiHost::focused_node_key()` semantics:
-                // `focused_node_hint` is a render-pass cache that can lag the
-                // authoritative value by one phase; `active_pane_rects.first()`
-                // is the same source `focused_node_key()` uses, gated on
-                // `!graph_surface_focused` to match the getter's early-return.
-                focused_node: if !self.graph_surface_focused {
-                    self.graph_app
-                        .workspace
-                        .graph_runtime
-                        .active_pane_rects
-                        .first()
-                        .map(|(_, node_key, _)| *node_key)
-                } else {
-                    None
-                },
-                graph_surface_focused: self.graph_surface_focused,
-                focus_ring,
-                focus_ring_alpha,
-            },
-            toolbar: ToolbarViewModel {
+            active_pane: focus_projection.active_pane,
+            focus: focus_projection.focus,
+            toolbar: project_toolbar_view_model(ToolbarProjectionInput {
                 location: self.toolbar_state.editable.location.clone(),
                 location_dirty: self.toolbar_state.editable.location_dirty,
                 location_submitted: self.toolbar_state.editable.location_submitted,
@@ -631,25 +616,25 @@ impl GraphshellRuntime {
                         .get(&pane)
                         .map(|draft| (pane, draft.clone()))
                 }),
-            },
+            }),
             omnibar: self.omnibar_search_session.as_ref().map(project_omnibar),
-            graph_search: GraphSearchViewModel {
+            graph_search: project_graph_search_view_model(GraphSearchProjectionInput {
                 open: self.graph_search_open,
                 query: self.graph_search_query.clone(),
                 filter_mode: self.graph_search_filter_mode,
                 match_count: self.graph_search_matches.len(),
                 active_match_index: self.graph_search_active_match_index,
-            },
-            command_palette: CommandPaletteViewModel {
+            }),
+            command_palette: project_command_palette_view_model(CommandPaletteProjectionInput {
                 open: chrome_ui.show_command_palette,
                 contextual_mode: chrome_ui.command_palette_contextual_mode,
                 query: self.command_palette_session.query.clone(),
                 scope: project_palette_scope(self.command_palette_session.scope),
                 selected_index: self.command_palette_session.selected_index,
                 toggle_requested: self.command_palette_toggle_requested,
-            },
-            overlays: Vec::new(),
-            dialogs: DialogsViewModel {
+            }),
+            overlays: transient_outputs.overlays,
+            dialogs: project_dialogs_view_model(DialogsProjectionInput {
                 bookmark_import_open: self.bookmark_import_dialog.is_some(),
                 command_palette_toggle_requested: self.command_palette_toggle_requested,
                 show_command_palette: chrome_ui.show_command_palette,
@@ -661,54 +646,42 @@ impl GraphshellRuntime {
                 show_scene_overlay: chrome_ui.show_scene_overlay,
                 show_clear_data_confirm: self.toolbar_state.show_clear_data_confirm,
                 clear_data_confirm_deadline_secs: self.clear_data_confirm_deadline_secs,
-            },
-            toasts: Vec::new(),
-            surfaces_to_present: Vec::new(),
-            degraded_receipts: Vec::new(),
-            captures_in_flight: self.thumbnail_capture_in_flight.len(),
-            settings:
-                graphshell_core::shell_state::frame_model::SettingsViewModel {
-                    focus_ring: graphshell_core::shell_state::frame_model::FocusRingSettingsView {
-                        enabled: focus_ring_settings.enabled,
-                        duration_ms: focus_ring_settings.duration_ms,
-                        curve: focus_ring_settings.curve,
-                        color_override: focus_ring_settings.color_override,
+            }),
+            toasts: transient_outputs.toasts,
+            surfaces_to_present: transient_outputs.surfaces_to_present,
+            degraded_receipts: transient_outputs.degraded_receipts,
+            captures_in_flight: transient_outputs.captures_in_flight,
+            settings: project_settings_view_model(SettingsProjectionInput {
+                focus_ring: FocusRingSettingsView {
+                    enabled: focus_ring_settings.enabled,
+                    duration_ms: focus_ring_settings.duration_ms,
+                    curve: focus_ring_settings.curve,
+                    color_override: focus_ring_settings.color_override,
+                },
+                thumbnail: ThumbnailSettingsView {
+                    enabled: thumbnail_settings.enabled,
+                    width: thumbnail_settings.width,
+                    height: thumbnail_settings.height,
+                    filter: match thumbnail_settings.filter {
+                        crate::app::ThumbnailFilter::Nearest => ThumbnailFilterView::Nearest,
+                        crate::app::ThumbnailFilter::Triangle => ThumbnailFilterView::Triangle,
+                        crate::app::ThumbnailFilter::CatmullRom => ThumbnailFilterView::CatmullRom,
+                        crate::app::ThumbnailFilter::Gaussian => ThumbnailFilterView::Gaussian,
+                        crate::app::ThumbnailFilter::Lanczos3 => ThumbnailFilterView::Lanczos3,
                     },
-                    thumbnail: graphshell_core::shell_state::frame_model::ThumbnailSettingsView {
-                        enabled: thumbnail_settings.enabled,
-                        width: thumbnail_settings.width,
-                        height: thumbnail_settings.height,
-                        filter: match thumbnail_settings.filter {
-                            crate::app::ThumbnailFilter::Nearest =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Nearest,
-                            crate::app::ThumbnailFilter::Triangle =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Triangle,
-                            crate::app::ThumbnailFilter::CatmullRom =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::CatmullRom,
-                            crate::app::ThumbnailFilter::Gaussian =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Gaussian,
-                            crate::app::ThumbnailFilter::Lanczos3 =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFilterView::Lanczos3,
-                        },
-                        format: match thumbnail_settings.format {
-                            crate::app::ThumbnailFormat::Png =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::Png,
-                            crate::app::ThumbnailFormat::Jpeg =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::Jpeg,
-                            crate::app::ThumbnailFormat::WebP =>
-                                graphshell_core::shell_state::frame_model::ThumbnailFormatView::WebP,
-                        },
-                        jpeg_quality: thumbnail_settings.jpeg_quality,
-                        aspect: match thumbnail_settings.aspect {
-                            crate::app::ThumbnailAspect::Fixed =>
-                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::Fixed,
-                            crate::app::ThumbnailAspect::MatchSource =>
-                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::MatchSource,
-                            crate::app::ThumbnailAspect::Square =>
-                                graphshell_core::shell_state::frame_model::ThumbnailAspectView::Square,
-                        },
+                    format: match thumbnail_settings.format {
+                        crate::app::ThumbnailFormat::Png => ThumbnailFormatView::Png,
+                        crate::app::ThumbnailFormat::Jpeg => ThumbnailFormatView::Jpeg,
+                        crate::app::ThumbnailFormat::WebP => ThumbnailFormatView::WebP,
+                    },
+                    jpeg_quality: thumbnail_settings.jpeg_quality,
+                    aspect: match thumbnail_settings.aspect {
+                        crate::app::ThumbnailAspect::Fixed => ThumbnailAspectView::Fixed,
+                        crate::app::ThumbnailAspect::MatchSource => ThumbnailAspectView::MatchSource,
+                        crate::app::ThumbnailAspect::Square => ThumbnailAspectView::Square,
                     },
                 },
+            }),
             accessibility: {
                 // §12.15 (2026-04-24): summarize AT state from the
                 // shell-side UxTreeSnapshot. Hosts use this to decide
@@ -716,14 +689,14 @@ impl GraphshellRuntime {
                 // frame; the full snapshot is fetched separately via
                 // `ux_tree::latest_snapshot()`.
                 let snapshot = crate::shell::desktop::workbench::ux_tree::latest_snapshot();
-                graphshell_core::shell_state::frame_model::AccessibilityViewModel {
+                project_accessibility_view_model(AccessibilityProjectionInput {
                     focused_node: self.focused_node_hint,
                     snapshot_version: snapshot
                         .as_ref()
                         .map(|s| s.semantic_version)
                         .unwrap_or(0),
                     snapshot_published: snapshot.is_some(),
-                }
+                })
             },
             // §12.6 (2026-04-24, second pass): mirrors the predicate
             // EguiHost::is_graph_view used directly. Equivalent to
@@ -746,9 +719,8 @@ impl GraphshellRuntime {
 /// view-model enum.
 fn project_palette_scope(
     scope: crate::shell::desktop::ui::command_palette_state::SearchPaletteScope,
-) -> crate::shell::desktop::ui::frame_model::CommandPaletteScopeView {
+) -> CommandPaletteScopeView {
     use crate::shell::desktop::ui::command_palette_state::SearchPaletteScope;
-    use crate::shell::desktop::ui::frame_model::CommandPaletteScopeView;
     match scope {
         SearchPaletteScope::CurrentTarget => CommandPaletteScopeView::CurrentTarget,
         SearchPaletteScope::ActivePane => CommandPaletteScopeView::ActivePane,
@@ -757,8 +729,8 @@ fn project_palette_scope(
     }
 }
 
-fn project_omnibar(session: &OmnibarSearchSession) -> OmnibarViewModel {
-    OmnibarViewModel {
+fn project_omnibar(session: &OmnibarSearchSession) -> graphshell_runtime::OmnibarViewModel {
+    project_omnibar_view_model(OmnibarProjectionInput {
         kind: match session.kind {
             OmnibarSessionKind::Graph(_) => OmnibarSessionKindView::Graph,
             OmnibarSessionKind::SearchProvider(_) => OmnibarSessionKindView::SearchProvider,
@@ -781,7 +753,7 @@ fn project_omnibar(session: &OmnibarSearchSession) -> OmnibarViewModel {
                 OmnibarProviderStatusView::FailedParse
             }
         },
-    }
+    })
 }
 
 #[cfg(any(test, feature = "iced-host"))]
@@ -842,8 +814,7 @@ impl GraphshellRuntime {
             command_surface_telemetry:
                 crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
             #[cfg(feature = "diagnostics")]
-            diagnostics_state:
-                crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new(),
+            diagnostics_state: crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new(),
         }
     }
 

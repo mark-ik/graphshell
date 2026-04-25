@@ -29,18 +29,6 @@ pub enum SelectionUpdateMode {
     Toggle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClipboardCopyKind {
-    Url,
-    Title,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClipboardCopyRequest {
-    pub key: NodeKey,
-    pub kind: ClipboardCopyKind,
-}
-
 #[derive(Clone)]
 pub(crate) struct UndoRedoSnapshot {
     pub(crate) graph_bytes: Vec<u8>,

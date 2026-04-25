@@ -82,7 +82,8 @@ macro_rules! impl_display_from_str {
 
 #[path = "app/selection.rs"]
 mod selection;
-pub use selection::{ClipboardCopyKind, ClipboardCopyRequest, SelectionState, SelectionUpdateMode};
+pub use graphshell_runtime::{ClipboardCopyKind, ClipboardCopyRequest, UiNotificationLevel};
+pub use selection::{SelectionState, SelectionUpdateMode};
 pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
 
 #[path = "app/history.rs"]
@@ -110,7 +111,7 @@ mod history_runtime;
 mod intents;
 pub use intents::{
     AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
-    NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec, UiNotificationLevel,
+    NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec,
     ViewAction,
 };
 

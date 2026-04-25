@@ -18,8 +18,16 @@
 //! Re-exported from `gui_orchestration` so existing callers see the
 //! same public API surface.
 
-use crate::app::{GraphBrowserApp, NodeStatusNoticeRequest, UiNotificationLevel};
-use crate::shell::desktop::ui::frame_model::{ToastSeverity, ToastSpec};
+use graphshell_runtime::NodeStatusNotice;
+use graphshell_runtime::RuntimeNodeStatusNoticeState;
+use graphshell_runtime::ToastSeverity;
+use graphshell_runtime::ToastSpec;
+use graphshell_runtime::drain_pending_node_status_notices;
+use graphshell_runtime::emit_node_status_toast;
+use graphshell_runtime::port_error;
+
+use crate::app::{GraphBrowserApp, NodeStatusNoticeRequest};
+use crate::graph::NodeKey;
 use crate::shell::desktop::ui::host_ports::HostToastPort;
 
 /// Adapter that bridges a raw `&mut egui_notify::Toasts` into
@@ -43,45 +51,28 @@ impl<'a> HostToastPort for ToastsAdapter<'a> {
     }
 }
 
+impl RuntimeNodeStatusNoticeState for GraphBrowserApp {
+    type AuditEvent = crate::services::persistence::types::NodeAuditEventKind;
+
+    fn take_pending_node_status_notice(
+        &mut self,
+    ) -> Option<(NodeStatusNotice, Option<Self::AuditEvent>)> {
+        GraphBrowserApp::take_pending_node_status_notice(self).map(
+            |NodeStatusNoticeRequest {
+                 notice,
+                 audit_event,
+             }| { (notice, audit_event) },
+        )
+    }
+
+    fn log_node_status_audit_event(&mut self, key: NodeKey, event: Self::AuditEvent) {
+        GraphBrowserApp::log_node_audit_event(self, key, event);
+    }
+}
+
 pub(crate) fn handle_pending_node_status_notices<P>(graph_app: &mut GraphBrowserApp, port: &mut P)
 where
     P: HostToastPort + ?Sized,
 {
-    while let Some(NodeStatusNoticeRequest {
-        key,
-        level,
-        message,
-        audit_event,
-    }) = graph_app.take_pending_node_status_notice()
-    {
-        emit_node_status_toast(port, level, &message);
-
-        let Some(event) = audit_event else {
-            continue;
-        };
-        graph_app.log_node_audit_event(key, event);
-    }
-}
-
-/// Emit a single error-severity toast through the port. Shared by the
-/// clipboard flow for failure reporting.
-pub(crate) fn port_error<P>(port: &mut P, message: impl Into<String>)
-where
-    P: HostToastPort + ?Sized,
-{
-    port.enqueue_message(ToastSeverity::Error, message, None);
-}
-
-/// Emit a node-status notice at the requested severity. Shared by the
-/// clipboard flow for success/warning paths.
-pub(crate) fn emit_node_status_toast<P>(port: &mut P, level: UiNotificationLevel, message: &str)
-where
-    P: HostToastPort + ?Sized,
-{
-    let severity = match level {
-        UiNotificationLevel::Success => ToastSeverity::Success,
-        UiNotificationLevel::Warning => ToastSeverity::Warning,
-        UiNotificationLevel::Error => ToastSeverity::Error,
-    };
-    port.enqueue_message(severity, message.to_string(), None);
+    drain_pending_node_status_notices(graph_app, port);
 }

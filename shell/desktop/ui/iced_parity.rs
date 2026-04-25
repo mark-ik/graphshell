@@ -22,13 +22,13 @@
 #[cfg(test)]
 mod tests {
     use crate::shell::desktop::ui::egui_host_ports::EguiHostPorts;
-    use crate::shell::desktop::ui::frame_model::FrameHostInput;
     use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
     use crate::shell::desktop::ui::iced_events::from_iced_event;
     use crate::shell::desktop::ui::iced_host_ports::IcedHostPorts;
     use crate::shell::desktop::workbench::ux_replay::{
         HostEvent, PointerButton, host_event_from_egui_event,
     };
+    use graphshell_runtime::FrameHostInput;
 
     // -----------------------------------------------------------------------
     // Level 1 — event translation parity.
@@ -145,14 +145,28 @@ mod tests {
         let mut clipboard: Option<arboard::Clipboard> = None;
         let mut pending_webview_a11y_updates = std::collections::HashMap::new();
         let mut pending_accesskit_focus_requests = Vec::new();
+        let mut pending_present_requests = Vec::new();
         let mut egui_ports = EguiHostPorts {
             toasts: &mut toasts,
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
             ui_render_backend: None,
+            pending_present_requests: &mut pending_present_requests,
+            ctx: None,
         };
-        let mut iced_ports = IcedHostPorts;
+        let mut iced_clipboard: Option<arboard::Clipboard> = None;
+        let mut iced_toasts: Vec<graphshell_runtime::ToastSpec> = Vec::new();
+        let mut iced_textures = std::collections::HashMap::new();
+        let mut iced_pending_presents = Vec::new();
+        let mut iced_ports = IcedHostPorts {
+            clipboard: &mut iced_clipboard,
+            cursor_position: None,
+            modifiers: iced::keyboard::Modifiers::empty(),
+            toast_queue: &mut iced_toasts,
+            texture_cache: &mut iced_textures,
+            pending_present_requests: &mut iced_pending_presents,
+        };
 
         let vm_egui = runtime_egui.tick(&input, &mut egui_ports);
         let vm_iced = runtime_iced.tick(&input, &mut iced_ports);
@@ -263,14 +277,28 @@ mod tests {
         let mut clipboard: Option<arboard::Clipboard> = None;
         let mut pending_webview_a11y_updates = std::collections::HashMap::new();
         let mut pending_accesskit_focus_requests = Vec::new();
+        let mut pending_present_requests = Vec::new();
         let mut egui_ports = EguiHostPorts {
             toasts: &mut toasts,
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
             ui_render_backend: None,
+            pending_present_requests: &mut pending_present_requests,
+            ctx: None,
         };
-        let mut iced_ports = IcedHostPorts;
+        let mut iced_clipboard: Option<arboard::Clipboard> = None;
+        let mut iced_toasts: Vec<graphshell_runtime::ToastSpec> = Vec::new();
+        let mut iced_textures = std::collections::HashMap::new();
+        let mut iced_pending_presents = Vec::new();
+        let mut iced_ports = IcedHostPorts {
+            clipboard: &mut iced_clipboard,
+            cursor_position: None,
+            modifiers: iced::keyboard::Modifiers::empty(),
+            toast_queue: &mut iced_toasts,
+            texture_cache: &mut iced_textures,
+            pending_present_requests: &mut iced_pending_presents,
+        };
 
         let _ = runtime_egui.tick(&input, &mut egui_ports);
         let _ = runtime_iced.tick(&input, &mut iced_ports);
@@ -306,7 +334,6 @@ mod tests {
     #[test]
     fn replay_trace_scalar_parity_across_host_ports() {
         use graphshell_core::host_event::HostEvent;
-        use graphshell_core::shell_state::frame_model::FrameHostInput;
 
         // Construct a small replay trace: pointer move, then a
         // primary-button down. Same sequence both runtimes consume.
@@ -332,68 +359,66 @@ mod tests {
         let mut clipboard: Option<arboard::Clipboard> = None;
         let mut pending_webview_a11y_updates = std::collections::HashMap::new();
         let mut pending_accesskit_focus_requests = Vec::new();
+        let mut pending_present_requests = Vec::new();
         let mut egui_ports = EguiHostPorts {
             toasts: &mut toasts,
             clipboard: &mut clipboard,
             pending_webview_a11y_updates: &mut pending_webview_a11y_updates,
             pending_accesskit_focus_requests: &mut pending_accesskit_focus_requests,
             ui_render_backend: None,
+            pending_present_requests: &mut pending_present_requests,
+            ctx: None,
         };
-        let mut iced_ports = IcedHostPorts;
+        let mut iced_clipboard: Option<arboard::Clipboard> = None;
+        let mut iced_toasts: Vec<graphshell_runtime::ToastSpec> = Vec::new();
+        let mut iced_textures = std::collections::HashMap::new();
+        let mut iced_pending_presents = Vec::new();
+        let mut iced_ports = IcedHostPorts {
+            clipboard: &mut iced_clipboard,
+            cursor_position: None,
+            modifiers: iced::keyboard::Modifiers::empty(),
+            toast_queue: &mut iced_toasts,
+            texture_cache: &mut iced_textures,
+            pending_present_requests: &mut iced_pending_presents,
+        };
 
         let vm_egui = runtime_egui.tick(&input, &mut egui_ports);
         let vm_iced = runtime_iced.tick(&input, &mut iced_ports);
 
-        // Portable scalar fields that should match across hosts after
-        // the same trace. Many view-model sub-structs don't yet derive
-        // `PartialEq`, so we pin parity on the scalar primitives that
-        // do.
+        // Struct-level parity across all host-neutral view-model
+        // sub-structs. Each sub-model has `PartialEq` as of 2026-04-24,
+        // so any field-level divergence is now caught by a single
+        // assertion rather than requiring a scalar allowlist. Divergence
+        // here is a kernel regression by construction — the runtime is
+        // host-neutral so differing ports can only diverge results if a
+        // port impl mutated runtime state during tick.
+        assert_eq!(vm_egui.focus, vm_iced.focus, "focus view-model");
+        assert_eq!(vm_egui.toolbar, vm_iced.toolbar, "toolbar view-model");
+        assert_eq!(vm_egui.omnibar, vm_iced.omnibar, "omnibar view-model");
         assert_eq!(
-            vm_egui.focus.graph_surface_focused,
-            vm_iced.focus.graph_surface_focused,
-            "focus.graph_surface_focused"
+            vm_egui.graph_search, vm_iced.graph_search,
+            "graph_search view-model"
         );
         assert_eq!(
-            vm_egui.focus.focus_ring_alpha, vm_iced.focus.focus_ring_alpha,
-            "focus.focus_ring_alpha"
-        );
-        assert_eq!(
-            vm_egui.toolbar.location, vm_iced.toolbar.location,
-            "toolbar.location"
-        );
-        assert_eq!(
-            vm_egui.toolbar.can_go_back, vm_iced.toolbar.can_go_back,
-            "toolbar.can_go_back"
-        );
-        assert_eq!(
-            vm_egui.toolbar.can_go_forward, vm_iced.toolbar.can_go_forward,
-            "toolbar.can_go_forward"
-        );
-        assert_eq!(
-            vm_egui.graph_search.open, vm_iced.graph_search.open,
-            "graph_search.open"
-        );
-        assert_eq!(
-            vm_egui.graph_search.query, vm_iced.graph_search.query,
-            "graph_search.query"
-        );
-        assert_eq!(
-            vm_egui.graph_search.match_count, vm_iced.graph_search.match_count,
-            "graph_search.match_count"
-        );
-        assert_eq!(
-            vm_egui.command_palette.open, vm_iced.command_palette.open,
-            "command_palette.open"
-        );
-        assert_eq!(
-            vm_egui.command_palette.query, vm_iced.command_palette.query,
-            "command_palette.query"
+            vm_egui.command_palette, vm_iced.command_palette,
+            "command_palette view-model"
         );
         assert_eq!(vm_egui.dialogs, vm_iced.dialogs, "dialogs view-model");
         assert_eq!(vm_egui.settings, vm_iced.settings, "settings view-model");
+        assert_eq!(vm_egui.toasts, vm_iced.toasts, "toasts view-model");
+        assert_eq!(
+            vm_egui.degraded_receipts, vm_iced.degraded_receipts,
+            "degraded_receipts view-model"
+        );
         assert_eq!(
             vm_egui.captures_in_flight, vm_iced.captures_in_flight,
             "captures_in_flight"
+        );
+        assert_eq!(vm_egui.active_pane, vm_iced.active_pane, "active_pane");
+        assert_eq!(vm_egui.is_graph_view, vm_iced.is_graph_view, "is_graph_view");
+        assert_eq!(
+            vm_egui.accessibility, vm_iced.accessibility,
+            "accessibility view-model"
         );
     }
 }
