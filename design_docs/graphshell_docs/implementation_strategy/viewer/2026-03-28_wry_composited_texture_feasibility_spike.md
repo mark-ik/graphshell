@@ -11,6 +11,8 @@
 - `viewer_presentation_and_fallback_spec.md`
 - `../aspect_render/frame_assembly_and_compositor_spec.md`
 - `../aspect_render/2026-03-27_egui_retained_state_efficiency_and_physics_worker_evaluation_plan.md`
+- `../../../../../wgpu-gui-bridge/README.md`
+- `../../../../../wgpu-gui-bridge/wgpu-native-texture-interop/README.md`
 
 ---
 
@@ -20,6 +22,17 @@ Graphshell already has a healthy composited viewer path for Servo and a healthy
 native-overlay path for Wry. What it does **not** have is proof that the Wry
 stack can produce reliable offscreen frames with acceptable latency, damage
 behavior, and texture upload characteristics.
+
+The architectural target is still attractive: Wry-backed system webviews should
+eventually be hostable as composited web surfaces when the platform can expose a
+real frame source, rather than being restricted to native child-window overlays.
+That would let Graphshell place Wry, Servo, screenshots, remote browser streams,
+and future browser-engine adapters behind the same compositor policy.
+
+The spike exists because Wry is not Servo. Servo can be shaped as an offscreen
+producer. Wry mostly wraps platform webview widgets whose compositor output is
+owned by WebView2, WKWebView, or WebKitGTK. That means a Wry texture path must
+be capability-driven, not assumed as a cross-platform guarantee.
 
 That makes "true Wry composited texture rendering" a **feasibility question**
 first and a productization task second.
@@ -88,6 +101,44 @@ The spike is successful if all of the following are true on Windows:
 
 ## 4. Suggested Technical Shape
 
+### 4.0 Put The Adapter Boundary In The Bridge Repo
+
+The natural repository home for a future `wry-wgpu-interop-adapter` is
+`wgpu-gui-bridge`, beside `servo-wgpu-interop-adapter`, because the adapter is a
+host-facing web-surface integration. It should not be folded directly into
+`wgpu-native-texture-interop`.
+
+Keep the crate split:
+
+- `wgpu-native-texture-interop`
+  - owns native GPU import/export primitives
+  - describes backend resources, lifetime, format, alpha, and synchronization
+  - should remain renderer- and GUI-framework-agnostic
+- `servo-wgpu-interop-adapter`
+  - owns Servo-specific offscreen rendering and frame production
+  - can offer a true imported-texture path because Servo can render offscreen
+- `wry-wgpu-interop-adapter`
+  - should be a capability-negotiated system-webview adapter
+  - may use imported textures where the platform exposes them
+  - may report native-overlay-only or snapshot-only modes where it cannot
+
+The important API concept is not "Wry always becomes a texture." It is "a
+system webview can advertise how, if at all, it can participate in the host
+compositor."
+
+```rust
+pub enum WebSurfaceMode {
+    ImportedTexture,
+    NativeChildOverlay,
+    CpuSnapshot,
+    Unsupported,
+}
+```
+
+Graphshell can then prefer `ImportedTexture` for graph-composited surfaces while
+still allowing `NativeChildOverlay` for panes where host chrome, clipping,
+transforms, and z-order are not critical.
+
 ### 4.1 Add A Frame-Source Boundary First
 
 Before implementing capture, split the Wry runtime conceptually into:
@@ -138,6 +189,23 @@ Servo offscreen composition:
 
 If Wry capture requires radically different assumptions from that path, that is
 important spike output in itself.
+
+### 4.3 Treat WebView2 Texture APIs As Evidence, Not A Promise
+
+Windows remains the right first probe because WebView2 is the most plausible
+system webview backend for exposing GPU surfaces. However, WebView2 texture
+stream APIs should be treated as evidence to investigate rather than proof that
+full-webview compositor output can become a host-owned `wgpu::Texture`.
+
+The spike should distinguish at least three cases:
+
+- full webview compositor output can be imported or copied into a host texture
+- page/script/media content can produce textures, but not the whole webview
+- only snapshots or child-window composition are available through reachable Wry
+  APIs
+
+Those are different product outcomes. Only the first one is equivalent to the
+Servo offscreen path.
 
 ---
 
