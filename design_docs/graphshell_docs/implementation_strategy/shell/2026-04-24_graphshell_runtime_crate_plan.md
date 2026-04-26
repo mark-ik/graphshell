@@ -1,6 +1,6 @@
 # Graphshell Runtime Crate Extraction Plan
 
-Status: Active - Slice 1 complete; AppState -> FrameViewModel helper extraction closed; lightweight parity target seeded  
+Status: Closed for this canonical lane - done gate met; next work splits into source-trait extraction or S2c body-level cascade cleanup  
 Last updated: April 25, 2026
 
 Related docs:
@@ -224,7 +224,7 @@ The first two previously listed follow-ons are no longer future work:
    shell still owns the thin `ui/finalize_actions.rs` adapter because
    `GraphBrowserApp` and diagnostics/audit side effects remain shell/app-owned.
 
-### Next slice: AppState -> FrameViewModel seam inventory, then extraction
+### Completed slice: AppState -> FrameViewModel seam inventory, then extraction
 
 Do not move `GraphshellRuntime` wholesale next. The next useful step is to make
 `project_view_model` extractable without pretending the whole shell state is
@@ -366,15 +366,15 @@ Progress log:
   `graph-canvas`, `graph-tree`, and `graphshell-core` and are unrelated to this
   slice.
 
-Done gate:
+Done gate - met 2026-04-25:
 
 - `project_view_model` is decomposed enough that each remaining shell read has
   an explicit owner bucket.
 - At least one projection helper moves or is isolated behind a named seam
   without adding `graphshell` as a dependency of `graphshell-runtime`.
-- `cargo check -p graphshell-runtime` still passes, and any shell-level focused
-  validation that reaches the changed projection path either passes or records
-  the same known Servo/webrender compile-wall limitation.
+- `cargo test -p graphshell-runtime --lib` passes at 24 tests after the
+  cross-lane extension slices.
+- `cargo check` with default features is clean.
 
 ### Later slice: lighter parity target
 
@@ -438,6 +438,210 @@ added complementary surface to the same `graphshell-runtime` crate:
 
 Validation: `cargo test -p graphshell-runtime --lib` passed at 24
 tests post-extension; `cargo check` (default features) clean.
+
+## Closure note and next moves
+
+The canonical plan's explicit done-gate criteria are now met. Going further
+into "extract more from `GraphshellRuntime`" would cross the plan's stated
+guardrails: the remaining fields that still block iced launch without
+`servo-engine` (`viewer_surfaces`, `webview_creation_backpressure`,
+`frame_inbox`, `bookmark_import_dialog`, and adjacent runtime/app-owned state)
+all belong to the current "not ready to move" bucket. They depend on
+`GraphBrowserApp` ownership, audit/diagnostics side effects, shell dialog
+state, or shell-local UxTree lookup patterns that are not yet fronted by narrow
+portable source traits.
+
+The iced-launch-without-`servo-engine` goal is still reachable, but the next
+runtime-crate progress should happen one source trait at a time rather than by
+moving more of `GraphshellRuntime` behind a broad trait. Two clean fresh-session
+options are:
+
+- Pick one source-trait extraction, such as wrapping the
+  `webview_creation_backpressure` metadata view behind a narrow
+  `RuntimeWebviewBackpressureMetadataSource`-style seam before moving any
+  field.
+- Pivot to the servo-into-verso S2c body-level cascade pass, which is
+  mechanical, bounded, and currently tracked at roughly 75 remaining errors.
+
+### Source-side audit - webview creation backpressure (2026-04-25)
+
+Audit target: `GraphshellRuntime::webview_creation_backpressure`, currently a
+`HashMap<NodeKey, WebviewCreationBackpressureState>` owned by the shell runtime
+state in `ui/gui_state.rs`.
+
+Current source ownership:
+
+- Storage owner: `GraphshellRuntime`. The field is transient retry/probe state,
+  initialized empty in `new_minimal`, cleared on empty graph or no active pane
+  work in lifecycle reconcile, and cleared during graph snapshot workspace reset.
+- Metadata reader path: `tile_render_pass` publishes per-node attach-attempt
+  metadata from the map each frame; `ux_tree` later consumes the published
+  metadata when building the semantic snapshot.
+- Creation/reconcile writers: `ensure_webview_for_node` and
+  `reconcile_webview_creation_backpressure` own the retry state machine. The
+  visible-pane path calls creation from `tile_render_pass`, toolbar/keyboard
+  tile toggles call creation through `tile_view_ops`, and selected-node prewarm
+  calls creation through `lifecycle_reconcile`.
+- Effectful dependencies: the creation path reaches `GraphBrowserApp`,
+  `EmbedderWindow`, `RunningAppState`, Servo `WebViewId`, Servo rendering
+  contexts, `ViewerSurfaceRegistry`, `ViewerSurfaceHost`, diagnostics channels,
+  pending host-create tokens, and reducer intents.
+
+Classification:
+
+- Ready to isolate: the read-only attach-attempt metadata view
+  (`retry_count`, pending age, cooldown remaining) and map reset/clear behavior.
+  This is the smallest honest source seam because it exposes what consumers
+  need without pretending webview allocation is portable.
+- Portable after small vocabulary work: the probe identity inside
+  `WebviewCreationBackpressureState`. It is Servo `WebViewId` today; moving the
+  state type to `graphshell-runtime` would require converting it to the already
+  host-neutral `ViewerSurfaceId` or keeping a Servo-specific adapter in
+  graphshell main.
+- Not ready to move: `ensure_webview_for_node` as a whole. It performs host
+  allocation and Servo webview creation, consumes `RunningAppState`, mutates
+  viewer surfaces, emits diagnostics, maps/unmaps renderer IDs, and pushes
+  lifecycle intents.
+- Not ready to move as one broad trait: a generic
+  `RuntimeWebviewBackpressureSource` over the whole map would either expose
+  Servo-shaped internals or become a giant shell-ownership trait. That would
+  violate this plan's guardrail.
+
+Recommended next slice:
+
+- Prefer a narrow metadata/source seam first, such as
+  `RuntimeNodePaneAttachAttemptSource` or
+  `RuntimeWebviewBackpressureMetadataSource`, backed by the existing map in
+  graphshell main.
+- Keep `ensure_webview_for_node` and Servo creation/reconcile effects in
+  graphshell main for now, likely behind `servo-engine` as part of the S2c
+  body-level cascade pass.
+- If moving state is still desired after the metadata seam, split the type into
+  host-neutral retry/cooldown data plus a host-specific pending-probe adapter
+  that converts Servo `WebViewId` to/from `ViewerSurfaceId` at the graphshell
+  boundary.
+
+Progress log:
+
+- 2026-04-25: Landed the first source-side extraction from this audit.
+  `graphshell-runtime::webview_backpressure` now owns the host-neutral
+  `NodePaneAttachAttemptMetadata` payload plus the
+  `RuntimeWebviewBackpressureMetadataSource` trait. The shell keeps the
+  Servo-backed retry/probe state machine and implements the metadata source via
+  a small local wrapper over the existing
+  `HashMap<NodeKey, WebviewCreationBackpressureState>`. Existing shell import
+  paths are preserved by re-exporting `NodePaneAttachAttemptMetadata` from
+  `shell::desktop::lifecycle::webview_backpressure`.
+- 2026-04-25: Validation receipts for the metadata-source slice:
+  `cargo fmt --package graphshell-runtime --
+  shell\desktop\lifecycle\webview_backpressure.rs`; `cargo test -p
+  graphshell-runtime --lib` passed at 26 tests; `cargo check -p
+  graphshell-runtime` passed; `cargo check -p graphshell --lib` passed.
+  Existing upstream warnings remain in `graph-canvas`, `graph-tree`,
+  `graphshell-core`, `webrender`, `wr_glyph_rasterizer`, and a deprecated egui
+  call in `egui_host_ports`; they are unrelated to this slice.
+- 2026-04-26: Landed the **retry/cooldown core extraction** — the
+  natural follow-on to the metadata-source seam. Added
+  `WebviewAttachRetryState` (host-neutral: `retry_count`, `cooldown_step`,
+  plus methods `cooldown_delay_ms_for_step`, `advance_cooldown_step`,
+  `record_attempt`, `is_retry_exhausted`, `reset`, `reset_retry_count`)
+  to `graphshell-runtime::webview_backpressure`. Reimplemented the
+  exponential cooldown delay as a pure `min*2^step`-clamp-to-`[MIN, MAX]`
+  function (matches existing `backon::ExponentialBuilder` semantics
+  bit-for-bit at every step), keeping graphshell-runtime free of
+  `backon` and `Instant`. The shell-side
+  `WebviewCreationBackpressureState` now composes
+  `retry: WebviewAttachRetryState` alongside the Servo-typed
+  `pending: Option<WebviewCreationProbe>` and
+  `cooldown_until: Option<Instant>` — the explicit boundary the audit
+  named (probe identity + deadline arithmetic stay shell-side because
+  they depend on Servo `WebViewId` and `std::time::Instant`).
+  All shell-side numeric constants
+  (`WEBVIEW_CREATION_MAX_RETRIES`, `WEBVIEW_CREATION_COOLDOWN_MIN`,
+  `WEBVIEW_CREATION_COOLDOWN_MAX`, `WEBVIEW_CREATION_COOLDOWN_MAX_STEP`)
+  now live as `WebviewAttachRetryState::MAX_RETRIES` etc. on the
+  runtime side. Migrated the cooldown-delay-bounds test plus added 8
+  new tests on the runtime side (cooldown step doubling, advance
+  semantics, saturation, reset variants, retry exhaustion, attempt
+  saturation). Validation: graphshell-runtime tests 26 → 33 pass;
+  shell-side webview_backpressure tests (7) all pass; full
+  engine-feature matrix (default / no-default wry / no-default
+  iced-host,wry) all 3/3 PASS. Side fix: added missing
+  `ServoAccessibilityInjectionPort` import to the
+  `egui_host_ports.rs` test mod (a leftover from yesterday's S3a
+  trait split that surfaced the moment `cargo test --lib` was
+  exercised; one-line correction). Sidequest noted: `backon` is no
+  longer referenced anywhere in graphshell main; awaiting user
+  confirmation before removing the dependency from `Cargo.toml`.
+- 2026-04-27: Landed **viewer_surfaces Step 2** — host-neutral
+  `RenderingContextProducer` trait in
+  `graphshell-runtime::rendering_context_producer`, plus a shell-side
+  `ServoRenderingContextProducer` adapter at
+  `shell/desktop/render_backend/`. Trait surface is the minimum the
+  compositor's `ViewerSurfaceBacking::rendering_context()` consumers
+  actually touch on the wgpu path: `size_in_pixels()`, `resize()`,
+  `present()` — primitives only, no external trait dependencies. GL
+  `make_current` / `prepare_for_rendering` are deliberately NOT in the
+  trait: graphshell is wgpu-first (Servo at `servo-wgpu`, renderer at
+  `webrender-wgpu`), and the GL-compat fallback is gated behind the
+  deprecated `gl_compat` feature inside `OffscreenRenderingContext`
+  consumers (handled at the path-specific call site in
+  `paint_offscreen_content_pass`, not at the producer trait level). Servo's `RenderingContextCore` (which
+  drags `embedder_traits::RefreshDriver`, `webrender_api::units`,
+  `surfman`, `gleam`/`glow`) stays in Servo; the adapter bridges. Per
+  the source-side review, the alternatives all carried sharper costs:
+  re-extracting the full Servo trait would defeat the lightweight-runtime
+  goal; opaque trait-object handles would lose concrete-type access on
+  the shell side; full registry parameterization is a separate question.
+  `ViewerSurfaceBacking` deliberately stays Servo-typed in this slice:
+  `compositor_adapter.rs` is gated on `servo-engine` anyway, and Servo
+  webview construction (`webview_backpressure.rs:328`) consumes
+  `Rc<dyn RenderingContextCore>` directly. The reshape that swaps
+  `NativeRenderingContext` to `Rc<dyn RenderingContextProducer>` is the
+  follow-on triggered when iced-host plugs in its own producer.
+  Validation: graphshell-runtime tests 37 → 40 (3 new trait tests:
+  resize observation, present count, object-safety); engine-feature
+  matrix all 3/3 PASS.
+- 2026-04-27: Landed **viewer_surfaces Step 1** — the host-neutral
+  lifecycle types from `compositor_adapter.rs`. `ContentSurfaceHandle<T>`
+  is now generic over the host's texture-token type and lives in
+  `graphshell-runtime::content_surface` along with
+  `ViewerSurfaceFramePath`. Shell-side keeps a type alias bound to
+  `BackendTextureToken` plus a free `content_surface_handle_for_node`
+  function for the static-map lookup (the only inherent-impl method that
+  needed shell-owned context). `content_generation: u64` already lived
+  as a portable counter and stays a field on `ViewerSurface`. Per the
+  servo-into-verso plan's audit, Step 2 will introduce a portable
+  `RenderingContextProducer` trait so the host-neutral parts of
+  `ViewerSurfaceBacking` can join the runtime crate; today the backing
+  stays shell-side because it references Servo
+  `RenderingContextCore`/`OffscreenRenderingContext`. Validation:
+  graphshell-runtime tests 35 → 37; engine-feature matrix all 3/3 PASS.
+- 2026-04-27: Landed the **frame_inbox extraction** — the next
+  portable-but-shell-owned input from the closure-note inventory
+  (line 448 above). `FrameInboxState` (the typed `mpsc::Receiver`
+  bag with the `FrameSignalRelay<T>` `drain_flag`/`drain_all`
+  helpers and the four per-frame `take_*` consumers) now lives in
+  `graphshell-runtime::frame_inbox`, with the two drain-coalescing
+  tests migrated alongside it. Shell-side
+  `shell/desktop/ui/gui/frame_inbox.rs` is now a thin wiring shim:
+  `pub(crate) type GuiFrameInbox = FrameInboxState` plus a free
+  `spawn_gui_frame_inbox(&mut ControlPanel, Arc<dyn SignalRouter>)
+  -> GuiFrameInbox` constructor that owns the ControlPanel-driven
+  subscription wiring (signal types are already
+  `graphshell_core::signal_router::*`, so the spawn body stays
+  portable except for the `&mut ControlPanel` parameter). The
+  control-panel spawn test stays shell-side. Two call sites
+  updated (`gui.rs:419`, `gui_state.rs:769`) from
+  `GuiFrameInbox::spawn(...)` to `spawn_gui_frame_inbox(...)`.
+  Validation: graphshell-runtime tests 33 → 35 (two drain tests
+  added); shell-side `frame_inbox` spawn test still passes;
+  engine-feature matrix all 3/3 PASS. Remaining "not ready to
+  move" closure-note items are now `viewer_surfaces`,
+  `webview_creation_backpressure`, and `bookmark_import_dialog`;
+  per the servo-into-verso plan's audit, `viewer_surfaces` is the
+  next recommended take (with `bookmark_import_dialog` deferred
+  since it's already reduced to a `bool` projection).
 
 ## Risks and guardrails
 

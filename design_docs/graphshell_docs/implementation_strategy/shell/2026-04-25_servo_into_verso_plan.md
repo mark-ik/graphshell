@@ -178,7 +178,43 @@ The standalone iced demo crates (`crates/iced-{middlenet,graph-canvas,
 wry}-viewer`) are unaffected — they remain fully no-Servo and
 demonstrate the Phase B portable surface.
 
-**Remaining 75 errors (deferred to S3 / S2c body-level pass)**:
+**S2c body-level pass (completed 2026-04-25)**:
+
+The deferred no-Servo Wry body-level cascade is now closed. A fresh
+S2c baseline after the host-port extraction stood at **74 errors / 24
+warnings** for `cargo check --no-default-features --features wry`.
+The pass fixed false Servo coupling and added no-Servo shims only where
+the build already owned no live Servo state:
+
+- 74 -> 64: `ux_tree` metadata/telemetry imports moved to
+  host-neutral sources; Tool-pane match arms made exhaustive when
+  `diagnostics` is off.
+- 64 -> 56: pure local-file URL/access-policy helpers moved out of
+  Servo-gated `tile_behavior` into ungated `workbench::local_file_access`.
+- 56 -> 53: `tag_panel` stopped depending on Servo-gated
+  `render::semantic_tags` for pure tag label/suggestion helpers.
+- 53 -> 41: persisted command-palette action taxonomy now uses
+  `graphshell_core::actions`; the no-Servo `prefs` stub gained the
+  stylesheet source reader needed by settings persistence.
+- 41 -> 32: persisted workspace rename now updates the JSON `name`
+  field directly; diagnostics gained no-Servo focus/compositor replay
+  and content-budget fallbacks.
+- 32 -> 1: `workflow` registry compiled unconditionally; no-Servo
+  `workbench_surface` shim backed by the domain registry satisfied the
+  `RegistryRuntime` fields.
+- 1 -> 0: no-Servo `workbench_surface::dispatch_intent` added as a
+  no-op sink matching the Servo-path signature.
+
+Validation receipts:
+
+- ✅ `cargo check --no-default-features --features wry` — clean,
+  warnings only (`graphshell` lib generated 24 warnings; 18.54s
+  incremental).
+- ✅ `cargo check -p graphshell --lib` — clean default-feature guardrail,
+  warnings only (`graphshell` lib generated 2 warnings after trimming the
+  stale `tile_behavior` re-export; latest incremental 10.72s).
+
+Historical S2b cascade inventory, now resolved by S2c:
 
 - `shell/desktop/runtime/registries/mod.rs` body (~30 refs to
   `WorkbenchSurfaceRegistry`, `WorkflowRegistry`, etc.) — needs
@@ -196,12 +232,9 @@ demonstrate the Phase B portable surface.
   function signatures).
 - `shell/desktop/ui/tag_panel.rs` (uses `crate::render`).
 
-These are body-level uses of gated types. Gating them per-line is
-mechanical but tedious; the proper fix is the S3 trait/vocab
-extraction so the consumers don't depend on Servo-coupled modules
-in the first place. **Recommendation: S2c body-level pass should
-follow S3a (host_ports trait extraction) so the body-level work
-isn't redone.**
+These were body-level uses of gated types. The S2c fix kept the
+Servo/default path on the real modules and used empty/no-op fallbacks
+only for no-Servo paths where no Servo producer exists.
 
 #### S2b — Original file-level sweep target (✅ catalogued, ⏳ deferred)
 
@@ -398,17 +431,30 @@ Status as of 2026-04-25:
 - ✅ `cargo check -p verso --features servo-engine` — clean (S1).
 - ✅ `cargo check` (default features) — clean (S2a; servo-engine + wry
   on, no regressions, 4m 17s).
-- 🚧 `cargo check --no-default-features --features wry` — 75 errors
-  remaining (down from 142 after S2b module-level pass; remaining
-  75 are body-level cascades pending S3a trait extraction).
-- ⏳ `cargo check --no-default-features --features iced-host,wry` —
-  same 75 errors plus iced launch path coupling (currently gated
-  on servo-engine; decoupling is S3 work).
+- ✅ `cargo check --no-default-features --features wry` — clean after
+  S2c body-level pass; warnings only (24 graphshell warnings).
+- ✅ `cargo check --no-default-features --features iced-host,wry` —
+  clean as a **library compile** (24 warnings, all unused-import noise,
+  0 errors; 1m 54s cold). **Caveat**: the in-tree iced launch path
+  (`iced_app`, `iced_host`, `iced_graph_canvas`, `iced_events`,
+  `iced_middlenet_viewer`) is still gated on
+  `cfg(all(iced-host, servo-engine))` per S3b.1, so this receipt
+  proves the iced-host *bridge surface* (`iced_host_ports`,
+  `CachedTexture`, runtime ports) compiles without Servo — not that
+  the binary launches via iced. Closing the gap (truly launchable
+  iced without Servo) is the canonical S3b GraphshellRuntime
+  extraction.
 - ⏳ `cargo check --no-default-features --features iced-host` — not
-  yet attempted (depends on S2b + S3).
+  yet attempted (drops `wry` too; expect new errors only if any
+  ungated code assumed wry was present).
 - ⏳ `cargo check --no-default-features --features
-  servo-engine,iced-host` — not yet attempted (depends on S2b).
-- All four matrix entries to be documented post-S5.
+  servo-engine,iced-host` — not yet attempted.
+- All matrix entries to be documented post-S5.
+
+**Compile-matrix runner**: [`scripts/dev/engine-feature-matrix.sh`](../../../../scripts/dev/engine-feature-matrix.sh)
+(and `.ps1` sibling) runs the three checks above in sequence and emits a
+one-line PASS/FAIL summary per combo. Wire this into CI or a pre-push hook
+to prevent silent regressions of the no-Servo paths.
 
 ---
 
@@ -476,6 +522,211 @@ Status as of 2026-04-25:
   `gui_state::GraphshellRuntime` and stays gated on
   `cfg(all(iced-host, servo-engine))` until the GraphshellRuntime
   extraction (S3b proper) lands.
+- **2026-04-25 (S2c body-level no-Servo Wry pass)**: closed the
+  `cargo check --no-default-features --features wry` cascade from a
+  fresh 74-error baseline to green. Fixes were localized to false
+  Servo coupling (`ux_tree`, command-surface telemetry, action
+  taxonomy), pure helper relocation (`workbench::local_file_access`,
+  tag-panel helpers), JSON/prefs no-Servo fallbacks, diagnostics
+  no-Servo placeholders, and a no-Servo `workbench_surface` shim for
+  the registry runtime. Final receipts: no-Servo Wry check clean with
+  24 graphshell warnings; default `cargo check -p graphshell --lib`
+  clean with 2 graphshell warnings after stale re-export cleanup.
+- **2026-04-26 (S3b retry/cooldown core extraction)**: continued the
+  canonical runtime-crate slice path. `WebviewAttachRetryState` (the
+  host-neutral retry/cooldown core named in the
+  webview_creation_backpressure audit) moved into
+  `graphshell-runtime::webview_backpressure` with a pure
+  `min*2^step`-clamp cooldown delay, dropping the `backon` dependency
+  from the runtime-side numerics. Shell-side
+  `WebviewCreationBackpressureState` now composes the runtime type
+  alongside the Servo-typed pending probe and `Instant` deadline —
+  matching the audit's recommended split (probe identity + deadline
+  stay shell-side because they bind to `WebViewId` and
+  `std::time::Instant`). Receipts: graphshell-runtime tests 26 → 33
+  pass (8 new tests on the extracted core); shell webview_backpressure
+  tests still pass (7); engine-feature matrix all 3/3 PASS. See
+  the canonical plan's
+  [Source-side audit progress log](../shell/2026-04-24_graphshell_runtime_crate_plan.md#source-side-audit---webview-creation-backpressure-2026-04-25)
+  2026-04-26 entry for full details.
+- **2026-04-27 (gl_compat gating cascade)**: completed slice 1 of the
+  GL-retirement ordering by gating the GL-callback machinery behind
+  `gl_compat`, so the wgpu-only build path is now compileable. `glow` is
+  now an `optional = true` dep (Cargo.toml:244), activated by
+  `gl_compat = ["dep:glow"]`. Gated as `gl_compat`-only:
+  `BackendGraphicsContext` / `BackendFramebufferHandle` /
+  `BackendParentRenderCallback` (gl_backend.rs); the entire
+  `BackendContentBridge*` selection machinery + tests + env-var helpers
+  (render_backend/mod.rs); the `custom_pass_from_backend_viewport` /
+  `register_custom_paint_callback` stubs (wgpu_backend.rs); the content
+  callback registry static + types + accessor + register/unregister/compose
+  family (compositor_adapter.rs ~10 functions); the
+  `ContentPassPainter::register_content_callback_on_layer` trait method
+  and its egui impl; `register_content_callback_from_render_context`,
+  `content_callback_from_parent_render`,
+  `registered_content_pass_callback`. The
+  `cfg(not(feature = "gl_compat"))` variant of
+  `run_content_callback_with_guardrails` was retired (had no callers
+  without the gated registry). The GL-callback fallback arm in
+  `compose_webview_content_pass_with_painter` and the unregister calls
+  in the wgpu success path are now conditionally compiled. Two-forked
+  `EguiHostPorts: HostSurfacePort` impl: `gl_compat`-on uses
+  `BackendContext = BackendGraphicsContext` and forwards to
+  `CompositorAdapter::register_content_callback`;
+  `gl_compat`-off uses `BackendContext = ()` with no-op
+  register/unregister methods (the registry doesn't exist, so callbacks
+  are silently dropped). `retire_node_content_resources` and
+  `retire_stale_content_resources` skip the registry path under
+  no-gl_compat but still clean the native-texture registry.
+  **New matrix entry** (slot 4 in
+  `scripts/dev/engine-feature-matrix.{sh,ps1}`):
+  `--no-default-features --features
+  servo-engine,gamepad,js_jit,max_log_level,webgpu,webxr,diagnostics,wry,ux-probes,ux-bridge`
+  — production default minus `gl_compat`. **Receipts**: engine-feature
+  matrix all 4/4 PASS (default, no-default wry, no-default iced-host
+  wry, no-default servo-engine no-gl_compat); 7 render_backend bridge
+  tests pass; 38 compositor_adapter tests pass; 40 graphshell-runtime
+  tests pass. **Slice 2 (default-off `gl_compat`) remains
+  runtime-blocked** — the static gating is honest but the wgpu-only path
+  needs end-to-end smoke validation that webview composition succeeds
+  without the GL fallback re-registering callbacks; that's a
+  runtime-validation receipt, not a static-code one.
+- **2026-04-27 (GL legacy survey + Phase B dead-code removal)**:
+  surveyed live GL-era surface in graphshell main against the `gl_to_wgpu_plan.md`
+  Phase B/F retirement framing, then landed the static-code part of Phase B.
+  Findings: `gleam` is not a direct dep (transitive via Servo). `egui_glow`
+  is not present (the egui stack is `egui-wgpu` already). `glow = "0.17.0"`
+  is unconditional but consumed only by `shell/desktop/render_backend/gl_backend.rs`.
+  `surfman` is direct-dep but used only by `shell/desktop/host/accelerated_gl_media.rs`
+  (Servo media plumbing, not compositor legacy). The compositor side has
+  ~38 `cfg(feature = "gl_compat")` gates plus the content-callback registry
+  shape that still threads `BackendGraphicsContext = glow::Context` through.
+  Phase B retirement landed: deleted `BackendContentBridge::SharedWgpuTexture`
+  variant + `BackendSharedWgpuImport` type alias + `select_content_bridge_wgpu_from_render_context`
+  factory — pure dead architectural scaffolding (the actual wgpu shared-texture
+  path bypasses `BackendContentBridge` entirely and goes through
+  `upsert_native_content_texture` directly). Collapsed
+  `BackendContentBridgeSelection` to inline `callback: BackendParentRenderCallback`,
+  removed the unreachable `else` branch in
+  `register_content_callback_from_render_context`, and re-framed the doc
+  comment to explicit "GL parent-render callback used by the GL-compat
+  composition path." Receipts: 7 render_backend bridge tests still pass;
+  engine-feature matrix all 3/3 PASS. Remaining slices in the GL-retirement
+  ordering (NOT landed today): (i) gate `BackendGraphicsContext` /
+  `BackendFramebufferHandle` / `BackendParentRenderCallback` and the
+  content-callback registry machinery behind `gl_compat`, making `glow`
+  optional — needs careful cascade across ~30 `compositor_adapter.rs` use
+  sites and runtime validation that the wgpu-only path works without
+  unregister/register fallback plumbing; (ii) flip `gl_compat` to off-by-default
+  (runtime-validation gated); (iii) Phase F retirement of the 38 GL-state
+  guardrails (depends on (ii) being stable). `accelerated_gl_media.rs`
+  stays — it's Servo media plumbing, not compositor legacy.
+- **2026-04-27 (S3b viewer_surfaces Step 2: RenderingContextProducer trait)**:
+  reviewed Servo's `RenderingContextCore` (servo-wgpu/components/shared/paint/rendering_context_core.rs)
+  to pick between (a) re-extracting the Servo trait into runtime, (b) opaque
+  host-neutral handle, (c) parameterizing over the host context type, and
+  (d) deferring entirely. Key findings: Servo's core trait pulls
+  `embedder_traits::RefreshDriver`, `webrender_api::units`, `surfman`,
+  `gleam`/`glow` — too heavy for graphshell-runtime. Compositor's actual
+  consumption from `ViewerSurfaceBacking` is narrow: `size()`, `resize()`,
+  `present()`, plus GL-compat `make_current()` / `prepare_for_rendering()`.
+  Servo webview construction (`webview_backpressure.rs:328`) consumes the
+  full `Rc<dyn RenderingContextCore>` directly, not via the producer trait.
+  Decision: minimal `RenderingContextProducer` trait in
+  `graphshell-runtime::rendering_context_producer` with primitive-typed
+  surface only (no `dpi`, no `webrender_api`, no `surfman`); shell-side
+  `ServoRenderingContextProducer` adapter wraps `Rc<dyn RenderingContextCore>`
+  and forwards. **Wgpu-first scoping**: trait surface trimmed to
+  `size_in_pixels`, `resize`, `present`. GL `make_current` /
+  `prepare_for_rendering` were considered but dropped — graphshell is on
+  wgpu (Servo lives at `servo-wgpu`; renderer is `webrender-wgpu`), and
+  the GL-compat fallback path is gated behind the deprecated `gl_compat`
+  feature inside the shell's `OffscreenRenderingContext` consumers. That
+  path is path-specific (handled in
+  `compositor_adapter::paint_offscreen_content_pass`), not producer-level.
+  `ViewerSurfaceBacking` deliberately UNCHANGED — its current Servo
+  coupling is fine because `compositor_adapter.rs` is gated on
+  `servo-engine` anyway, and Servo webview construction needs the original
+  concrete trait. The reshape (changing `NativeRenderingContext` to hold
+  `Rc<dyn RenderingContextProducer>`) is a follow-on slice triggered when
+  iced-host actually plugs in its own producer; today's slice establishes
+  the contract iced will target. Adapter lives at
+  `shell/desktop/render_backend/servo_rendering_context_producer.rs`.
+  Receipts: graphshell-runtime tests 37 → 40 (3 new trait tests: resize
+  observation, present count, object-safety); engine-feature matrix all
+  3/3 PASS.
+- **2026-04-27 (S3b viewer_surfaces Step 1: handle/frame-path types)**:
+  followed the audit's two-step plan for `viewer_surfaces`. Step 1
+  extracts the host-neutral lifecycle types: `ContentSurfaceHandle<T>`
+  (parameterized over the host's texture-token type, with the pure
+  `is_wgpu()` check) and `ViewerSurfaceFramePath` now live in
+  `graphshell-runtime::content_surface`. Shell-side
+  `compositor_adapter.rs` keeps a `pub(crate) type ContentSurfaceHandle =
+  graphshell_runtime::ContentSurfaceHandle<BackendTextureToken>` alias
+  plus a free `content_surface_handle_for_node(NodeKey)` function (the
+  static `compositor_native_texture_registry()` lookup is shell-owned).
+  `ViewerSurfaceFramePath` is now a re-export. The `content_generation:
+  u64` counter on `ViewerSurface` is already host-neutral and stays as a
+  field — no struct bundling yet (deferred to Step 2 alongside the
+  portable `RenderingContextProducer` trait). `ViewerSurfaceBacking`
+  (Servo `RenderingContextCore` + `OffscreenRenderingContext`) stays
+  shell-side both steps per the audit. Receipts: graphshell-runtime
+  tests 35 → 37 (two new content_surface tests for `is_wgpu` and
+  frame-path distinctness); engine-feature matrix all 3/3 PASS.
+- **2026-04-27 (S3b frame_inbox extraction)**: continued the canonical
+  runtime-crate slice path with the next portable-but-shell-owned input
+  flagged by the audit. `FrameInboxState` (the typed
+  `mpsc::Receiver`-bag plus `drain_flag`/`drain_all` helpers and the four
+  `take_*` per-frame consumers) moved into
+  `graphshell-runtime::frame_inbox`, with the two drain-coalescing tests
+  migrated alongside it. Shell-side `shell/desktop/ui/gui/frame_inbox.rs`
+  is now a thin wiring shim: a `pub(crate) type GuiFrameInbox =
+  FrameInboxState` alias plus `spawn_gui_frame_inbox(&mut ControlPanel,
+  Arc<dyn SignalRouter>) -> GuiFrameInbox` free function that owns the
+  ControlPanel-driven subscription wiring (signal types are already
+  graphshell-core, so the spawn body stays portable except for the
+  `&mut ControlPanel` parameter). The control-panel spawn test stays
+  shell-side. Two call sites updated (`gui.rs:419`, `gui_state.rs:769`)
+  from `GuiFrameInbox::spawn(...)` to `spawn_gui_frame_inbox(...)`.
+  Receipts: graphshell-runtime tests 33 → 35 (two drain tests added);
+  shell-side `frame_inbox` test still passes; engine-feature matrix all
+  3/3 PASS.
+- **2026-04-26 (no-Servo warning cleanup + matrix runner)**: cleaned all
+  24 graphshell-lib unused-import warnings under
+  `--no-default-features --features iced-host,wry`. Pattern: imports
+  consumed only by Servo-gated modules (`render/*`, `host/*`, gated UI
+  modules) get `#[allow(unused_imports)]` on the re-export line (matches
+  the pre-existing convention in graph_app.rs lines 139/157/195);
+  imports consumed only by `cfg(feature = "diagnostics")` or
+  `cfg(test)` callers get a parallel `#[cfg(...)]` use line. Files
+  touched: `graph_app.rs` (6 re-exports), `app/workbench_layout_policy.rs`,
+  `panic_hook.rs`, `shell/desktop/runtime/cli.rs`,
+  `shell/desktop/runtime/tracing.rs`,
+  `shell/desktop/ui/{command_palette_state, command_surface_telemetry,
+  host_ports, omnibar_state, portable_time}.rs`,
+  `shell/desktop/workbench/{tile_kind, ux_tree}.rs`, `mods/mod.rs`,
+  `registries/atomic/lens/mod.rs`. Receipts: graphshell-lib warnings
+  now 0 / 0 / 2 across the no-default-wry / no-default-iced-host,wry /
+  default matrix entries (default's two are unchanged egui
+  deprecations). Added `scripts/dev/engine-feature-matrix.{sh,ps1}`
+  that runs all three combos and emits a PASS/FAIL summary; verified
+  end-to-end (3/3 PASS).
+- **2026-04-25 (iced-host,wry compile baseline)**: ran
+  `cargo check --no-default-features --features iced-host,wry`
+  expecting either gated-launch-path residue or runtime-ownership
+  errors per the §3 framing. **Result**: clean. 24 warnings (all
+  unused imports / one unused macro), 0 errors, 1m 54s cold. The
+  iced launch path is still gated on `cfg(all(iced-host,
+  servo-engine))` (per S3b.1), so this receipt covers the
+  iced-host *bridge surface* (`iced_host_ports`, `CachedTexture`,
+  runtime ports) — the library compiles without Servo *and* with
+  iced-host's bridge code on. Default `cargo check -p graphshell
+  --lib` re-verified clean (2 warnings, pre-existing egui
+  deprecations). Implication for sequencing: the next compile-wall
+  is no longer the rate-limiter. Whatever S3/S4 means now is about
+  making the no-Servo path *launchable*, which routes through the
+  canonical GraphshellRuntime extraction (slice-by-slice), not
+  more gating.
 
 ### S3b proper (in flight): GraphshellRuntime extraction
 
@@ -528,8 +779,31 @@ recent refactors: **graphshell is a chrome + spatial canvas; the
 content engines are pluggable**. Phase A2 proved verso can own a
 heavy engine (wry); this lane proves it can own all of them.
 
-Estimated effort: 3–5 sessions of focused work. S1 + S2a landed
-2026-04-25; S2b survey complete; S2b sweep + S3 + S4 + S5 remain.
-S2b is the mechanical bulk (58 files, see §3 inventory), S3 is
-design + impl (probably split into S3a/S3b if it grows), S4 + S5
-are short.
+Estimated effort: 3–5 sessions of focused work. **Status as of
+2026-04-25 end-of-day**: S1, S2a, S2b module-level + body-level
+(S2c), S3a host-port extraction, S3b.1 IcedWgpuContext gate, and
+the `iced-host,wry` compile baseline all landed today. The
+compile-wall portion of the lane is effectively closed: default,
+no-default `wry`, and no-default `iced-host,wry` library checks
+are all green. **What remains**:
+
+- **S3b proper** — canonical GraphshellRuntime slice-by-slice
+  extraction (see
+  [2026-04-24_graphshell_runtime_crate_plan.md](2026-04-24_graphshell_runtime_crate_plan.md)).
+  This is the path that converts "compiles without Servo" into
+  "launches without Servo" by ungating the iced launch path one
+  portable input at a time. Do not short-circuit with a wholesale
+  extraction.
+- **S4** — startup path gating: `cli.rs::main()` no-servo branch
+  beyond the current "exit warning" stub once S3b's runtime is
+  launchable.
+- **S5** — CI matrix doc + cross-doc updates (`PROJECT_DESCRIPTION`,
+  `VERSO_AS_PEER`, iced-host migration plan Phase A2 sibling).
+
+Sidequests that would smooth the runway (none blocking): warning
+cleanup in no-Servo Wry (24 unused imports), promote duplicated tag
+helper logic to a shared home if drift appears, add a documented
+compile-matrix command list so the green targets don't regress
+silently, narrow tests around no-Servo shims (especially diagnostics
+and `workbench_surface::dispatch_intent`), and revisit
+`local_file_access`'s home if non-workbench consumers appear.
