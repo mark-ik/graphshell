@@ -12,9 +12,9 @@ use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
 use graphshell_core::async_host::AsyncSpawner;
+use graphshell_core::signal_router::SignalRouter;
 use graphshell_runtime::{FrameHostInput, FrameViewModel};
 use log::warn;
-use graphshell_core::signal_router::SignalRouter;
 use servo::{
     DeviceIndependentPixel, OffscreenRenderingContext, RenderingContextCore, WebViewId,
     WindowRenderingContext,
@@ -57,15 +57,15 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::nip07_bridge;
-use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 use crate::shell::desktop::runtime::registries::workbench_surface;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_EMBEDDED_FOCUS_RECLAIM, CHANNEL_UX_NAVIGATION_TRANSITION,
     phase3_resolve_active_theme, phase3_shared_runtime,
 };
-use crate::shell::desktop::ui::thumbnail_pipeline::{self, RendererFaviconTextureCache};
+use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 #[cfg(test)]
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::thumbnail_pipeline::{self, RendererFaviconTextureCache};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
@@ -116,13 +116,13 @@ mod update_frame_phases;
 #[path = "gui/window_input.rs"]
 mod window_input;
 
-use frame_inbox::GuiFrameInbox;
+use frame_inbox::spawn_gui_frame_inbox;
 use update_frame_phases::ExecuteUpdateFrameArgs;
 
 #[allow(unused_imports)]
 pub(crate) use focus_state::{
-    apply_focus_command, apply_graph_search_local_focus_state,
-    apply_pane_activation_focus_state, capture_command_surface_return_target_in_authority,
+    apply_focus_command, apply_graph_search_local_focus_state, apply_pane_activation_focus_state,
+    capture_command_surface_return_target_in_authority,
     capture_tool_surface_return_target_in_authority, desired_runtime_focus_state,
     realize_embedded_content_focus_from_authority, refresh_realized_runtime_focus_state,
     runtime_focus_inspector, seed_command_surface_return_target_from_authority,
@@ -187,7 +187,6 @@ pub struct EguiHost {
     // runtime state (tracks which WebViewIds have async captures
     // pending) and iced will share it. The paired `tx`/`rx` above stay
     // host-side because they are render-backend shared infra.
-
     /// Pending accessibility tree updates received from runtime viewers that have
     /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
     /// so that a newer update from the same runtime viewer supersedes the previous one.
@@ -401,8 +400,10 @@ impl EguiHost {
 
         // Initialize ControlPanel with an explicit runtime handle so later
         // Shell relay setup does not depend on a temporary enter() guard.
-        let mut control_panel =
-            ControlPanel::new_with_async_spawner(worker_idle_threshold_secs, Arc::clone(&async_spawner));
+        let mut control_panel = ControlPanel::new_with_async_spawner(
+            worker_idle_threshold_secs,
+            Arc::clone(&async_spawner),
+        );
         control_panel.spawn_memory_monitor();
         control_panel.spawn_mod_loader();
         control_panel.spawn_prefetch_scheduler();
@@ -415,7 +416,7 @@ impl EguiHost {
             warn!("Failed to spawn tag suggester agent: {error}");
         }
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
-        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel, Arc::clone(&signal_router));
+        let frame_inbox = spawn_gui_frame_inbox(&mut control_panel, Arc::clone(&signal_router));
 
         let toast_anchor =
             Self::toast_anchor(graph_app.workspace.chrome_ui.toast_anchor_preference);
@@ -589,7 +590,9 @@ impl EguiHost {
             .runtime
             .graph_app
             .get_node_for_webview(
-                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                    webview_id,
+                ),
             )
             .and_then(|node_key| {
                 self.runtime
@@ -783,8 +786,9 @@ impl EguiHost {
     }
 
     pub(crate) fn focused_embedded_content_webview_id(&self) -> Option<WebViewId> {
-        let unwrap_servo = |target: &crate::shell::desktop::ui::gui_state::EmbeddedContentTarget| {
-            match target {
+        let unwrap_servo =
+            |target: &crate::shell::desktop::ui::gui_state::EmbeddedContentTarget| {
+                match target {
                 crate::shell::desktop::ui::gui_state::EmbeddedContentTarget::WebView {
                     renderer_id,
                     ..
@@ -792,7 +796,7 @@ impl EguiHost {
                     renderer_id,
                 ),
             }
-        };
+            };
         self.runtime
             .focus_authority
             .embedded_content_focus
@@ -851,7 +855,6 @@ impl EguiHost {
         );
     }
 
-
     pub(crate) fn request_browser_command(
         &mut self,
         target: BrowserCommandTarget,
@@ -868,7 +871,9 @@ impl EguiHost {
         action: ToolbarNavAction,
     ) -> bool {
         let fallback_node = self.runtime.graph_app.get_node_for_webview(
-            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                webview_id,
+            ),
         );
         toolbar_routing::run_nav_action_for_fallback_node(
             &mut self.runtime.graph_app,
@@ -977,7 +982,11 @@ impl EguiHost {
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(
             toasts,
-            runtime.graph_app.workspace.chrome_ui.toast_anchor_preference,
+            runtime
+                .graph_app
+                .workspace
+                .chrome_ui
+                .toast_anchor_preference,
         );
         context.run_ui_frame(winit_window, |ctx, root_ui, ui_render_backend| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
@@ -1170,14 +1179,12 @@ impl EguiHost {
         result: Result<Vec<crate::app::ClipCaptureData>, String>,
     ) {
         if let Ok(stack) = result {
-            self.runtime
-                .graph_app
-                .update_clip_inspector_pointer_stack(
-                    crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
-                        webview_id,
-                    ),
-                    stack,
-                );
+            self.runtime.graph_app.update_clip_inspector_pointer_stack(
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                    webview_id,
+                ),
+                stack,
+            );
         }
     }
 

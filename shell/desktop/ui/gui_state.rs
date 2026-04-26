@@ -17,6 +17,8 @@ use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter
 use crate::shell::desktop::ui::command_palette_state::CommandPaletteSession;
 use crate::shell::desktop::ui::finalize_actions::drain_pending_runtime_finalize_actions;
 use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
+#[cfg(any(test, feature = "iced-host"))]
+use crate::shell::desktop::ui::gui::frame_inbox::spawn_gui_frame_inbox;
 use crate::shell::desktop::ui::omnibar_state::{
     OmnibarSearchSession, OmnibarSessionKind, ProviderSuggestionError, ProviderSuggestionStatus,
 };
@@ -27,6 +29,9 @@ use graphshell_core::async_host::AsyncSpawner;
 use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
 use graphshell_core::signal_router::SignalRouter;
 use graphshell_core::viewer_host::ViewerSurfaceHost;
+use graphshell_runtime::frame_projection::{
+    GraphRuntimeLayoutProjectionInput, project_graph_runtime_layout_view_model,
+};
 use graphshell_runtime::ports::RuntimeTickPorts;
 use graphshell_runtime::{
     AccessibilityProjectionInput, CommandPaletteProjectionInput, CommandPaletteScopeView,
@@ -38,9 +43,6 @@ use graphshell_runtime::{
     project_command_palette_view_model, project_dialogs_view_model, project_focus_view_model,
     project_graph_search_view_model, project_omnibar_view_model, project_settings_view_model,
     project_toolbar_view_model, project_transient_frame_outputs,
-};
-use graphshell_runtime::frame_projection::{
-    GraphRuntimeLayoutProjectionInput, project_graph_runtime_layout_view_model,
 };
 #[cfg(any(test, feature = "iced-host"))]
 use verso_host::{NoopViewerSurfaceHost, TokioAsyncSpawner};
@@ -574,20 +576,25 @@ impl GraphshellRuntime {
                 (
                     *pane_id,
                     *node_key,
-                    crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui(*rect),
+                    crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui(
+                        *rect,
+                    ),
                 )
             })
             .collect();
-        let layout_projection = project_graph_runtime_layout_view_model(
-            GraphRuntimeLayoutProjectionInput {
+        let layout_projection =
+            project_graph_runtime_layout_view_model(GraphRuntimeLayoutProjectionInput {
                 active_pane_rects: &layout_active_pane_rects,
                 pane_render_modes: &self.graph_app.workspace.graph_runtime.pane_render_modes,
                 pane_viewer_ids: &self.graph_app.workspace.graph_runtime.pane_viewer_ids,
                 tree_rows: &self.graph_app.workspace.graph_runtime.cached_tree_rows,
                 tab_order: &self.graph_app.workspace.graph_runtime.cached_tab_order,
-                split_boundaries: &self.graph_app.workspace.graph_runtime.cached_split_boundaries,
-            },
-        );
+                split_boundaries: &self
+                    .graph_app
+                    .workspace
+                    .graph_runtime
+                    .cached_split_boundaries,
+            });
 
         FrameViewModel {
             active_pane_rects: layout_projection.active_pane_rects,
@@ -672,7 +679,9 @@ impl GraphshellRuntime {
                     jpeg_quality: thumbnail_settings.jpeg_quality,
                     aspect: match thumbnail_settings.aspect {
                         crate::app::ThumbnailAspect::Fixed => ThumbnailAspectView::Fixed,
-                        crate::app::ThumbnailAspect::MatchSource => ThumbnailAspectView::MatchSource,
+                        crate::app::ThumbnailAspect::MatchSource => {
+                            ThumbnailAspectView::MatchSource
+                        }
                         crate::app::ThumbnailAspect::Square => ThumbnailAspectView::Square,
                     },
                 },
@@ -686,10 +695,7 @@ impl GraphshellRuntime {
                 let snapshot = crate::shell::desktop::workbench::ux_tree::latest_snapshot();
                 project_accessibility_view_model(AccessibilityProjectionInput {
                     focused_node: self.focused_node_hint,
-                    snapshot_version: snapshot
-                        .as_ref()
-                        .map(|s| s.semantic_version)
-                        .unwrap_or(0),
+                    snapshot_version: snapshot.as_ref().map(|s| s.semantic_version).unwrap_or(0),
                     snapshot_published: snapshot.is_some(),
                 })
             },
@@ -762,7 +768,7 @@ impl GraphshellRuntime {
         let signal_router: Arc<dyn SignalRouter> = Arc::new(RegistrySignalRouter);
         let mut control_panel =
             ControlPanel::new_with_async_spawner(None, Arc::clone(&async_spawner));
-        let frame_inbox = GuiFrameInbox::spawn(&mut control_panel, Arc::clone(&signal_router));
+        let frame_inbox = spawn_gui_frame_inbox(&mut control_panel, Arc::clone(&signal_router));
         Self {
             graph_app: GraphBrowserApp::new_for_testing(),
             graph_tree: graph_tree::GraphTree::new(

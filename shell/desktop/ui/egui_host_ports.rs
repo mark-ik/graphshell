@@ -42,12 +42,14 @@ use arboard::Clipboard;
 use graphshell_runtime::{ToastSeverity, ToastSpec};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::render_backend::{BackendGraphicsContext, BackendViewportInPixels};
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
+use crate::shell::desktop::render_backend::BackendViewportInPixels;
+#[cfg(feature = "gl_compat")]
+use crate::shell::desktop::render_backend::BackendGraphicsContext;
 use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
 };
-use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositorAdapter, OverlayAffordanceStyle, PortablePoint, PortableRect,
     egui_rect_from_portable, egui_stroke_from_portable, portable_point_from_egui,
@@ -155,8 +157,13 @@ impl<'a> HostInputPort for EguiHostPorts<'a> {
 impl<'a> HostSurfacePort for EguiHostPorts<'a> {
     /// The egui host's compositor expects a `glow::Context` as the
     /// content-callback graphics context (legacy GL path through
-    /// Servo's compositor).
+    /// Servo's compositor). Without `gl_compat`, the GL path is gone
+    /// and the associated type is `()` to keep the trait surface
+    /// portable.
+    #[cfg(feature = "gl_compat")]
     type BackendContext = BackendGraphicsContext;
+    #[cfg(not(feature = "gl_compat"))]
+    type BackendContext = ();
 
     fn present_surface(&mut self, node_key: NodeKey) {
         // Defer the bump_content_generation call: the registry lives on
@@ -172,6 +179,7 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
         }
     }
 
+    #[cfg(feature = "gl_compat")]
     fn register_content_callback(
         &mut self,
         node_key: NodeKey,
@@ -185,9 +193,25 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
         );
     }
 
+    /// Without `gl_compat` the content-callback registry doesn't exist and the
+    /// GL fallback path is gone; this becomes a no-op so any caller that still
+    /// invokes the trait method (e.g., a Servo-side surface notifier) compiles
+    /// and silently drops the callback.
+    #[cfg(not(feature = "gl_compat"))]
+    fn register_content_callback(
+        &mut self,
+        _node_key: NodeKey,
+        _callback: Arc<dyn Fn(&(), BackendViewportInPixels) + Send + Sync>,
+    ) {
+    }
+
+    #[cfg(feature = "gl_compat")]
     fn unregister_content_callback(&mut self, node_key: NodeKey) {
         CompositorAdapter::unregister_content_callback(node_key);
     }
+
+    #[cfg(not(feature = "gl_compat"))]
+    fn unregister_content_callback(&mut self, _node_key: NodeKey) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -387,11 +411,7 @@ impl<'a> HostAccessibilityPort for EguiHostPorts<'a> {
 impl<'a> crate::shell::desktop::ui::host_ports::ServoAccessibilityInjectionPort
     for EguiHostPorts<'a>
 {
-    fn inject_tree_update(
-        &mut self,
-        webview_id: WebViewId,
-        update: servo::accesskit::TreeUpdate,
-    ) {
+    fn inject_tree_update(&mut self, webview_id: WebViewId, update: servo::accesskit::TreeUpdate) {
         enqueue_pending_webview_a11y_update(self.pending_webview_a11y_updates, webview_id, update);
     }
 }
@@ -428,7 +448,9 @@ pub(crate) fn enqueue_pending_webview_a11y_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::desktop::ui::host_ports::HostAccessibilityPort;
+    use crate::shell::desktop::ui::host_ports::{
+        HostAccessibilityPort, ServoAccessibilityInjectionPort,
+    };
 
     fn make_ports<'a>(
         toasts: &'a mut egui_notify::Toasts,
@@ -503,7 +525,13 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let mut ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
 
         ports.inject_tree_update(webview_id, stub_tree_update());
 
@@ -521,7 +549,13 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let mut ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
 
         ports.inject_tree_update(webview_id, stub_tree_update());
         ports.inject_tree_update(webview_id, stub_tree_update());
@@ -537,7 +571,13 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let mut ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
 
         ports.request_focus(accesskit::NodeId(17));
         ports.request_focus(accesskit::NodeId(42));
@@ -554,7 +594,13 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let mut ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
 
         let key_a = NodeKey::new(42);
         let key_b = NodeKey::new(99);
@@ -575,7 +621,13 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
 
         // ctx is None in test contexts — graceful fallback expected.
         assert!(ports.pointer_hover_position().is_none());
@@ -604,11 +656,20 @@ mod tests {
         let mut pending: HashMap<WebViewId, servo::accesskit::TreeUpdate> = HashMap::new();
         let mut focus: Vec<accesskit::NodeId> = Vec::new();
         let mut present: Vec<NodeKey> = Vec::new();
-        let mut ports = make_ports(&mut toasts, &mut clipboard, &mut pending, &mut focus, &mut present);
+        let mut ports = make_ports(
+            &mut toasts,
+            &mut clipboard,
+            &mut pending,
+            &mut focus,
+            &mut present,
+        );
         ports.ctx = Some(ctx);
 
         let modifiers = ports.modifiers();
-        assert!(modifiers.shift, "shift modifier must propagate from egui ctx");
+        assert!(
+            modifiers.shift,
+            "shift modifier must propagate from egui ctx"
+        );
         assert!(!modifiers.ctrl);
         assert!(!modifiers.alt);
     }

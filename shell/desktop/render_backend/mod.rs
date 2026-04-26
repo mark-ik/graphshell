@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+#[cfg(feature = "gl_compat")]
 mod gl_backend;
+mod servo_rendering_context_producer;
 mod shared_wgpu_context;
 mod wgpu_backend;
 
@@ -14,11 +16,9 @@ use euclid::{Point2D, Rect, Size2D};
 use servo::{OffscreenRenderingContext, RenderingContextCore, WindowRenderingContext};
 use winit::window::Window;
 
-pub(crate) use gl_backend::{
-    BackendFramebufferHandle, BackendGraphicsContext, BackendParentRenderCallback,
-};
 #[cfg(feature = "gl_compat")]
 pub(crate) use gl_backend::{
+    BackendFramebufferHandle, BackendGraphicsContext, BackendParentRenderCallback,
     backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
     backend_chaos_framebuffer_handle, backend_framebuffer_binding,
     backend_framebuffer_from_binding, backend_is_blend_enabled, backend_is_scissor_enabled,
@@ -29,9 +29,10 @@ pub(crate) use gl_backend::{
 pub(crate) use wgpu_backend::{
     BackendCustomPass, HostNeutralRenderBackend, UiRenderBackendContract, UiRenderBackendHandle,
     activate_ui_render_backend, begin_ui_render_backend_paint, create_ui_render_backend,
-    custom_pass_from_backend_viewport, end_ui_render_backend_paint,
-    register_custom_paint_callback, texture_id_from_token, texture_token_from_handle,
+    end_ui_render_backend_paint, texture_id_from_token, texture_token_from_handle,
 };
+#[cfg(feature = "gl_compat")]
+pub(crate) use wgpu_backend::{custom_pass_from_backend_viewport, register_custom_paint_callback};
 
 pub(crate) fn create_shared_wgpu_rendering_context(
     device: servo::wgpu::Device,
@@ -108,14 +109,24 @@ impl Default for UiWgpuHostBootstrap {
     }
 }
 
+// 2026-04-27 GL-callback gating: the bridge-selection machinery only
+// describes the GL parent-render callback path; the wgpu shared-texture
+// path bypasses `BackendContentBridge*` entirely. Gated behind
+// `gl_compat` so the wgpu-only build doesn't carry it.
+
 /// Override the default content bridge mode for debugging.
 /// Values: "wgpu_shared", "wgpu_preferred", "gl_callback".
+#[cfg(feature = "gl_compat")]
 const BACKEND_BRIDGE_MODE_ENV_VAR: &str = "GRAPHSHELL_BACKEND_BRIDGE_MODE";
+#[cfg(feature = "gl_compat")]
 const BACKEND_BRIDGE_PATH_WGPU_SHARED: &str = "wgpu.shared_texture";
+#[cfg(feature = "gl_compat")]
 const BACKEND_BRIDGE_PATH_GL_CALLBACK: &str = "gl.render_to_parent_callback";
+#[cfg(feature = "gl_compat")]
 const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GL: &str =
     "wgpu.preferred.fallback_gl.render_to_parent_callback";
 
+#[cfg(feature = "gl_compat")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendContentBridgeMode {
     /// Primary wgpu path: per-webview texture imported into egui/wgpu.
@@ -124,28 +135,21 @@ pub(crate) enum BackendContentBridgeMode {
     WgpuPreferredFallbackGlCallback,
 }
 
+#[cfg(feature = "gl_compat")]
 #[derive(Clone)]
 pub(crate) struct BackendContentBridgeSelection {
     pub(crate) mode: BackendContentBridgeMode,
-    pub(crate) bridge: BackendContentBridge,
+    /// GL parent-render callback used by the GL-compat composition path.
+    ///
+    /// The wgpu shared-texture path does not flow through this selection — it
+    /// imports the per-webview texture directly via
+    /// `upsert_native_content_texture`. Today the only kind of bridge the
+    /// selection carries is the GL callback; if a future wgpu variant needs a
+    /// selection-shaped bridge, this field becomes an enum.
+    pub(crate) callback: BackendParentRenderCallback,
 }
 
-/// Import closure for the wgpu shared-texture content bridge path.
-///
-/// Captures an `OffscreenRenderingContext` by `Rc`; single-threaded use only.
-/// When called with the shared wgpu device and queue, returns the composited
-/// webview texture, or `None` if the import is not yet available.
-pub(crate) type BackendSharedWgpuImport =
-    std::rc::Rc<dyn Fn(servo::wgpu::Device, servo::wgpu::Queue) -> Option<servo::wgpu::Texture>>;
-
-#[derive(Clone)]
-pub(crate) enum BackendContentBridge {
-    /// Primary wgpu path: import the per-webview texture via the shared wgpu device.
-    SharedWgpuTexture(BackendSharedWgpuImport),
-    /// Fallback GL callback path: composites via OpenGL parent render callback.
-    ParentRenderCallback(BackendParentRenderCallback),
-}
-
+#[cfg(feature = "gl_compat")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendContentBridgeCapabilities {
     pub(crate) supports_wgpu_parent_render_bridge: bool,
@@ -154,6 +158,7 @@ pub(crate) struct BackendContentBridgeCapabilities {
     pub(crate) supports_wgpu_shared_texture: bool,
 }
 
+#[cfg(feature = "gl_compat")]
 impl Default for BackendContentBridgeCapabilities {
     fn default() -> Self {
         Self {
@@ -163,6 +168,7 @@ impl Default for BackendContentBridgeCapabilities {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 fn content_bridge_capabilities_from_observed_context(
     has_parent_render_callback: bool,
 ) -> BackendContentBridgeCapabilities {
@@ -180,6 +186,7 @@ fn content_bridge_capabilities_from_observed_context(
 ///   - `wgpu_shared` — wgpu only, no fallback (degrades to GL if unavailable)
 ///   - `gl_callback` — force GL callback path
 ///   - `wgpu_preferred` — explicit default (wgpu with GL fallback)
+#[cfg(feature = "gl_compat")]
 fn resolve_backend_content_bridge_mode(
     capabilities: BackendContentBridgeCapabilities,
 ) -> BackendContentBridgeMode {
@@ -207,18 +214,17 @@ fn resolve_backend_content_bridge_mode(
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn select_backend_content_bridge_with_capabilities(
     callback: BackendParentRenderCallback,
     capabilities: BackendContentBridgeCapabilities,
 ) -> BackendContentBridgeSelection {
     let mode = resolve_backend_content_bridge_mode(capabilities);
 
-    BackendContentBridgeSelection {
-        mode,
-        bridge: BackendContentBridge::ParentRenderCallback(callback),
-    }
+    BackendContentBridgeSelection { mode, callback }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn select_backend_content_bridge(
     callback: BackendParentRenderCallback,
 ) -> BackendContentBridgeSelection {
@@ -228,6 +234,7 @@ pub(crate) fn select_backend_content_bridge(
     )
 }
 
+#[cfg(feature = "gl_compat")]
 fn content_bridge_capabilities_for_render_context(
     render_context: &OffscreenRenderingContext,
 ) -> BackendContentBridgeCapabilities {
@@ -236,7 +243,7 @@ fn content_bridge_capabilities_for_render_context(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gl_compat"))]
 pub(crate) fn backend_bridge_test_env_lock() -> &'static std::sync::Mutex<()> {
     use std::sync::{Mutex, OnceLock};
 
@@ -244,20 +251,21 @@ pub(crate) fn backend_bridge_test_env_lock() -> &'static std::sync::Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gl_compat"))]
 pub(crate) fn clear_backend_bridge_env_for_tests() {
     unsafe {
         std::env::remove_var(BACKEND_BRIDGE_MODE_ENV_VAR);
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gl_compat"))]
 pub(crate) fn set_backend_bridge_mode_env_for_tests(value: &str) {
     unsafe {
         std::env::set_var(BACKEND_BRIDGE_MODE_ENV_VAR, value);
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn select_content_bridge_from_render_context(
     render_context: &OffscreenRenderingContext,
 ) -> Option<BackendContentBridgeSelection> {
@@ -278,23 +286,7 @@ pub(crate) fn select_content_bridge_from_render_context(
     ))
 }
 
-/// Build a `SharedWgpuTexture` bridge by capturing an `OffscreenRenderingContext`.
-///
-/// This is the primary wgpu content bridge factory. The returned selection uses
-/// `BackendContentBridgeMode::WgpuShared` and the import closure forwards to
-/// `OffscreenRenderingContext::import_to_shared_wgpu_texture` at call time.
-pub(crate) fn select_content_bridge_wgpu_from_render_context(
-    render_context: std::rc::Rc<OffscreenRenderingContext>,
-) -> BackendContentBridgeSelection {
-    let import: BackendSharedWgpuImport = std::rc::Rc::new(move |device, queue| {
-        render_context.import_to_shared_wgpu_texture(device, queue)
-    });
-    BackendContentBridgeSelection {
-        mode: BackendContentBridgeMode::WgpuShared,
-        bridge: BackendContentBridge::SharedWgpuTexture(import),
-    }
-}
-
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {
     match mode {
         BackendContentBridgeMode::WgpuShared => BACKEND_BRIDGE_PATH_WGPU_SHARED,
@@ -305,6 +297,7 @@ pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'s
     }
 }
 
+#[cfg(feature = "gl_compat")]
 pub(crate) fn backend_content_bridge_mode_label(mode: BackendContentBridgeMode) -> &'static str {
     match mode {
         BackendContentBridgeMode::WgpuShared => "wgpu_shared",
@@ -334,7 +327,7 @@ pub(crate) struct BackendParentRenderRegionInPixels {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct BackendTextureToken(pub(crate) egui::TextureId);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gl_compat"))]
 mod tests {
     use super::*;
 

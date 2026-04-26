@@ -39,12 +39,15 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
-    BackendContentBridge, BackendCustomPass, BackendGraphicsContext, BackendParentRenderCallback,
-    BackendParentRenderRegionInPixels, BackendTextureToken, BackendViewportInPixels,
-    HostNeutralRenderBackend, UiRenderBackendContract, UiRenderBackendHandle,
+    BackendCustomPass, BackendTextureToken, BackendViewportInPixels, HostNeutralRenderBackend,
+    UiRenderBackendContract, UiRenderBackendHandle, texture_id_from_token,
+};
+#[cfg(feature = "gl_compat")]
+use crate::shell::desktop::render_backend::{
+    BackendGraphicsContext, BackendParentRenderCallback, BackendParentRenderRegionInPixels,
     backend_content_bridge_mode_label, backend_content_bridge_path,
     custom_pass_from_backend_viewport, register_custom_paint_callback,
-    select_content_bridge_from_render_context, texture_id_from_token,
+    select_content_bridge_from_render_context,
 };
 #[cfg(feature = "gl_compat")]
 use crate::shell::desktop::render_backend::{
@@ -160,6 +163,7 @@ const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
+#[cfg(feature = "gl_compat")]
 static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredContentCallback>>> =
     OnceLock::new();
 static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextureToken>>> =
@@ -177,36 +181,30 @@ static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 ///
 /// Future: when WgpuShared is the only path, `CallbackFallback` is removed
 /// and `tile_rendering_contexts` (the GL context pool) retires with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ContentSurfaceHandle {
-    /// GL frame was imported into a shared wgpu texture registered with egui.
-    ImportedWgpu(BackendTextureToken),
-    /// A GL paint callback is registered for this pass (named compat path).
-    CallbackFallback,
-    /// No surface available (loading, runtime not ready, or lifecycle Cold).
-    Placeholder,
-}
+/// Shell-side specialization of the host-neutral
+/// [`graphshell_runtime::ContentSurfaceHandle`] over the egui-host
+/// `BackendTextureToken`. The enum shape and `is_wgpu()` live in
+/// graphshell-runtime; the static-map lookup that the egui compositor uses to
+/// reconstruct an `ImportedWgpu` handle (`content_surface_handle_for_node`
+/// below) stays here because it depends on the shell-owned native-texture
+/// registry.
+pub(crate) type ContentSurfaceHandle =
+    graphshell_runtime::ContentSurfaceHandle<BackendTextureToken>;
 
-impl ContentSurfaceHandle {
-    /// Query the compositor's current surface handle for a node.
-    ///
-    /// Returns `ImportedWgpu` when the wgpu import path succeeded last frame,
-    /// `Placeholder` otherwise. The `CallbackFallback` case is not yet tracked
-    /// per-node (it is implicit in the absence of a wgpu token).
-    pub(crate) fn for_node(node_key: NodeKey) -> Self {
-        let token = compositor_native_texture_registry()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&node_key)
-            .copied();
-        match token {
-            Some(t) => Self::ImportedWgpu(t),
-            None => Self::Placeholder,
-        }
-    }
-
-    pub(crate) fn is_wgpu(&self) -> bool {
-        matches!(self, Self::ImportedWgpu(_))
+/// Query the compositor's current surface handle for a node.
+///
+/// Returns `ImportedWgpu` when the wgpu import path succeeded last frame,
+/// `Placeholder` otherwise. The `CallbackFallback` case is not yet tracked
+/// per-node (it is implicit in the absence of a wgpu token).
+pub(crate) fn content_surface_handle_for_node(node_key: NodeKey) -> ContentSurfaceHandle {
+    let token = compositor_native_texture_registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&node_key)
+        .copied();
+    match token {
+        Some(t) => ContentSurfaceHandle::ImportedWgpu(t),
+        None => ContentSurfaceHandle::Placeholder,
     }
 }
 
@@ -237,12 +235,7 @@ impl ViewerSurfaceBacking {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ViewerSurfaceFramePath {
-    SharedWgpuImported,
-    CallbackFallback,
-    MissingSurface,
-}
+pub(crate) use graphshell_runtime::ViewerSurfaceFramePath;
 
 // ---------------------------------------------------------------------------
 // Phase D: ViewerSurfaceRegistry — unified surface lifecycle keyed by NodeKey
@@ -419,9 +412,7 @@ impl ViewerSurfaceRegistry {
         if !self.has_surface(&key) {
             self.insert_compat_gl_context(key, f());
         }
-        self.compat_gl_context(&key)
-            .expect("just inserted")
-            .clone()
+        self.compat_gl_context(&key).expect("just inserted").clone()
     }
 
     /// Drop all surfaces. Equivalent to the legacy `tile_rendering_contexts.clear()`.
@@ -484,7 +475,6 @@ impl ViewerSurfaceRegistry {
     }
 }
 
-
 impl ViewerSurfaceRegistryHost for ViewerSurfaceRegistry {
     type Surface = ViewerSurfaceBacking;
 
@@ -528,9 +518,11 @@ impl ViewerSurfaceRegistry {
     }
 }
 
+#[cfg(feature = "gl_compat")]
 type CompositorContentCallback =
     std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>;
 
+#[cfg(feature = "gl_compat")]
 #[derive(Clone)]
 struct RegisteredContentCallback {
     bridge_path: &'static str,
@@ -577,6 +569,7 @@ fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySa
     })
 }
 
+#[cfg(feature = "gl_compat")]
 fn content_callback_registry() -> &'static Mutex<HashMap<NodeKey, RegisteredContentCallback>> {
     COMPOSITOR_CONTENT_CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -1019,6 +1012,7 @@ impl OverlayAffordancePainter for EguiOverlayAffordancePainter<'_> {
 pub(crate) trait ContentPassPainter {
     /// Register a GL content-pass callback at the node's content layer.
     /// Called when the active bridge uses `ParentRenderCallback`.
+    #[cfg(feature = "gl_compat")]
     fn register_content_callback_on_layer(
         &mut self,
         node_key: NodeKey,
@@ -1048,6 +1042,7 @@ pub(crate) struct EguiContentPassPainter<'a> {
 }
 
 impl ContentPassPainter for EguiContentPassPainter<'_> {
+    #[cfg(feature = "gl_compat")]
     fn register_content_callback_on_layer(
         &mut self,
         node_key: NodeKey,
@@ -1194,16 +1189,22 @@ impl CompositorAdapter {
         if let Some(texture_token) =
             Self::upsert_native_content_texture(node_key, render_context, ui_render_backend)
         {
+            #[cfg(feature = "gl_compat")]
             Self::unregister_content_callback(node_key);
             painter.paint_native_content_texture(node_key, tile_rect, texture_token);
             return CompositedContentPassOutcome::SharedWgpuRegistered;
         }
 
-        if !Self::register_content_callback_from_render_context(node_key, render_context) {
-            return CompositedContentPassOutcome::MissingContentCallback;
-        }
+        #[cfg(feature = "gl_compat")]
+        {
+            if !Self::register_content_callback_from_render_context(node_key, render_context) {
+                return CompositedContentPassOutcome::MissingContentCallback;
+            }
 
-        Self::compose_registered_content_pass_with_painter(painter, node_key, tile_rect)
+            Self::compose_registered_content_pass_with_painter(painter, node_key, tile_rect)
+        }
+        #[cfg(not(feature = "gl_compat"))]
+        CompositedContentPassOutcome::MissingContentCallback
     }
 
     pub(crate) fn compose_webview_content_pass_for_surface_with_painter(
@@ -1240,7 +1241,7 @@ impl CompositorAdapter {
                 // is replaced by NativeRenderingContext.
                 match outcome {
                     CompositedContentPassOutcome::SharedWgpuRegistered => {
-                        surface.handle = ContentSurfaceHandle::for_node(node_key);
+                        surface.handle = content_surface_handle_for_node(node_key);
                     }
                     CompositedContentPassOutcome::CallbackFallbackRegistered
                     | CompositedContentPassOutcome::MissingContentCallback => {
@@ -1286,6 +1287,7 @@ impl CompositorAdapter {
                     return CompositedContentPassOutcome::PaintFailed;
                 };
 
+                #[cfg(feature = "gl_compat")]
                 Self::unregister_content_callback(node_key);
                 painter.paint_native_content_texture(node_key, tile_rect, texture_token);
                 // ViewerSurfaceRegistry is the sole live-handle authority for this
@@ -1359,6 +1361,7 @@ impl CompositorAdapter {
         )
     }
 
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn register_content_pass(
         ctx: &Context,
         node_key: NodeKey,
@@ -1369,6 +1372,7 @@ impl CompositorAdapter {
         register_custom_paint_callback(ctx, layer, tile_rect, callback);
     }
 
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn register_content_callback(
         node_key: NodeKey,
         bridge_path: &'static str,
@@ -1388,6 +1392,7 @@ impl CompositorAdapter {
             );
     }
 
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn unregister_content_callback(node_key: NodeKey) -> bool {
         content_callback_registry()
             .lock()
@@ -1400,6 +1405,7 @@ impl CompositorAdapter {
     where
         B: UiRenderBackendContract,
     {
+        #[cfg(feature = "gl_compat")]
         Self::unregister_content_callback(node_key);
 
         if let Some(texture_token) = compositor_native_texture_registry()
@@ -1417,6 +1423,7 @@ impl CompositorAdapter {
     ) where
         B: UiRenderBackendContract,
     {
+        #[cfg(feature = "gl_compat")]
         let stale_callbacks: HashSet<_> = content_callback_registry()
             .lock()
             .expect("compositor content callback registry mutex poisoned")
@@ -1424,6 +1431,8 @@ impl CompositorAdapter {
             .copied()
             .filter(|node_key| !retained_nodes.contains(node_key))
             .collect();
+        #[cfg(not(feature = "gl_compat"))]
+        let stale_callbacks: HashSet<NodeKey> = HashSet::new();
         let stale_native_textures: HashSet<_> = compositor_native_texture_registry()
             .lock()
             .expect("compositor native texture registry mutex poisoned")
@@ -1442,6 +1451,7 @@ impl CompositorAdapter {
     /// [`EguiContentPassPainter`]; the future iced host constructs its
     /// own impl. Shared with
     /// [`Self::compose_webview_content_pass_with_painter`].
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn compose_registered_content_pass_with_painter(
         painter: &mut dyn ContentPassPainter,
         node_key: NodeKey,
@@ -1458,6 +1468,7 @@ impl CompositorAdapter {
     /// [`EguiContentPassPainter`] internally, converts the egui rect to
     /// portable form, and delegates to
     /// [`Self::compose_registered_content_pass_with_painter`].
+    #[cfg(feature = "gl_compat")]
     pub(crate) fn compose_registered_content_pass(
         ctx: &Context,
         node_key: NodeKey,
@@ -1617,6 +1628,7 @@ impl CompositorAdapter {
         }
     }
 
+    #[cfg(feature = "gl_compat")]
     fn content_callback_from_parent_render(
         node_key: NodeKey,
         bridge_path: &'static str,
@@ -1635,32 +1647,33 @@ impl CompositorAdapter {
         })
     }
 
+    #[cfg(feature = "gl_compat")]
     fn register_content_callback_from_render_context(
         node_key: NodeKey,
         render_context: &OffscreenRenderingContext,
     ) -> bool {
-        let Some(bridge) = select_content_bridge_from_render_context(render_context) else {
+        let Some(selection) = select_content_bridge_from_render_context(render_context) else {
             return false;
         };
 
-        let bridge_path = backend_content_bridge_path(bridge.mode);
-        let bridge_mode = backend_content_bridge_mode_label(bridge.mode);
-
-        let BackendContentBridge::ParentRenderCallback(callback) = bridge.bridge else {
-            // SharedWgpuTexture bridges are registered via upsert_native_content_texture,
-            // not via the GL paint callback path.
-            return false;
-        };
+        let bridge_path = backend_content_bridge_path(selection.mode);
+        let bridge_mode = backend_content_bridge_mode_label(selection.mode);
 
         Self::register_content_callback(
             node_key,
             bridge_path,
             bridge_mode,
-            Self::content_callback_from_parent_render(node_key, bridge_path, bridge_mode, callback),
+            Self::content_callback_from_parent_render(
+                node_key,
+                bridge_path,
+                bridge_mode,
+                selection.callback,
+            ),
         );
         true
     }
 
+    #[cfg(feature = "gl_compat")]
     fn registered_content_pass_callback(node_key: NodeKey) -> Option<BackendCustomPass> {
         let registered = content_callback_registry()
             .lock()
@@ -1837,91 +1850,11 @@ impl CompositorAdapter {
         );
     }
 
-    /// Non-GL path: call the render closure directly, record a clean replay
-    /// sample, and emit diagnostics. No GL state capture or guardrails.
-    #[cfg(not(feature = "gl_compat"))]
-    pub(crate) fn run_content_callback_with_guardrails<F>(
-        _node_key: NodeKey,
-        _gl: &BackendGraphicsContext,
-        probe_context: BridgeProbeContext,
-        render: F,
-    ) where
-        F: FnOnce(),
-    {
-        let started = std::time::Instant::now();
-
-        render();
-
-        let clean_snapshot = GlStateSnapshot {
-            viewport: [0, 0, 0, 0],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 0,
-        };
-
-        let elapsed = started.elapsed().as_micros() as u64;
-        let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        push_replay_sample(CompositorReplaySample {
-            sequence,
-            node_key: _node_key,
-            duration_us: elapsed,
-            callback_us: elapsed,
-            presentation_us: elapsed,
-            violation: false,
-            bridge_path: probe_context.bridge_path,
-            bridge_mode: probe_context.bridge_mode,
-            tile_rect_px: probe_context.tile_rect_px,
-            render_size_px: probe_context.render_size_px,
-            chaos_enabled: false,
-            restore_verified: true,
-            viewport_changed: false,
-            scissor_changed: false,
-            blend_changed: false,
-            active_texture_changed: false,
-            framebuffer_binding_changed: false,
-            before: clean_snapshot,
-            after: clean_snapshot,
-        });
-
-        #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-                byte_len: std::mem::size_of::<CompositorReplaySample>(),
-            },
-        );
-
-        #[cfg(feature = "diagnostics")]
-        {
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-                    byte_len: std::mem::size_of::<NodeKey>(),
-                },
-            );
-
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-                    byte_len: elapsed as usize,
-                },
-            );
-
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-                    byte_len: elapsed as usize,
-                },
-            );
-        }
-
-        #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-            "tile_compositor::content_pass_callback_direct",
-            elapsed,
-        );
-    }
+    // The non-GL variant of `run_content_callback_with_guardrails` was retired
+    // alongside the gl_compat gating cascade: without `gl_compat`, the callback
+    // registry that fed it doesn't exist, so the function had no callers. The
+    // diagnostics it emitted (clean replay sample, bridge-callback timing) are
+    // moot when no callback ever ran.
 
     pub(crate) fn draw_overlay_stroke(
         ctx: &Context,
@@ -2171,11 +2104,7 @@ impl CompositorAdapter {
         overlays: Vec<OverlayStrokePass>,
     ) {
         let mut painter = EguiOverlayAffordancePainter { ctx };
-        Self::execute_overlay_affordance_pass_with_painter(
-            &mut painter,
-            pass_tracker,
-            overlays,
-        );
+        Self::execute_overlay_affordance_pass_with_painter(&mut painter, pass_tracker, overlays);
     }
 
     pub(crate) fn report_invalid_tile_rect(_node_key: NodeKey) {
@@ -2552,9 +2481,7 @@ mod tests {
         // iced host. Verify a non-egui painter receives every overlay
         // descriptor in order, with each payload intact. This pins the
         // contract that the future iced painter will rely on.
-        use super::{
-            OverlayAffordancePainter as PainterTrait, OverlayStrokePass as Pass,
-        };
+        use super::{OverlayAffordancePainter as PainterTrait, OverlayStrokePass as Pass};
         use std::cell::RefCell;
 
         struct RecordingPainter {
@@ -2676,7 +2603,10 @@ mod tests {
             tile_rect,
         );
 
-        assert_eq!(outcome, CompositedContentPassOutcome::CallbackFallbackRegistered);
+        assert_eq!(
+            outcome,
+            CompositedContentPassOutcome::CallbackFallbackRegistered
+        );
         assert_eq!(painter.registered.borrow().as_slice(), &[node]);
         assert!(painter.native_painted.borrow().is_empty());
 
@@ -2727,7 +2657,10 @@ mod tests {
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
         );
 
-        assert_eq!(outcome, CompositedContentPassOutcome::CallbackFallbackRegistered);
+        assert_eq!(
+            outcome,
+            CompositedContentPassOutcome::CallbackFallbackRegistered
+        );
         assert!(CompositorAdapter::unregister_content_callback(node_key));
         assert!(!CompositorAdapter::unregister_content_callback(node_key));
     }
@@ -3544,8 +3477,13 @@ mod tests {
 
         registry.record_frame_path(node, ViewerSurfaceFramePath::MissingSurface);
 
-        let surface = registry.surface(&node).expect("surface must be auto-created");
-        assert_eq!(surface.last_frame_path, Some(ViewerSurfaceFramePath::MissingSurface));
+        let surface = registry
+            .surface(&node)
+            .expect("surface must be auto-created");
+        assert_eq!(
+            surface.last_frame_path,
+            Some(ViewerSurfaceFramePath::MissingSurface)
+        );
         assert_eq!(surface.handle, ContentSurfaceHandle::Placeholder);
         assert!(surface.backing.is_none());
     }
@@ -3599,13 +3537,22 @@ mod tests {
 
         // Use record_frame_path to create a placeholder entry (content_generation starts at 0).
         registry.record_frame_path(node, ViewerSurfaceFramePath::MissingSurface);
-        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(0));
+        assert_eq!(
+            registry.surface(&node).map(|s| s.content_generation),
+            Some(0)
+        );
 
         registry.bump_content_generation(&node);
-        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(1));
+        assert_eq!(
+            registry.surface(&node).map(|s| s.content_generation),
+            Some(1)
+        );
 
         registry.bump_content_generation(&node);
-        assert_eq!(registry.surface(&node).map(|s| s.content_generation), Some(2));
+        assert_eq!(
+            registry.surface(&node).map(|s| s.content_generation),
+            Some(2)
+        );
     }
 
     #[test]
