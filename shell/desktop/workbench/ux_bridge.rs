@@ -181,7 +181,9 @@ pub(crate) fn handle_snapshot_command(
         }
         UxBridgeCommand::GetFocusPath => UxBridgeResponse::FocusPath(focus_path(snapshot)),
         UxBridgeCommand::GetDiagnosticsState => {
-            unreachable!("diagnostics state is sourced from the diagnostics snapshot, not the UxTree snapshot")
+            unreachable!(
+                "diagnostics state is sourced from the diagnostics snapshot, not the UxTree snapshot"
+            )
         }
         UxBridgeCommand::InvokeUxAction { .. } => {
             unreachable!("snapshot-only handler cannot execute mutable bridge actions")
@@ -203,8 +205,7 @@ pub(crate) fn handle_runtime_command(
             .map(UxBridgeResponse::DiagnosticsState)
             .ok_or_else(UxBridgeError::diagnostics_unavailable);
     }
-    let snapshot =
-        ux_tree::build_snapshot(tiles_tree, graph_app, command_surface_telemetry, 0);
+    let snapshot = ux_tree::build_snapshot(tiles_tree, graph_app, command_surface_telemetry, 0);
     match command {
         UxBridgeCommand::GetUxSnapshot
         | UxBridgeCommand::FindUxNode { .. }
@@ -630,8 +631,7 @@ mod tests {
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceSemanticSnapshot, OmnibarMailboxEventSequenceMetadata,
         OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
-        clear_command_surface_semantic_snapshot,
-        publish_command_surface_semantic_snapshot,
+        clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
     };
 
     /// Defer to the shared `ux_tree` snapshot test lock. The bridge tests
@@ -703,7 +703,10 @@ mod tests {
             .expect("published diagnostics snapshot should satisfy bridge query");
         let json = response_json(&response);
         assert_eq!(json["ok"], serde_json::json!(true));
-        assert_eq!(json["response"]["kind"], serde_json::json!("DiagnosticsState"));
+        assert_eq!(
+            json["response"]["kind"],
+            serde_json::json!("DiagnosticsState")
+        );
         assert_eq!(json["response"]["state"], payload);
 
         crate::shell::desktop::runtime::diagnostics::clear_latest_diagnostics_snapshot_for_tests();
@@ -721,31 +724,36 @@ mod tests {
 
     #[test]
     fn focus_path_bridge_returns_root_to_focused_node() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: true,
+                    focused: false,
+                    query: Some("focus-path".to_string()),
+                    match_count: 1,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: None,
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: true,
-                focused: false,
-                query: Some("focus-path".to_string()),
-                match_count: 1,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: None,
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 10);
+        let snapshot =
+            ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 10);
         let response = handle_snapshot_command(&snapshot, UxBridgeCommand::GetFocusPath);
         match response {
             UxBridgeResponse::FocusPath(path) => {
@@ -766,31 +774,36 @@ mod tests {
 
     #[test]
     fn find_node_bridge_matches_command_bar_projection() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: true,
+                    focused: true,
+                    query: Some("bridge".to_string()),
+                    match_count: 1,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: None,
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: true,
-                focused: true,
-                query: Some("bridge".to_string()),
-                match_count: 1,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: None,
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
-        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 11);
+        let snapshot =
+            ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 11);
         let response = handle_snapshot_command(
             &snapshot,
             UxBridgeCommand::FindUxNode {
@@ -813,21 +826,25 @@ mod tests {
 
     #[test]
     fn runtime_bridge_open_and_dismiss_command_palette() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
 
         let mut harness = TestRegistry::new();
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata::default(),
+                command_palette: None,
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata::default(),
-            command_palette: None,
-            context_palette: None,
-        });
+        );
 
         let open = handle_runtime_command(
             &mut harness.app,
@@ -850,16 +867,19 @@ mod tests {
         );
         assert!(harness.app.workspace.chrome_ui.show_command_palette);
 
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata::default(),
-            omnibar: OmnibarSemanticMetadata {
-                active: true,
-                focused: true,
-                ..OmnibarSemanticMetadata::default()
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata::default(),
+                omnibar: OmnibarSemanticMetadata {
+                    active: true,
+                    focused: true,
+                    ..OmnibarSemanticMetadata::default()
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata::default()),
+                context_palette: None,
             },
-            command_palette: Some(PaletteSurfaceSemanticMetadata::default()),
-            context_palette: None,
-        });
+        );
 
         let dismiss = handle_runtime_command(
             &mut harness.app,

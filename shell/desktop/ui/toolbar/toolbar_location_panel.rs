@@ -50,8 +50,7 @@ fn provider_mailbox_for_query(
     if should_fetch_provider {
         ProviderSuggestionMailbox::debounced(
             request_query.into(),
-            crate::shell::desktop::ui::portable_time::portable_now()
-                .saturating_add_ms(debounce_ms),
+            crate::shell::desktop::ui::portable_time::portable_now().saturating_add_ms(debounce_ms),
         )
     } else {
         ProviderSuggestionMailbox::ready()

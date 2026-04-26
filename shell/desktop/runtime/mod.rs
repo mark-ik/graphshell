@@ -11,6 +11,6 @@ pub(crate) mod diagnostics_coverage;
 pub(crate) mod nip07_bridge;
 pub(crate) mod protocol_probe;
 pub(crate) mod protocols;
-pub(crate) mod registry_signal_router;
 pub(crate) mod registries;
+pub(crate) mod registry_signal_router;
 pub(crate) mod tracing;

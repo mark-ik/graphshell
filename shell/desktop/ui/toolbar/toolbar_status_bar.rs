@@ -150,9 +150,7 @@ fn return_anchor_label(anchor: &ReturnAnchor) -> String {
     }
 }
 
-fn load_status_chip(
-    status: graphshell_core::content::ContentLoadState,
-) -> Option<StatusChip> {
+fn load_status_chip(status: graphshell_core::content::ContentLoadState) -> Option<StatusChip> {
     use graphshell_core::content::ContentLoadState;
     match status {
         ContentLoadState::Complete => None,

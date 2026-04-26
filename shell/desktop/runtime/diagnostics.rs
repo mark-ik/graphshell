@@ -54,12 +54,69 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 #[cfg(feature = "servo-engine")]
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositorReplaySample, replay_samples_snapshot,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
+
+#[cfg(not(feature = "servo-engine"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeFocusInspector {
+    pub(crate) desired: (),
+    pub(crate) realized: (),
+}
+
+#[cfg(not(feature = "servo-engine"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GlStateSnapshot {
+    pub(crate) viewport: [i32; 4],
+    pub(crate) scissor_enabled: bool,
+    pub(crate) blend_enabled: bool,
+    pub(crate) active_texture: i32,
+    pub(crate) framebuffer_binding: i32,
+}
+
+#[cfg(not(feature = "servo-engine"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CompositorReplaySample {
+    pub(crate) sequence: u64,
+    pub(crate) node_key: NodeKey,
+    pub(crate) duration_us: u64,
+    pub(crate) callback_us: u64,
+    pub(crate) presentation_us: u64,
+    pub(crate) violation: bool,
+    pub(crate) bridge_path: &'static str,
+    pub(crate) bridge_mode: &'static str,
+    pub(crate) tile_rect_px: [i32; 4],
+    pub(crate) render_size_px: [u32; 2],
+    pub(crate) chaos_enabled: bool,
+    pub(crate) restore_verified: bool,
+    pub(crate) viewport_changed: bool,
+    pub(crate) scissor_changed: bool,
+    pub(crate) blend_changed: bool,
+    pub(crate) active_texture_changed: bool,
+    pub(crate) framebuffer_binding_changed: bool,
+    pub(crate) before: GlStateSnapshot,
+    pub(crate) after: GlStateSnapshot,
+}
+
+#[cfg(not(feature = "servo-engine"))]
+fn replay_samples_snapshot() -> Vec<CompositorReplaySample> {
+    Vec::new()
+}
+
+#[cfg(feature = "servo-engine")]
+fn composited_content_budget_bytes_per_frame() -> usize {
+    crate::shell::desktop::workbench::tile_compositor::composited_content_budget_bytes_per_frame()
+}
+
+#[cfg(not(feature = "servo-engine"))]
+fn composited_content_budget_bytes_per_frame() -> usize {
+    0
+}
 
 #[path = "diagnostics/export.rs"]
 mod export;
@@ -2309,7 +2366,7 @@ impl DiagnosticsState {
             }
         }
 
-        let budget_bytes_per_frame = crate::shell::desktop::workbench::tile_compositor::composited_content_budget_bytes_per_frame() as u64;
+        let budget_bytes_per_frame = composited_content_budget_bytes_per_frame() as u64;
         let latest_budget_utilization_basis_points = if budget_bytes_per_frame == 0 {
             0
         } else {

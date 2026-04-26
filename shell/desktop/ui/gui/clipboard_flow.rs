@@ -66,10 +66,7 @@ impl RuntimeClipboardCopyState for GraphBrowserApp {
         GraphBrowserApp::take_pending_clipboard_copy(self)
     }
 
-    fn clipboard_copy_source(
-        &self,
-        key: crate::graph::NodeKey,
-    ) -> Option<ClipboardCopySource> {
+    fn clipboard_copy_source(&self, key: crate::graph::NodeKey) -> Option<ClipboardCopySource> {
         let node = self.domain_graph().get_node(key)?;
         let visible_url = self
             .user_visible_node_url(key)

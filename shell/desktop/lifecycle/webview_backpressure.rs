@@ -7,7 +7,8 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use backon::{BackoffBuilder, ExponentialBuilder};
+pub(crate) use graphshell_runtime::NodePaneAttachAttemptMetadata;
+use graphshell_runtime::{RuntimeWebviewBackpressureMetadataSource, WebviewAttachRetryState};
 use log::warn;
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 use url::Url;
@@ -30,12 +31,13 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 // Pragmatic Phase A backpressure:
 // Servo webview creation is not fallible in the embedder API, so we infer failure
 // from "no semantic signal + no stable live webview" within a timeout window.
+//
+// 2026-04-26: retry/cooldown numerics now live on the host-neutral
+// `WebviewAttachRetryState` in graphshell-runtime. Probe-timing constants
+// (confirmation window, total timeout) stay shell-side because they describe
+// the host's observation of webview liveness.
 const WEBVIEW_CREATION_CONFIRMATION_WINDOW: Duration = Duration::from_secs(2);
 const WEBVIEW_CREATION_TIMEOUT: Duration = Duration::from_secs(8);
-const WEBVIEW_CREATION_MAX_RETRIES: u8 = 3;
-const WEBVIEW_CREATION_COOLDOWN_MIN: Duration = Duration::from_secs(1);
-const WEBVIEW_CREATION_COOLDOWN_MAX: Duration = Duration::from_secs(30);
-const WEBVIEW_CREATION_COOLDOWN_MAX_STEP: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 struct WebviewCreationProbe {
@@ -71,17 +73,9 @@ fn cold_restore_url_for_node(
 
 #[derive(Default, Debug)]
 pub(crate) struct WebviewCreationBackpressureState {
-    retry_count: u8,
+    retry: WebviewAttachRetryState,
     pending: Option<WebviewCreationProbe>,
     cooldown_until: Option<Instant>,
-    cooldown_step: usize,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct NodePaneAttachAttemptMetadata {
-    pub(crate) retry_count: u8,
-    pub(crate) pending_attempt_age_ms: Option<u64>,
-    pub(crate) cooldown_remaining_ms: Option<u64>,
 }
 
 static NODE_PANE_ATTACH_ATTEMPT_METADATA: OnceLock<
@@ -97,36 +91,44 @@ fn duration_to_ms(duration: Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
+struct WebviewCreationBackpressureMetadataSource<'a> {
+    states: &'a HashMap<NodeKey, WebviewCreationBackpressureState>,
+    now: Instant,
+}
+
+impl RuntimeWebviewBackpressureMetadataSource for WebviewCreationBackpressureMetadataSource<'_> {
+    fn node_pane_attach_attempt_metadata(&self) -> Vec<(NodeKey, NodePaneAttachAttemptMetadata)> {
+        self.states
+            .iter()
+            .filter_map(|(&node_key, state)| {
+                let pending_attempt_age_ms = state.pending.map(|probe| {
+                    duration_to_ms(self.now.saturating_duration_since(probe.started_at))
+                });
+                let cooldown_remaining_ms = state
+                    .cooldown_until
+                    .and_then(|deadline| deadline.checked_duration_since(self.now))
+                    .map(duration_to_ms);
+                let metadata = NodePaneAttachAttemptMetadata {
+                    retry_count: state.retry.retry_count,
+                    pending_attempt_age_ms,
+                    cooldown_remaining_ms,
+                };
+                (!metadata.is_empty()).then_some((node_key, metadata))
+            })
+            .collect()
+    }
+}
+
 pub(crate) fn publish_node_pane_attach_attempt_metadata(
     webview_creation_backpressure: &HashMap<NodeKey, WebviewCreationBackpressureState>,
 ) {
-    let now = Instant::now();
-    let metadata = webview_creation_backpressure
-        .iter()
-        .filter_map(|(&node_key, state)| {
-            let pending_attempt_age_ms = state
-                .pending
-                .map(|probe| duration_to_ms(now.saturating_duration_since(probe.started_at)));
-            let cooldown_remaining_ms = state
-                .cooldown_until
-                .and_then(|deadline| deadline.checked_duration_since(now))
-                .map(duration_to_ms);
-            if state.retry_count == 0
-                && pending_attempt_age_ms.is_none()
-                && cooldown_remaining_ms.is_none()
-            {
-                return None;
-            }
-
-            Some((
-                node_key,
-                NodePaneAttachAttemptMetadata {
-                    retry_count: state.retry_count,
-                    pending_attempt_age_ms,
-                    cooldown_remaining_ms,
-                },
-            ))
-        })
+    let source = WebviewCreationBackpressureMetadataSource {
+        states: webview_creation_backpressure,
+        now: Instant::now(),
+    };
+    let metadata = source
+        .node_pane_attach_attempt_metadata()
+        .into_iter()
         .collect();
 
     if let Ok(mut slot) = node_pane_attach_attempt_metadata_cache().lock() {
@@ -151,22 +153,10 @@ pub(crate) fn publish_node_pane_attach_attempt_metadata_for_tests(
     }
 }
 
-fn creation_cooldown_delay(step: usize) -> Duration {
-    let capped_step = step.min(WEBVIEW_CREATION_COOLDOWN_MAX_STEP);
-    ExponentialBuilder::default()
-        .with_min_delay(WEBVIEW_CREATION_COOLDOWN_MIN)
-        .with_max_delay(WEBVIEW_CREATION_COOLDOWN_MAX)
-        .with_factor(2.0)
-        .with_max_times(capped_step.saturating_add(1))
-        .build()
-        .nth(capped_step)
-        .unwrap_or(WEBVIEW_CREATION_COOLDOWN_MAX)
-}
-
 fn arm_creation_cooldown(state: &mut WebviewCreationBackpressureState, now: Instant) -> Duration {
-    let delay = creation_cooldown_delay(state.cooldown_step);
+    let delay_ms = state.retry.advance_cooldown_step();
+    let delay = Duration::from_millis(delay_ms);
     state.cooldown_until = Some(now + delay);
-    state.cooldown_step = state.cooldown_step.saturating_add(1);
     delay
 }
 
@@ -226,17 +216,15 @@ pub(crate) fn ensure_webview_for_node(
     }
 
     if let Some(existing_webview_id) = graph_app.get_webview_for_node(node_key) {
-        if let Some(existing_servo_webview_id) =
-            servo_webview_id_from_renderer(existing_webview_id)
+        if let Some(existing_servo_webview_id) = servo_webview_id_from_renderer(existing_webview_id)
             && window.contains_webview(existing_servo_webview_id)
         {
             if responsive_webviews.contains(&existing_servo_webview_id)
                 && let Some(state) = webview_creation_backpressure.get_mut(&node_key)
             {
                 state.pending = None;
-                state.retry_count = 0;
+                state.retry.reset();
                 state.cooldown_until = None;
-                state.cooldown_step = 0;
             }
             return;
         }
@@ -269,7 +257,7 @@ pub(crate) fn ensure_webview_for_node(
             return;
         }
         state.cooldown_until = None;
-        state.retry_count = 0;
+        state.retry.reset_retry_count();
         lifecycle_intents.push(
             RuntimeEvent::ClearRuntimeBlocked {
                 key: node_key,
@@ -281,14 +269,14 @@ pub(crate) fn ensure_webview_for_node(
     if state.pending.is_some() {
         return;
     }
-    if state.retry_count >= WEBVIEW_CREATION_MAX_RETRIES {
+    if state.retry.is_retry_exhausted() {
         let now = Instant::now();
         let delay = arm_creation_cooldown(state, now);
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_event(
             crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
                 channel_id: "webview_backpressure.cooldown",
-                byte_len: state.retry_count as usize,
+                byte_len: state.retry.retry_count as usize,
             },
         );
         warn!(
@@ -303,12 +291,15 @@ pub(crate) fn ensure_webview_for_node(
             }
             .into(),
         );
-        state.retry_count = 0;
+        state.retry.reset_retry_count();
         return;
     }
 
     let _ = (base_rendering_context, window_rendering_context);
-    if viewer_surface_host.allocate_surface(viewer_surfaces, node_key).is_err() {
+    if viewer_surface_host
+        .allocate_surface(viewer_surfaces, node_key)
+        .is_err()
+    {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_VIEWER_SURFACE_ALLOCATE_FAILED,
             byte_len: node_url.len(),
@@ -370,7 +361,7 @@ pub(crate) fn ensure_webview_for_node(
             byte_len: 1,
         },
     );
-    state.retry_count = state.retry_count.saturating_add(1);
+    state.retry.record_attempt();
     state.pending = Some(WebviewCreationProbe {
         webview_id: webview.id(),
         started_at: Instant::now(),
@@ -429,9 +420,8 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                         },
                     );
                     state.pending = None;
-                    state.retry_count = 0;
+                    state.retry.reset();
                     state.cooldown_until = None;
-                    state.cooldown_step = 0;
                     lifecycle_intents.push(
                         RuntimeEvent::ClearRuntimeBlocked {
                             key: node_key,
@@ -459,12 +449,13 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                         .into(),
                     );
                     state.pending = None;
-                    if state.retry_count >= WEBVIEW_CREATION_MAX_RETRIES {
+                    if state.retry.is_retry_exhausted() {
                         let now = Instant::now();
+                        let retry_count = state.retry.retry_count;
                         let delay = arm_creation_cooldown(state, now);
                         warn!(
                             "Cooling down node {:?} after {} webview creation retries without confirmation; cooldown {:?}",
-                            node_key, state.retry_count, delay
+                            node_key, retry_count, delay
                         );
                         lifecycle_intents.push(
                             RuntimeEvent::MarkRuntimeBlocked {
@@ -474,7 +465,7 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                             }
                             .into(),
                         );
-                        state.retry_count = 0;
+                        state.retry.reset_retry_count();
                     }
                 }
             }
@@ -524,25 +515,20 @@ mod tests {
         assert_eq!(outcome, WebviewCreationProbeOutcome::Pending);
     }
 
-    #[test]
-    fn test_creation_cooldown_delay_is_bounded() {
-        assert_eq!(creation_cooldown_delay(0), WEBVIEW_CREATION_COOLDOWN_MIN);
-        let max_step_delay = creation_cooldown_delay(usize::MAX);
-        assert!(max_step_delay >= WEBVIEW_CREATION_COOLDOWN_MIN);
-        assert!(max_step_delay <= WEBVIEW_CREATION_COOLDOWN_MAX);
-    }
-
+    // Pure cooldown-delay bounds and step-doubling tests live in
+    // graphshell-runtime::webview_backpressure now; this test verifies the
+    // shell-side adapter layer (Instant deadline arithmetic + state mutation).
     #[test]
     fn test_arm_creation_cooldown_advances_step_and_deadline() {
         let mut state = WebviewCreationBackpressureState::default();
         let now = Instant::now();
         let d1 = arm_creation_cooldown(&mut state, now);
-        assert_eq!(state.cooldown_step, 1);
+        assert_eq!(state.retry.cooldown_step, 1);
         let first_deadline = state.cooldown_until.expect("cooldown deadline set");
         assert!(first_deadline >= now + d1);
 
         let d2 = arm_creation_cooldown(&mut state, now);
-        assert_eq!(state.cooldown_step, 2);
+        assert_eq!(state.retry.cooldown_step, 2);
         assert!(d2 >= d1);
     }
 

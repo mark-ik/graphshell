@@ -24,10 +24,9 @@ pub(super) fn webview_at_point(
         if !rect.contains(cursor) {
             continue;
         }
-        let Some(webview_id) = graph_app
-            .get_webview_for_node(state.node)
-            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
-        else {
+        let Some(webview_id) = graph_app.get_webview_for_node(state.node).and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+        ) else {
             continue;
         };
         let local = egui::Pos2::new(point.x - rect.min.x, point.y - rect.min.y).to_point2d();

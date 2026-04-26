@@ -68,13 +68,17 @@ pub(super) fn webview_id_for_node_key(gui: &EguiHost, node_key: NodeKey) -> Opti
     gui.runtime
         .graph_app
         .get_webview_for_node(node_key)
-        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
+        .and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+        )
 }
 
 pub(super) fn active_tile_webview_id(gui: &EguiHost) -> Option<WebViewId> {
     nav_targeting::active_node_pane_node(&gui.runtime.graph_app)
         .and_then(|node_key| gui.runtime.graph_app.get_webview_for_node(node_key))
-        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
+        .and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+        )
 }
 
 pub(super) fn node_key_for_webview_id(gui: &EguiHost, webview_id: WebViewId) -> Option<NodeKey> {

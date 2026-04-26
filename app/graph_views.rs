@@ -42,16 +42,14 @@ fn emit_graph_view_region_mutation_diagnostic(byte_len: usize) {
 
 fn emit_graph_view_transfer_succeeded_diagnostic(byte_len: usize) {
     emit_event(DiagnosticEvent::MessageSent {
-        channel_id:
-            crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED,
+        channel_id: crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_SUCCEEDED,
         byte_len: byte_len.max(1),
     });
 }
 
 fn emit_graph_view_transfer_blocked_diagnostic() {
     emit_event(DiagnosticEvent::MessageReceived {
-        channel_id:
-            crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
+        channel_id: crate::app::runtime_ports::registries::CHANNEL_UI_GRAPH_VIEW_TRANSFER_BLOCKED,
         latency_us: 0,
     });
 }
@@ -363,10 +361,7 @@ impl GraphBrowserApp {
 
     /// Set the per-graph default node style. All views without their
     /// own override inherit this.
-    pub fn set_node_style_default(
-        &mut self,
-        style: graph_canvas::node_style::NodeStyle,
-    ) {
+    pub fn set_node_style_default(&mut self, style: graph_canvas::node_style::NodeStyle) {
         self.workspace.domain.node_style_default = style;
     }
 
@@ -402,9 +397,7 @@ impl GraphBrowserApp {
                     graph_canvas::scene_physics::SimulateBehaviorPreset::Magnetic
                 }
             };
-            return graph_canvas::scene_physics::SimulateMotionProfile::for_preset(
-                portable_preset,
-            );
+            return graph_canvas::scene_physics::SimulateMotionProfile::for_preset(portable_preset);
         }
         // No such view — return the app-wide graph default or baseline.
         self.workspace
@@ -2191,7 +2184,10 @@ impl std::fmt::Debug for GraphViewState {
             .field("scene_relation_xray", &self.scene_relation_xray)
             .field("simulate_behavior_preset", &self.simulate_behavior_preset)
             .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
-            .field("navigation_policy_override", &self.navigation_policy_override)
+            .field(
+                "navigation_policy_override",
+                &self.navigation_policy_override,
+            )
             .field("node_style_override", &self.node_style_override)
             .field("simulate_motion_override", &self.simulate_motion_override)
             .field("active_filter", &self.active_filter)

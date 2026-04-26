@@ -318,9 +318,12 @@ pub(crate) fn run_post_render_phase<FActive>(
     let search_matches: HashSet<NodeKey> = graph_search_matches.iter().copied().collect();
     let active_search_match =
         active_graph_search_match(graph_search_matches, graph_search_active_match_index);
-    let layer_state =
-        WorkbenchChromeProjection::from_tree(&mut runtime.graph_app, tiles_tree, window.focused_pane())
-            .layer_state;
+    let layer_state = WorkbenchChromeProjection::from_tree(
+        &mut runtime.graph_app,
+        tiles_tree,
+        window.focused_pane(),
+    )
+    .layer_state;
 
     if matches!(
         layer_state,
@@ -746,7 +749,9 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 
     while let Some((key, url)) = runtime.graph_app.take_pending_protocol_probe() {
-        runtime.control_panel.handle_protocol_probe_request(key, url);
+        runtime
+            .control_panel
+            .handle_protocol_probe_request(key, url);
     }
 }
 
@@ -867,7 +872,9 @@ mod tests {
         );
         let webview_id = test_webview_id();
         app.map_webview_to_node(
-            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                webview_id,
+            ),
             node,
         );
 
@@ -903,7 +910,9 @@ mod tests {
         );
         let webview_id = test_webview_id();
         app.map_webview_to_node(
-            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+            crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                webview_id,
+            ),
             node,
         );
         app.set_context_command_surface_preference(ContextCommandSurfacePreference::RadialPalette);

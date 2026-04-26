@@ -36,7 +36,7 @@ const LOCATION_INPUT_ID: &str = "graphshell:location_bar";
 
 use crate::shell::desktop::ui::gui_state::GraphshellRuntime;
 use crate::shell::desktop::ui::iced_graph_canvas::{
-    from_graph_app as graph_canvas_from_app, GraphCanvasProgram,
+    GraphCanvasProgram, from_graph_app as graph_canvas_from_app,
 };
 use crate::shell::desktop::ui::iced_host::IcedHost;
 use crate::shell::desktop::workbench::ux_replay::HostEvent;
@@ -249,14 +249,12 @@ impl IcedApp {
     /// drive it. Shared between `LocationSubmitted` and `LinkActivated`
     /// so both routes flow through the same sanctioned-writes path.
     fn queue_create_node_at_url(&mut self, url: String) {
-        self.host
-            .pending_host_intents
-            .push(
-                graphshell_core::shell_state::host_intent::HostIntent::CreateNodeAtUrl {
-                    url,
-                    position: graphshell_core::geometry::PortablePoint::new(0.0, 0.0),
-                },
-            );
+        self.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::CreateNodeAtUrl {
+                url,
+                position: graphshell_core::geometry::PortablePoint::new(0.0, 0.0),
+            },
+        );
         // Tick immediately so the runtime drains the queued intent
         // in the same frame. Empty `events` is fine — the tick
         // loop also routes `host_intents`.
@@ -304,23 +302,24 @@ impl IcedApp {
         // that — iced reads the portable projections directly without
         // any painter-port plumbing.
         let location_value = self.location_value();
-        let location_input: Element<'_, Message> = text_input(
-            "Enter URL…",
-            &location_value,
-        )
-        .id(iced::widget::Id::new(LOCATION_INPUT_ID))
-        .on_input(Message::LocationEdited)
-        .on_submit(Message::LocationSubmitted)
-        .size(14)
-        .padding(4)
-        .width(Length::Fill)
-        .into();
+        let location_input: Element<'_, Message> = text_input("Enter URL…", &location_value)
+            .id(iced::widget::Id::new(LOCATION_INPUT_ID))
+            .on_input(Message::LocationEdited)
+            .on_submit(Message::LocationSubmitted)
+            .size(14)
+            .padding(4)
+            .width(Length::Fill)
+            .into();
 
         let toolbar_row = if let Some(vm) = self.last_view_model.as_ref() {
             let nav_hint = format!(
                 "back:{}  fwd:{}",
                 if vm.toolbar.can_go_back { "✓" } else { "·" },
-                if vm.toolbar.can_go_forward { "✓" } else { "·" },
+                if vm.toolbar.can_go_forward {
+                    "✓"
+                } else {
+                    "·"
+                },
             );
             let focus_hint = if vm.focus.graph_surface_focused {
                 "focus: graph"
@@ -335,12 +334,9 @@ impl IcedApp {
             .spacing(16)
             .align_y(iced::Alignment::Center)
         } else {
-            iced::widget::row![
-                location_input,
-                text("waiting for first tick…").size(12),
-            ]
-            .spacing(16)
-            .align_y(iced::Alignment::Center)
+            iced::widget::row![location_input, text("waiting for first tick…").size(12),]
+                .spacing(16)
+                .align_y(iced::Alignment::Center)
         };
 
         // Graph canvas publishes `GraphCanvasMessage` — map up into our
@@ -350,8 +346,10 @@ impl IcedApp {
         // `program` typed as `GraphCanvasProgram` re-exported from the
         // standalone viewer crate via the shim module.
         let _: &GraphCanvasProgram = &program;
-        let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
-            canvas(program).width(Length::Fill).height(Length::Fill).into();
+        let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> = canvas(program)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
         let graph: Element<'_, Message> = graph.map(|gcm| match gcm {
             super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
                 Message::CameraChanged { pan, zoom }
@@ -414,10 +412,7 @@ fn render_toast_stack(
             ToastSeverity::Warning => "⚠",
             ToastSeverity::Error => "✗",
         };
-        col = col.push(
-            text(format!("{severity_tag} {}", toast.message))
-                .size(12),
-        );
+        col = col.push(text(format!("{severity_tag} {}", toast.message)).size(12));
     }
     col
 }
@@ -592,13 +587,7 @@ mod tests {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
 
-        let nodes_before = app
-            .host
-            .runtime
-            .graph_app
-            .domain_graph()
-            .nodes()
-            .count();
+        let nodes_before = app.host.runtime.graph_app.domain_graph().nodes().count();
 
         let _ = app.update(Message::LocationEdited("https://submit.test/".into()));
         let _ = app.update(Message::LocationSubmitted);
@@ -620,13 +609,7 @@ mod tests {
         // Runtime drained the queued `HostIntent::CreateNodeAtUrl`
         // during the tick `LocationSubmitted` triggered, so the node
         // is visible in the domain graph.
-        let nodes_after = app
-            .host
-            .runtime
-            .graph_app
-            .domain_graph()
-            .nodes()
-            .count();
+        let nodes_after = app.host.runtime.graph_app.domain_graph().nodes().count();
         assert_eq!(
             nodes_after,
             nodes_before + 1,
@@ -759,6 +742,9 @@ mod tests {
         let _task = app.update(Message::IcedEvent(iced::Event::Mouse(
             iced::mouse::Event::CursorLeft,
         )));
-        assert!(app.host.cursor_position.is_none(), "CursorLeft should clear");
+        assert!(
+            app.host.cursor_position.is_none(),
+            "CursorLeft should clear"
+        );
     }
 }

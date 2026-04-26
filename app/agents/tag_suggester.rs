@@ -145,11 +145,11 @@ fn extract_tokens(input: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::NodeKey;
     use crate::app::runtime_ports::registries::phase3_shared_runtime;
     use crate::app::runtime_ports::registries::signal_routing::{
         NavigationSignal, SignalEnvelope, SignalKind, SignalSource,
     };
+    use crate::graph::NodeKey;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 

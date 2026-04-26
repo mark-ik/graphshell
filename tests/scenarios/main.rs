@@ -7,7 +7,8 @@ fn scenarios_binary_smoke_runs() {
 
 #[test]
 fn mod_capability_disable_verso_scenario() {
-    let capabilities = graphshell::test_utils::active_capabilities_with_disabled(&["mod:web-runtime"]);
+    let capabilities =
+        graphshell::test_utils::active_capabilities_with_disabled(&["mod:web-runtime"]);
 
     assert!(!capabilities.contains("viewer:webview"));
     assert!(!capabilities.contains("protocol:https"));

@@ -115,9 +115,7 @@ pub(crate) fn forget_renderer_id_for_servo(id: WebViewId) -> Option<RendererId> 
 /// Inverse of [`viewer_instance_id_from_servo`]. Returns `None` when
 /// the id was produced by a different provider (Wry / iced_webview /
 /// MiddleNet Direct) or when the encoded string has been corrupted.
-pub(crate) fn servo_webview_id_from_viewer_instance(
-    id: &ViewerInstanceId,
-) -> Option<WebViewId> {
+pub(crate) fn servo_webview_id_from_viewer_instance(id: &ViewerInstanceId) -> Option<WebViewId> {
     match id {
         ViewerInstanceId::Servo(encoded) => serde_json::from_str(encoded).ok(),
         _ => None,
@@ -355,13 +353,17 @@ mod tests {
 
     #[test]
     fn servo_webview_id_from_non_servo_variant_returns_none() {
-        assert!(servo_webview_id_from_viewer_instance(
-            &graphshell_core::content::ViewerInstanceId::Wry(42)
-        )
-        .is_none());
-        assert!(servo_webview_id_from_viewer_instance(
-            &graphshell_core::content::ViewerInstanceId::IcedWebview(99)
-        )
-        .is_none());
+        assert!(
+            servo_webview_id_from_viewer_instance(
+                &graphshell_core::content::ViewerInstanceId::Wry(42)
+            )
+            .is_none()
+        );
+        assert!(
+            servo_webview_id_from_viewer_instance(
+                &graphshell_core::content::ViewerInstanceId::IcedWebview(99)
+            )
+            .is_none()
+        );
     }
 }

@@ -1174,8 +1174,7 @@ impl GraphBrowserApp {
                 .set_import_records(import_records);
         }
 
-        if updated {
-        }
+        if updated {}
     }
 
     pub(crate) fn fetch_and_import_webfinger_into_graph(
@@ -2221,8 +2220,7 @@ impl GraphBrowserApp {
     }
 
     pub(crate) fn delete_import_record(&mut self, record_id: String) {
-        if self.workspace.domain.graph.delete_import_record(&record_id) {
-        }
+        if self.workspace.domain.graph.delete_import_record(&record_id) {}
     }
 
     pub(crate) fn suppress_import_record_membership(&mut self, record_id: String, key: NodeKey) {
@@ -2231,8 +2229,7 @@ impl GraphBrowserApp {
             .domain
             .graph
             .set_import_record_membership_suppressed(&record_id, key, true)
-        {
-        }
+        {}
     }
 
     pub(crate) fn promote_import_record_to_user_group(
@@ -2597,19 +2594,13 @@ impl GraphBrowserApp {
     /// render modes so any open pane showing this node picks up the new
     /// route on the next frame.
     pub fn set_node_compat_mode(&mut self, key: NodeKey, compat_mode: bool) -> bool {
-        let Some(current) = self
-            .workspace
-            .domain
-            .graph
-            .node_compat_mode(key)
-        else {
+        let Some(current) = self.workspace.domain.graph.node_compat_mode(key) else {
             return false;
         };
         if current == compat_mode {
             return false;
         }
-        let _ = self
-            .apply_graph_delta_and_sync(GraphDelta::SetNodeCompatMode { key, compat_mode });
+        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeCompatMode { key, compat_mode });
         true
     }
 

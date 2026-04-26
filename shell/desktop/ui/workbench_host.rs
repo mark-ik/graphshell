@@ -712,8 +712,8 @@ fn graph_scope_sync_status() -> (String, egui::Color32, String) {
     // the hardcoded (140,145,150) / (210,175,70) / (110,190,130) triple
     // that used to live inline — users who swap themes now see their
     // theme's status colors applied here too.
-    let theme = crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(None)
-        .tokens;
+    let theme =
+        crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(None).tokens;
 
     if !crate::mods::verse::is_initialized() {
         return (
@@ -4070,9 +4070,7 @@ fn viewer_override_badge(
 /// Short human-legible label plus expanded hover text for a verso
 /// route reason. Surfaced in the workbench debug surface so users
 /// can tell at a glance *why* a given engine was chosen.
-fn verso_route_reason_badge(
-    route: &::verso::VersoResolvedRoute,
-) -> (&'static str, String) {
+fn verso_route_reason_badge(route: &::verso::VersoResolvedRoute) -> (&'static str, String) {
     use ::verso::{EngineChoice, VersoRouteReason, WebEnginePreference};
     let preference_label = |preference: WebEnginePreference| match preference {
         WebEnginePreference::Servo => "Servo",

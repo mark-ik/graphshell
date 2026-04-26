@@ -12,9 +12,7 @@ use crate::render::radial_menu::{
     clear_semantic_snapshot, lock_radial_palette_snapshot_tests, publish_semantic_snapshot,
 };
 use crate::shell::desktop::ui::gui_orchestration;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::{
-    clear_command_surface_semantic_snapshot,
-};
+use crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot;
 use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::ux_tree;
@@ -355,7 +353,8 @@ fn pre_wgpu_critical_path_snapshots_match_baselines() {
 
 #[test]
 fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
-    let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+    let telemetry =
+        crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
     clear_command_surface_semantic_snapshot(&telemetry);
 
     let mut app = GraphBrowserApp::new_for_testing();
@@ -363,11 +362,21 @@ fn command_surface_toggle_command_palette_snapshot_stays_structurally_stable() {
     let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
     let mut tree = Tree::new("pre_wgpu_command_palette_structure", root, tiles);
 
-    let baseline = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, Some(&telemetry), 21));
+    let baseline = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(
+        &tree,
+        &app,
+        Some(&telemetry),
+        21,
+    ));
 
     let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
-    let current = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(&tree, &app, Some(&telemetry), 22));
+    let current = normalize_snapshot_json_for_baseline(&ux_tree::build_snapshot(
+        &tree,
+        &app,
+        Some(&telemetry),
+        22,
+    ));
     let gate = classify_snapshot_json_diff_gate(&baseline, &current, false);
 
     assert!(

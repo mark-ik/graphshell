@@ -90,13 +90,13 @@ pub(crate) use clipboard_flow::{
     clipboard_copy_missing_node_failure_text, clipboard_copy_success_text,
     handle_pending_clipboard_copy_requests,
 };
-pub(crate) use pending_open_flow::{
-    handle_pending_open_clip_after_intents, handle_pending_open_node_after_intents,
-    handle_pending_open_note_after_intents,
-};
 pub(crate) use graph_search_flow_phase::{
     active_graph_search_match, graph_search_toast_message, run_graph_search_phase,
     run_graph_search_window_phase,
+};
+pub(crate) use pending_open_flow::{
+    handle_pending_open_clip_after_intents, handle_pending_open_node_after_intents,
+    handle_pending_open_note_after_intents,
 };
 pub(crate) use pre_frame_flow::{PreFramePhaseOutput, run_pre_frame_phase};
 pub(crate) use semantic_lifecycle_flow::run_semantic_lifecycle_phase;
@@ -106,8 +106,6 @@ pub(crate) use toolbar_phase_flow::{run_keyboard_phase, run_toolbar_phase};
 pub(crate) use workbench_dispatch_flow::handle_tool_pane_intents;
 
 use focus_realizer::FocusRealizer;
-
-
 
 #[cfg(test)]
 #[path = "gui_orchestration_tests.rs"]

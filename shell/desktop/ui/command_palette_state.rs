@@ -14,6 +14,7 @@
 //! `CommandPaletteSession` / `SearchPaletteScope` call sites resolve
 //! unchanged.
 
+#[allow(unused_imports)]
 pub(crate) use graphshell_core::shell_state::command_palette::{
     CommandPaletteSession, SearchPaletteScope,
 };

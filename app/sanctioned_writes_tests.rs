@@ -32,13 +32,7 @@ use std::path::{Path, PathBuf};
 // ── Shared scanning infrastructure ───────────────────────────────────────────
 
 /// Directories never traversed during the repo-wide scan.
-const SKIP_DIRS: &[&str] = &[
-    "target",
-    ".git",
-    "node_modules",
-    "design_docs",
-    "snapshots",
-];
+const SKIP_DIRS: &[&str] = &["target", ".git", "node_modules", "design_docs", "snapshots"];
 
 fn walk_rs_files(root: &Path, into: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(root) else {
@@ -47,10 +41,7 @@ fn walk_rs_files(root: &Path, into: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if SKIP_DIRS.contains(&name) {
                 continue;
             }
@@ -70,11 +61,7 @@ fn relative_to_repo(path: &Path, repo_root: &Path) -> String {
 /// Repo-wide scanner. Fails if `needle` appears in any `.rs` file outside
 /// `allowed_files`. Used when the protected identifier may legitimately
 /// appear at a small known set of sanctioned sites repo-wide.
-fn assert_no_unsanctioned_callers(
-    needle: &str,
-    allowed_files: &[&str],
-    sanction_message: &str,
-) {
+fn assert_no_unsanctioned_callers(needle: &str, allowed_files: &[&str], sanction_message: &str) {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut rs_files = Vec::new();
     walk_rs_files(&repo_root, &mut rs_files);
@@ -106,11 +93,7 @@ fn assert_no_unsanctioned_callers(
 /// Targeted scanner. Fails if `needle` appears in any of `target_files`.
 /// Used when the rule is "this identifier must NOT appear in this small
 /// fixed set of files at all" (the §12.17 host-adapter pattern).
-fn assert_needle_absent_from_files(
-    needle: &str,
-    target_files: &[&str],
-    sanction_message: &str,
-) {
+fn assert_needle_absent_from_files(needle: &str, target_files: &[&str], sanction_message: &str) {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut violations: Vec<String> = Vec::new();
     for target in target_files {
@@ -207,10 +190,8 @@ fn no_unsanctioned_node_replace_history_state_writes() {
 /// path. A new file here means a new caller is entering the bridge \u2014
 /// either re-route through `GraphBrowserApp::apply_arrangement_snapshot` or
 /// justify the new bypass.
-const ARRANGEMENT_HELPER_ALLOWED_FILES: &[&str] = &[
-    "app/graph_mutations.rs",
-    "app/arrangement_graph_bridge.rs",
-];
+const ARRANGEMENT_HELPER_ALLOWED_FILES: &[&str] =
+    &["app/graph_mutations.rs", "app/arrangement_graph_bridge.rs"];
 
 #[test]
 fn no_unsanctioned_add_arrangement_relation_calls() {

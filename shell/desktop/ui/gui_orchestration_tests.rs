@@ -241,7 +241,12 @@ fn refresh_graph_search_matches_includes_anchor_neighborhood_context() {
 
     let mut matches = Vec::new();
     let mut active_index = None;
-    super::graph_search_flow_phase::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+    super::graph_search_flow_phase::refresh_graph_search_matches(
+        &app,
+        "udc:51",
+        &mut matches,
+        &mut active_index,
+    );
 
     assert!(matches.contains(&anchor));
     assert!(matches.contains(&far));
@@ -300,7 +305,12 @@ fn refresh_graph_search_matches_supports_two_hop_anchor_neighborhood_context() {
 
     let mut matches = Vec::new();
     let mut active_index = None;
-    super::graph_search_flow_phase::refresh_graph_search_matches(&app, "udc:51", &mut matches, &mut active_index);
+    super::graph_search_flow_phase::refresh_graph_search_matches(
+        &app,
+        "udc:51",
+        &mut matches,
+        &mut active_index,
+    );
 
     assert!(matches.contains(&anchor));
     assert!(matches.contains(&neighbor));
@@ -1085,7 +1095,11 @@ fn pending_note_open_request_is_consumed_by_orchestration_semantic_phase() {
         graph_tree::LayoutMode::TreeStyleTabs,
         graph_tree::ProjectionLens::Traversal,
     );
-    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
+    gui_orchestration::handle_pending_open_note_after_intents(
+        &mut app,
+        &mut tree,
+        Some(&mut graph_tree),
+    );
 
     assert!(app.take_pending_open_note_request().is_none());
     assert!(node_pane_count(&tree) >= 1);
@@ -1104,7 +1118,11 @@ fn pending_unknown_note_open_request_is_cleared_by_orchestration_semantic_phase(
         graph_tree::LayoutMode::TreeStyleTabs,
         graph_tree::ProjectionLens::Traversal,
     );
-    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
+    gui_orchestration::handle_pending_open_note_after_intents(
+        &mut app,
+        &mut tree,
+        Some(&mut graph_tree),
+    );
 
     assert!(app.take_pending_open_note_request().is_none());
 }
@@ -1122,7 +1140,11 @@ fn pending_clip_open_request_is_consumed_by_orchestration_semantic_phase() {
         graph_tree::LayoutMode::TreeStyleTabs,
         graph_tree::ProjectionLens::Traversal,
     );
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
+    gui_orchestration::handle_pending_open_clip_after_intents(
+        &mut app,
+        &mut tree,
+        Some(&mut graph_tree),
+    );
 
     assert!(app.take_pending_open_clip_request().is_none());
     assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
@@ -1145,7 +1167,11 @@ fn pending_clip_open_request_opens_matching_clip_node_pane() {
         graph_tree::LayoutMode::TreeStyleTabs,
         graph_tree::ProjectionLens::Traversal,
     );
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
+    gui_orchestration::handle_pending_open_clip_after_intents(
+        &mut app,
+        &mut tree,
+        Some(&mut graph_tree),
+    );
 
     assert!(app.take_pending_open_clip_request().is_none());
     assert!(tree.tiles.iter().any(|(_, tile)| {
@@ -1166,7 +1192,11 @@ fn pending_clip_open_request_is_noop_when_queue_empty() {
         graph_tree::LayoutMode::TreeStyleTabs,
         graph_tree::ProjectionLens::Traversal,
     );
-    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree, Some(&mut graph_tree));
+    gui_orchestration::handle_pending_open_clip_after_intents(
+        &mut app,
+        &mut tree,
+        Some(&mut graph_tree),
+    );
 
     assert!(app.take_pending_open_clip_request().is_none());
 }
@@ -2329,7 +2359,11 @@ fn transient_surface_restore_returns_focus_to_captured_graph_target() {
 
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
-    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(
+        &mut app,
+        &mut tree,
+        &mut focus_authority,
+    );
 
     assert!(app.pending_transient_surface_return_target().is_none());
     assert!(
@@ -2370,7 +2404,11 @@ fn transient_surface_restore_uses_runtime_focus_authority_when_app_queue_is_empt
     assert_eq!(active_node_key(&tree), Some(node_key));
     assert!(app.pending_transient_surface_return_target().is_none());
 
-    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(
+        &mut app,
+        &mut tree,
+        &mut focus_authority,
+    );
 
     assert!(app.pending_transient_surface_return_target().is_none());
     assert!(focus_authority.transient_surface_return_target.is_none());
@@ -2990,7 +3028,11 @@ fn transient_restore_mismatch_emits_focus_realization_mismatch() {
         Some(ToolSurfaceReturnTarget::Node(missing_node));
     app.request_restore_transient_surface_focus();
 
-    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(
+        &mut app,
+        &mut tree,
+        &mut focus_authority,
+    );
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
@@ -3050,7 +3092,11 @@ fn transient_surface_restore_invalid_target_emits_focus_return_fallback_and_mism
 
     let mut focus_authority =
         crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState::default();
-    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(&mut app, &mut tree, &mut focus_authority);
+    super::workbench_dispatch_flow::restore_pending_transient_surface_focus(
+        &mut app,
+        &mut tree,
+        &mut focus_authority,
+    );
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();

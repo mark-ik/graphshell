@@ -90,7 +90,9 @@ impl GraphBrowserApp {
 
     pub fn set_client_storage_manager(
         &mut self,
-        manager: Option<crate::mods::native::web_runtime::client_storage::ClientStorageManagerHandle>,
+        manager: Option<
+            crate::mods::native::web_runtime::client_storage::ClientStorageManagerHandle,
+        >,
     ) {
         self.services.client_storage_manager = manager;
     }
@@ -381,9 +383,15 @@ impl GraphBrowserApp {
             .workbench_session
             .session_dismissed_frame_split_offers
             .contains(from);
-        let mut bundle: crate::shell::desktop::ui::persistence_ops::PersistedWorkspace =
+        let mut bundle: serde_json::Value =
             serde_json::from_str(&layout_json).map_err(|e| e.to_string())?;
-        bundle.name = to.to_string();
+        let Some(object) = bundle.as_object_mut() else {
+            return Err(format!("Persisted frame '{from}' is not a JSON object"));
+        };
+        object.insert(
+            "name".to_string(),
+            serde_json::Value::String(to.to_string()),
+        );
         let renamed_json = serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())?;
         self.save_workspace_layout_json(to, &renamed_json);
         self.delete_workspace_layout(from)?;
@@ -751,7 +759,9 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.command_palette_recents.clear();
         self.workspace.chrome_ui.command_palette_recents_depth =
             Self::DEFAULT_COMMAND_PALETTE_RECENTS_DEPTH;
-        self.workspace.chrome_ui.command_palette_tier1_default_category = None;
+        self.workspace
+            .chrome_ui
+            .command_palette_tier1_default_category = None;
         self.workspace.chrome_ui.wry_enabled = true;
         self.workspace.chrome_ui.navigator_sidebar_side_preference =
             super::settings_persistence::NavigatorSidebarSidePreference::Left;

@@ -20,7 +20,10 @@ enum CanvasFocusTarget {
 
 fn embedded_focus_components(
     focus: Option<&EmbeddedContentTarget>,
-) -> (Option<graphshell_core::content::ViewerInstanceId>, Option<NodeKey>) {
+) -> (
+    Option<graphshell_core::content::ViewerInstanceId>,
+    Option<NodeKey>,
+) {
     match focus {
         Some(EmbeddedContentTarget::WebView {
             renderer_id,
@@ -45,9 +48,9 @@ pub(crate) fn workspace_runtime_focus_state(
         focused_node_hint: None,
         graph_surface_focused: false,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app
-            .embedded_content_focus_webview()
-            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
+        embedded_content_focus_webview: graph_app.embedded_content_focus_webview().and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer,
+        ),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),
@@ -120,9 +123,9 @@ pub(crate) fn workbench_runtime_focus_state(
         focused_node_hint,
         graph_surface_focused,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app
-            .embedded_content_focus_webview()
-            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
+        embedded_content_focus_webview: graph_app.embedded_content_focus_webview().and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer,
+        ),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),
@@ -230,9 +233,9 @@ pub(crate) fn refresh_realized_runtime_focus_state(
         focused_node_hint,
         graph_surface_focused,
         local_widget_focus,
-        embedded_content_focus_webview: graph_app
-            .embedded_content_focus_webview()
-            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer),
+        embedded_content_focus_webview: graph_app.embedded_content_focus_webview().and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::viewer_instance_id_from_renderer,
+        ),
         embedded_content_focus_node: graph_app
             .embedded_content_focus_webview()
             .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id)),

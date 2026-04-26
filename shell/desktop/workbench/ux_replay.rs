@@ -77,141 +77,141 @@ pub(crate) fn modifiers_from_egui(modifiers: egui::Modifiers) -> ModifiersState 
 /// directly until an explicit key-translation pass lands.
 pub(crate) fn host_event_from_egui_event(event: &egui::Event) -> Option<HostEvent> {
     Some(match event {
-            egui::Event::Text(text) => HostEvent::Text(text.clone()),
-            egui::Event::PointerMoved(pos) => HostEvent::PointerMoved { x: pos.x, y: pos.y },
-            egui::Event::PointerButton {
-                pos,
-                button,
-                pressed,
-                ..
-            } => {
-                let button = pointer_button_from_egui(*button);
-                if *pressed {
-                    HostEvent::PointerDown {
-                        x: pos.x,
-                        y: pos.y,
-                        button,
-                    }
-                } else {
-                    HostEvent::PointerUp {
-                        x: pos.x,
-                        y: pos.y,
-                        button,
-                    }
+        egui::Event::Text(text) => HostEvent::Text(text.clone()),
+        egui::Event::PointerMoved(pos) => HostEvent::PointerMoved { x: pos.x, y: pos.y },
+        egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            ..
+        } => {
+            let button = pointer_button_from_egui(*button);
+            if *pressed {
+                HostEvent::PointerDown {
+                    x: pos.x,
+                    y: pos.y,
+                    button,
+                }
+            } else {
+                HostEvent::PointerUp {
+                    x: pos.x,
+                    y: pos.y,
+                    button,
                 }
             }
-            egui::Event::Zoom(delta) => HostEvent::Zoom { delta: *delta },
-            egui::Event::MouseWheel { delta, .. } => HostEvent::Scroll {
-                dx: delta.x,
-                dy: delta.y,
-            },
-            egui::Event::WindowFocused(focused) => HostEvent::Focus(*focused),
-            egui::Event::Key {
-                key,
-                pressed,
-                modifiers,
-                ..
-            } => HostEvent::Key {
-                key: egui_key_to_host_string(*key)?,
-                pressed: *pressed,
-                modifiers: modifiers_from_egui(*modifiers),
-            },
-            _ => return None,
-        })
+        }
+        egui::Event::Zoom(delta) => HostEvent::Zoom { delta: *delta },
+        egui::Event::MouseWheel { delta, .. } => HostEvent::Scroll {
+            dx: delta.x,
+            dy: delta.y,
+        },
+        egui::Event::WindowFocused(focused) => HostEvent::Focus(*focused),
+        egui::Event::Key {
+            key,
+            pressed,
+            modifiers,
+            ..
+        } => HostEvent::Key {
+            key: egui_key_to_host_string(*key)?,
+            pressed: *pressed,
+            modifiers: modifiers_from_egui(*modifiers),
+        },
+        _ => return None,
+    })
 }
 
 /// Translates a host-neutral record playback step into an array of concrete `egui::Event` instances.
 /// (Returns a Vec because some synthetic actions may require multiple tick-level egui interactions).
 pub(crate) fn host_event_to_egui_events(event: &HostEvent) -> Vec<egui::Event> {
     match event {
-            HostEvent::PointerMoved { x, y } => {
-                vec![egui::Event::PointerMoved(egui::pos2(*x, *y))]
-            }
-            HostEvent::PointerDown { x, y, button } => {
-                if let Some(btn) = pointer_button_to_egui(*button) {
-                    vec![egui::Event::PointerButton {
-                        pos: egui::pos2(*x, *y),
-                        button: btn,
-                        pressed: true,
-                        modifiers: egui::Modifiers::default(),
-                    }]
-                } else {
-                    vec![]
-                }
-            }
-            HostEvent::PointerUp { x, y, button } => {
-                if let Some(btn) = pointer_button_to_egui(*button) {
-                    vec![egui::Event::PointerButton {
-                        pos: egui::pos2(*x, *y),
-                        button: btn,
-                        pressed: false,
-                        modifiers: egui::Modifiers::default(),
-                    }]
-                } else {
-                    vec![]
-                }
-            }
-            HostEvent::Scroll { dx, dy } => {
-                vec![egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(*dx, *dy),
+        HostEvent::PointerMoved { x, y } => {
+            vec![egui::Event::PointerMoved(egui::pos2(*x, *y))]
+        }
+        HostEvent::PointerDown { x, y, button } => {
+            if let Some(btn) = pointer_button_to_egui(*button) {
+                vec![egui::Event::PointerButton {
+                    pos: egui::pos2(*x, *y),
+                    button: btn,
+                    pressed: true,
                     modifiers: egui::Modifiers::default(),
-                    phase: egui::TouchPhase::Move,
                 }]
-            }
-            HostEvent::Zoom { delta } => {
-                vec![egui::Event::Zoom(*delta)]
-            }
-            HostEvent::Text(t) => {
-                vec![egui::Event::Text(t.clone())]
-            }
-            HostEvent::Key {
-                key,
-                pressed,
-                modifiers,
-            } => {
-                // Simplified key mapping for structural tests to avoid huge switch matching
-                let egui_key = match key.as_str() {
-                    "Enter" => Some(egui::Key::Enter),
-                    "Escape" => Some(egui::Key::Escape),
-                    "Space" => Some(egui::Key::Space),
-                    "Backspace" => Some(egui::Key::Backspace),
-                    "Delete" => Some(egui::Key::Delete),
-                    "ArrowUp" => Some(egui::Key::ArrowUp),
-                    "ArrowDown" => Some(egui::Key::ArrowDown),
-                    "ArrowLeft" => Some(egui::Key::ArrowLeft),
-                    "ArrowRight" => Some(egui::Key::ArrowRight),
-                    "A" | "a" => Some(egui::Key::A),
-                    "S" | "s" => Some(egui::Key::S),
-                    "D" | "d" => Some(egui::Key::D),
-                    "W" | "w" => Some(egui::Key::W),
-                    // For thorough key mapping, you'd map the entire range of winit keys.
-                    // This is sufficient for M0 UI parity driving tests.
-                    _ => None,
-                };
-                if let Some(k) = egui_key {
-                    vec![egui::Event::Key {
-                        key: k,
-                        physical_key: None,
-                        pressed: *pressed,
-                        repeat: false,
-                        modifiers: modifiers_to_egui(*modifiers),
-                    }]
-                } else {
-                    vec![]
-                }
-            }
-            HostEvent::WindowResized { .. } => {
-                vec![]
-            }
-            HostEvent::Focus(focused) => {
-                vec![egui::Event::WindowFocused(*focused)]
-            }
-            HostEvent::CommandSurface { .. } => {
-                // These are injected through context rather than OS pointer inputs.
+            } else {
                 vec![]
             }
         }
+        HostEvent::PointerUp { x, y, button } => {
+            if let Some(btn) = pointer_button_to_egui(*button) {
+                vec![egui::Event::PointerButton {
+                    pos: egui::pos2(*x, *y),
+                    button: btn,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                }]
+            } else {
+                vec![]
+            }
+        }
+        HostEvent::Scroll { dx, dy } => {
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(*dx, *dy),
+                modifiers: egui::Modifiers::default(),
+                phase: egui::TouchPhase::Move,
+            }]
+        }
+        HostEvent::Zoom { delta } => {
+            vec![egui::Event::Zoom(*delta)]
+        }
+        HostEvent::Text(t) => {
+            vec![egui::Event::Text(t.clone())]
+        }
+        HostEvent::Key {
+            key,
+            pressed,
+            modifiers,
+        } => {
+            // Simplified key mapping for structural tests to avoid huge switch matching
+            let egui_key = match key.as_str() {
+                "Enter" => Some(egui::Key::Enter),
+                "Escape" => Some(egui::Key::Escape),
+                "Space" => Some(egui::Key::Space),
+                "Backspace" => Some(egui::Key::Backspace),
+                "Delete" => Some(egui::Key::Delete),
+                "ArrowUp" => Some(egui::Key::ArrowUp),
+                "ArrowDown" => Some(egui::Key::ArrowDown),
+                "ArrowLeft" => Some(egui::Key::ArrowLeft),
+                "ArrowRight" => Some(egui::Key::ArrowRight),
+                "A" | "a" => Some(egui::Key::A),
+                "S" | "s" => Some(egui::Key::S),
+                "D" | "d" => Some(egui::Key::D),
+                "W" | "w" => Some(egui::Key::W),
+                // For thorough key mapping, you'd map the entire range of winit keys.
+                // This is sufficient for M0 UI parity driving tests.
+                _ => None,
+            };
+            if let Some(k) = egui_key {
+                vec![egui::Event::Key {
+                    key: k,
+                    physical_key: None,
+                    pressed: *pressed,
+                    repeat: false,
+                    modifiers: modifiers_to_egui(*modifiers),
+                }]
+            } else {
+                vec![]
+            }
+        }
+        HostEvent::WindowResized { .. } => {
+            vec![]
+        }
+        HostEvent::Focus(focused) => {
+            vec![egui::Event::WindowFocused(*focused)]
+        }
+        HostEvent::CommandSurface { .. } => {
+            // These are injected through context rather than OS pointer inputs.
+            vec![]
+        }
+    }
 }
 
 /// Inverse of the limited key-translation done in [`host_event_to_egui_events`].

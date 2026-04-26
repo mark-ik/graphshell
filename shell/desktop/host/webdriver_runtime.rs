@@ -672,11 +672,11 @@ where
         // Pre-existing WIP from another lane: GetDiagnosticsState added to
         // UxBridgeCommand but not yet wired into the WebDriver transport.
         // Stub return until that lane lands its full handler.
-        ux_bridge::UxBridgeCommand::GetDiagnosticsState => ux_bridge::error_json(
-            &ux_bridge::UxBridgeError::transport_unavailable(
+        ux_bridge::UxBridgeCommand::GetDiagnosticsState => {
+            ux_bridge::error_json(&ux_bridge::UxBridgeError::transport_unavailable(
                 "GetDiagnosticsState transport not implemented",
-            ),
-        ),
+            ))
+        }
     }
 }
 
@@ -708,7 +708,8 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     use crate::shell::desktop::ui::toolbar::toolbar_ui::{
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
-        CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
+        CommandSurfaceSemanticSnapshot, clear_command_surface_semantic_snapshot,
+        publish_command_surface_semantic_snapshot,
     };
 
     #[test]
@@ -793,24 +794,30 @@ mod tests {
     #[cfg(feature = "ux-bridge")]
     #[test]
     fn ux_bridge_action_script_queues_open_command_palette() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _ux_tree_guard =
             crate::shell::desktop::workbench::ux_tree::lock_ux_tree_snapshot_tests();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                ..CommandSurfaceSemanticSnapshot::default()
             },
-            ..CommandSurfaceSemanticSnapshot::default()
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app, Some(&telemetry), 0,
+            &harness.app,
+            Some(&telemetry),
+            0,
         );
         crate::shell::desktop::workbench::ux_tree::publish_snapshot(&snapshot);
 

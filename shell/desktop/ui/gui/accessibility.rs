@@ -320,7 +320,9 @@ fn build_uxtree_a11y_node_plan(
 ) -> UxTreeA11yNodePlan {
     let affordance = projected_affordance_for_uxtree_node(node, annotations);
     let description = match node.domain {
-        UxDomainIdentity::GraphView { graph_view_id, .. } if node.role == UxNodeRole::GraphSurface => {
+        UxDomainIdentity::GraphView { graph_view_id, .. }
+            if node.role == UxNodeRole::GraphSurface =>
+        {
             Some(crate::render::graph_surface_accessibility_description(
                 graph_app,
                 graph_view_id,

@@ -20,6 +20,7 @@ pub(crate) mod graph_tree_facade;
 pub(crate) mod graph_tree_projection;
 pub(crate) mod graph_tree_sync;
 pub(crate) mod interaction_policy;
+pub(crate) mod local_file_access;
 pub(crate) mod pane_model;
 pub(crate) mod selection_range;
 // 2026-04-25 servo-into-verso S2b: semantic_tabs consumes gated

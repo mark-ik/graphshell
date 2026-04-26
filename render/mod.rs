@@ -12,12 +12,12 @@
 //! preserved only in historical references.
 
 use crate::app::{
-    ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphTooltipTarget,
-    SearchDisplayMode, SelectionUpdateMode, SimulateBehaviorPreset,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
+    ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphTooltipTarget, SearchDisplayMode,
+    SelectionUpdateMode, SimulateBehaviorPreset, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewAction,
 };
-use crate::graph::{EdgeType, NodeKey};
 use crate::graph::scene_runtime::SceneCollisionPolicy;
+use crate::graph::{EdgeType, NodeKey};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -40,11 +40,21 @@ mod reducer_bridge;
 pub(crate) mod semantic_tags;
 mod spatial_index;
 #[cfg(test)]
+use crate::app::{ThreeDMode, ViewDimension, ZSource};
+#[cfg(test)]
+use crate::graph::NodeLifecycle;
+#[cfg(test)]
 use canvas_visuals::filtered_graph_for_search;
+use canvas_visuals::visible_nodes_for_view_filters;
+#[cfg(test)]
 use canvas_visuals::{
-    visible_nodes_for_view_filters,
+    canvas_rect_from_view_frame, effective_graph_screen_rect, graph_visible_screen_rects,
+    hovered_adjacency_set, lifecycle_color, viewport_culled_graph_for_canvas_rect,
+    viewport_culling_metrics_for_canvas_rect, viewport_culling_selection_for_canvas_rect,
 };
 use graph_info::draw_graph_info;
+#[cfg(test)]
+use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
 #[cfg(test)]
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
@@ -54,18 +64,6 @@ pub use panels::{
     render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
-#[cfg(test)]
-use crate::app::{ThreeDMode, ViewDimension, ZSource};
-#[cfg(test)]
-use crate::graph::NodeLifecycle;
-#[cfg(test)]
-use canvas_visuals::{
-    canvas_rect_from_view_frame, effective_graph_screen_rect, graph_visible_screen_rects,
-    hovered_adjacency_set, lifecycle_color, viewport_culled_graph_for_canvas_rect,
-    viewport_culling_metrics_for_canvas_rect, viewport_culling_selection_for_canvas_rect,
-};
-#[cfg(test)]
-use graph_info::{graph_view_semantic_depth_status_badge, selected_node_enrichment_summary};
 #[cfg(test)]
 use semantic_tags::{ranked_tag_suggestions, reserved_tag_warning};
 #[cfg(test)]
@@ -458,7 +456,9 @@ fn graph_surface_focus_tooltip_target(
         return None;
     }
 
-    app.focused_selection().primary().map(GraphTooltipTarget::Node)
+    app.focused_selection()
+        .primary()
+        .map(GraphTooltipTarget::Node)
 }
 
 fn graph_surface_current_tooltip_target(
@@ -503,20 +503,14 @@ fn graph_surface_node_lifecycle_label(lifecycle: crate::graph::NodeLifecycle) ->
     }
 }
 
-fn graph_surface_node_semantic_tags(
-    app: &GraphBrowserApp,
-    node_key: NodeKey,
-) -> Vec<String> {
+fn graph_surface_node_semantic_tags(app: &GraphBrowserApp, node_key: NodeKey) -> Vec<String> {
     crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &node_key)
         .into_iter()
         .map(|tag| crate::render::semantic_tags::semantic_tag_display_label(&tag))
         .collect()
 }
 
-fn graph_surface_node_state_summary(
-    app: &GraphBrowserApp,
-    node_key: NodeKey,
-) -> Option<String> {
+fn graph_surface_node_state_summary(app: &GraphBrowserApp, node_key: NodeKey) -> Option<String> {
     let mut states = Vec::new();
     if app.focused_selection().primary() == Some(node_key) {
         states.push("focused".to_string());
@@ -601,14 +595,11 @@ fn graph_surface_tooltip_anchor(
     hit_proxies: &[HitProxy<NodeKey>],
 ) -> Option<egui::Pos2> {
     hit_proxies.iter().find_map(|proxy| match (target, proxy) {
-        (
-            GraphTooltipTarget::Node(node_key),
-            HitProxy::Node {
-                id,
-                center,
-                ..
-            },
-        ) if *id == node_key => Some(egui::pos2(center.x, center.y)),
+        (GraphTooltipTarget::Node(node_key), HitProxy::Node { id, center, .. })
+            if *id == node_key =>
+        {
+            Some(egui::pos2(center.x, center.y))
+        }
         (
             GraphTooltipTarget::Edge { from, to },
             HitProxy::Edge {
@@ -670,7 +661,11 @@ fn graph_surface_accessibility_tooltip_target(
                 .hovered_graph_edge
                 .map(|(from, to)| GraphTooltipTarget::Edge { from, to })
         })
-        .or_else(|| app.focused_selection().primary().map(GraphTooltipTarget::Node))
+        .or_else(|| {
+            app.focused_selection()
+                .primary()
+                .map(GraphTooltipTarget::Node)
+        })
 }
 
 pub(crate) fn graph_surface_tooltip_accessibility_description(
@@ -727,44 +722,32 @@ fn fallback_spatial_navigation_origin(
     // neighbour walking rightward.
     let candidate = match direction {
         SpatialNavigationDirection::Left => nodes.iter().max_by(|left, right| {
-            left.center
-                .x
-                .total_cmp(&right.center.x)
-                .then_with(|| {
-                    (right.center.y - centroid.y)
-                        .abs()
-                        .total_cmp(&(left.center.y - centroid.y).abs())
-                })
+            left.center.x.total_cmp(&right.center.x).then_with(|| {
+                (right.center.y - centroid.y)
+                    .abs()
+                    .total_cmp(&(left.center.y - centroid.y).abs())
+            })
         }),
         SpatialNavigationDirection::Right => nodes.iter().min_by(|left, right| {
-            left.center
-                .x
-                .total_cmp(&right.center.x)
-                .then_with(|| {
-                    (left.center.y - centroid.y)
-                        .abs()
-                        .total_cmp(&(right.center.y - centroid.y).abs())
-                })
+            left.center.x.total_cmp(&right.center.x).then_with(|| {
+                (left.center.y - centroid.y)
+                    .abs()
+                    .total_cmp(&(right.center.y - centroid.y).abs())
+            })
         }),
         SpatialNavigationDirection::Up => nodes.iter().max_by(|left, right| {
-            left.center
-                .y
-                .total_cmp(&right.center.y)
-                .then_with(|| {
-                    (right.center.x - centroid.x)
-                        .abs()
-                        .total_cmp(&(left.center.x - centroid.x).abs())
-                })
+            left.center.y.total_cmp(&right.center.y).then_with(|| {
+                (right.center.x - centroid.x)
+                    .abs()
+                    .total_cmp(&(left.center.x - centroid.x).abs())
+            })
         }),
         SpatialNavigationDirection::Down => nodes.iter().min_by(|left, right| {
-            left.center
-                .y
-                .total_cmp(&right.center.y)
-                .then_with(|| {
-                    (left.center.x - centroid.x)
-                        .abs()
-                        .total_cmp(&(right.center.x - centroid.x).abs())
-                })
+            left.center.y.total_cmp(&right.center.y).then_with(|| {
+                (left.center.x - centroid.x)
+                    .abs()
+                    .total_cmp(&(right.center.x - centroid.x).abs())
+            })
         }),
     };
 
@@ -800,7 +783,12 @@ fn graph_surface_navigation_target(
     }
 
     let origin = current
-        .and_then(|key| nodes.iter().find(|node| node.key == key).map(|node| node.center))
+        .and_then(|key| {
+            nodes
+                .iter()
+                .find(|node| node.key == key)
+                .map(|node| node.center)
+        })
         .or_else(|| fallback_spatial_navigation_origin(direction, &nodes))?;
 
     nodes
@@ -812,8 +800,8 @@ fn graph_surface_navigation_target(
                 return None;
             }
 
-            let distance_sq = (candidate.center.x - origin.x).powi(2)
-                + (candidate.center.y - origin.y).powi(2);
+            let distance_sq =
+                (candidate.center.x - origin.x).powi(2) + (candidate.center.y - origin.y).powi(2);
             let angular_penalty = off_axis / forward.max(1.0);
             Some((candidate.key, angular_penalty, distance_sq))
         })
@@ -1000,7 +988,8 @@ pub fn render_graph_canvas_in_ui(
     app.workspace.graph_runtime.dismissed_graph_tooltip = dismissed_tooltip_target;
 
     canvas_egui_painter::paint_projected_scene(ui, &output.scene);
-    if let Some(target) = current_tooltip_target.filter(|target| Some(*target) != dismissed_tooltip_target)
+    if let Some(target) =
+        current_tooltip_target.filter(|target| Some(*target) != dismissed_tooltip_target)
         && let Some(content) = graph_surface_tooltip_content(app, target)
     {
         render_graph_surface_tooltip(
@@ -1013,7 +1002,6 @@ pub fn render_graph_canvas_in_ui(
     }
     output.graph_actions
 }
-
 
 /// Convert resolved graph actions to graph intents without applying them.
 pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent> {
@@ -2029,11 +2017,8 @@ mod tests {
             },
         ];
 
-        let target = graph_surface_navigation_target(
-            &proxies,
-            None,
-            SpatialNavigationDirection::Right,
-        );
+        let target =
+            graph_surface_navigation_target(&proxies, None, SpatialNavigationDirection::Right);
 
         assert_eq!(target, Some(center));
     }
@@ -2086,8 +2071,10 @@ mod tests {
             app.add_node_and_sync("https://alpha.example".to_string(), Point2D::new(0.0, 0.0));
         let beta =
             app.add_node_and_sync("https://beta.example".to_string(), Point2D::new(50.0, 0.0));
-        let gamma =
-            app.add_node_and_sync("https://gamma.example".to_string(), Point2D::new(100.0, 0.0));
+        let gamma = app.add_node_and_sync(
+            "https://gamma.example".to_string(),
+            Point2D::new(100.0, 0.0),
+        );
         let search_matches = HashSet::from([beta, gamma]);
 
         let keys = graph_surface_all_selectable_node_keys(
@@ -2130,8 +2117,10 @@ mod tests {
     #[test]
     fn graph_surface_tooltip_content_includes_node_lifecycle_and_tags() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node_key =
-            app.add_node_and_sync("https://focused.example".to_string(), Point2D::new(0.0, 0.0));
+        let node_key = app.add_node_and_sync(
+            "https://focused.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
         let node = app
             .domain_graph_mut()
             .get_node_mut(node_key)
@@ -2145,21 +2134,33 @@ mod tests {
             .expect("node tooltip content should exist");
 
         assert_eq!(content.title, "Focused Example");
-        assert!(content.details.iter().any(|detail| detail == "Lifecycle: Warm"));
+        assert!(
+            content
+                .details
+                .iter()
+                .any(|detail| detail == "Lifecycle: Warm")
+        );
         assert!(
             content
                 .details
                 .iter()
                 .any(|detail| detail.contains("Semantic tags: #research"))
         );
-        assert!(content.details.iter().any(|detail| detail.contains("State: focused")));
+        assert!(
+            content
+                .details
+                .iter()
+                .any(|detail| detail.contains("State: focused"))
+        );
     }
 
     #[test]
     fn graph_surface_tooltip_content_includes_edge_kinds_and_label() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let from = app.add_node_and_sync("https://alpha.example".to_string(), Point2D::new(0.0, 0.0));
-        let to = app.add_node_and_sync("https://beta.example".to_string(), Point2D::new(100.0, 0.0));
+        let from =
+            app.add_node_and_sync("https://alpha.example".to_string(), Point2D::new(0.0, 0.0));
+        let to =
+            app.add_node_and_sync("https://beta.example".to_string(), Point2D::new(100.0, 0.0));
         app.domain_graph_mut()
             .get_node_mut(from)
             .expect("source node should exist")
@@ -2177,11 +2178,8 @@ mod tests {
             )
             .expect("edge should be created");
 
-        let content = graph_surface_tooltip_content(
-            &app,
-            GraphTooltipTarget::Edge { from, to },
-        )
-        .expect("edge tooltip content should exist");
+        let content = graph_surface_tooltip_content(&app, GraphTooltipTarget::Edge { from, to })
+            .expect("edge tooltip content should exist");
 
         assert_eq!(content.title, "Alpha -> Beta");
         assert!(
@@ -2227,8 +2225,10 @@ mod tests {
             "https://second.example".to_string(),
             Point2D::new(140.0, 0.0),
         );
-        let third =
-            app.add_node_and_sync("https://third.example".to_string(), Point2D::new(280.0, 0.0));
+        let third = app.add_node_and_sync(
+            "https://third.example".to_string(),
+            Point2D::new(280.0, 0.0),
+        );
         app.workspace.graph_runtime.focused_view = Some(view_id);
         app.update_focused_selection(vec![first], SelectionUpdateMode::Replace);
 
@@ -2571,7 +2571,6 @@ mod tests {
         assert!(metrics.culled_submission_units < metrics.full_submission_units);
     }
 
-
     #[test]
     fn canvas_rect_from_view_frame_respects_pan_and_zoom() {
         let screen = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
@@ -2635,5 +2634,4 @@ mod tests {
             "shifted view should include later nodes"
         );
     }
-
 }

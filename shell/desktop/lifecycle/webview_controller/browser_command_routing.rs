@@ -70,7 +70,9 @@ pub(super) fn apply_pending_browser_commands(
     while let Some((target, command)) = app.take_pending_browser_command() {
         let webview_id = match resolve_browser_command_target(app, window, target) {
             BrowserCommandRouteOutcome::Resolved(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved(telemetry);
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_resolved(
+                    telemetry,
+                );
                 emit_message_received_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_RESOLVED,
                     command.diagnostic_label().len() as u64,
@@ -79,7 +81,9 @@ pub(super) fn apply_pending_browser_commands(
                 webview_id
             }
             BrowserCommandRouteOutcome::Fallback(webview_id) => {
-                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback(telemetry);
+                crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_fallback(
+                    telemetry,
+                );
                 emit_message_sent_with_payload(
                     CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK,
                     command.diagnostic_label().len(),
@@ -102,7 +106,9 @@ pub(super) fn apply_pending_browser_commands(
             }
         };
         let Some(webview) = window.webview_by_id(webview_id) else {
-            crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target(telemetry);
+            crate::shell::desktop::ui::toolbar::toolbar_ui::note_command_surface_route_no_target(
+                telemetry,
+            );
             emit_message_sent_with_payload(
                 CHANNEL_UI_COMMAND_SURFACE_ROUTE_NO_TARGET,
                 command.diagnostic_label().len(),

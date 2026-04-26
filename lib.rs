@@ -55,6 +55,9 @@ mod parser;
 mod prefs;
 #[cfg(not(feature = "servo-engine"))]
 mod prefs {
+    use std::env;
+    use std::fs::read_to_string;
+    use std::path::Path;
     use std::path::PathBuf;
 
     /// No-Servo stub of `prefs::FileAccessPolicy` for graph_app.rs.
@@ -64,6 +67,22 @@ mod prefs {
     pub(crate) struct FileAccessPolicy {
         pub allowed_directories: Vec<PathBuf>,
         pub home_directory_auto_allow: bool,
+    }
+
+    pub(crate) fn resolve_user_stylesheet_path(path: &Path) -> Result<PathBuf, std::io::Error> {
+        if path.is_absolute() {
+            Ok(path.to_path_buf())
+        } else {
+            Ok(env::current_dir()?.join(path))
+        }
+    }
+
+    pub(crate) fn read_user_stylesheet_source(
+        path: &Path,
+    ) -> Result<(PathBuf, String), std::io::Error> {
+        let resolved = resolve_user_stylesheet_path(path)?;
+        let source = read_to_string(&resolved)?;
+        Ok((resolved, source))
     }
 }
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]

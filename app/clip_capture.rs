@@ -295,8 +295,7 @@ impl GraphBrowserApp {
                 graph.add_node_classification(clip_key, inherited.clone());
             }
         }
-        let _ =
-            self.apply_node_history_change(clip_key, vec![capture.source_url.clone()], 0);
+        let _ = self.apply_node_history_change(clip_key, vec![capture.source_url.clone()], 0);
 
         self.workspace.graph_runtime.semantic_index_dirty = true;
 

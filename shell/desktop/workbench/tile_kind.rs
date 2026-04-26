@@ -15,8 +15,9 @@
 use crate::app::GraphViewId;
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, NodePaneState, PaneId, PanePresentationMode, PaneViewState, TileRenderMode,
-    ToolPaneRef, ToolPaneState,
 };
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::workbench::pane_model::{ToolPaneRef, ToolPaneState};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum TileKind {

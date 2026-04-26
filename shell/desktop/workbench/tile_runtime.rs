@@ -441,14 +441,12 @@ impl TileCoordinator {
 pub(crate) fn verso_host_capabilities_for_graphshell(
     graph_app: &GraphBrowserApp,
 ) -> VersoHostCapabilities {
-    let supports_middlenet = crate::shell::desktop::runtime::registries::phase0_describe_viewer(
-        "viewer:middlenet",
-    )
-    .is_some();
-    let supports_servo = crate::shell::desktop::runtime::registries::phase0_describe_viewer(
-        "viewer:webview",
-    )
-    .is_some();
+    let supports_middlenet =
+        crate::shell::desktop::runtime::registries::phase0_describe_viewer("viewer:middlenet")
+            .is_some();
+    let supports_servo =
+        crate::shell::desktop::runtime::registries::phase0_describe_viewer("viewer:webview")
+            .is_some();
     let supports_wry = cfg!(feature = "wry")
         && graph_app.wry_enabled()
         && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry");

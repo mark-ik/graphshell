@@ -19,7 +19,90 @@ pub(crate) mod theme;
 // too. Iced-host path doesn't use these registries today.
 #[cfg(feature = "servo-engine")]
 pub(crate) mod workbench_surface;
-#[cfg(feature = "servo-engine")]
+#[cfg(not(feature = "servo-engine"))]
+pub(crate) mod workbench_surface {
+    pub(crate) use crate::registries::domain::layout::workbench_surface::{
+        WORKBENCH_SURFACE_COMPARE as WORKBENCH_PROFILE_COMPARE,
+        WORKBENCH_SURFACE_DEFAULT as WORKBENCH_PROFILE_DEFAULT,
+        WORKBENCH_SURFACE_FOCUS as WORKBENCH_PROFILE_FOCUS, WorkbenchLock,
+        WorkbenchSurfaceResolution,
+    };
+
+    use crate::registries::domain::layout::workbench_surface::WorkbenchSurfaceRegistry as DomainWorkbenchSurfaceRegistry;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct WorkbenchSurfaceDescription {
+        pub(crate) requested_id: String,
+        pub(crate) resolved_id: String,
+        pub(crate) matched: bool,
+        pub(crate) fallback_used: bool,
+        pub(crate) display_name: String,
+        pub(crate) lock: WorkbenchLock,
+    }
+
+    pub(crate) struct WorkbenchSurfaceRegistry {
+        profiles: DomainWorkbenchSurfaceRegistry,
+        active_profile_id: String,
+    }
+
+    impl Default for WorkbenchSurfaceRegistry {
+        fn default() -> Self {
+            Self {
+                profiles: DomainWorkbenchSurfaceRegistry::default(),
+                active_profile_id: WORKBENCH_PROFILE_DEFAULT.to_string(),
+            }
+        }
+    }
+
+    impl WorkbenchSurfaceRegistry {
+        pub(crate) fn describe_surface(
+            &self,
+            profile_id: Option<&str>,
+        ) -> WorkbenchSurfaceDescription {
+            let requested_id = profile_id
+                .unwrap_or(self.active_profile_id.as_str())
+                .to_string();
+            let resolution = self.profiles.resolve(&requested_id);
+            WorkbenchSurfaceDescription {
+                requested_id,
+                resolved_id: resolution.resolved_id.clone(),
+                matched: resolution.matched,
+                fallback_used: resolution.fallback_used,
+                display_name: resolution.profile.display_name.clone(),
+                lock: resolution.profile.lock,
+            }
+        }
+
+        pub(crate) fn active_profile_id(&self) -> &str {
+            self.active_profile_id.as_str()
+        }
+
+        pub(crate) fn active_profile(&self) -> WorkbenchSurfaceResolution {
+            self.profiles.resolve(&self.active_profile_id)
+        }
+
+        pub(crate) fn set_active_profile(
+            &mut self,
+            profile_id: &str,
+        ) -> WorkbenchSurfaceResolution {
+            let resolution = self.profiles.resolve(profile_id);
+            self.active_profile_id = resolution.resolved_id.clone();
+            resolution
+        }
+
+        pub(crate) fn dispatch_intent(
+            &self,
+            _graph_app: &mut crate::app::GraphBrowserApp,
+            _tiles_tree: &mut egui_tiles::Tree<
+                crate::shell::desktop::workbench::tile_kind::TileKind,
+            >,
+            _graph_tree: Option<&mut graph_tree::GraphTree<crate::graph::NodeKey>>,
+            _intent: crate::app::WorkbenchIntent,
+        ) -> Option<crate::app::WorkbenchIntent> {
+            None
+        }
+    }
+}
 pub(crate) mod workflow;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -108,21 +191,19 @@ use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 // continues to compile. Code paths that hand ServoUrl to Servo APIs
 // are themselves gated behind servo-engine, so the alias only flows
 // through host-neutral registry/protocol policy paths.
-#[cfg(feature = "servo-engine")]
-use verso::servo_engine::ServoUrl;
-#[cfg(not(feature = "servo-engine"))]
-use url::Url as ServoUrl;
 use signal_routing::{
     AsyncSignalSubscription, InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId,
     RegistryEventSignal, SignalBus, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
     SignalTopic,
 };
 use theme::{ThemeCapability, ThemeRegistry, ThemeResolution};
+#[cfg(not(feature = "servo-engine"))]
+use url::Url as ServoUrl;
 #[cfg(feature = "servo-engine")]
+use verso::servo_engine::ServoUrl;
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
-#[cfg(feature = "servo-engine")]
 use workflow::{
     WorkflowActivation, WorkflowActivationError, WorkflowCapability, WorkflowRegistry,
     WorkflowSavepoint,
@@ -1041,10 +1122,7 @@ pub(crate) fn phase3_nostr_persisted_subscriptions() -> Vec<PersistedNostrSubscr
 /// `lock_radial_palette_snapshot_tests`, `lock_ux_tree_snapshot_tests`).
 pub(crate) fn lock_phase3_nostr_tests() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    match TEST_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-    {
+    match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
@@ -1058,10 +1136,7 @@ pub(crate) fn lock_phase3_nostr_tests() -> std::sync::MutexGuard<'static, ()> {
 /// between the reset and the assertion.
 pub(crate) fn lock_phase3_profile_tests() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    match TEST_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-    {
+    match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
@@ -4906,11 +4981,9 @@ mod tests {
             channels.iter().any(|entry| entry.channel_id
                 == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK)
         );
-        assert!(
-            channels
-                .iter()
-                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE)
-        );
+        assert!(channels.iter().any(
+            |entry| entry.channel_id == CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE
+        ));
         assert!(
             channels
                 .iter()

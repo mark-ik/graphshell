@@ -20,9 +20,9 @@ use servo::{
     DeviceIndependentPixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint,
     EmbedderControl, EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
     InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
-    PermissionRequest, RenderingContextCore, ScreenGeometry, Theme, TouchEvent,
-    TouchEventType, TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode,
-    WindowRenderingContext, convert_rect_to_css_pixel,
+    PermissionRequest, RenderingContextCore, ScreenGeometry, Theme, TouchEvent, TouchEventType,
+    TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
+    convert_rect_to_css_pixel,
 };
 use url::Url;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
@@ -579,7 +579,9 @@ impl HeadedWindow {
 
                     if graph_surface_focused && !egui_wants_keyboard_input {
                         if selected_node_key.is_some() {
-                            self.gui.borrow_mut().set_focused_node_key(selected_node_key);
+                            self.gui
+                                .borrow_mut()
+                                .set_focused_node_key(selected_node_key);
                             self.winit_window.request_redraw();
                             consumed = true;
                         }

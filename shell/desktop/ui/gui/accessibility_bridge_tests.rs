@@ -373,19 +373,27 @@ fn uxtree_a11y_graft_plan_adds_polite_live_focus_announcement_for_graph_surface(
         .find(|node| node.role == egui::accesskit::Role::Status)
         .expect("focused graph surface should expose a live announcement node");
 
-    assert_eq!(announcement.parent_ux_node_id.as_deref(), Some(graph_surface_id.as_str()));
+    assert_eq!(
+        announcement.parent_ux_node_id.as_deref(),
+        Some(graph_surface_id.as_str())
+    );
     assert_eq!(announcement.live, Some(Live::Polite));
     assert!(announcement.label.starts_with("Focused node:"));
     assert!(announcement.label.contains("Lifecycle: Warm"));
     assert!(announcement.label.contains("Semantic tags: #research"));
-    assert_eq!(announcement.state_description.as_deref(), Some("focused-room-target"));
+    assert_eq!(
+        announcement.state_description.as_deref(),
+        Some("focused-room-target")
+    );
 }
 
 #[test]
 fn graph_surface_projection_uses_application_role_and_descriptive_canvas_copy() {
     let mut graph_app = GraphBrowserApp::new_for_testing();
-    let node_key =
-        graph_app.add_node_and_sync("https://focused.example".to_string(), Point2D::new(0.0, 0.0));
+    let node_key = graph_app.add_node_and_sync(
+        "https://focused.example".to_string(),
+        Point2D::new(0.0, 0.0),
+    );
     graph_app
         .domain_graph_mut()
         .get_node_mut(node_key)

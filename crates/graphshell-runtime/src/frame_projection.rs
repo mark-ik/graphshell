@@ -531,7 +531,10 @@ mod tests {
             projected.pane_render_modes.get(&pane_a),
             Some(&TileRenderMode::CompositedTexture)
         );
-        assert_eq!(projected.pane_viewer_ids.get(&pane_b).map(String::as_str), Some("viewer:wry"));
+        assert_eq!(
+            projected.pane_viewer_ids.get(&pane_b).map(String::as_str),
+            Some("viewer:wry")
+        );
         // Populated layout means at least one pane is visible —
         // `is_graph_view` is false.
         assert!(!projected.is_graph_view);

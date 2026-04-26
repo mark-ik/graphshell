@@ -747,7 +747,8 @@ impl ControlPanel {
         T: Send + 'static,
         F: FnOnce() -> T + Send + 'static,
     {
-        let result = graphshell_core::async_host::spawn_blocking(self.async_spawner.as_ref(), label, work);
+        let result =
+            graphshell_core::async_host::spawn_blocking(self.async_spawner.as_ref(), label, work);
         #[cfg(test)]
         if result.is_ok() {
             self.worker_count_for_tests += 1;
@@ -865,9 +866,7 @@ impl ControlPanel {
     /// After this returns the spawner has joined its supervised tasks and the
     /// channel is drained.
     pub(crate) async fn shutdown(&mut self) {
-        log::debug!(
-            "control_panel: shutdown requested — cancelling supervised workers"
-        );
+        log::debug!("control_panel: shutdown requested — cancelling supervised workers");
         // Close the semaphore first so any tasks waiting to acquire a Tier 3
         // permit unblock immediately and exit without doing work.
         self.short_lived_semaphore.close();

@@ -100,8 +100,7 @@ pub(crate) struct IcedHost {
     /// `FrameHostInput.host_intents` on the next tick so the runtime
     /// translates and applies them through its reducer path — §12.17's
     /// sanctioned route for host-originated mutation.
-    pub(crate) pending_host_intents:
-        Vec<graphshell_core::shell_state::host_intent::HostIntent>,
+    pub(crate) pending_host_intents: Vec<graphshell_core::shell_state::host_intent::HostIntent>,
 
     /// Iced renderer's wgpu device/queue, when available. `None`
     /// during early iced startup (before the renderer has been
@@ -193,7 +192,9 @@ impl IcedHost {
             None
         } else {
             let mut merged = input.clone();
-            merged.host_intents.extend(self.pending_host_intents.drain(..));
+            merged
+                .host_intents
+                .extend(self.pending_host_intents.drain(..));
             Some(merged)
         };
         let tick_input: &FrameHostInput = merged_input.as_ref().unwrap_or(input);
@@ -244,11 +245,7 @@ impl IcedHost {
             rgba: std::sync::Arc::from(rgba.into_boxed_slice()),
         };
         self.texture_cache.insert(key.clone(), cached);
-        IcedTextureHandle {
-            key,
-            width,
-            height,
-        }
+        IcedTextureHandle { key, width, height }
     }
 }
 

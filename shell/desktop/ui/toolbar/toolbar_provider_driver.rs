@@ -27,9 +27,9 @@
 //! [`AsyncRequestState`]: graphshell_core::async_request::AsyncRequestState
 //! [`ProviderSuggestionMailbox::arm_new_request`]: crate::shell::desktop::ui::omnibar_state::ProviderSuggestionMailbox::arm_new_request
 
-use graphshell_core::async_host::{BlockingTaskReceiver, BlockingTryRecvError};
 #[cfg(test)]
 use graphshell_core::async_host::ErasedBlockingResult;
+use graphshell_core::async_host::{BlockingTaskReceiver, BlockingTryRecvError};
 
 use crate::shell::desktop::ui::omnibar_state::{
     ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,
@@ -155,10 +155,7 @@ mod tests {
         drive_provider_suggestion_bridge(&mut driver_slot, &mut mailbox);
 
         assert!(driver_slot.is_some(), "driver should stay in place");
-        assert!(matches!(
-            mailbox.result,
-            AsyncRequestState::Pending { .. }
-        ));
+        assert!(matches!(mailbox.result, AsyncRequestState::Pending { .. }));
     }
 
     #[test]

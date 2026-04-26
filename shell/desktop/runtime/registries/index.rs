@@ -717,7 +717,7 @@ mod tests {
         app.map_webview_to_node(renderer_id, source_key);
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-            webview_id: renderer_id,
+                webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Indexed Clip".to_string(),

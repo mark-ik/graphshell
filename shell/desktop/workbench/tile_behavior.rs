@@ -6,7 +6,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
 
 use egui::{Color32, Id, Response, Sense, Stroke, TextStyle, Ui, Vec2, WidgetText, vec2};
 use egui_tiles::{
@@ -36,6 +35,7 @@ use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 use crate::util::{VersoAddress, truncate_with_ellipsis};
 
+use super::local_file_access::guarded_file_path_from_node_url;
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
@@ -162,64 +162,6 @@ fn decode_plaintext_content(bytes: &[u8]) -> PlaintextContent {
     }
 }
 
-pub(crate) fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
-    let parsed = url::Url::parse(url).map_err(|err| format!("Invalid URL: {err}"))?;
-    if parsed.scheme() != "file" {
-        return Err("Embedded plaintext viewer currently supports file:// URLs only.".to_string());
-    }
-
-    parsed
-        .to_file_path()
-        .map_err(|_| "Could not convert file:// URL to local path.".to_string())
-}
-
-pub(crate) fn ensure_local_file_access_allowed(
-    path: &PathBuf,
-    policy: &crate::prefs::FileAccessPolicy,
-) -> Result<(), String> {
-    let canonical_path = path
-        .canonicalize()
-        .map_err(|err| format!("Failed to resolve '{}': {err}", path.display()))?;
-
-    // Explicit allow-list takes priority.
-    for allowed in &policy.allowed_directories {
-        if let Ok(canonical_allowed) = allowed.canonicalize() {
-            if canonical_path.starts_with(&canonical_allowed) {
-                return Ok(());
-            }
-        }
-    }
-
-    // Home-directory auto-allow.
-    if policy.home_directory_auto_allow {
-        if let Some(home_dir) = dirs::home_dir() {
-            let canonical_home = home_dir.canonicalize().map_err(|err| {
-                format!(
-                    "Failed to resolve home directory '{}': {err}",
-                    home_dir.display()
-                )
-            })?;
-            if canonical_path.starts_with(&canonical_home) {
-                return Ok(());
-            }
-        }
-    }
-
-    Err(format!(
-        "Access denied for '{}'. Adjust file_access_policy in preferences to allow additional paths.",
-        canonical_path.display()
-    ))
-}
-
-pub(crate) fn guarded_file_path_from_node_url(
-    url: &str,
-    policy: &crate::prefs::FileAccessPolicy,
-) -> Result<PathBuf, String> {
-    let path = file_path_from_node_url(url)?;
-    ensure_local_file_access_allowed(&path, policy)?;
-    Ok(path)
-}
-
 fn load_plaintext_content_for_node(
     url: &str,
     policy: &crate::prefs::FileAccessPolicy,
@@ -310,7 +252,9 @@ fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
 
 #[cfg(test)]
 mod file_access_guard_tests {
-    use super::{ensure_local_file_access_allowed, guarded_file_path_from_node_url};
+    use super::super::local_file_access::{
+        ensure_local_file_access_allowed, guarded_file_path_from_node_url,
+    };
     use crate::prefs::FileAccessPolicy;
 
     #[test]
@@ -1331,13 +1275,16 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     #[test]
     fn accessibility_inspector_snapshot_reports_selected_node_profile() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         use euclid::default::Point2D;
         // `command_surface_semantic_node_count` reads a process-global
         // snapshot; hold the snapshot lock and clear it so a parallel
         // test's published surface can't pollute this test's
         // "expected 0" assertion.
-        crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot(&telemetry);
+        crate::shell::desktop::ui::toolbar::toolbar_ui::clear_command_surface_semantic_snapshot(
+            &telemetry,
+        );
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
@@ -1359,7 +1306,8 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     #[test]
     fn accessibility_inspector_snapshot_counts_command_surface_semantics() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         use crate::shell::desktop::tests::harness::TestRegistry;
         use crate::shell::desktop::ui::toolbar::toolbar_ui::{
             CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
@@ -1400,7 +1348,8 @@ mod tests {
         });
 
         let harness = TestRegistry::new();
-        let uxtree_snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 5);
+        let uxtree_snapshot =
+            ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 5);
         ux_tree::publish_snapshot(&uxtree_snapshot);
 
         let snapshot = GraphshellTileBehavior::accessibility_inspector_snapshot(&harness.app);

@@ -12,14 +12,14 @@ use std::time::Duration;
 use winit::window::Window;
 
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
+use crate::shell::desktop::ui::gui_state::{
+    FocusedContentStatus, LocalFocusTarget, RuntimeFocusState, ToolbarAuthorityMut,
+};
 pub(crate) use crate::shell::desktop::ui::omnibar_state::{
     HistoricalNodeMatch, OmnibarMatch, OmnibarSearchMode, OmnibarSearchSession, OmnibarSessionKind,
     ProviderSuggestionError, ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,
     ProviderSuggestionStatus, SearchProviderKind,
-};
-use crate::shell::desktop::runtime::protocols::router::{self, OutboundFetchError};
-use crate::shell::desktop::ui::gui_state::{
-    FocusedContentStatus, LocalFocusTarget, RuntimeFocusState, ToolbarAuthorityMut,
 };
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarOpenMode};
 use crate::shell::desktop::ui::workbench_host::WorkbenchLayerState;
@@ -454,12 +454,8 @@ fn render_fullscreen_origin_strip(
     )
     .tokens
     .workbench_panel_background;
-    let frame_fill = egui::Color32::from_rgba_unmultiplied(
-        panel_bg.r(),
-        panel_bg.g(),
-        panel_bg.b(),
-        220,
-    );
+    let frame_fill =
+        egui::Color32::from_rgba_unmultiplied(panel_bg.r(), panel_bg.g(), panel_bg.b(), 220);
     let frame = egui::Frame::default().fill(frame_fill).inner_margin(4.0);
     Panel::top("fullscreen_origin_strip")
         .frame(frame)
@@ -814,7 +810,8 @@ mod tests {
 
     #[test]
     fn omnibar_provider_mailbox_helpers_emit_diagnostics() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let (diag_tx, diag_rx) = crossbeam_channel::unbounded();
         install_global_sender(diag_tx);
 
@@ -860,7 +857,8 @@ mod tests {
 
     #[test]
     fn command_surface_semantic_snapshot_cache_round_trips() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
         let snapshot = CommandSurfaceSemanticSnapshot {
             command_bar: CommandBarSemanticMetadata {
@@ -891,7 +889,10 @@ mod tests {
 
         publish_command_surface_semantic_snapshot(&telemetry, snapshot.clone());
 
-        assert_eq!(latest_command_surface_semantic_snapshot(&telemetry), Some(snapshot));
+        assert_eq!(
+            latest_command_surface_semantic_snapshot(&telemetry),
+            Some(snapshot)
+        );
 
         clear_command_surface_semantic_snapshot(&telemetry);
     }

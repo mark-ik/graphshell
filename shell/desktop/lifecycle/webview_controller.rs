@@ -254,7 +254,12 @@ pub(crate) fn close_all_webviews(
     for wv_id in webviews_to_close {
         window.close_webview(wv_id);
         let renderer_id = renderer_id_from_servo(wv_id);
-        intents.push(RuntimeEvent::UnmapWebview { webview_id: renderer_id }.into());
+        intents.push(
+            RuntimeEvent::UnmapWebview {
+                webview_id: renderer_id,
+            }
+            .into(),
+        );
         if let Some(node_key) = app.get_node_for_webview(renderer_id) {
             intents.push(
                 lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::ExplicitClose)
@@ -377,7 +382,10 @@ mod tests {
         let intents = reconcile_mappings_and_selection(&mut app, &seen, Some(w1));
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.get_node_for_webview(renderer_id_from_servo(w1)), Some(n1));
+        assert_eq!(
+            app.get_node_for_webview(renderer_id_from_servo(w1)),
+            Some(n1)
+        );
         assert_eq!(app.get_node_for_webview(renderer_id_from_servo(w2)), None);
         assert_eq!(app.get_single_selected_node(), Some(n1));
     }

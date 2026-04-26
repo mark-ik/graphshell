@@ -9,4 +9,5 @@
 //! import paths while existing call sites are migrated to consume the
 //! runtime-crate path directly.
 
+#[allow(unused_imports)]
 pub(crate) use graphshell_runtime::portable_time::portable_now;

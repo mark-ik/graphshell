@@ -20,8 +20,8 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::ui::gui_state::{
     LocalFocusTarget, RuntimeFocusAuthorityState, ToolbarAuthorityMut, ToolbarEditable,
 };
-use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
+use crate::shell::desktop::ui::shell_layout_pass::ShellLayoutPass;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{self, ToolbarUiInput, ToolbarUiOutput};
 use crate::shell::desktop::ui::workbench_host::{self, WorkbenchLayerState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;

@@ -41,6 +41,8 @@ pub(super) fn resolve_active_webview_for_sync(
     window_active_webview: Option<WebViewId>,
 ) -> Option<WebViewId> {
     app.embedded_content_focus_webview()
-        .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer)
+        .and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+        )
         .or(window_active_webview)
 }

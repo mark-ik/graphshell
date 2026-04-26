@@ -343,7 +343,9 @@ impl ViewerRegistry {
         if mime_hint.is_none() {
             if let crate::graph::AddressKind::File = crate::graph::address_kind_from_url(uri) {
                 if let Ok(path) =
-                    crate::shell::desktop::workbench::tile_behavior::file_path_from_node_url(uri)
+                    crate::shell::desktop::workbench::local_file_access::file_path_from_node_url(
+                        uri,
+                    )
                 {
                     if let Ok(mut file) = std::fs::File::open(&path) {
                         let mut buf = [0u8; 512];

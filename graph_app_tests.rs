@@ -5766,13 +5766,11 @@ fn test_nostr_nip07_permissions_persist_across_restart() {
     let _reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
         registries::phase3_nostr_nip07_permission_grants(),
-        vec![
-            registries::Nip07PermissionGrant {
-                origin: "https://example.com".to_string(),
-                method: "signEvent".to_string(),
-                decision: registries::Nip07PermissionDecision::Allow,
-            }
-        ]
+        vec![registries::Nip07PermissionGrant {
+            origin: "https://example.com".to_string(),
+            method: "signEvent".to_string(),
+            decision: registries::Nip07PermissionDecision::Allow,
+        }]
     );
 }
 
@@ -5807,9 +5805,7 @@ fn default_registry_lens_setting_publishes_lens_invalidation_signal() {
         registries::signal_routing::SignalTopic::RegistryEvent,
         move |signal| {
             if let registries::signal_routing::SignalKind::RegistryEvent(
-                registries::signal_routing::RegistryEventSignal::LensChanged {
-                    new_lens_id,
-                },
+                registries::signal_routing::RegistryEventSignal::LensChanged { new_lens_id },
             ) = &signal.kind
                 && new_lens_id == registries::lens::LENS_ID_DEFAULT
             {
@@ -5823,12 +5819,10 @@ fn default_registry_lens_setting_publishes_lens_invalidation_signal() {
     app.set_default_registry_lens_id(None);
 
     assert_eq!(observed.load(Ordering::Relaxed), 1);
-    assert!(
-        registries::phase3_unsubscribe_signal(
-            registries::signal_routing::SignalTopic::RegistryEvent,
-            observer_id,
-        )
-    );
+    assert!(registries::phase3_unsubscribe_signal(
+        registries::signal_routing::SignalTopic::RegistryEvent,
+        observer_id,
+    ));
 }
 
 #[test]

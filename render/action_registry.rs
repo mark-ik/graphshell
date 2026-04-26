@@ -25,9 +25,9 @@ use std::sync::Once;
 // in this module because they depend on the host-side input
 // registry / app-state types.
 pub use graphshell_core::actions::{
-    action_id_has_namespace_format, all_action_ids, ActionCategory, ActionId,
-    CATEGORY_PIN_ORDER_PERSIST_KEY, CATEGORY_RECENCY_PERSIST_KEY, InputMode,
-    category_from_persisted_name, category_persisted_name, default_category_order,
+    ActionCategory, ActionId, CATEGORY_PIN_ORDER_PERSIST_KEY, CATEGORY_RECENCY_PERSIST_KEY,
+    InputMode, action_id_has_namespace_format, all_action_ids, category_from_persisted_name,
+    category_persisted_name, default_category_order,
 };
 
 static ACTION_KEY_AUDIT_ONCE: Once = Once::new();

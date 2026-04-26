@@ -45,7 +45,7 @@ pub(crate) fn chrome_projection_node(
 fn focused_embedded_content_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
     graph_app
         .embedded_content_focus_webview()
-    .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id))
+        .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id))
 }
 
 /// Resolve the current command-bar target for omnibar and viewer-facing controls.

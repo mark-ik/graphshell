@@ -100,8 +100,7 @@ pub(crate) fn render_graph_search_window<F>(
                         mode_changed = true;
                     }
                 });
-                if mode_changed {
-                }
+                if mode_changed {}
                 if ui.button("Clear").clicked() {
                     graph_app.workspace.graph_runtime.active_graph_search_origin =
                         GraphSearchOrigin::Manual;

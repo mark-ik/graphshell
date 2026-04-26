@@ -415,7 +415,10 @@ mod tests {
             "captures_in_flight"
         );
         assert_eq!(vm_egui.active_pane, vm_iced.active_pane, "active_pane");
-        assert_eq!(vm_egui.is_graph_view, vm_iced.is_graph_view, "is_graph_view");
+        assert_eq!(
+            vm_egui.is_graph_view, vm_iced.is_graph_view,
+            "is_graph_view"
+        );
         assert_eq!(
             vm_egui.accessibility, vm_iced.accessibility,
             "accessibility view-model"

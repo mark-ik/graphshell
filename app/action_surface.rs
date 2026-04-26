@@ -104,8 +104,14 @@ pub enum ActionSurfaceState {
     #[default]
     Closed,
     PaletteGlobal,
-    PaletteContextual { scope: ActionScope, anchor: Anchor },
-    Radial { scope: ActionScope, anchor: Anchor },
+    PaletteContextual {
+        scope: ActionScope,
+        anchor: Anchor,
+    },
+    Radial {
+        scope: ActionScope,
+        anchor: Anchor,
+    },
 }
 
 impl ActionSurfaceState {

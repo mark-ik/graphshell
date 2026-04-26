@@ -17,13 +17,10 @@ use std::sync::{Mutex, OnceLock};
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
-use egui::{Color32, Stroke, TextureHandle, TextureId};
-#[cfg(test)]
-use egui_tiles::{Tile, Tree};
-use graph_tree::GraphTree;
-use image::load_from_memory;
 use crate::app::{GraphBrowserApp, RendererId, VisibleNavigationRegionSet};
 use crate::graph::{NodeKey, NodeLifecycle};
+#[cfg(feature = "wry")]
+use crate::mods::native::web_runtime;
 use crate::registries::atomic::lens::{GlyphOverlay, LensOverlayDescriptor};
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -45,13 +42,12 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_COMPOSITOR_TILE_ACTIVITY, CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_CALLBACK_FALLBACK,
     CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_MISSING_SURFACE,
-    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU,
-    phase3_resolve_active_presentation_profile,
+    CHANNEL_COMPOSITOR_VIEWER_SURFACE_PATH_SHARED_WGPU, phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
-    portable_rect_from_egui, portable_stroke_from_egui, CompositedContentPassOutcome,
-    CompositorAdapter, CompositorPassTracker, ContentSurfaceHandle, OverlayAffordanceStyle,
-    OverlayStrokePass, ViewerSurfaceFramePath,
+    CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, ContentSurfaceHandle,
+    OverlayAffordanceStyle, OverlayStrokePass, ViewerSurfaceFramePath, portable_rect_from_egui,
+    portable_stroke_from_egui,
 };
 use crate::shell::desktop::workbench::interaction_policy::{
     InteractionUiState, OverlaySuppressionReason,
@@ -59,8 +55,11 @@ use crate::shell::desktop::workbench::interaction_policy::{
 use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 #[cfg(test)]
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-#[cfg(feature = "wry")]
-use crate::mods::native::web_runtime;
+use egui::{Color32, Stroke, TextureHandle, TextureId};
+#[cfg(test)]
+use egui_tiles::{Tile, Tree};
+use graph_tree::GraphTree;
+use image::load_from_memory;
 #[cfg(feature = "wry")]
 use verso::wry_engine::manager::OverlayRect as WryOverlayRect;
 
@@ -826,7 +825,9 @@ fn run_composited_texture_content_pass(
             });
             viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::CallbackFallback);
             emit_event(DiagnosticEvent::MessageSent {
-                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::CallbackFallback),
+                channel_id: viewer_surface_frame_path_channel(
+                    ViewerSurfaceFramePath::CallbackFallback,
+                ),
                 byte_len: 1,
             });
             log::debug!(
@@ -847,7 +848,9 @@ fn run_composited_texture_content_pass(
             });
             viewer_surfaces.record_frame_path(node_key, ViewerSurfaceFramePath::CallbackFallback);
             emit_event(DiagnosticEvent::MessageSent {
-                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::CallbackFallback),
+                channel_id: viewer_surface_frame_path_channel(
+                    ViewerSurfaceFramePath::CallbackFallback,
+                ),
                 byte_len: 1,
             });
             log::debug!(
@@ -864,10 +867,15 @@ fn run_composited_texture_content_pass(
                 byte_len: 1,
             });
             emit_event(DiagnosticEvent::MessageSent {
-                channel_id: viewer_surface_frame_path_channel(ViewerSurfaceFramePath::MissingSurface),
+                channel_id: viewer_surface_frame_path_channel(
+                    ViewerSurfaceFramePath::MissingSurface,
+                ),
                 byte_len: 1,
             });
-            log::debug!("composite: no viewer surface backing for node {:?}", node_key);
+            log::debug!(
+                "composite: no viewer surface backing for node {:?}",
+                node_key
+            );
             false
         }
         CompositedContentPassOutcome::PaintFailed
@@ -1617,7 +1625,10 @@ fn render_wry_preview_frame_if_needed(
         if let Some(refresh_interval) =
             webview_preview_refresh_interval_for_lifecycle(graph_app, semantic.lifecycle)
         {
-            let _ = web_runtime::refresh_wry_frame_for_node_if_stale(semantic.node_key, refresh_interval);
+            let _ = web_runtime::refresh_wry_frame_for_node_if_stale(
+                semantic.node_key,
+                refresh_interval,
+            );
         }
         Some(texture_id)
     } else {
@@ -2799,10 +2810,11 @@ mod tests {
         // (post-euclid-descriptor conversion, 2026-04-21). Convert the expected
         // egui color through the same boundary helper used by producers so the
         // round-trip through `portable_stroke_from_egui` is exercised intact.
-        let expected = crate::shell::desktop::workbench::compositor_adapter::portable_stroke_from_egui(
-            egui::Stroke::new(1.0, presentation.crash_blocked.to_color32()),
-        )
-        .color;
+        let expected =
+            crate::shell::desktop::workbench::compositor_adapter::portable_stroke_from_egui(
+                egui::Stroke::new(1.0, presentation.crash_blocked.to_color32()),
+            )
+            .color;
         assert_eq!(overlay.stroke.color, expected);
     }
 

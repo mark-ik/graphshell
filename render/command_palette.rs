@@ -368,8 +368,7 @@ fn render_action_entry_button(
     focused_pane_id: Option<PaneId>,
     should_close: &mut bool,
 ) {
-    let shortcuts =
-        crate::render::action_registry::shortcut_hints_for_action(entry.id);
+    let shortcuts = crate::render::action_registry::shortcut_hints_for_action(entry.id);
     let button = egui::Button::new(if shortcuts.is_empty() {
         entry.id.label().to_string()
     } else {
@@ -460,7 +459,10 @@ pub fn render_command_palette_panel(
         // persisted default so the palette reopens on the user's
         // last-used category. Subsequent clicks update both the
         // session and the persisted default.
-        session.tier1_category = app.workspace.chrome_ui.command_palette_tier1_default_category;
+        session.tier1_category = app
+            .workspace
+            .chrome_ui
+            .command_palette_tier1_default_category;
     }
 
     let mut render_palette_contents = |ui: &mut egui::Ui| {
@@ -2547,7 +2549,12 @@ mod tests {
         assert_eq!(request.notice.key, node);
         assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Error);
         assert!(request.notice.message.contains("WebFinger import failed"));
-        assert!(request.notice.message.contains("misfin://friend@example.net"));
+        assert!(
+            request
+                .notice
+                .message
+                .contains("misfin://friend@example.net")
+        );
         assert!(matches!(
             request.audit_event,
             Some(crate::services::persistence::types::NodeAuditEventKind::ActionRecorded {
@@ -2644,7 +2651,10 @@ mod tests {
                 .take_pending_node_status_notice()
                 .expect("webfinger import should queue a success notice");
             assert_eq!(request.notice.key, subject_key);
-            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(
+                request.notice.level,
+                crate::app::UiNotificationLevel::Success
+            );
             assert!(
                 request
                     .notice
@@ -2710,7 +2720,10 @@ mod tests {
                 .take_pending_node_status_notice()
                 .expect("nip-05 resolve should queue a success notice");
             assert_eq!(request.notice.key, subject_key);
-            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(
+                request.notice.level,
+                crate::app::UiNotificationLevel::Success
+            );
             assert!(
                 request
                     .notice
@@ -2775,7 +2788,10 @@ mod tests {
                 .take_pending_node_status_notice()
                 .expect("matrix resolve should queue a success notice");
             assert_eq!(request.notice.key, subject_key);
-            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(
+                request.notice.level,
+                crate::app::UiNotificationLevel::Success
+            );
             assert!(
                 request
                     .notice
@@ -2830,7 +2846,10 @@ mod tests {
                 .take_pending_node_status_notice()
                 .expect("activitypub import should queue a success notice");
             assert_eq!(request.notice.key, subject_key);
-            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(
+                request.notice.level,
+                crate::app::UiNotificationLevel::Success
+            );
             assert!(
                 request
                     .notice
@@ -2887,7 +2906,10 @@ mod tests {
                 .take_pending_node_status_notice()
                 .expect("identity refresh should queue a success notice");
             assert_eq!(request.notice.key, person);
-            assert_eq!(request.notice.level, crate::app::UiNotificationLevel::Success);
+            assert_eq!(
+                request.notice.level,
+                crate::app::UiNotificationLevel::Success
+            );
             assert!(
                 request
                     .notice

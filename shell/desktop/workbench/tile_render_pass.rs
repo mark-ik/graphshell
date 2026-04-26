@@ -735,12 +735,10 @@ pub(crate) fn run_tile_render_pass_in_ui(
         if focus_ring_settings.enabled {
             (*focus.focus_ring_node_key)
                 .and_then(|node_key| {
-                    (*focus.focus_ring_started_at).map(|started_at| {
-                        FocusRingSpec {
-                            node_key,
-                            started_at,
-                            duration: focus_ring_settings.duration(),
-                        }
+                    (*focus.focus_ring_started_at).map(|started_at| FocusRingSpec {
+                        node_key,
+                        started_at,
+                        duration: focus_ring_settings.duration(),
                     })
                 })
                 .map(|spec| {

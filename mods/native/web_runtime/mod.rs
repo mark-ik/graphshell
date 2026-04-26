@@ -10,20 +10,20 @@
 //! This mod is optional; the app functions as an offline graph organizer
 //! without it (core seed mode).
 
-#[cfg(all(test, feature = "wry"))]
-use verso::wry_engine::manager::OverlaySyncState;
+#[cfg(feature = "wry")]
+use crate::graph::NodeKey;
 use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders};
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
 #[cfg(feature = "wry")]
-use crate::graph::NodeKey;
-#[cfg(feature = "wry")]
-use verso::wry_engine::manager::{OverlayRect, WryManager};
-#[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
 #[cfg(feature = "wry")]
 use std::cell::RefCell;
+#[cfg(all(test, feature = "wry"))]
+use verso::wry_engine::manager::OverlaySyncState;
+#[cfg(feature = "wry")]
+use verso::wry_engine::manager::{OverlayRect, WryManager};
 
 pub(crate) mod client_storage;
 pub(crate) mod finger;
@@ -78,8 +78,8 @@ pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, vi
 }
 
 #[cfg(feature = "wry")]
-pub(crate) fn wry_composited_texture_support() -> verso::wry_engine::types::WryCompositedTextureSupport
-{
+pub(crate) fn wry_composited_texture_support()
+-> verso::wry_engine::types::WryCompositedTextureSupport {
     with_wry_manager(|manager| manager.composited_texture_support())
 }
 

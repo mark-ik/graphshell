@@ -9,8 +9,6 @@
 //! follow-on extraction can redirect this module to a verso-host crate or
 //! another host implementation without reopening `graph_app.rs`.
 
-#[allow(unused_imports)]
-pub(crate) use crate::shell::desktop::runtime::{caches, control_panel, diagnostics, registries};
 pub(crate) use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
 pub(crate) use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 pub(crate) use crate::shell::desktop::runtime::registries::input::{
@@ -31,3 +29,5 @@ pub(crate) use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_TRANSITION, phase2_apply_input_binding_remaps,
     phase2_describe_input_bindings, phase2_reset_input_binding_remaps,
 };
+#[allow(unused_imports)]
+pub(crate) use crate::shell::desktop::runtime::{caches, control_panel, diagnostics, registries};

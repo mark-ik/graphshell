@@ -1,6 +1,6 @@
 use super::*;
-use std::collections::HashSet;
 use euclid::default::Point2D;
+use std::collections::HashSet;
 
 use crate::app::{user_visible_node_title_from_data, user_visible_node_url_from_data};
 use crate::shell::desktop::ui::persistence_ops;
@@ -1181,7 +1181,7 @@ mod tests {
 
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-            webview_id: renderer_id,
+                webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Facet Clip".to_string(),
@@ -1688,7 +1688,7 @@ mod tests {
         app.map_webview_to_node(renderer_id, source_key);
         let _clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-            webview_id: renderer_id,
+                webview_id: renderer_id,
                 source_url: "https://saved-source.example".to_string(),
                 page_title: Some("Saved Source".to_string()),
                 clip_title: "Saved Clip".to_string(),
@@ -1738,7 +1738,7 @@ mod tests {
 
         let clip_key = app
             .create_clip_node_from_capture(&crate::app::ClipCaptureData {
-            webview_id: renderer_id,
+                webview_id: renderer_id,
                 source_url: "https://example.com/source".to_string(),
                 page_title: Some("Example Source".to_string()),
                 clip_title: "Visible Label Clip".to_string(),

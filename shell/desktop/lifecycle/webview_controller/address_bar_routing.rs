@@ -16,7 +16,9 @@ pub(super) fn resolve_detail_submit_target(
     if let Some(webview_id) = preferred_webview {
         return (
             app.get_node_for_webview(
-                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(webview_id),
+                crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
+                    webview_id,
+                ),
             ),
             Some(webview_id),
         );
@@ -225,9 +227,9 @@ pub(super) fn handle_address_bar_submit_intents(
             };
         }
 
-        let preferred_input_webview = app
-            .embedded_content_focus_webview()
-            .and_then(crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer);
+        let preferred_input_webview = app.embedded_content_focus_webview().and_then(
+            crate::shell::desktop::lifecycle::webview_status_sync::servo_webview_id_from_renderer,
+        );
         let (target_node, target_webview) =
             resolve_detail_submit_target(app, focused_node, preferred_input_webview);
 

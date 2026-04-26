@@ -1,7 +1,7 @@
-use super::*;
 use super::workbench_dispatch_flow::{
     dispatch_workbench_authority_intent, refresh_runtime_focus_authority_after_workbench_intent,
 };
+use super::*;
 
 pub(super) struct FocusRealizer<'a> {
     graph_app: &'a mut GraphBrowserApp,

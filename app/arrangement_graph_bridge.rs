@@ -273,7 +273,6 @@ impl GraphBrowserApp {
                 "Graph View".to_string(),
                 self.suggested_new_node_position(None),
             )),
-            #[cfg(feature = "diagnostics")]
             TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(
                 tool_ref,
             )) => Some(
@@ -425,7 +424,6 @@ impl GraphBrowserApp {
 
 // ── Private free function ─────────────────────────────────────────────────────
 
-#[cfg(feature = "diagnostics")]
 fn arrangement_tool_pane_segment(
     kind: &crate::shell::desktop::workbench::pane_model::ToolPaneState,
 ) -> &'static str {

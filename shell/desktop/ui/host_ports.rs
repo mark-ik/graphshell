@@ -21,12 +21,13 @@
 // `host_ports::*` call sites keep working with no churn. New call
 // sites should prefer importing from `graphshell_runtime::ports`
 // directly.
+#[allow(unused_imports)]
+pub(crate) use graphshell_runtime::ports::{BackendViewportInPixels, HostPorts, ViewerSurfaceId};
+#[allow(unused_imports)]
 pub(crate) use graphshell_runtime::ports::{
     HostAccessibilityPort, HostInputPort, HostPaintPort, HostSurfacePort, HostTexturePort,
     RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort,
 };
-#[allow(unused_imports)]
-pub(crate) use graphshell_runtime::ports::{BackendViewportInPixels, HostPorts, ViewerSurfaceId};
 
 /// Servo-specific extension trait for accesskit tree-update
 /// injection.

@@ -20,7 +20,9 @@
 
 use egui_tiles::Tree;
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, PendingTileOpenMode, UndoBoundaryReason};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, LifecycleCause, PendingTileOpenMode, UndoBoundaryReason,
+};
 use crate::graph::NodeKey;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -97,9 +99,8 @@ pub(crate) fn handle_pending_open_note_after_intents(
         && graph_app.domain_graph().get_node(node_key).is_some()
     {
         if let Some(graph_tree) = graph_tree {
-            let _ = dual_write::open_or_focus_node(
-                tiles_tree, graph_tree, graph_app, node_key, None,
-            );
+            let _ =
+                dual_write::open_or_focus_node(tiles_tree, graph_tree, graph_app, node_key, None);
         } else {
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
                 tiles_tree, graph_app, node_key,
@@ -128,9 +129,8 @@ pub(crate) fn handle_pending_open_clip_after_intents(
 
     if let Some(node_key) = graph_app.find_clip_node_by_id(&clip_id) {
         if let Some(graph_tree) = graph_tree {
-            let _ = dual_write::open_or_focus_node(
-                tiles_tree, graph_tree, graph_app, node_key, None,
-            );
+            let _ =
+                dual_write::open_or_focus_node(tiles_tree, graph_tree, graph_app, node_key, None);
         } else {
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
                 tiles_tree, graph_app, node_key,
@@ -190,7 +190,12 @@ fn execute_pending_open_node_after_intents(
     );
     if let Some(graph_tree) = graph_tree {
         let _ = dual_write::open_or_focus_node_with_mode(
-            tiles_tree, graph_tree, graph_app, node_key, anchor_before_open, open_mode,
+            tiles_tree,
+            graph_tree,
+            graph_app,
+            node_key,
+            anchor_before_open,
+            open_mode,
         );
     } else {
         crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane_with_mode(

@@ -349,8 +349,7 @@ impl GraphBrowserApp {
     /// Open the radial menu with an explicit scope and anchor. Preferred
     /// entry point for right-click/radial-trigger handlers.
     pub fn open_radial(&mut self, scope: ActionScope, anchor: Anchor) {
-        self.workspace.chrome_ui.surface_state =
-            ActionSurfaceState::Radial { scope, anchor };
+        self.workspace.chrome_ui.surface_state = ActionSurfaceState::Radial { scope, anchor };
         self.open_radial_menu();
     }
 

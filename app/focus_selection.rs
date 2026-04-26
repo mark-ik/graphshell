@@ -223,12 +223,7 @@ impl GraphBrowserApp {
             // in the prior view is no longer meaningful.
             if let Some(new_view) = focused_view {
                 self.close_action_surface_if_in_other_view(new_view);
-            } else if self
-                .workspace
-                .chrome_ui
-                .surface_state
-                .is_graph_scoped()
-            {
+            } else if self.workspace.chrome_ui.surface_state.is_graph_scoped() {
                 self.close_action_surface();
             }
             self.emit_ux_navigation_transition();

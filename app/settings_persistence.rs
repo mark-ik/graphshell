@@ -169,9 +169,7 @@ impl Default for FocusRingSettings {
 /// - [`Gaussian`](ThumbnailFilter::Gaussian) — soft, good for screenshots with fine text.
 /// - [`Lanczos3`](ThumbnailFilter::Lanczos3) — highest quality, slowest; best for hi-DPI
 ///   display thumbnails where sharpness matters.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThumbnailFilter {
     Nearest,
     #[default]
@@ -196,9 +194,7 @@ impl_display_from_str!(ThumbnailFilter {
 /// across format toggles coexist cleanly — stale PNG bytes stay
 /// decodable after the user switches to JPEG and vice versa; they
 /// just get replaced at the next re-capture.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThumbnailFormat {
     /// Lossless PNG (default). Bigger files, crisp at any zoom.
     #[default]
@@ -245,9 +241,7 @@ impl_display_from_str!(ThumbnailFormat {
 ///   for mixed-aspect browsing (phones portrait, monitors landscape).
 /// - [`Square`](ThumbnailAspect::Square) — force square output using `width`
 ///   for both dimensions. Matches tile grids that expect 1:1.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThumbnailAspect {
     #[default]
     Fixed,
@@ -492,9 +486,10 @@ impl GraphBrowserApp {
     /// updated settings are persisted via
     /// [`Self::SETTINGS_FOCUS_RING_SETTINGS_NAME`].
     pub fn set_focus_ring_settings(&mut self, mut settings: FocusRingSettings) {
-        settings.duration_ms = settings
-            .duration_ms
-            .clamp(FocusRingSettings::MIN_DURATION_MS, FocusRingSettings::MAX_DURATION_MS);
+        settings.duration_ms = settings.duration_ms.clamp(
+            FocusRingSettings::MIN_DURATION_MS,
+            FocusRingSettings::MAX_DURATION_MS,
+        );
         self.workspace.chrome_ui.focus_ring_settings = settings;
         self.save_focus_ring_settings();
     }
@@ -694,18 +689,15 @@ impl GraphBrowserApp {
     }
 
     pub fn save_persisted_nostr_signer_settings(&mut self) {
-        let encoded = serde_json::to_string(
-            &registries::phase3_nostr_persisted_signer_settings(),
-        )
-        .unwrap_or_else(|_| "{\"backend\":\"local_host_key\"}".to_string());
+        let encoded = serde_json::to_string(&registries::phase3_nostr_persisted_signer_settings())
+            .unwrap_or_else(|_| "{\"backend\":\"local_host_key\"}".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME, &encoded);
     }
 
     pub fn save_persisted_nostr_nip07_permissions(&mut self) {
-        let encoded = serde_json::to_string(
-            &registries::phase3_nostr_persisted_nip07_permissions(),
-        )
-        .unwrap_or_else(|_| "[]".to_string());
+        let encoded =
+            serde_json::to_string(&registries::phase3_nostr_persisted_nip07_permissions())
+                .unwrap_or_else(|_| "[]".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME, &encoded);
     }
 
@@ -714,14 +706,13 @@ impl GraphBrowserApp {
         else {
             return;
         };
-        let Some(settings) = serde_json::from_str::<
-            registries::PersistedNostrSignerSettings,
-        >(&raw)
-        .map_err(|error| {
-            warn!("Ignoring invalid persisted nostr signer settings: {error}");
-            error
-        })
-        .ok() else {
+        let Some(settings) = serde_json::from_str::<registries::PersistedNostrSignerSettings>(&raw)
+            .map_err(|error| {
+                warn!("Ignoring invalid persisted nostr signer settings: {error}");
+                error
+            })
+            .ok()
+        else {
             return;
         };
         if let Err(error) = registries::phase3_nostr_apply_persisted_signer_settings(&settings) {
@@ -734,11 +725,11 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME)
             .and_then(|raw| {
                 serde_json::from_str::<Vec<registries::Nip07PermissionGrant>>(&raw)
-                .map_err(|error| {
-                    warn!("Ignoring invalid persisted nostr nip07 permissions: {error}");
-                    error
-                })
-                .ok()
+                    .map_err(|error| {
+                        warn!("Ignoring invalid persisted nostr nip07 permissions: {error}");
+                        error
+                    })
+                    .ok()
             })
             .unwrap_or_default();
 
@@ -749,10 +740,8 @@ impl GraphBrowserApp {
     }
 
     pub fn save_persisted_nostr_subscriptions(&mut self) {
-        let encoded = serde_json::to_string(
-            &registries::phase3_nostr_persisted_subscriptions(),
-        )
-        .unwrap_or_else(|_| "[]".to_string());
+        let encoded = serde_json::to_string(&registries::phase3_nostr_persisted_subscriptions())
+            .unwrap_or_else(|_| "[]".to_string());
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME, &encoded);
     }
 
@@ -761,11 +750,11 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME)
             .and_then(|raw| {
                 serde_json::from_str::<Vec<registries::PersistedNostrSubscription>>(&raw)
-                .map_err(|error| {
-                    warn!("Ignoring invalid persisted nostr subscriptions: {error}");
-                    error
-                })
-                .ok()
+                    .map_err(|error| {
+                        warn!("Ignoring invalid persisted nostr subscriptions: {error}");
+                        error
+                    })
+                    .ok()
             })
             .unwrap_or_default();
 
@@ -871,7 +860,11 @@ impl GraphBrowserApp {
     fn save_command_palette_default_scope(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_COMMAND_PALETTE_DEFAULT_SCOPE_NAME,
-            &self.workspace.chrome_ui.command_palette_default_scope.to_string(),
+            &self
+                .workspace
+                .chrome_ui
+                .command_palette_default_scope
+                .to_string(),
         );
     }
 
@@ -926,10 +919,7 @@ impl GraphBrowserApp {
     /// Bump `action_id` to the head of the recents ring. De-duplicates
     /// (removing any prior occurrence), then truncates to the current
     /// `command_palette_recents_depth`. No-op when depth is `0`.
-    pub fn record_command_palette_recent(
-        &mut self,
-        action_id: crate::render::action_registry::ActionId,
-    ) {
+    pub fn record_command_palette_recent(&mut self, action_id: graphshell_core::actions::ActionId) {
         let depth = self.workspace.chrome_ui.command_palette_recents_depth;
         if depth == 0 {
             if !self.workspace.chrome_ui.command_palette_recents.is_empty() {
@@ -956,42 +946,51 @@ impl GraphBrowserApp {
     }
 
     fn save_command_palette_recents(&mut self) {
-        let encoded = match serde_json::to_string(
-            &self.workspace.chrome_ui.command_palette_recents,
-        ) {
+        let encoded = match serde_json::to_string(&self.workspace.chrome_ui.command_palette_recents)
+        {
             Ok(s) => s,
             Err(error) => {
                 warn!("Failed to serialize command palette recents: {error}");
                 return;
             }
         };
-        self.save_workspace_layout_json(
-            Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME,
-            &encoded,
-        );
+        self.save_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME, &encoded);
     }
 
     pub fn command_palette_tier1_default_category(
         &self,
-    ) -> Option<crate::render::action_registry::ActionCategory> {
-        self.workspace.chrome_ui.command_palette_tier1_default_category
+    ) -> Option<graphshell_core::actions::ActionCategory> {
+        self.workspace
+            .chrome_ui
+            .command_palette_tier1_default_category
     }
 
     pub fn set_command_palette_tier1_default_category(
         &mut self,
-        category: Option<crate::render::action_registry::ActionCategory>,
+        category: Option<graphshell_core::actions::ActionCategory>,
     ) {
-        if self.workspace.chrome_ui.command_palette_tier1_default_category == category {
+        if self
+            .workspace
+            .chrome_ui
+            .command_palette_tier1_default_category
+            == category
+        {
             return;
         }
-        self.workspace.chrome_ui.command_palette_tier1_default_category = category;
+        self.workspace
+            .chrome_ui
+            .command_palette_tier1_default_category = category;
         self.save_command_palette_tier1_default_category();
     }
 
     fn save_command_palette_tier1_default_category(&mut self) {
-        let encoded = match self.workspace.chrome_ui.command_palette_tier1_default_category {
+        let encoded = match self
+            .workspace
+            .chrome_ui
+            .command_palette_tier1_default_category
+        {
             Some(category) => {
-                crate::render::action_registry::category_persisted_name(category).to_string()
+                graphshell_core::actions::category_persisted_name(category).to_string()
             }
             None => String::new(),
         };
@@ -1592,16 +1591,12 @@ impl GraphBrowserApp {
         self.workspace.chrome_ui.command_palette_recents = self
             .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_RECENTS_NAME)
             .and_then(|raw| {
-                serde_json::from_str::<
-                    Vec<crate::render::action_registry::ActionId>,
-                >(&raw)
-                .map_err(|error| {
-                    warn!(
-                        "Ignoring invalid persisted command palette recents: {error}"
-                    );
-                    error
-                })
-                .ok()
+                serde_json::from_str::<Vec<graphshell_core::actions::ActionId>>(&raw)
+                    .map_err(|error| {
+                        warn!("Ignoring invalid persisted command palette recents: {error}");
+                        error
+                    })
+                    .ok()
             })
             .map(|mut recents| {
                 let depth = self.workspace.chrome_ui.command_palette_recents_depth;
@@ -1611,16 +1606,16 @@ impl GraphBrowserApp {
                 recents
             })
             .unwrap_or_default();
-        self.workspace.chrome_ui.command_palette_tier1_default_category = self
-            .load_workspace_layout_json(
-                Self::SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME,
-            )
+        self.workspace
+            .chrome_ui
+            .command_palette_tier1_default_category = self
+            .load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_TIER1_DEFAULT_CATEGORY_NAME)
             .and_then(|raw| {
                 let trimmed = raw.trim();
                 if trimmed.is_empty() {
                     None
                 } else {
-                    crate::render::action_registry::category_from_persisted_name(trimmed)
+                    graphshell_core::actions::category_from_persisted_name(trimmed)
                 }
             });
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_WRY_ENABLED_NAME) {
@@ -1630,8 +1625,7 @@ impl GraphBrowserApp {
                 _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
             }
         }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_FOCUS_RING_SETTINGS_NAME)
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_FOCUS_RING_SETTINGS_NAME)
         {
             match serde_json::from_str::<FocusRingSettings>(&raw) {
                 Ok(mut settings) => {
@@ -1646,13 +1640,10 @@ impl GraphBrowserApp {
                 }
             }
         }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_THUMBNAIL_SETTINGS_NAME)
-        {
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_THUMBNAIL_SETTINGS_NAME) {
             match serde_json::from_str::<ThumbnailSettings>(&raw) {
                 Ok(settings) => {
-                    self.workspace.chrome_ui.thumbnail_settings =
-                        settings.clamp_dimensions();
+                    self.workspace.chrome_ui.thumbnail_settings = settings.clamp_dimensions();
                 }
                 Err(error) => {
                     warn!("Ignoring invalid persisted thumbnail settings: {error}")
@@ -1995,8 +1986,8 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         app.set_thumbnail_settings(ThumbnailSettings {
             enabled: true,
-            width: 10,        // below MIN_DIMENSION (64)
-            height: 10_000,   // above MAX_DIMENSION (1024)
+            width: 10,      // below MIN_DIMENSION (64)
+            height: 10_000, // above MAX_DIMENSION (1024)
             filter: ThumbnailFilter::Lanczos3,
             format: ThumbnailFormat::Jpeg,
             jpeg_quality: 200, // above MAX_JPEG_QUALITY (100)
@@ -2098,8 +2089,7 @@ mod tests {
             aspect: ThumbnailAspect::Square,
         };
         let json = serde_json::to_string(&original).expect("serialize");
-        let restored: ThumbnailSettings =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored: ThumbnailSettings = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, original);
     }
 
@@ -2126,8 +2116,7 @@ mod tests {
             ..ThumbnailSettings::default()
         };
         let json = serde_json::to_string(&webp).expect("serialize");
-        let restored: ThumbnailSettings =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored: ThumbnailSettings = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored.format, ThumbnailFormat::WebP);
     }
 

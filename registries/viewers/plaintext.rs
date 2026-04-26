@@ -391,9 +391,10 @@ fn load_plaintext_content(
     url: &str,
     policy: &crate::prefs::FileAccessPolicy,
 ) -> Result<PlaintextContent, String> {
-    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-        url, policy,
-    )?;
+    let path =
+        crate::shell::desktop::workbench::local_file_access::guarded_file_path_from_node_url(
+            url, policy,
+        )?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))

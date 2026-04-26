@@ -188,9 +188,7 @@ impl GraphBrowserApp {
     /// Composes `add_node_and_sync` with the runtime mapping/promotion
     /// events and the optional parent→child hyperlink edge.
     pub(crate) fn apply_webview_created_plan(&mut self, plan: WebviewCreatedPlan) {
-        let node_url = plan
-            .node_url
-            .unwrap_or_else(|| self.next_placeholder_url());
+        let node_url = plan.node_url.unwrap_or_else(|| self.next_placeholder_url());
         let child_node = self.add_node_and_sync(node_url, plan.position);
         self.apply_runtime_events([
             RuntimeEvent::MapWebviewToNode {
@@ -347,10 +345,7 @@ impl GraphBrowserApp {
     /// §12.4 (2026-04-24): pure state-mutation step. Composes the
     /// traversal-edge bookkeeping (`maybe_add_history_traversal_edge`)
     /// with the typed-delta history write (`apply_node_history_change`).
-    pub(crate) fn apply_webview_history_change_plan(
-        &mut self,
-        plan: WebviewHistoryChangePlan,
-    ) {
+    pub(crate) fn apply_webview_history_change_plan(&mut self, plan: WebviewHistoryChangePlan) {
         self.maybe_add_history_traversal_edge(
             plan.node_key,
             &plan.old_entries,

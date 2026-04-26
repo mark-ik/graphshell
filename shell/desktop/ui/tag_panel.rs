@@ -4,17 +4,162 @@
 
 use egui::{Context, Key, Pos2, TextEdit, Window};
 use egui_tiles::Tree;
+use std::collections::HashSet;
 
 use crate::app::{GraphBrowserApp, GraphIntent, TagPanelState};
 use crate::graph::NodeKey;
 use crate::graph::badge::BadgeIcon;
-use crate::render::semantic_tags::{
-    badge_icon_label, is_reserved_system_tag, normalize_tag_entry_input, ranked_tag_suggestions,
-    reserved_tag_warning, semantic_tag_display_label,
-};
 use crate::shell::desktop::runtime::registries::knowledge::tags_for_node;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_theme;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+
+struct SemanticTagChip {
+    query: String,
+    label: String,
+}
+
+fn semantic_tag_display_label(tag: &str) -> String {
+    if let Some(code) = tag.strip_prefix("udc:") {
+        return match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(code)
+        {
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                canonical_code,
+                display_label,
+            } => format!("{display_label} (udc:{canonical_code})"),
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
+            | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
+                format!("udc:{code}")
+            }
+        };
+    }
+    tag.to_string()
+}
+
+fn semantic_tag_chip(tag: String) -> SemanticTagChip {
+    SemanticTagChip {
+        label: semantic_tag_display_label(&tag),
+        query: tag,
+    }
+}
+
+fn badge_icon_label(icon: &BadgeIcon) -> String {
+    match icon {
+        BadgeIcon::Emoji(value) => value.clone(),
+        BadgeIcon::Lucide(value) => value.clone(),
+        BadgeIcon::None => "None".to_string(),
+    }
+}
+
+fn normalize_tag_entry_input(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(if trimmed.starts_with('#') {
+        trimmed.to_ascii_lowercase()
+    } else {
+        trimmed.to_string()
+    })
+}
+
+fn is_reserved_system_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        GraphBrowserApp::TAG_PIN
+            | GraphBrowserApp::TAG_STARRED
+            | GraphBrowserApp::TAG_ARCHIVE
+            | GraphBrowserApp::TAG_RESIDENT
+            | GraphBrowserApp::TAG_PRIVATE
+            | GraphBrowserApp::TAG_NOHISTORY
+            | GraphBrowserApp::TAG_MONITOR
+            | GraphBrowserApp::TAG_UNREAD
+            | GraphBrowserApp::TAG_FOCUS
+            | GraphBrowserApp::TAG_CLIP
+    )
+}
+
+fn reserved_tag_warning(query: &str) -> Option<String> {
+    let normalized = normalize_tag_entry_input(query)?;
+    if normalized.starts_with('#') && !is_reserved_system_tag(&normalized) {
+        return Some("Unknown #tag will be accepted as user-defined.".to_string());
+    }
+    None
+}
+
+fn default_tag_suggestion_candidates() -> Vec<String> {
+    [
+        GraphBrowserApp::TAG_PIN,
+        GraphBrowserApp::TAG_STARRED,
+        GraphBrowserApp::TAG_UNREAD,
+        GraphBrowserApp::TAG_FOCUS,
+        GraphBrowserApp::TAG_MONITOR,
+        GraphBrowserApp::TAG_PRIVATE,
+        GraphBrowserApp::TAG_ARCHIVE,
+        GraphBrowserApp::TAG_RESIDENT,
+        GraphBrowserApp::TAG_NOHISTORY,
+        GraphBrowserApp::TAG_CLIP,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn ranked_tag_suggestions(
+    app: &GraphBrowserApp,
+    selected_key: NodeKey,
+    query: &str,
+) -> Vec<SemanticTagChip> {
+    let current_tags = tags_for_node(app, &selected_key)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let mut candidates = default_tag_suggestion_candidates();
+    candidates.extend(
+        app.domain_graph()
+            .nodes()
+            .flat_map(|(_, node)| node.tags.iter().cloned()),
+    );
+    candidates.extend(app.suggested_semantic_tags_for_node(selected_key));
+    candidates.sort();
+    candidates.dedup();
+
+    let mut ranked = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push_candidate = |tag: String, ranked: &mut Vec<SemanticTagChip>| {
+        if current_tags.contains(&tag) || !seen.insert(tag.clone()) {
+            return;
+        }
+        ranked.push(semantic_tag_chip(tag));
+    };
+
+    if let Some(normalized_query) = normalize_tag_entry_input(query) {
+        push_candidate(normalized_query.clone(), &mut ranked);
+
+        for matched in crate::services::search::fuzzy_match_items(candidates, &normalized_query) {
+            push_candidate(matched, &mut ranked);
+            if ranked.len() >= 5 {
+                return ranked;
+            }
+        }
+
+        let knowledge_registry =
+            crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default();
+        for entry in knowledge_registry.search(&normalized_query) {
+            push_candidate(format!("udc:{}", entry.code), &mut ranked);
+            if ranked.len() >= 5 {
+                return ranked;
+            }
+        }
+    } else {
+        for candidate in candidates {
+            push_candidate(candidate, &mut ranked);
+            if ranked.len() >= 5 {
+                break;
+            }
+        }
+    }
+
+    ranked
+}
 
 #[derive(Clone, Copy)]
 struct EmojiIconEntry {

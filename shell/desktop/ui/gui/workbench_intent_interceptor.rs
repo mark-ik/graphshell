@@ -1,11 +1,12 @@
-use super::*;
 use super::workbench_dispatch_flow::{
     UxDispatchPhase, assert_workbench_intents_drained_before_reducer_apply,
     dispatch_workbench_authority_intent, emit_dispatch_phase, modal_allows_workbench_intent,
     prime_runtime_focus_authority_for_workbench_intent,
-    reconcile_focus_authority_after_realization, refresh_runtime_focus_authority_after_workbench_intent,
-    ux_dispatch_path_for_workbench_intent, ux_event_kind_for_workbench_intent,
+    reconcile_focus_authority_after_realization,
+    refresh_runtime_focus_authority_after_workbench_intent, ux_dispatch_path_for_workbench_intent,
+    ux_event_kind_for_workbench_intent,
 };
+use super::*;
 
 pub(super) fn handle_tool_pane_intents_with_modal_state_and_focus_authority(
     graph_app: &mut GraphBrowserApp,

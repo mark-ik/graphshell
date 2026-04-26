@@ -346,9 +346,8 @@ mod tests {
         runtime.focus_ring_node_key = Some(focused);
         // 250ms into a 1000ms animation: Linear would give ~0.75,
         // Step must give exactly 1.0.
-        runtime.focus_ring_started_at = Some(PortableInstant(
-            portable_now().millis().saturating_sub(250),
-        ));
+        runtime.focus_ring_started_at =
+            Some(PortableInstant(portable_now().millis().saturating_sub(250)));
         runtime.graph_app.workspace.graph_runtime.active_pane_rects =
             vec![(PaneId::new(), focused, egui::Rect::ZERO)];
         runtime.graph_app.workspace.chrome_ui.focus_ring_settings = FocusRingSettings {
@@ -366,8 +365,8 @@ mod tests {
 
     #[test]
     fn focus_ring_settings_setter_clamps_duration() {
-        use crate::app::{FocusRingCurve, FocusRingSettings};
         use crate::app::GraphBrowserApp;
+        use crate::app::{FocusRingCurve, FocusRingSettings};
 
         let mut app = GraphBrowserApp::new_for_testing();
         app.set_focus_ring_settings(FocusRingSettings {

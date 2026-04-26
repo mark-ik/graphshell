@@ -20,20 +20,26 @@ use crate::app::{
     ToolSurfaceReturnTarget, WorkbenchLayoutConstraint,
 };
 use crate::graph::{NodeKey, NodeLifecycle};
+#[cfg(feature = "servo-engine")]
 use crate::render::radial_menu::latest_semantic_snapshot;
 #[cfg(feature = "servo-engine")]
-use crate::shell::desktop::lifecycle::webview_backpressure::{
-    NodePaneAttachAttemptMetadata, take_node_pane_attach_attempt_metadata,
-};
-#[cfg(feature = "servo-engine")]
-use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+use crate::shell::desktop::lifecycle::webview_backpressure::take_node_pane_attach_attempt_metadata;
+use crate::shell::desktop::ui::command_surface_telemetry::{
     CommandRouteEventSequenceMetadata, OmnibarMailboxEventSequenceMetadata,
     latest_command_surface_semantic_snapshot,
 };
+use graphshell_runtime::NodePaneAttachAttemptMetadata;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
-use crate::shell::desktop::workbench::pane_model::{PaneId, PanePresentationMode, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::{PaneId, PanePresentationMode};
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+
+#[cfg(not(feature = "servo-engine"))]
+fn take_node_pane_attach_attempt_metadata() -> HashMap<NodeKey, NodePaneAttachAttemptMetadata> {
+    HashMap::new()
+}
 
 pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 5;
 pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 2;
@@ -399,8 +405,7 @@ pub(crate) fn clear_snapshot() {
 /// // ... read / assert ...
 /// ux_tree::clear_snapshot();
 /// ```
-pub(crate) fn lock_ux_tree_snapshot_tests()
--> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn lock_ux_tree_snapshot_tests() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
         Ok(guard) => guard,
@@ -443,7 +448,12 @@ pub(crate) fn build_snapshot(
     build_duration_us: u64,
 ) -> UxTreeSnapshot {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
-    build_snapshot_with_walker(&walker, graph_app, command_surface_telemetry, build_duration_us)
+    build_snapshot_with_walker(
+        &walker,
+        graph_app,
+        command_surface_telemetry,
+        build_duration_us,
+    )
 }
 
 /// Host-neutral snapshot builder — M6 §5.1 first step.
@@ -1144,6 +1154,7 @@ fn pending_connected_scope_label(scope: PendingConnectedOpenScope) -> &'static s
     }
 }
 
+#[cfg(feature = "servo-engine")]
 fn append_radial_palette_nodes(
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
@@ -1350,6 +1361,14 @@ fn append_radial_palette_nodes(
             diagnostics_counter: u64::from(sector.enabled),
         });
     }
+}
+
+#[cfg(not(feature = "servo-engine"))]
+fn append_radial_palette_nodes(
+    _semantic_nodes: &mut Vec<UxSemanticNode>,
+    _presentation_nodes: &mut Vec<UxPresentationNode>,
+    _trace_nodes: &mut Vec<UxTraceNode>,
+) {
 }
 
 fn graph_view_zoom(graph_app: &GraphBrowserApp, graph_view_id: GraphViewId) -> f32 {
@@ -1671,6 +1690,8 @@ fn push_pane_nodes(
                 },
             });
         }
+        #[cfg(not(feature = "diagnostics"))]
+        TileKind::Pane(crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(_)) => {}
         TileKind::Graph(view_ref) => {
             append_graph_surface_semantics(
                 graph_app,
@@ -1917,7 +1938,6 @@ pub(crate) fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> Str
         )) => {
             format!("uxnode://workbench/tile/{tile_id:?}/node/{:?}", state.node)
         }
-        #[cfg(feature = "diagnostics")]
         Tile::Pane(TileKind::Pane(
             crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool),
         )) => {
@@ -2517,14 +2537,14 @@ mod tests {
 
     #[test]
     fn host_neutral_builder_matches_tiles_builder_on_empty_tree() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         // With an empty tiles tree, the tile-walking builder adds no
         // pane entries. In that configuration, the tiles-based builder
         // and the host-neutral builder must produce identical
         // snapshots — pinning the invariant that all non-pane content
         // flows through the host-neutral path.
-        let _radial_guard =
-            crate::render::radial_menu::lock_radial_palette_snapshot_tests();
+        let _radial_guard = crate::render::radial_menu::lock_radial_palette_snapshot_tests();
         clear_semantic_snapshot();
         clear_command_surface_semantic_snapshot(&telemetry);
         let mut harness = TestRegistry::new();
@@ -2544,7 +2564,8 @@ mod tests {
                     .is_none()
         );
 
-        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
+        let tiles_snapshot =
+            build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
         let host_neutral = build_snapshot_host_neutral(&harness.app, Some(&telemetry), 42);
 
         assert_eq!(host_neutral, tiles_snapshot);
@@ -2552,17 +2573,18 @@ mod tests {
 
     #[test]
     fn host_neutral_builder_is_strict_prefix_of_tiles_builder() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         // With a non-empty tiles tree, the host-neutral snapshot
         // should still contain every non-pane entry from the
         // tiles-based snapshot in the same order. The tiles snapshot
         // adds extra pane entries that the host-neutral builder skips.
-        let _radial_guard =
-            crate::render::radial_menu::lock_radial_palette_snapshot_tests();
+        let _radial_guard = crate::render::radial_menu::lock_radial_palette_snapshot_tests();
         clear_semantic_snapshot();
         clear_command_surface_semantic_snapshot(&telemetry);
         let harness = TestRegistry::new();
-        let tiles_snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
+        let tiles_snapshot =
+            build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 42);
         let host_neutral = build_snapshot_host_neutral(&harness.app, Some(&telemetry), 42);
 
         let non_pane: Vec<_> = tiles_snapshot
@@ -2869,8 +2891,13 @@ mod tests {
         let harness = TestRegistry::new();
         set_force_build_failure_for_tests(true);
 
-        let result =
-            try_build_snapshot_with_rects(&harness.tiles_tree, &harness.app, None, 5, &HashMap::new());
+        let result = try_build_snapshot_with_rects(
+            &harness.tiles_tree,
+            &harness.app,
+            None,
+            5,
+            &HashMap::new(),
+        );
 
         set_force_build_failure_for_tests(false);
         assert!(result.is_err());
@@ -3271,34 +3298,38 @@ mod tests {
 
     #[test]
     fn snapshot_projects_command_surface_probe_receipts() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
-                focused_node: Some(NodeKey::new(17)),
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                    focused_node: Some(NodeKey::new(17)),
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: true,
+                    focused: true,
+                    query: Some("rust graph".to_string()),
+                    match_count: 4,
+                    provider_status: Some("Suggestions: loading...".to_string()),
+                    active_pane: None,
+                    focused_node: Some(NodeKey::new(17)),
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata {
+                    contextual_mode: false,
+                    return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
+                    pending_node_context_target: None,
+                    pending_frame_context_target: None,
+                    context_anchor_present: false,
+                }),
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: true,
-                focused: true,
-                query: Some("rust graph".to_string()),
-                match_count: 4,
-                provider_status: Some("Suggestions: loading...".to_string()),
-                active_pane: None,
-                focused_node: Some(NodeKey::new(17)),
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: Some(PaletteSurfaceSemanticMetadata {
-                contextual_mode: false,
-                return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
-                pending_node_context_target: None,
-                pending_frame_context_target: None,
-                context_anchor_present: false,
-            }),
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
@@ -3352,34 +3383,38 @@ mod tests {
 
     #[test]
     fn command_surface_capture_owner_violation_detects_conflicting_owners() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
-                focused_node: Some(NodeKey::new(9)),
-                location_focused: true,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                    focused_node: Some(NodeKey::new(9)),
+                    location_focused: true,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: true,
+                    focused: true,
+                    query: Some("graphshell".to_string()),
+                    match_count: 2,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: Some(NodeKey::new(9)),
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata {
+                    contextual_mode: false,
+                    return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
+                    pending_node_context_target: None,
+                    pending_frame_context_target: None,
+                    context_anchor_present: false,
+                }),
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: true,
-                focused: true,
-                query: Some("graphshell".to_string()),
-                match_count: 2,
-                provider_status: None,
-                active_pane: None,
-                focused_node: Some(NodeKey::new(9)),
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: Some(PaletteSurfaceSemanticMetadata {
-                contextual_mode: false,
-                return_target: Some(ToolSurfaceReturnTarget::Graph(GraphViewId::new())),
-                pending_node_context_target: None,
-                pending_frame_context_target: None,
-                context_anchor_present: false,
-            }),
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
@@ -3394,34 +3429,38 @@ mod tests {
 
     #[test]
     fn command_surface_return_target_violation_detects_missing_restore_anchor() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: false,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: false,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: false,
+                    focused: false,
+                    query: None,
+                    match_count: 0,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata {
+                    contextual_mode: false,
+                    return_target: None,
+                    pending_node_context_target: None,
+                    pending_frame_context_target: None,
+                    context_anchor_present: false,
+                }),
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: false,
-                focused: false,
-                query: None,
-                match_count: 0,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: Some(PaletteSurfaceSemanticMetadata {
-                contextual_mode: false,
-                return_target: None,
-                pending_node_context_target: None,
-                pending_frame_context_target: None,
-                context_anchor_present: false,
-            }),
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);
@@ -3435,34 +3474,38 @@ mod tests {
 
     #[test]
     fn command_surface_return_target_violation_accepts_command_bar_fallback_anchor() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
-                focused_node: None,
-                location_focused: false,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: Some(crate::shell::desktop::workbench::pane_model::PaneId::new()),
+                    focused_node: None,
+                    location_focused: false,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: false,
+                    focused: false,
+                    query: None,
+                    match_count: 0,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata {
+                    contextual_mode: false,
+                    return_target: None,
+                    pending_node_context_target: None,
+                    pending_frame_context_target: None,
+                    context_anchor_present: false,
+                }),
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: false,
-                focused: false,
-                query: None,
-                match_count: 0,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: Some(PaletteSurfaceSemanticMetadata {
-                contextual_mode: false,
-                return_target: None,
-                pending_node_context_target: None,
-                pending_frame_context_target: None,
-                context_anchor_present: false,
-            }),
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, Some(&telemetry), 7);

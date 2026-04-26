@@ -48,12 +48,7 @@ impl EguiHost {
         // split-borrows from `runtime` after PreFrame returns and the
         // single-ref borrow ends.
 
-        Self::run_update_frame_prelude(
-            ctx,
-            runtime,
-            pending_webview_a11y_updates,
-            tiles_tree,
-        );
+        Self::run_update_frame_prelude(ctx, runtime, pending_webview_a11y_updates, tiles_tree);
         // User-gesture notification and idle-watchdog tick migrated onto
         // `GraphshellRuntime::ingest_frame_input`: both consume runtime
         // state (`control_panel`, `registry_runtime`) and the gesture flag

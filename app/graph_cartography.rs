@@ -22,7 +22,9 @@ impl GraphBrowserApp {
     }
 }
 
-fn cartography_event_for_intent(intent: &GraphIntent) -> Option<CartographyRuntimeInvalidationEvent> {
+fn cartography_event_for_intent(
+    intent: &GraphIntent,
+) -> Option<CartographyRuntimeInvalidationEvent> {
     match intent {
         GraphIntent::CreateNodeNearCenter
         | GraphIntent::CreateNodeNearCenterAndOpen { .. }
@@ -31,66 +33,66 @@ fn cartography_event_for_intent(intent: &GraphIntent) -> Option<CartographyRunti
         | GraphIntent::AcceptHostOpenRequest { .. } => {
             Some(CartographyRuntimeInvalidationEvent::GraphReset)
         }
-        GraphIntent::CreateNoteForNode { key, .. } => Some(
-            CartographyRuntimeInvalidationEvent::GraphNodeAdded {
+        GraphIntent::CreateNoteForNode { key, .. } => {
+            Some(CartographyRuntimeInvalidationEvent::GraphNodeAdded {
                 node: *key,
                 entry: None,
-            },
-        ),
+            })
+        }
         GraphIntent::RemoveSelectedNodes | GraphIntent::MarkTombstoneForSelected => {
             Some(CartographyRuntimeInvalidationEvent::GraphReset)
         }
-        GraphIntent::RestoreGhostNode { .. } => Some(
-            CartographyRuntimeInvalidationEvent::LifecycleCold { entry: None },
-        ),
+        GraphIntent::RestoreGhostNode { .. } => {
+            Some(CartographyRuntimeInvalidationEvent::LifecycleCold { entry: None })
+        }
         GraphIntent::ClearGraph => Some(CartographyRuntimeInvalidationEvent::GraphReset),
-        GraphIntent::CreateUserGroupedEdge { from, .. } => Some(
-            CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
+        GraphIntent::CreateUserGroupedEdge { from, .. } => {
+            Some(CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
                 node: Some(*from),
                 entry: None,
-            },
-        ),
-        GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => Some(
-            CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
+            })
+        }
+        GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => {
+            Some(CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
                 node: None,
                 entry: None,
-            },
-        ),
-        GraphIntent::RemoveEdge { from, .. } => Some(
-            CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
+            })
+        }
+        GraphIntent::RemoveEdge { from, .. } => {
+            Some(CartographyRuntimeInvalidationEvent::GraphEdgeAsserted {
                 node: Some(*from),
                 entry: None,
-            },
-        ),
+            })
+        }
         GraphIntent::SetNodeUrl { key, .. }
         | GraphIntent::UpdateNodeMimeHint { key, .. }
-        | GraphIntent::UpdateNodeViewerOverride { key, .. } => Some(
-            CartographyRuntimeInvalidationEvent::GraphNodeAdded {
+        | GraphIntent::UpdateNodeViewerOverride { key, .. } => {
+            Some(CartographyRuntimeInvalidationEvent::GraphNodeAdded {
                 node: *key,
                 entry: None,
-            },
-        ),
+            })
+        }
         GraphIntent::TagNode { key, .. }
         | GraphIntent::UntagNode { key, .. }
         | GraphIntent::AssignClassification { key, .. }
         | GraphIntent::UnassignClassification { key, .. }
         | GraphIntent::AcceptClassification { key, .. }
         | GraphIntent::RejectClassification { key, .. }
-        | GraphIntent::SetPrimaryClassification { key, .. } => Some(
-            CartographyRuntimeInvalidationEvent::GraphTagChanged {
+        | GraphIntent::SetPrimaryClassification { key, .. } => {
+            Some(CartographyRuntimeInvalidationEvent::GraphTagChanged {
                 node: *key,
                 entry: None,
-            },
-        ),
-        GraphIntent::PromoteNodeToActive { .. } => Some(
-            CartographyRuntimeInvalidationEvent::LifecycleActive { entry: None },
-        ),
-        GraphIntent::DemoteNodeToWarm { .. } => Some(
-            CartographyRuntimeInvalidationEvent::LifecycleWarm { entry: None },
-        ),
-        GraphIntent::DemoteNodeToCold { .. } => Some(
-            CartographyRuntimeInvalidationEvent::LifecycleCold { entry: None },
-        ),
+            })
+        }
+        GraphIntent::PromoteNodeToActive { .. } => {
+            Some(CartographyRuntimeInvalidationEvent::LifecycleActive { entry: None })
+        }
+        GraphIntent::DemoteNodeToWarm { .. } => {
+            Some(CartographyRuntimeInvalidationEvent::LifecycleWarm { entry: None })
+        }
+        GraphIntent::DemoteNodeToCold { .. } => {
+            Some(CartographyRuntimeInvalidationEvent::LifecycleCold { entry: None })
+        }
         GraphIntent::WebViewUrlChanged { .. } | GraphIntent::WebViewHistoryChanged { .. } => {
             Some(CartographyRuntimeInvalidationEvent::WalNavigateNode { entry: None })
         }

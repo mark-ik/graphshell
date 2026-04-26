@@ -183,7 +183,7 @@ fn load_for_viewer(
     }
 
     let path =
-        match crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
+        match crate::shell::desktop::workbench::local_file_access::guarded_file_path_from_node_url(
             ctx.node_url,
             ctx.file_access_policy,
         ) {

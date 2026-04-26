@@ -16,6 +16,7 @@
 //! the concrete `crossbeam_channel::Receiver`) remains in
 //! `shell/desktop/ui/toolbar/toolbar_provider_driver.rs`.
 
+#[allow(unused_imports)]
 pub(crate) use graphshell_core::shell_state::omnibar::{
     HistoricalNodeMatch, OmnibarMatch, OmnibarSearchMode, OmnibarSearchSession, OmnibarSessionKind,
     ProviderSuggestionError, ProviderSuggestionFetchOutcome, ProviderSuggestionMailbox,

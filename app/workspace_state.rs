@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 use egui_tiles::TileId;
 use uuid::Uuid;
 
+use crate::app::runtime_ports::RuntimeCaches;
 use crate::graph::physics::GraphPhysicsState;
 use crate::graph::scene_runtime::{GraphViewSceneRuntime, SceneRegionDragState, SceneRegionId};
 use crate::graph::{FrameLayoutHint, Graph, NodeKey};
-use crate::app::runtime_ports::RuntimeCaches;
 use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 
@@ -757,7 +757,7 @@ pub struct ChromeUiState {
     /// query, the top `command_palette_recents_depth` of this list is
     /// surfaced as a "Recent" section above the categorized results.
     /// Persisted across sessions as a JSON list via serde.
-    pub command_palette_recents: Vec<crate::render::action_registry::ActionId>,
+    pub command_palette_recents: Vec<graphshell_core::actions::ActionId>,
 
     /// Maximum number of recent commands to retain / surface in the
     /// command palette's empty-query roster. `0` disables the
@@ -771,8 +771,7 @@ pub struct ChromeUiState {
     /// user's chosen category every time they click a Tier 1 button,
     /// so next-session the palette reopens on the last-used tier.
     /// `None` means "fall back to the first available category".
-    pub command_palette_tier1_default_category:
-        Option<crate::render::action_registry::ActionCategory>,
+    pub command_palette_tier1_default_category: Option<graphshell_core::actions::ActionCategory>,
 
     /// Global Wry backend enable toggle (disabled by default).
     pub wry_enabled: bool,

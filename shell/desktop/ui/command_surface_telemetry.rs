@@ -12,8 +12,15 @@
 //! Mutex-related refactor was required. Re-exports here preserve the
 //! shell-side import paths.
 
+#[allow(unused_imports)]
 pub(crate) use graphshell_core::shell_state::command_surface_telemetry::{
     CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
     CommandSurfaceEventSequenceMetadata, CommandSurfaceSemanticSnapshot, CommandSurfaceTelemetry,
     OmnibarMailboxEventSequenceMetadata, OmnibarSemanticMetadata, PaletteSurfaceSemanticMetadata,
 };
+
+pub(crate) fn latest_command_surface_semantic_snapshot(
+    telemetry: &CommandSurfaceTelemetry,
+) -> Option<CommandSurfaceSemanticSnapshot> {
+    telemetry.latest_snapshot()
+}

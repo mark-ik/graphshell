@@ -579,9 +579,10 @@ mod tests {
         retired_nodes: Vec<NodeKey>,
     }
 
-    impl graphshell_core::viewer_host::ViewerSurfaceHost<
-        crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
-    > for RecordingViewerSurfaceHost
+    impl
+        graphshell_core::viewer_host::ViewerSurfaceHost<
+            crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry,
+        > for RecordingViewerSurfaceHost
     {
         fn allocate_surface(
             &mut self,

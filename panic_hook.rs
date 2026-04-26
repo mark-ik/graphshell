@@ -13,6 +13,7 @@ use log::{error, warn};
 #[cfg(feature = "servo-engine")]
 use verso::servo_engine::opts;
 
+#[cfg(feature = "servo-engine")]
 use crate::crash_handler::raise_signal_or_exit_with_error;
 
 pub(crate) fn panic_hook(info: &PanicHookInfo) {

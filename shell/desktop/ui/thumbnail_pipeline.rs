@@ -16,8 +16,7 @@ use servo::{Image, PixelFormat, WebViewId};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_status_sync::{
-    renderer_id_from_servo, servo_webview_id_from_viewer_instance,
-    viewer_instance_id_from_servo,
+    renderer_id_from_servo, servo_webview_id_from_viewer_instance, viewer_instance_id_from_servo,
 };
 use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 
@@ -183,9 +182,7 @@ impl ThumbnailChannel {
     /// Non-blocking receive — `Ok(result)` if a capture completed since
     /// the last call, `Err(_)` when the queue is empty or the channel
     /// closed.
-    pub(crate) fn try_recv(
-        &self,
-    ) -> Result<ThumbnailCaptureResult, std::sync::mpsc::TryRecvError> {
+    pub(crate) fn try_recv(&self) -> Result<ThumbnailCaptureResult, std::sync::mpsc::TryRecvError> {
         self.rx.try_recv()
     }
 }
@@ -276,12 +273,7 @@ fn encode_thumbnail(
             let mut cursor = Cursor::new(Vec::new());
             let mut encoder =
                 image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
-            match encoder.encode(
-                rgb.as_raw(),
-                width,
-                height,
-                image::ExtendedColorType::Rgb8,
-            ) {
+            match encoder.encode(rgb.as_raw(), width, height, image::ExtendedColorType::Rgb8) {
                 Ok(()) => Some(cursor.into_inner()),
                 Err(error) => {
                     warn!("Could not encode thumbnail JPEG for {id:?}: {error}");
@@ -760,13 +752,9 @@ mod tests {
                 Value::String("https://real.example".to_string()),
             );
 
-        let cached = cached_thumbnail_result_for_request(
-            &app,
-            webview_id,
-            node_key,
-            "https://real.example",
-        )
-        .expect("cached result returned");
+        let cached =
+            cached_thumbnail_result_for_request(&app, webview_id, node_key, "https://real.example")
+                .expect("cached result returned");
         assert_eq!(
             cached.width, 400,
             "cache must report the actual encoded width, not the hardcoded default"
@@ -799,7 +787,10 @@ mod tests {
             .expect("send should succeed while receiver is live");
         let received = port.try_recv().expect("drain should yield one result");
         assert_eq!(received.width, 8);
-        assert_eq!(received.png_bytes.as_deref(), Some(&[0xDE, 0xAD, 0xBE, 0xEF][..]));
+        assert_eq!(
+            received.png_bytes.as_deref(),
+            Some(&[0xDE, 0xAD, 0xBE, 0xEF][..])
+        );
         assert!(port.try_recv().is_none());
     }
 }

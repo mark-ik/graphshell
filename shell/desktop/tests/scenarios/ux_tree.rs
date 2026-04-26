@@ -2,7 +2,8 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     CommandBarSemanticMetadata, CommandSurfaceSemanticSnapshot, OmnibarSemanticMetadata,
-    PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
+    PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
+    publish_command_surface_semantic_snapshot,
 };
 use crate::shell::desktop::workbench::ux_bridge::UxNodeSelector;
 use crate::shell::desktop::workbench::ux_tree;
@@ -66,7 +67,8 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
 
 #[test]
 fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
-    let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+    let telemetry =
+        crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
     clear_command_surface_semantic_snapshot(&telemetry);
     publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
         command_bar: CommandBarSemanticMetadata {
@@ -124,15 +126,16 @@ fn command_surface_uxtree_snapshot_is_healthy_with_return_target() {
     );
 
     ux_tree::publish_snapshot(&snapshot);
-    let find_response = crate::shell::desktop::workbench::ux_bridge::handle_latest_snapshot_command(
-        crate::shell::desktop::workbench::ux_bridge::UxBridgeCommand::FindUxNode {
-            selector: UxNodeSelector::ByRoleAndLabel(
-                ux_tree::UxNodeRole::CommandBar,
-                "Command Bar".to_string(),
-            ),
-        },
-    )
-    .expect("bridge find-node query should succeed");
+    let find_response =
+        crate::shell::desktop::workbench::ux_bridge::handle_latest_snapshot_command(
+            crate::shell::desktop::workbench::ux_bridge::UxBridgeCommand::FindUxNode {
+                selector: UxNodeSelector::ByRoleAndLabel(
+                    ux_tree::UxNodeRole::CommandBar,
+                    "Command Bar".to_string(),
+                ),
+            },
+        )
+        .expect("bridge find-node query should succeed");
     let command_bar = match find_response {
         crate::shell::desktop::workbench::ux_bridge::UxBridgeResponse::Node(node) => node,
         other => panic!("expected Node response, got {other:?}"),

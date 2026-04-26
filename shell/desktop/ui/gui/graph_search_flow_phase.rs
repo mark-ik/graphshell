@@ -205,16 +205,14 @@ pub(crate) fn refresh_graph_search_matches(
     let mut ranked =
         crate::shell::desktop::runtime::registries::phase3_index_search(graph_app, query, 64)
             .into_iter()
-            .filter_map(|result| match result.kind {
-                crate::shell::desktop::runtime::registries::index::SearchResultKind::Node(key) => {
-                    Some(key)
-                }
-                crate::shell::desktop::runtime::registries::index::SearchResultKind::HistoryUrl(
-                    _,
-                )
-                | crate::shell::desktop::runtime::registries::index::SearchResultKind::KnowledgeTag {
-                    ..
-                } => None,
+            .filter_map(|result| {
+                match result.kind {
+        crate::shell::desktop::runtime::registries::index::SearchResultKind::Node(key) => Some(key),
+        crate::shell::desktop::runtime::registries::index::SearchResultKind::HistoryUrl(_)
+        | crate::shell::desktop::runtime::registries::index::SearchResultKind::KnowledgeTag {
+            ..
+        } => None,
+    }
             })
             .collect::<Vec<_>>();
     ranked.dedup();

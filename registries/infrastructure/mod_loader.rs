@@ -1211,7 +1211,10 @@ mod tests {
             registry.get_status("mod:core-protocol"),
             Some(ModStatus::Active)
         );
-        assert_eq!(registry.get_status("mod:web-runtime"), Some(ModStatus::Active));
+        assert_eq!(
+            registry.get_status("mod:web-runtime"),
+            Some(ModStatus::Active)
+        );
     }
 
     #[test]

@@ -153,8 +153,7 @@ pub(crate) fn clear_semantic_snapshot() {
 /// for the sibling command-surface snapshot global. The lock lives
 /// in release builds too but is never acquired outside tests, so
 /// there is no runtime cost in production.
-pub(crate) fn lock_radial_palette_snapshot_tests()
--> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn lock_radial_palette_snapshot_tests() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     match TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock() {
         Ok(guard) => guard,

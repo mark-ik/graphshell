@@ -3,14 +3,19 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use log::warn;
-use std::{env, fs, panic};
+use std::{env, fs};
+#[cfg(feature = "servo-engine")]
+use std::panic;
 
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_STARTUP_CONFIG_SNAPSHOT;
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_VERSE_INIT_FAILED,
-    CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
+    CHANNEL_STARTUP_VERSE_INIT_FAILED, CHANNEL_STARTUP_VERSE_INIT_MODE,
+    CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
 };
 
+#[cfg(feature = "servo-engine")]
 use crate::panic_hook;
 // 2026-04-25 servo-into-verso S2b: prefs, the Servo embedder host,
 // and Servo argument parsing are all gated behind servo-engine.

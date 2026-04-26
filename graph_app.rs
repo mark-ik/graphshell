@@ -16,6 +16,27 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc as tokio_mpsc;
 
+use crate::app::runtime_ports::{
+    CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+    CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED, CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED, CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+    CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORDED,
+    CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
+    CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
+    CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
+    CHANNEL_UX_NAVIGATION_TRANSITION, CachePolicy, DiagnosticEvent, InputBinding,
+    InputBindingRemap, InputContext, InputRemapConflict, RuntimeCaches, emit_event,
+    phase2_apply_input_binding_remaps, phase2_describe_input_bindings,
+    phase2_reset_input_binding_remaps,
+};
+#[cfg(not(test))]
+use crate::app::runtime_ports::{
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
+};
 use crate::domain::DomainState;
 use crate::graph::apply::{
     GraphDelta, GraphDeltaResult, apply_graph_delta as apply_domain_graph_delta,
@@ -29,34 +50,13 @@ use crate::registries::atomic::lens::{
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::types::{LogEntry, PersistedNavigationTrigger};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
-use crate::app::runtime_ports::{
-    CachePolicy, DiagnosticEvent, InputBinding, InputBindingRemap, InputContext,
-    InputRemapConflict, RuntimeCaches, emit_event,
-    CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
-    CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
-    CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
-    CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED, CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
-    CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED, CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
-    CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORDED,
-    CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
-    CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
-    CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
-    CHANNEL_UX_NAVIGATION_TRANSITION, phase2_apply_input_binding_remaps,
-    phase2_describe_input_bindings, phase2_reset_input_binding_remaps,
-};
-#[cfg(not(test))]
-use crate::app::runtime_ports::{
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
-};
 use crate::util::{
     GraphAddress, GraphshellSettingsPath, NodeAddress, NoteAddress, VersoAddress, VersoViewTarget,
 };
+use ::graph_cartography::{CartographyInvalidationEmission, CartographyInvalidationEmitter};
 use euclid::default::Point2D;
 use log::{debug, warn};
 use uuid::Uuid;
-use ::graph_cartography::{CartographyInvalidationEmission, CartographyInvalidationEmitter};
 
 macro_rules! impl_display_from_str {
     ($ty:ty { $($variant:path => $value:literal),+ $(,)? }) => {
@@ -84,11 +84,12 @@ macro_rules! impl_display_from_str {
 #[path = "app/selection.rs"]
 mod selection;
 pub use graphshell_runtime::{ClipboardCopyKind, ClipboardCopyRequest, UiNotificationLevel};
-pub use selection::{SelectionState, SelectionUpdateMode};
 pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
+pub use selection::{SelectionState, SelectionUpdateMode};
 
 #[path = "app/history.rs"]
 mod history;
+#[allow(unused_imports)]
 pub use history::{HistoryCaptureStatus, HistoryManagerTab, HistoryTraversalFailureReason};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,13 +113,14 @@ mod history_runtime;
 mod intents;
 pub use intents::{
     AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
-    NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec,
-    ViewAction,
+    NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec, ViewAction,
 };
 
 #[path = "app/clip_capture.rs"]
 mod clip_capture;
+#[allow(unused_imports)]
 pub use clip_capture::ClipCaptureData;
+#[allow(unused_imports)]
 pub use clip_capture::{
     ClipInspectorFilter, ClipInspectorState, clip_capture_matches_filter,
     clip_capture_matches_query,
@@ -133,6 +135,7 @@ mod workspace_commands;
 
 #[path = "app/routing.rs"]
 mod routing;
+#[allow(unused_imports)]
 pub use routing::{SettingsRouteTarget, ToolSurfaceReturnTarget};
 
 #[path = "app/workspace_routing.rs"]
@@ -161,6 +164,7 @@ pub use graph_views::{
     GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset, SceneMode,
     SelectionEdgeProjectionOverride, SimulateBehaviorPreset, ThreeDMode, ViewDimension, ZSource,
 };
+#[allow(unused_imports)]
 pub(crate) use graph_views::{
     default_semantic_depth_dimension, default_view_dimension_for_mode, is_semantic_depth_dimension,
     view_dimension_summary,
@@ -171,6 +175,7 @@ pub(crate) mod graph_layout;
 
 #[path = "app/runtime_lifecycle.rs"]
 mod runtime_lifecycle;
+#[allow(unused_imports)]
 pub use runtime_lifecycle::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken};
 
 #[path = "app/graph_mutations.rs"]
@@ -215,6 +220,7 @@ mod storage_interop;
 
 #[path = "app/workspace_state.rs"]
 mod workspace_state;
+#[allow(unused_imports)]
 pub use workspace_state::{
     ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphTooltipTarget,
     GraphViewRuntimeState, NavigatorSpecialtyView, SemanticNavigationNodeRuntime,
@@ -833,9 +839,7 @@ impl GraphBrowserApp {
         }
     }
 
-    pub(crate) fn pending_cartography_invalidations(
-        &self,
-    ) -> &[CartographyInvalidationEmission] {
+    pub(crate) fn pending_cartography_invalidations(&self) -> &[CartographyInvalidationEmission] {
         self.cartography_invalidation_emitter.pending()
     }
 

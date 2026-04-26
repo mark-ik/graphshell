@@ -134,10 +134,7 @@ fn semantic_similarity_map(
     out
 }
 
-fn apply_canvas_deltas(
-    app: &mut GraphBrowserApp,
-    deltas: HashMap<NodeKey, Vector2D<f32>>,
-) {
+fn apply_canvas_deltas(app: &mut GraphBrowserApp, deltas: HashMap<NodeKey, Vector2D<f32>>) {
     if deltas.is_empty() {
         return;
     }
@@ -677,10 +674,7 @@ mod tests {
         );
 
         let mut archipelago_app = GraphBrowserApp::new_for_testing();
-        archipelago_app
-            .workspace
-            .graph_runtime
-            .physics.is_running = true;
+        archipelago_app.workspace.graph_runtime.physics.is_running = true;
         let arch_a = archipelago_app.add_node_and_sync(
             "https://a.example.com/one".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
@@ -731,10 +725,7 @@ mod tests {
             .insert(drift_b, vector.clone());
 
         let mut resonance_app = GraphBrowserApp::new_for_testing();
-        resonance_app
-            .workspace
-            .graph_runtime
-            .physics.is_running = true;
+        resonance_app.workspace.graph_runtime.physics.is_running = true;
         let resonance_a = resonance_app.add_node_and_sync(
             "https://alpha.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
@@ -795,10 +786,7 @@ mod tests {
         }
 
         let mut constellation_app = GraphBrowserApp::new_for_testing();
-        constellation_app
-            .workspace
-            .graph_runtime
-            .physics.is_running = true;
+        constellation_app.workspace.graph_runtime.physics.is_running = true;
         let constellation_hub = constellation_app.add_node_and_sync(
             "https://hub.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),

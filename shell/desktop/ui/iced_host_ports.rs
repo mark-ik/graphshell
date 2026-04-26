@@ -33,11 +33,13 @@ use std::collections::HashMap;
 
 use graphshell_core::geometry::{PortablePoint, PortableRect};
 use graphshell_core::host_event::{HostEvent, ModifiersState};
+use graphshell_runtime::ports::{
+    RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort,
+};
 use graphshell_runtime::{
     BackendViewportInPixels, HostAccessibilityPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, ToastSpec,
 };
-use graphshell_runtime::ports::{RuntimeClipboardPort as HostClipboardPort, RuntimeToastPort as HostToastPort};
 
 use crate::graph::NodeKey;
 
@@ -103,8 +105,7 @@ impl<'a> HostInputPort for IcedHostPorts<'a> {
     }
 
     fn pointer_hover_position(&self) -> Option<PortablePoint> {
-        self.cursor_position
-            .map(|p| PortablePoint::new(p.x, p.y))
+        self.cursor_position.map(|p| PortablePoint::new(p.x, p.y))
     }
 
     fn wants_keyboard_input(&self) -> bool {

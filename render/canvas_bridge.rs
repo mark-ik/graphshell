@@ -160,8 +160,7 @@ pub fn run_graph_canvas_frame(
     // Force-directed tick: advance positions when physics is running and the
     // user isn't actively dragging. Writes per-node deltas straight into
     // petgraph; there is no mirror carrier.
-    if app.workspace.graph_runtime.physics.is_running
-        && !app.workspace.graph_runtime.is_interacting
+    if app.workspace.graph_runtime.physics.is_running && !app.workspace.graph_runtime.is_interacting
     {
         let pinned: std::collections::HashSet<NodeKey> = app
             .domain_graph()
@@ -261,9 +260,7 @@ pub fn run_graph_canvas_frame(
         .graph_runtime
         .canvas_interaction_engines
         .remove(&view_id)
-        .unwrap_or_else(|| {
-            InteractionEngine::new(navigation_policy.to_interaction_config())
-        });
+        .unwrap_or_else(|| InteractionEngine::new(navigation_policy.to_interaction_config()));
     // Refresh the engine's config from the resolved policy every
     // frame so user tuning takes effect without engine rebuild.
     engine.config = navigation_policy.to_interaction_config();
@@ -297,9 +294,8 @@ pub fn run_graph_canvas_frame(
                     }
                 }
                 CanvasAction::HoverEdge(maybe_edge) => {
-                    app.workspace.graph_runtime.hovered_graph_edge = maybe_edge
-                        .as_ref()
-                        .map(|edge| (edge.source, edge.target));
+                    app.workspace.graph_runtime.hovered_graph_edge =
+                        maybe_edge.as_ref().map(|edge| (edge.source, edge.target));
                     if maybe_edge.is_some() {
                         app.workspace.graph_runtime.hovered_graph_node = None;
                     }
@@ -616,8 +612,7 @@ mod scene_input_tests {
     fn run_graph_canvas_frame_fit_selection_frames_only_selected_nodes() {
         let view_id = GraphViewId::new();
         let mut app = fit_test_app(view_id);
-        let near =
-            app.add_node_and_sync("https://near.test/".into(), Point2D::new(10.0, 10.0));
+        let near = app.add_node_and_sync("https://near.test/".into(), Point2D::new(10.0, 10.0));
         app.add_node_and_sync("https://far.test/".into(), Point2D::new(10_000.0, 10_000.0));
         app.select_node(near, false);
         app.request_camera_command(crate::app::CameraCommand::FitSelection);
@@ -724,26 +719,25 @@ mod scene_input_tests {
         let view_id = GraphViewId::new();
         let mut app = fit_test_app(view_id);
         // Set a distinctive per-graph default.
-        app.set_navigation_policy_default(
-            graph_canvas::navigation::NavigationPolicy {
-                zoom_max: 4.0,
-                ..graph_canvas::navigation::NavigationPolicy::default()
-            },
-        );
+        app.set_navigation_policy_default(graph_canvas::navigation::NavigationPolicy {
+            zoom_max: 4.0,
+            ..graph_canvas::navigation::NavigationPolicy::default()
+        });
         let resolved = app.resolve_navigation_policy(view_id);
-        assert_eq!(resolved.zoom_max, 4.0, "view with no override inherits graph default");
+        assert_eq!(
+            resolved.zoom_max, 4.0,
+            "view with no override inherits graph default"
+        );
     }
 
     #[test]
     fn resolve_navigation_policy_prefers_view_override_over_graph_default() {
         let view_id = GraphViewId::new();
         let mut app = fit_test_app(view_id);
-        app.set_navigation_policy_default(
-            graph_canvas::navigation::NavigationPolicy {
-                zoom_max: 4.0,
-                ..graph_canvas::navigation::NavigationPolicy::default()
-            },
-        );
+        app.set_navigation_policy_default(graph_canvas::navigation::NavigationPolicy {
+            zoom_max: 4.0,
+            ..graph_canvas::navigation::NavigationPolicy::default()
+        });
         app.set_graph_view_navigation_policy_override(
             view_id,
             Some(graph_canvas::navigation::NavigationPolicy {
@@ -752,7 +746,10 @@ mod scene_input_tests {
             }),
         );
         let resolved = app.resolve_navigation_policy(view_id);
-        assert_eq!(resolved.zoom_max, 16.0, "view override wins over graph default");
+        assert_eq!(
+            resolved.zoom_max, 16.0,
+            "view override wins over graph default"
+        );
     }
 
     #[test]
@@ -1181,8 +1178,7 @@ pub fn apply_fit_camera_command(
         }
         CameraCommand::Fit => fit_to_all_nodes(scene, camera, viewport, navigation_policy),
         CameraCommand::FitSelection => {
-            let selection: Vec<NodeKey> =
-                app.focused_selection().iter().copied().collect();
+            let selection: Vec<NodeKey> = app.focused_selection().iter().copied().collect();
             if selection.is_empty() {
                 return fit_to_all_nodes(scene, camera, viewport, navigation_policy);
             }

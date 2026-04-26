@@ -780,7 +780,8 @@ mod tests {
         CommandBarSemanticMetadata, CommandRouteEventSequenceMetadata,
         CommandSurfaceEventSequenceMetadata, CommandSurfaceSemanticSnapshot,
         OmnibarMailboxEventSequenceMetadata, OmnibarSemanticMetadata,
-        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot, publish_command_surface_semantic_snapshot,
+        PaletteSurfaceSemanticMetadata, clear_command_surface_semantic_snapshot,
+        publish_command_surface_semantic_snapshot,
         set_command_surface_event_sequence_metadata_for_tests,
     };
 
@@ -957,12 +958,8 @@ mod tests {
             check: UxProbeCheck::Stateless(test_violation),
         }];
 
-        let report = evaluate_descriptors(
-            &snapshot,
-            &descriptors,
-            UX_TREE_BUILD_HARD_CAP_US + 1,
-            None,
-        );
+        let report =
+            evaluate_descriptors(&snapshot, &descriptors, UX_TREE_BUILD_HARD_CAP_US + 1, None);
 
         assert!(report.skipped_for_build_budget);
         assert_eq!(report.executed_probe_count, 0);
@@ -1009,42 +1006,48 @@ mod tests {
 
     #[test]
     fn evaluate_registered_probes_surfaces_navigation_violation() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _guard = lock_probe_tests();
         reset_probe_runtime_for_tests();
 
         clear_command_surface_semantic_snapshot(&telemetry);
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: false,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: false,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: false,
+                    focused: false,
+                    query: None,
+                    match_count: 0,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: Some(PaletteSurfaceSemanticMetadata {
+                    contextual_mode: false,
+                    return_target: None,
+                    pending_node_context_target: None,
+                    pending_frame_context_target: None,
+                    context_anchor_present: false,
+                }),
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: false,
-                focused: false,
-                query: None,
-                match_count: 0,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: Some(PaletteSurfaceSemanticMetadata {
-                contextual_mode: false,
-                return_target: None,
-                pending_node_context_target: None,
-                pending_frame_context_target: None,
-                context_anchor_present: false,
-            }),
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app, Some(&telemetry), 7,
+            &harness.app,
+            Some(&telemetry),
+            7,
         );
 
         assert!(
@@ -1335,12 +1338,15 @@ mod tests {
 
     #[test]
     fn evaluate_registered_probes_surfaces_command_surface_observability_violation() {
-        let telemetry = crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
+        let telemetry =
+            crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new();
         let _guard = lock_probe_tests();
         reset_probe_runtime_for_tests();
 
         clear_command_surface_semantic_snapshot(&telemetry);
-        set_command_surface_event_sequence_metadata_for_tests(&telemetry, CommandSurfaceEventSequenceMetadata {
+        set_command_surface_event_sequence_metadata_for_tests(
+            &telemetry,
+            CommandSurfaceEventSequenceMetadata {
                 route_events: CommandRouteEventSequenceMetadata {
                     resolved: 0,
                     fallback: 0,
@@ -1354,31 +1360,36 @@ mod tests {
                 },
             },
         );
-        publish_command_surface_semantic_snapshot(&telemetry, CommandSurfaceSemanticSnapshot {
-            command_bar: CommandBarSemanticMetadata {
-                active_pane: None,
-                focused_node: None,
-                location_focused: false,
-                route_events: CommandRouteEventSequenceMetadata::default(),
+        publish_command_surface_semantic_snapshot(
+            &telemetry,
+            CommandSurfaceSemanticSnapshot {
+                command_bar: CommandBarSemanticMetadata {
+                    active_pane: None,
+                    focused_node: None,
+                    location_focused: false,
+                    route_events: CommandRouteEventSequenceMetadata::default(),
+                },
+                omnibar: OmnibarSemanticMetadata {
+                    active: false,
+                    focused: false,
+                    query: None,
+                    match_count: 0,
+                    provider_status: None,
+                    active_pane: None,
+                    focused_node: None,
+                    mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
+                },
+                command_palette: None,
+                context_palette: None,
             },
-            omnibar: OmnibarSemanticMetadata {
-                active: false,
-                focused: false,
-                query: None,
-                match_count: 0,
-                provider_status: None,
-                active_pane: None,
-                focused_node: None,
-                mailbox_events: OmnibarMailboxEventSequenceMetadata::default(),
-            },
-            command_palette: None,
-            context_palette: None,
-        });
+        );
 
         let harness = TestRegistry::new();
         let snapshot = crate::shell::desktop::workbench::ux_tree::build_snapshot(
             &harness.tiles_tree,
-            &harness.app, Some(&telemetry), 13,
+            &harness.app,
+            Some(&telemetry),
+            13,
         );
 
         let first = evaluate_registered_probes_with_telemetry(&snapshot, 0, Some(&telemetry));

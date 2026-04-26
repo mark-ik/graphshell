@@ -57,8 +57,6 @@ pub(crate) mod host_ports;
 // S3b slice; until then, the iced no-Servo path is via the
 // standalone `crates/iced-{middlenet,graph-canvas,wry}-viewer`
 // demo crates.
-#[cfg(feature = "iced-host")]
-pub(crate) mod iced_host_ports;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_app;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
@@ -67,6 +65,8 @@ pub(crate) mod iced_events;
 pub(crate) mod iced_graph_canvas;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_host;
+#[cfg(feature = "iced-host")]
+pub(crate) mod iced_host_ports;
 #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
 pub(crate) mod iced_middlenet_viewer;
 #[cfg(all(feature = "iced-host", feature = "servo-engine", test))]
@@ -77,9 +77,9 @@ pub(crate) mod navigator_context;
 pub(crate) mod omnibar_state;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod overview_plane;
-pub(crate) mod portable_time;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod persistence_ops;
+pub(crate) mod portable_time;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod shell_layout_pass;
 pub(crate) mod swatch;

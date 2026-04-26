@@ -27,35 +27,42 @@ impl SignalRouter for RegistrySignalRouter {
 
 fn lifecycle_stream() -> BoxStream<'static, PortableSignalEnvelope> {
     let subscription = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
-    Box::pin(stream::unfold(subscription, |mut subscription| async move {
-        loop {
-            let signal = subscription.recv().await?;
-            if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated { indexed_nodes }) =
-                signal.kind
-            {
-                return Some((
-                    PortableSignalEnvelope::Lifecycle(
-                        PortableLifecycleSignal::SemanticIndexUpdated { indexed_nodes },
-                    ),
-                    subscription,
-                ));
+    Box::pin(stream::unfold(
+        subscription,
+        |mut subscription| async move {
+            loop {
+                let signal = subscription.recv().await?;
+                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
+                    indexed_nodes,
+                }) = signal.kind
+                {
+                    return Some((
+                        PortableSignalEnvelope::Lifecycle(
+                            PortableLifecycleSignal::SemanticIndexUpdated { indexed_nodes },
+                        ),
+                        subscription,
+                    ));
+                }
             }
-        }
-    }))
+        },
+    ))
 }
 
 fn registry_stream() -> BoxStream<'static, PortableSignalEnvelope> {
     let subscription = phase3_subscribe_signal_async(SignalTopic::RegistryEvent);
-    Box::pin(stream::unfold(subscription, |mut subscription| async move {
-        loop {
-            let signal = subscription.recv().await?;
-            if let SignalKind::RegistryEvent(registry_signal) = signal.kind
-                && let Some(mapped) = map_registry_signal(registry_signal)
-            {
-                return Some((PortableSignalEnvelope::RegistryEvent(mapped), subscription));
+    Box::pin(stream::unfold(
+        subscription,
+        |mut subscription| async move {
+            loop {
+                let signal = subscription.recv().await?;
+                if let SignalKind::RegistryEvent(registry_signal) = signal.kind
+                    && let Some(mapped) = map_registry_signal(registry_signal)
+                {
+                    return Some((PortableSignalEnvelope::RegistryEvent(mapped), subscription));
+                }
             }
-        }
-    }))
+        },
+    ))
 }
 
 fn map_registry_signal(signal: RegistryEventSignal) -> Option<PortableRegistrySignal> {

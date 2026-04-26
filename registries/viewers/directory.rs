@@ -48,10 +48,11 @@ fn render_directory(
     ctx: &EmbeddedViewerContext<'_>,
     intents: &mut Vec<crate::app::GraphIntent>,
 ) -> Result<(), String> {
-    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-        ctx.node_url,
-        ctx.file_access_policy,
-    )?;
+    let path =
+        crate::shell::desktop::workbench::local_file_access::guarded_file_path_from_node_url(
+            ctx.node_url,
+            ctx.file_access_policy,
+        )?;
 
     let entries: Vec<(String, PathBuf, bool)> = DIR_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();

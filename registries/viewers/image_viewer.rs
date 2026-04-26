@@ -60,10 +60,11 @@ impl EmbeddedViewer for ImageEmbeddedViewer {
 }
 
 fn render_image(ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> Result<(), String> {
-    let path = crate::shell::desktop::workbench::tile_behavior::guarded_file_path_from_node_url(
-        ctx.node_url,
-        ctx.file_access_policy,
-    )?;
+    let path =
+        crate::shell::desktop::workbench::local_file_access::guarded_file_path_from_node_url(
+            ctx.node_url,
+            ctx.file_access_policy,
+        )?;
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     let image = image::load_from_memory(&bytes)

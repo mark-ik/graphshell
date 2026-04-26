@@ -155,10 +155,7 @@ fn action_binding_pressed(
         .any(|binding| key_binding_pressed(input, binding))
 }
 
-pub(crate) fn graph_view_action_binding_pressed(
-    input: &egui::InputState,
-    action_id: &str,
-) -> bool {
+pub(crate) fn graph_view_action_binding_pressed(input: &egui::InputState, action_id: &str) -> bool {
     let binding_descriptors = phase2_describe_input_bindings();
     action_binding_pressed(input, action_id, &binding_descriptors)
 }
@@ -514,10 +511,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_ne!(
-            app.workspace.graph_runtime.physics.is_running,
-            was_running
-        );
+        assert_ne!(app.workspace.graph_runtime.physics.is_running, was_running);
     }
 
     #[test]
@@ -1041,7 +1035,11 @@ mod tests {
         actions
     }
 
-    fn graph_view_action_pressed_with_key_event(key: Key, modifiers: Modifiers, action_id: &str) -> bool {
+    fn graph_view_action_pressed_with_key_event(
+        key: Key,
+        modifiers: Modifiers,
+        action_id: &str,
+    ) -> bool {
         let ctx = egui::Context::default();
         let mut pressed = false;
 

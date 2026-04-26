@@ -126,7 +126,9 @@ impl WindowProjectionState {
 
     pub(super) fn explicit_chrome_webview_id(&self) -> Option<WebViewId> {
         match self.chrome_projection_source() {
-            Some(ChromeProjectionSource::Renderer(renderer_id)) => servo_webview_id_from_renderer(renderer_id),
+            Some(ChromeProjectionSource::Renderer(renderer_id)) => {
+                servo_webview_id_from_renderer(renderer_id)
+            }
             Some(ChromeProjectionSource::Pane(pane_id)) => {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
                     .and_then(|attachment| servo_webview_id_from_renderer(attachment.renderer_id))

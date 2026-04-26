@@ -45,4 +45,5 @@ pub(crate) mod wasm {
     }
 }
 
+#[allow(unused_imports)]
 pub(crate) use native::verse;

@@ -16,6 +16,7 @@
 ///   - graphshell<winit@UserEvent(Waker)=off
 ///   - graphshell<winit@WindowEvent(AxisMotion)=off
 ///   - graphshell<winit@WindowEvent(CursorMoved)=off
+#[allow(unused_macros)]
 macro_rules! trace_winit_event {
     // This macro only exists to put the docs in the same file as the target prefix,
     // so the macro definition is always the same.
@@ -24,6 +25,7 @@ macro_rules! trace_winit_event {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use trace_winit_event;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -829,12 +829,7 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
         });
     });
 
-    if let Some(last_avg) = app
-        .workspace
-        .graph_runtime
-        .physics
-        .last_avg_displacement
-    {
+    if let Some(last_avg) = app.workspace.graph_runtime.physics.last_avg_displacement {
         ui.small(format!("Last avg displacement: {:.4}", last_avg));
     }
     ui.small(format!(

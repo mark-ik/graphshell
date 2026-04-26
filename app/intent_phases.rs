@@ -256,12 +256,10 @@ impl GraphBrowserApp {
                     } else {
                         registries::CHANNEL_UX_FACET_FILTER_CLEARED
                     };
-                    diagnostics::emit_event(
-                        diagnostics::DiagnosticEvent::MessageReceived {
-                            channel_id: channel,
-                            latency_us: 0,
-                        },
-                    );
+                    diagnostics::emit_event(diagnostics::DiagnosticEvent::MessageReceived {
+                        channel_id: channel,
+                        latency_us: 0,
+                    });
                     if let Some(summary) = filter_summary {
                         for warning in summary.warnings {
                             let channel_id = match warning {
@@ -289,12 +287,10 @@ impl GraphBrowserApp {
             GraphIntent::ClearViewFilter { view_id } => {
                 if let Some(view) = self.workspace.graph_runtime.views.get_mut(&view_id) {
                     view.apply_filter_override(None);
-                    diagnostics::emit_event(
-                        diagnostics::DiagnosticEvent::MessageReceived {
-                            channel_id: registries::CHANNEL_UX_FACET_FILTER_CLEARED,
-                            latency_us: 0,
-                        },
-                    );
+                    diagnostics::emit_event(diagnostics::DiagnosticEvent::MessageReceived {
+                        channel_id: registries::CHANNEL_UX_FACET_FILTER_CLEARED,
+                        latency_us: 0,
+                    });
                 }
                 true
             }
@@ -471,16 +467,14 @@ impl GraphBrowserApp {
             } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        registries::phase3_trust_peer(
-                            crate::mods::native::verse::TrustedPeer {
-                                node_id,
-                                display_name,
-                                role: crate::mods::native::verse::PeerRole::Friend,
-                                added_at: std::time::SystemTime::now(),
-                                last_seen: Some(std::time::SystemTime::now()),
-                                workspace_grants: Vec::new(),
-                            },
-                        );
+                        registries::phase3_trust_peer(crate::mods::native::verse::TrustedPeer {
+                            node_id,
+                            display_name,
+                            role: crate::mods::native::verse::PeerRole::Friend,
+                            added_at: std::time::SystemTime::now(),
+                            last_seen: Some(std::time::SystemTime::now()),
+                            workspace_grants: Vec::new(),
+                        });
                         log::info!("paired trusted peer: {peer_id}");
                     }
                     Err(error) => {
@@ -532,10 +526,7 @@ impl GraphBrowserApp {
             } => {
                 match peer_id.parse::<iroh::EndpointId>() {
                     Ok(node_id) => {
-                        registries::phase3_revoke_workspace_access(
-                            node_id,
-                            &workspace_id,
-                        );
+                        registries::phase3_revoke_workspace_access(node_id, &workspace_id);
                         log::info!(
                             "revoking workspace access '{}' for peer {}",
                             workspace_id,
@@ -567,12 +558,7 @@ impl GraphBrowserApp {
             } => {
                 let content = gemini_content
                     .unwrap_or_else(|| format!("# {title}\n\nThis node has no content yet.\n"));
-                registries::register_gemini_node(
-                    node_id,
-                    title,
-                    privacy_class,
-                    content,
-                );
+                registries::register_gemini_node(node_id, title, privacy_class, content);
                 true
             }
             GraphIntent::UnserveNodeFromGemini { node_id } => {
@@ -596,12 +582,7 @@ impl GraphBrowserApp {
             } => {
                 let content = gophermap_content
                     .unwrap_or_else(|| format!("i{title}\tfake\tfake\t70\r\n.\r\n"));
-                registries::register_gopher_node(
-                    node_id,
-                    title,
-                    privacy_class,
-                    content,
-                );
+                registries::register_gopher_node(node_id, title, privacy_class, content);
                 true
             }
             GraphIntent::UnserveNodeFromGopher { node_id } => {
@@ -622,11 +603,7 @@ impl GraphBrowserApp {
                 privacy_class,
                 finger_text,
             } => {
-                registries::publish_finger_profile(
-                    query_name,
-                    privacy_class,
-                    finger_text,
-                );
+                registries::publish_finger_profile(query_name, privacy_class, finger_text);
                 true
             }
             GraphIntent::UnpublishFingerProfile { query_name } => {
@@ -982,7 +959,8 @@ impl GraphBrowserApp {
                     } else {
                         match registries::phase3_validate_knowledge_tag(trimmed) {
                             registries::knowledge::TagValidationResult::Valid {
-                                canonical_code, ..
+                                canonical_code,
+                                ..
                             } => format!("udc:{canonical_code}"),
                             registries::knowledge::TagValidationResult::Unknown { .. }
                             | registries::knowledge::TagValidationResult::Malformed { .. } => {
@@ -1015,7 +993,8 @@ impl GraphBrowserApp {
                         if !already_classified {
                             let label = match registries::phase3_validate_knowledge_tag(udc_code) {
                                 registries::knowledge::TagValidationResult::Valid {
-                                    display_label, ..
+                                    display_label,
+                                    ..
                                 } => Some(display_label),
                                 _ => None,
                             };
@@ -1220,7 +1199,8 @@ impl GraphBrowserApp {
                 for suggestion in suggestions {
                     match registries::phase3_validate_knowledge_tag(&suggestion) {
                         registries::knowledge::TagValidationResult::Valid {
-                            canonical_code, ..
+                            canonical_code,
+                            ..
                         } => {
                             let canonical = format!("udc:{canonical_code}");
                             if !existing_tags.contains(&canonical) {

@@ -1,11 +1,11 @@
 use super::*;
 use egui_tiles::{Tile, Tree};
 
-use crate::app::workbench_layout_policy::evaluate_layout_policy_report;
 use crate::app::runtime_ports::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::runtime_ports::registries::{
     CHANNEL_UX_LAYOUT_CONSTRAINT_CONFLICT, CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
+use crate::app::workbench_layout_policy::evaluate_layout_policy_report;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::ux_tree::UxTreeSnapshot;
@@ -534,8 +534,8 @@ impl GraphBrowserApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::workbench_layout_policy::{AnchorEdge, NavigatorHostId};
     use crate::app::runtime_ports::diagnostics::DiagnosticsState;
+    use crate::app::workbench_layout_policy::{AnchorEdge, NavigatorHostId};
     use crate::shell::desktop::workbench::ux_tree::{
         UxAction, UxDomainIdentity, UxNodeRole, UxNodeState, UxPresentationNode, UxSemanticNode,
         UxTraceSummary, UxTreeSnapshot,
