@@ -10,10 +10,14 @@
 //! lighter dependency surface before the rest of the host/compositor boundary
 //! moves out of the main `graphshell` crate.
 
+pub mod content_surface;
 pub mod finalize_actions;
+pub mod frame_inbox;
 pub mod frame_projection;
 pub mod portable_time;
 pub mod ports;
+pub mod rendering_context_producer;
+pub mod webview_backpressure;
 
 // 2026-04-25 graphshell-runtime extraction Slice 3: portable_now()
 // re-exported at the crate root for ergonomic imports.
@@ -53,4 +57,11 @@ pub use graphshell_core::shell_state::frame_model::{
     FrameViewModel, GraphSearchViewModel, OmnibarProviderStatusView, OmnibarSessionKindView,
     OmnibarViewModel, SettingsViewModel, ThumbnailAspectView, ThumbnailFilterView,
     ThumbnailFormatView, ThumbnailSettingsView, ToastSeverity, ToastSpec, ToolbarViewModel,
+};
+pub use content_surface::{ContentSurfaceHandle, ViewerSurfaceFramePath};
+pub use frame_inbox::FrameInboxState;
+pub use rendering_context_producer::RenderingContextProducer;
+pub use webview_backpressure::{
+    NodePaneAttachAttemptMetadata, RuntimeWebviewBackpressureMetadataSource,
+    WebviewAttachRetryState,
 };
