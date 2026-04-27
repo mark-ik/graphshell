@@ -2,27 +2,20 @@
 # (see design_docs/graphshell_docs/implementation_strategy/shell/
 #  2026-04-25_servo_into_verso_plan.md).
 #
-# Checks the four feature combos that must stay green:
-#   1. default                                            (servo + wry + iced-host + gl_compat)
+# Checks the three feature combos that must stay green:
+#   1. default                                            (servo + wry, wgpu-only)
 #   2. --no-default-features --features wry              (no-Servo Wry only)
 #   3. --no-default-features --features iced-host,wry    (no-Servo iced-host + wry)
-#   4. servo-engine + production features minus gl_compat (Servo on, GL fallback off)
 
 $ErrorActionPreference = "Stop"
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $RootDir
 
-# 2026-04-27 GL-callback gating: combo 4 mirrors the production default
-# minus `gl_compat`, validating the wgpu-only build path.
-$ServoNoGlCompatFeatures = "servo-engine,gamepad,js_jit,max_log_level,webgpu,webxr,diagnostics,wry,ux-probes,ux-bridge"
-
 $matrix = @(
   @{ Name = "default";                              Cmd = @("cargo", "check", "-p", "graphshell", "--lib") }
   @{ Name = "no-default --features wry";            Cmd = @("cargo", "check", "--no-default-features", "--features", "wry") }
   @{ Name = "no-default --features iced-host,wry";  Cmd = @("cargo", "check", "--no-default-features", "--features", "iced-host,wry") }
-  @{ Name = "no-default --features servo-engine,...,(no gl_compat)";
-     Cmd = @("cargo", "check", "--no-default-features", "--features", $ServoNoGlCompatFeatures) }
 )
 
 $results = @()

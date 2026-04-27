@@ -34,29 +34,12 @@
 //!   descriptors.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::render_backend::{
-    BackendCustomPass, BackendTextureToken, BackendViewportInPixels, HostNeutralRenderBackend,
-    UiRenderBackendContract, UiRenderBackendHandle, texture_id_from_token,
-};
-#[cfg(feature = "gl_compat")]
-use crate::shell::desktop::render_backend::{
-    BackendGraphicsContext, BackendParentRenderCallback, BackendParentRenderRegionInPixels,
-    backend_content_bridge_mode_label, backend_content_bridge_path,
-    custom_pass_from_backend_viewport, register_custom_paint_callback,
-    select_content_bridge_from_render_context,
-};
-#[cfg(feature = "gl_compat")]
-use crate::shell::desktop::render_backend::{
-    BackendFramebufferHandle, backend_active_texture, backend_bind_framebuffer,
-    backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
-    backend_framebuffer_binding, backend_framebuffer_from_binding, backend_is_blend_enabled,
-    backend_is_scissor_enabled, backend_primary_texture_unit, backend_scissor_box,
-    backend_set_active_texture, backend_set_blend_enabled, backend_set_scissor_box,
-    backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+    BackendTextureToken, HostNeutralRenderBackend, UiRenderBackendContract, UiRenderBackendHandle,
+    texture_id_from_token,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED, CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
@@ -64,17 +47,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
-    CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
-    CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-};
-#[cfg(feature = "gl_compat")]
-use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
+    CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use dpi::PhysicalSize;
@@ -157,19 +130,11 @@ const CHANNEL_CONTENT_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_CONTENT_PASS_RE
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED;
 const CHANNEL_PASS_ORDER_VIOLATION: &str = CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION;
 const CHANNEL_INVALID_TILE_RECT: &str = CHANNEL_COMPOSITOR_INVALID_TILE_RECT;
-#[cfg(feature = "gl_compat")]
-const COMPOSITOR_CHAOS_ENV_VAR: &str = "GRAPHSHELL_DIAGNOSTICS_COMPOSITOR_CHAOS";
 const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
-static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
-    OnceLock::new();
-#[cfg(feature = "gl_compat")]
-static COMPOSITOR_CONTENT_CALLBACKS: OnceLock<Mutex<HashMap<NodeKey, RegisteredContentCallback>>> =
     OnceLock::new();
 static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextureToken>>> =
     OnceLock::new();
-#[cfg(all(feature = "diagnostics", feature = "gl_compat"))]
-static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
 /// Named abstraction for what the compositor currently holds for a given node.
 ///
@@ -208,30 +173,13 @@ pub(crate) fn content_surface_handle_for_node(node_key: NodeKey) -> ContentSurfa
     }
 }
 
+/// Host-native backing: a wgpu-capable rendering context.
 #[derive(Clone)]
-pub(crate) enum ViewerSurfaceBacking {
-    /// Transitional backing used by the current host path: an offscreen GL
-    /// context that WebRender paints into before the compositor imports the
-    /// result into wgpu or falls back to the callback bridge.
-    CompatGlOffscreen(std::rc::Rc<OffscreenRenderingContext>),
-    /// Host-native backing: a rendering context that may expose wgpu without
-    /// any GL compatibility surface.
-    NativeRenderingContext(std::rc::Rc<dyn RenderingContextCore>),
-}
+pub(crate) struct ViewerSurfaceBacking(pub(crate) std::rc::Rc<dyn RenderingContextCore>);
 
 impl ViewerSurfaceBacking {
-    pub(crate) fn compat_gl_offscreen(&self) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
-        match self {
-            Self::CompatGlOffscreen(ctx) => Some(ctx),
-            Self::NativeRenderingContext(_) => None,
-        }
-    }
-
     pub(crate) fn rendering_context(&self) -> std::rc::Rc<dyn RenderingContextCore> {
-        match self {
-            Self::CompatGlOffscreen(ctx) => ctx.clone(),
-            Self::NativeRenderingContext(ctx) => ctx.clone(),
-        }
+        self.0.clone()
     }
 }
 
@@ -271,15 +219,6 @@ impl ViewerSurface {
             handle: ContentSurfaceHandle::Placeholder,
             content_generation: 0,
             backing: None,
-            last_frame_path: None,
-        }
-    }
-
-    pub(crate) fn with_compat_gl_ctx(gl_ctx: std::rc::Rc<OffscreenRenderingContext>) -> Self {
-        Self {
-            handle: ContentSurfaceHandle::Placeholder,
-            content_generation: 0,
-            backing: Some(ViewerSurfaceBacking::CompatGlOffscreen(gl_ctx)),
             last_frame_path: None,
         }
     }
@@ -346,18 +285,6 @@ impl ViewerSurfaceRegistry {
             .map(ViewerSurfaceBacking::rendering_context)
     }
 
-    /// Get the current compatibility GL context for a node, if that is the
-    /// backing category the registry currently owns.
-    pub(crate) fn compat_gl_context(
-        &self,
-        key: &NodeKey,
-    ) -> Option<&std::rc::Rc<OffscreenRenderingContext>> {
-        self.surfaces
-            .get(key)
-            .and_then(|s| s.backing.as_ref())
-            .and_then(ViewerSurfaceBacking::compat_gl_offscreen)
-    }
-
     /// Check if any viewer-surface backing exists for a node.
     pub(crate) fn has_surface(&self, key: &NodeKey) -> bool {
         self.surfaces
@@ -385,34 +312,6 @@ impl ViewerSurfaceRegistry {
                 );
             }
         }
-    }
-
-    /// Install the current compatibility GL backing for a node, creating a
-    /// surface entry if one doesn't exist.
-    pub(crate) fn insert_compat_gl_context(
-        &mut self,
-        key: NodeKey,
-        ctx: std::rc::Rc<OffscreenRenderingContext>,
-    ) {
-        self.insert_backing(key, ViewerSurfaceBacking::CompatGlOffscreen(ctx));
-    }
-
-    /// Get the current compatibility GL context for a node, creating one via
-    /// `f` if absent.
-    /// Mirrors `HashMap::entry().or_insert_with()` semantics that the legacy
-    /// `tile_rendering_contexts` map used at webview creation time.
-    pub(crate) fn get_or_insert_compat_gl_context_with<F>(
-        &mut self,
-        key: NodeKey,
-        f: F,
-    ) -> std::rc::Rc<OffscreenRenderingContext>
-    where
-        F: FnOnce() -> std::rc::Rc<OffscreenRenderingContext>,
-    {
-        if !self.has_surface(&key) {
-            self.insert_compat_gl_context(key, f());
-        }
-        self.compat_gl_context(&key).expect("just inserted").clone()
     }
 
     /// Drop all surfaces. Equivalent to the legacy `tile_rendering_contexts.clear()`.
@@ -518,16 +417,18 @@ impl ViewerSurfaceRegistry {
     }
 }
 
-#[cfg(feature = "gl_compat")]
-type CompositorContentCallback =
-    std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>;
-
-#[cfg(feature = "gl_compat")]
-#[derive(Clone)]
-struct RegisteredContentCallback {
-    bridge_path: &'static str,
-    bridge_mode: &'static str,
-    callback: CompositorContentCallback,
+/// Frozen GL-state shape kept for diagnostics-replay-sample compatibility.
+/// The wgpu compositor never populates these fields with non-default values;
+/// they exist only because `CompositorReplaySample` (consumed by diagnostics
+/// export) still carries `before`/`after` snapshots. Retire alongside the
+/// replay sample when diagnostics is reshaped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GlStateSnapshot {
+    pub(crate) viewport: [i32; 4],
+    pub(crate) scissor_enabled: bool,
+    pub(crate) blend_enabled: bool,
+    pub(crate) active_texture: i32,
+    pub(crate) framebuffer_binding: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -553,25 +454,12 @@ pub(crate) struct CompositorReplaySample {
     pub(crate) after: GlStateSnapshot,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BridgeProbeContext {
-    pub(crate) bridge_path: &'static str,
-    pub(crate) bridge_mode: &'static str,
-    pub(crate) tile_rect_px: [i32; 4],
-    pub(crate) render_size_px: [u32; 2],
-}
-
 fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySample>> {
     COMPOSITOR_REPLAY_RING.get_or_init(|| {
         Mutex::new(std::collections::VecDeque::with_capacity(
             COMPOSITOR_REPLAY_RING_CAPACITY,
         ))
     })
-}
-
-#[cfg(feature = "gl_compat")]
-fn content_callback_registry() -> &'static Mutex<HashMap<NodeKey, RegisteredContentCallback>> {
-    COMPOSITOR_CONTENT_CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn compositor_native_texture_registry() -> &'static Mutex<HashMap<NodeKey, BackendTextureToken>> {
@@ -586,16 +474,6 @@ fn clear_native_textures_for_tests() {
         .clear();
 }
 
-fn push_replay_sample(sample: CompositorReplaySample) {
-    let mut ring = replay_ring()
-        .lock()
-        .expect("compositor replay ring mutex poisoned");
-    if ring.len() >= COMPOSITOR_REPLAY_RING_CAPACITY {
-        ring.pop_front();
-    }
-    ring.push_back(sample);
-}
-
 pub(crate) fn replay_samples_snapshot() -> Vec<CompositorReplaySample> {
     replay_ring()
         .lock()
@@ -605,315 +483,6 @@ pub(crate) fn replay_samples_snapshot() -> Vec<CompositorReplaySample> {
         .collect()
 }
 
-#[cfg(test)]
-fn clear_replay_samples_for_tests() {
-    replay_ring()
-        .lock()
-        .expect("compositor replay ring mutex poisoned")
-        .clear();
-    COMPOSITOR_REPLAY_SEQUENCE.store(1, Ordering::Relaxed);
-}
-
-#[cfg(test)]
-fn clear_content_callbacks_for_tests() {
-    content_callback_registry()
-        .lock()
-        .expect("compositor content callback registry mutex poisoned")
-        .clear();
-}
-
-#[cfg(test)]
-fn record_registered_content_bridge_receipt_for_tests(
-    node_key: NodeKey,
-) -> Option<CompositorReplaySample> {
-    let registered = content_callback_registry()
-        .lock()
-        .expect("compositor content callback registry mutex poisoned")
-        .get(&node_key)
-        .cloned()?;
-
-    let state = GlStateSnapshot {
-        viewport: [0, 0, 0, 0],
-        scissor_enabled: false,
-        blend_enabled: false,
-        active_texture: 0,
-        framebuffer_binding: 0,
-    };
-    let sample = CompositorReplaySample {
-        sequence: COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed),
-        node_key,
-        duration_us: 0,
-        callback_us: 0,
-        presentation_us: 0,
-        violation: false,
-        bridge_path: registered.bridge_path,
-        bridge_mode: registered.bridge_mode,
-        tile_rect_px: [0, 0, 0, 0],
-        render_size_px: [0, 0],
-        chaos_enabled: false,
-        restore_verified: true,
-        viewport_changed: false,
-        scissor_changed: false,
-        blend_changed: false,
-        active_texture_changed: false,
-        framebuffer_binding_changed: false,
-        before: state,
-        after: state,
-    };
-    push_replay_sample(sample);
-    Some(sample)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct GlStateSnapshot {
-    pub(crate) viewport: [i32; 4],
-    pub(crate) scissor_enabled: bool,
-    pub(crate) blend_enabled: bool,
-    pub(crate) active_texture: i32,
-    pub(crate) framebuffer_binding: i32,
-}
-
-#[cfg(feature = "gl_compat")]
-fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
-    before != after
-}
-
-#[cfg(feature = "gl_compat")]
-fn gl_state_change_flags(
-    before: GlStateSnapshot,
-    after: GlStateSnapshot,
-) -> (bool, bool, bool, bool, bool) {
-    (
-        before.viewport != after.viewport,
-        before.scissor_enabled != after.scissor_enabled,
-        before.blend_enabled != after.blend_enabled,
-        before.active_texture != after.active_texture,
-        before.framebuffer_binding != after.framebuffer_binding,
-    )
-}
-
-#[cfg(feature = "gl_compat")]
-fn chaos_mode_enabled_from_raw(raw: Option<&str>) -> bool {
-    raw.map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
-}
-
-#[cfg(feature = "gl_compat")]
-fn compositor_chaos_mode_enabled() -> bool {
-    #[cfg(feature = "diagnostics")]
-    {
-        *COMPOSITOR_CHAOS_ENABLED.get_or_init(|| {
-            let raw = std::env::var(COMPOSITOR_CHAOS_ENV_VAR).ok();
-            chaos_mode_enabled_from_raw(raw.as_deref())
-        })
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    {
-        false
-    }
-}
-
-#[cfg(feature = "gl_compat")]
-fn chaos_probe_passed(chaos_enabled: bool, violated: bool, restore_verified: bool) -> bool {
-    if !chaos_enabled {
-        return true;
-    }
-    violated && restore_verified
-}
-
-#[cfg(feature = "gl_compat")]
-fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
-    if !chaos_enabled {
-        return;
-    }
-
-    #[cfg(feature = "diagnostics")]
-    {
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
-                byte_len: std::mem::size_of::<NodeKey>(),
-            },
-        );
-
-        let channel_id = if passed {
-            CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS
-        } else {
-            CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL
-        };
-
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id,
-                byte_len: std::mem::size_of::<NodeKey>(),
-            },
-        );
-    }
-}
-
-#[cfg(feature = "gl_compat")]
-fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
-    GlStateSnapshot {
-        viewport: backend_viewport(gl),
-        scissor_enabled: backend_is_scissor_enabled(gl),
-        blend_enabled: backend_is_blend_enabled(gl),
-        active_texture: backend_active_texture(gl),
-        framebuffer_binding: backend_framebuffer_binding(gl),
-    }
-}
-
-#[cfg(feature = "gl_compat")]
-fn capture_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
-    backend_scissor_box(gl)
-}
-
-#[cfg(feature = "gl_compat")]
-fn restore_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
-    backend_set_scissor_box(gl, scissor_box);
-}
-
-#[cfg(feature = "gl_compat")]
-fn run_render_with_scissor_isolation<F>(gl: &BackendGraphicsContext, render: F)
-where
-    F: FnOnce(),
-{
-    let incoming_scissor_enabled = backend_is_scissor_enabled(gl);
-    let incoming_scissor_box = capture_scissor_box(gl);
-
-    if incoming_scissor_enabled {
-        backend_set_scissor_enabled(gl, false);
-    }
-
-    render();
-
-    if incoming_scissor_enabled {
-        backend_set_scissor_enabled(gl, true);
-        restore_scissor_box(gl, incoming_scissor_box);
-    }
-}
-
-#[cfg(feature = "gl_compat")]
-fn restore_gl_state(gl: &BackendGraphicsContext, snapshot: GlStateSnapshot) {
-    backend_set_viewport(gl, snapshot.viewport);
-    backend_set_scissor_enabled(gl, snapshot.scissor_enabled);
-    backend_set_blend_enabled(gl, snapshot.blend_enabled);
-    backend_set_active_texture(gl, snapshot.active_texture as u32);
-    backend_bind_framebuffer(gl, framebuffer_binding_target(snapshot.framebuffer_binding));
-}
-
-#[cfg(feature = "gl_compat")]
-fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
-    let mutation_count = (seed % 3 + 1) as usize;
-    let start = (seed as usize) % 5;
-    for offset in 0..mutation_count {
-        let selector = (start + offset) % 5;
-        match selector {
-            0 => {
-                backend_set_viewport(gl, [13, 17, 7, 5]);
-            }
-            1 => {
-                if backend_is_scissor_enabled(gl) {
-                    backend_set_scissor_enabled(gl, false);
-                } else {
-                    backend_set_scissor_enabled(gl, true);
-                }
-            }
-            2 => {
-                if backend_is_blend_enabled(gl) {
-                    backend_set_blend_enabled(gl, false);
-                } else {
-                    backend_set_blend_enabled(gl, true);
-                }
-            }
-            3 => {
-                let active = backend_active_texture(gl);
-                let bumped = if active == backend_primary_texture_unit() as i32 {
-                    backend_chaos_alternate_texture_unit()
-                } else {
-                    backend_primary_texture_unit()
-                };
-                backend_set_active_texture(gl, bumped);
-            }
-            _ => {
-                let bound = backend_framebuffer_binding(gl);
-                if bound == 0 {
-                    backend_bind_framebuffer(gl, Some(backend_chaos_framebuffer_handle()));
-                } else {
-                    backend_bind_framebuffer(gl, None);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "gl_compat")]
-fn framebuffer_binding_target(binding: i32) -> Option<BackendFramebufferHandle> {
-    backend_framebuffer_from_binding(binding)
-}
-
-#[cfg(feature = "gl_compat")]
-fn run_guarded_callback<Capture, Render, Restore>(
-    capture: Capture,
-    render: Render,
-    restore: Restore,
-) -> bool
-where
-    Capture: FnMut() -> GlStateSnapshot,
-    Render: FnOnce(),
-    Restore: FnMut(GlStateSnapshot),
-{
-    let (violated, _before, _after) = run_guarded_callback_with_snapshots(capture, render, restore);
-    violated
-}
-
-#[cfg(feature = "gl_compat")]
-fn run_guarded_callback_with_snapshots_and_perturbation<Capture, Render, Perturb, Restore>(
-    mut capture: Capture,
-    render: Render,
-    mut perturb: Perturb,
-    mut restore: Restore,
-) -> (bool, GlStateSnapshot, GlStateSnapshot, bool)
-where
-    Capture: FnMut() -> GlStateSnapshot,
-    Render: FnOnce(),
-    Perturb: FnMut(),
-    Restore: FnMut(GlStateSnapshot),
-{
-    let before = capture();
-    render();
-    perturb();
-    let after = capture();
-    if gl_state_violated(before, after) {
-        restore(before);
-        let restored = capture();
-        return (true, before, after, restored == before);
-    }
-    (false, before, after, true)
-}
-
-#[cfg(feature = "gl_compat")]
-fn run_guarded_callback_with_snapshots<Capture, Render, Restore>(
-    mut capture: Capture,
-    render: Render,
-    mut restore: Restore,
-) -> (bool, GlStateSnapshot, GlStateSnapshot)
-where
-    Capture: FnMut() -> GlStateSnapshot,
-    Render: FnOnce(),
-    Restore: FnMut(GlStateSnapshot),
-{
-    let (violated, before, after, _restore_verified) =
-        run_guarded_callback_with_snapshots_and_perturbation(
-            &mut capture,
-            render,
-            || {},
-            &mut restore,
-        );
-    (violated, before, after)
-}
 
 pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
@@ -1010,18 +579,8 @@ impl OverlayAffordancePainter for EguiOverlayAffordancePainter<'_> {
 /// [`CompositorAdapter::compose_webview_content_pass_with_painter`] and
 /// [`CompositorAdapter::compose_registered_content_pass_with_painter`].
 pub(crate) trait ContentPassPainter {
-    /// Register a GL content-pass callback at the node's content layer.
-    /// Called when the active bridge uses `ParentRenderCallback`.
-    #[cfg(feature = "gl_compat")]
-    fn register_content_callback_on_layer(
-        &mut self,
-        node_key: NodeKey,
-        tile_rect: PortableRect,
-        callback: BackendCustomPass,
-    );
-
     /// Paint a native shared-wgpu content texture at the node's content
-    /// layer. Called when the active bridge uses `SharedWgpuTexture`.
+    /// layer.
     fn paint_native_content_texture(
         &mut self,
         node_key: NodeKey,
@@ -1030,33 +589,17 @@ pub(crate) trait ContentPassPainter {
     );
 }
 
-/// Egui implementation of the content-pass painter. Delegates to the
-/// existing `CompositorAdapter::register_content_pass` and
-/// `CompositorAdapter::paint_native_content_texture` associated
-/// functions, which remain the implementation detail of the egui host.
-/// Converts portable rects to `EguiRect` at the draw-call boundary. An
-/// iced implementation mirrors this shape with iced's painting APIs,
-/// consuming `PortableRect` directly without conversion.
+/// Egui implementation of the content-pass painter. Delegates to
+/// `CompositorAdapter::paint_native_content_texture`, which remains the
+/// implementation detail of the egui host. Converts portable rects to
+/// `EguiRect` at the draw-call boundary. An iced implementation mirrors
+/// this shape with iced's painting APIs, consuming `PortableRect` directly
+/// without conversion.
 pub(crate) struct EguiContentPassPainter<'a> {
     pub(crate) ctx: &'a Context,
 }
 
 impl ContentPassPainter for EguiContentPassPainter<'_> {
-    #[cfg(feature = "gl_compat")]
-    fn register_content_callback_on_layer(
-        &mut self,
-        node_key: NodeKey,
-        tile_rect: PortableRect,
-        callback: BackendCustomPass,
-    ) {
-        CompositorAdapter::register_content_pass(
-            self.ctx,
-            node_key,
-            egui_rect_from_portable(tile_rect),
-            callback,
-        );
-    }
-
     fn paint_native_content_texture(
         &mut self,
         node_key: NodeKey,
@@ -1144,69 +687,6 @@ pub(crate) enum CompositedContentPassOutcome {
 }
 
 impl CompositorAdapter {
-    /// Compose a webview into an offscreen target and register the guarded
-    /// content pass callback against the parent painter.
-    ///
-    /// Host-neutral entry point — takes a [`ContentPassPainter`] trait
-    /// object instead of an `egui::Context`. The egui host constructs an
-    /// [`EguiContentPassPainter`] and calls this directly or via
-    /// [`Self::compose_webview_content_pass`]; the future iced host
-    /// constructs its own impl without touching this function.
-    ///
-    /// This keeps callback wiring (`render_to_parent`) and guardrails
-    /// localized to the adapter boundary rather than call sites, and is
-    /// the extraction seam for M3.5 content-pass portability.
-    pub(crate) fn compose_webview_content_pass_with_painter(
-        painter: &mut dyn ContentPassPainter,
-        ui_render_backend: &mut UiRenderBackendHandle,
-        node_key: NodeKey,
-        tile_rect: PortableRect,
-        pixels_per_point: f32,
-        render_context: &OffscreenRenderingContext,
-        webview: &WebView,
-    ) -> CompositedContentPassOutcome {
-        // Internal math (target sizing, webview resize) still uses egui
-        // types today. Convert at the entry boundary once, then pass
-        // portable rects to the host-neutral painter.
-        let egui_tile_rect = egui_rect_from_portable(tile_rect);
-        let Some((size, target_size)) = Self::prepare_composited_target(
-            node_key,
-            egui_tile_rect,
-            pixels_per_point,
-            render_context,
-        ) else {
-            return CompositedContentPassOutcome::InvalidTileRect;
-        };
-
-        Self::reconcile_webview_target_size(webview, size, target_size);
-
-        if !Self::paint_offscreen_content_pass(render_context, target_size, || {
-            webview.render();
-        }) {
-            return CompositedContentPassOutcome::PaintFailed;
-        }
-
-        if let Some(texture_token) =
-            Self::upsert_native_content_texture(node_key, render_context, ui_render_backend)
-        {
-            #[cfg(feature = "gl_compat")]
-            Self::unregister_content_callback(node_key);
-            painter.paint_native_content_texture(node_key, tile_rect, texture_token);
-            return CompositedContentPassOutcome::SharedWgpuRegistered;
-        }
-
-        #[cfg(feature = "gl_compat")]
-        {
-            if !Self::register_content_callback_from_render_context(node_key, render_context) {
-                return CompositedContentPassOutcome::MissingContentCallback;
-            }
-
-            Self::compose_registered_content_pass_with_painter(painter, node_key, tile_rect)
-        }
-        #[cfg(not(feature = "gl_compat"))]
-        CompositedContentPassOutcome::MissingContentCallback
-    }
-
     pub(crate) fn compose_webview_content_pass_for_surface_with_painter(
         painter: &mut dyn ContentPassPainter,
         ui_render_backend: &mut UiRenderBackendHandle,
@@ -1221,109 +701,42 @@ impl CompositorAdapter {
             return CompositedContentPassOutcome::MissingSurface;
         };
 
-        match backing {
-            ViewerSurfaceBacking::CompatGlOffscreen(render_context) => {
-                // `render_context` borrow ends when `compose_webview_content_pass_with_painter`
-                // returns, so `surface.handle` is writable below (NLL split-borrow).
-                let outcome = Self::compose_webview_content_pass_with_painter(
-                    painter,
-                    ui_render_backend,
-                    node_key,
-                    tile_rect,
-                    pixels_per_point,
-                    render_context,
-                    webview,
-                );
-                // GL compat path: the texture token was written to
-                // COMPOSITOR_NATIVE_TEXTURES by upsert_native_content_texture.
-                // Read it back here — for_node is the only caller of the static
-                // on the read path for this compat arm. Removed when this arm
-                // is replaced by NativeRenderingContext.
-                match outcome {
-                    CompositedContentPassOutcome::SharedWgpuRegistered => {
-                        surface.handle = content_surface_handle_for_node(node_key);
-                    }
-                    CompositedContentPassOutcome::CallbackFallbackRegistered
-                    | CompositedContentPassOutcome::MissingContentCallback => {
-                        surface.handle = ContentSurfaceHandle::CallbackFallback;
-                    }
-                    CompositedContentPassOutcome::InvalidTileRect
-                    | CompositedContentPassOutcome::PaintFailed
-                    | CompositedContentPassOutcome::MissingSurface => {}
-                }
-                outcome
-            }
-            ViewerSurfaceBacking::NativeRenderingContext(rendering_context) => {
-                let egui_tile_rect = egui_rect_from_portable(tile_rect);
-                let Some((size, target_size)) = Self::prepare_composited_target(
-                    node_key,
-                    egui_tile_rect,
-                    pixels_per_point,
-                    rendering_context.as_ref(),
-                ) else {
-                    return CompositedContentPassOutcome::InvalidTileRect;
-                };
-
-                // `rendering_context` borrow ends here — prepare_composited_target
-                // is its last use, so `surface.handle` is writable below.
-                Self::reconcile_webview_target_size(webview, size, target_size);
-                webview.render();
-
-                let existing = match surface.handle {
-                    ContentSurfaceHandle::ImportedWgpu(token) => Some(token),
-                    ContentSurfaceHandle::CallbackFallback | ContentSurfaceHandle::Placeholder => {
-                        None
-                    }
-                };
-                let Some(texture) = webview.composite_texture() else {
-                    return CompositedContentPassOutcome::PaintFailed;
-                };
-                let Some(texture_token) = Self::upsert_native_content_texture_from_texture(
-                    node_key,
-                    existing,
-                    &texture,
-                    ui_render_backend,
-                ) else {
-                    return CompositedContentPassOutcome::PaintFailed;
-                };
-
-                #[cfg(feature = "gl_compat")]
-                Self::unregister_content_callback(node_key);
-                painter.paint_native_content_texture(node_key, tile_rect, texture_token);
-                // ViewerSurfaceRegistry is the sole live-handle authority for this
-                // path. COMPOSITOR_NATIVE_TEXTURES is a write-through for retirement
-                // only (retire_node_content_resources reads it to free GPU memory).
-                surface.handle = ContentSurfaceHandle::ImportedWgpu(texture_token);
-                CompositedContentPassOutcome::SharedWgpuRegistered
-            }
-        }
-    }
-
-    /// Backwards-compatible egui entry point — constructs an
-    /// [`EguiContentPassPainter`] internally and delegates to
-    /// [`Self::compose_webview_content_pass_with_painter`] after
-    /// converting the egui rect to portable form. Kept so existing call
-    /// sites in `tile_render_pass.rs` / compositor glue don't have to
-    /// change shape as the trait lands.
-    pub(crate) fn compose_webview_content_pass(
-        ctx: &Context,
-        ui_render_backend: &mut UiRenderBackendHandle,
-        node_key: NodeKey,
-        tile_rect: EguiRect,
-        pixels_per_point: f32,
-        render_context: &OffscreenRenderingContext,
-        webview: &WebView,
-    ) -> CompositedContentPassOutcome {
-        let mut painter = EguiContentPassPainter { ctx };
-        Self::compose_webview_content_pass_with_painter(
-            &mut painter,
-            ui_render_backend,
+        let rendering_context = &backing.0;
+        let egui_tile_rect = egui_rect_from_portable(tile_rect);
+        let Some((size, target_size)) = Self::prepare_composited_target(
             node_key,
-            portable_rect_from_egui(tile_rect),
+            egui_tile_rect,
             pixels_per_point,
-            render_context,
-            webview,
-        )
+            rendering_context.as_ref(),
+        ) else {
+            return CompositedContentPassOutcome::InvalidTileRect;
+        };
+
+        Self::reconcile_webview_target_size(webview, size, target_size);
+        webview.render();
+
+        let existing = match surface.handle {
+            ContentSurfaceHandle::ImportedWgpu(token) => Some(token),
+            ContentSurfaceHandle::CallbackFallback | ContentSurfaceHandle::Placeholder => None,
+        };
+        let Some(texture) = webview.composite_texture() else {
+            return CompositedContentPassOutcome::PaintFailed;
+        };
+        let Some(texture_token) = Self::upsert_native_content_texture_from_texture(
+            node_key,
+            existing,
+            &texture,
+            ui_render_backend,
+        ) else {
+            return CompositedContentPassOutcome::PaintFailed;
+        };
+
+        painter.paint_native_content_texture(node_key, tile_rect, texture_token);
+        // ViewerSurfaceRegistry is the sole live-handle authority for this
+        // path. COMPOSITOR_NATIVE_TEXTURES is a write-through for retirement
+        // only (retire_node_content_resources reads it to free GPU memory).
+        surface.handle = ContentSurfaceHandle::ImportedWgpu(texture_token);
+        CompositedContentPassOutcome::SharedWgpuRegistered
     }
 
     pub(crate) fn compose_webview_content_pass_for_surface(
@@ -1361,53 +774,10 @@ impl CompositorAdapter {
         )
     }
 
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn register_content_pass(
-        ctx: &Context,
-        node_key: NodeKey,
-        tile_rect: EguiRect,
-        callback: BackendCustomPass,
-    ) {
-        let layer = Self::content_layer(node_key);
-        register_custom_paint_callback(ctx, layer, tile_rect, callback);
-    }
-
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn register_content_callback(
-        node_key: NodeKey,
-        bridge_path: &'static str,
-        bridge_mode: &'static str,
-        callback: CompositorContentCallback,
-    ) {
-        content_callback_registry()
-            .lock()
-            .expect("compositor content callback registry mutex poisoned")
-            .insert(
-                node_key,
-                RegisteredContentCallback {
-                    bridge_path,
-                    bridge_mode,
-                    callback,
-                },
-            );
-    }
-
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn unregister_content_callback(node_key: NodeKey) -> bool {
-        content_callback_registry()
-            .lock()
-            .expect("compositor content callback registry mutex poisoned")
-            .remove(&node_key)
-            .is_some()
-    }
-
     pub(crate) fn retire_node_content_resources<B>(ui_render_backend: &mut B, node_key: NodeKey)
     where
         B: UiRenderBackendContract,
     {
-        #[cfg(feature = "gl_compat")]
-        Self::unregister_content_callback(node_key);
-
         if let Some(texture_token) = compositor_native_texture_registry()
             .lock()
             .expect("compositor native texture registry mutex poisoned")
@@ -1423,16 +793,6 @@ impl CompositorAdapter {
     ) where
         B: UiRenderBackendContract,
     {
-        #[cfg(feature = "gl_compat")]
-        let stale_callbacks: HashSet<_> = content_callback_registry()
-            .lock()
-            .expect("compositor content callback registry mutex poisoned")
-            .keys()
-            .copied()
-            .filter(|node_key| !retained_nodes.contains(node_key))
-            .collect();
-        #[cfg(not(feature = "gl_compat"))]
-        let stale_callbacks: HashSet<NodeKey> = HashSet::new();
         let stale_native_textures: HashSet<_> = compositor_native_texture_registry()
             .lock()
             .expect("compositor native texture registry mutex poisoned")
@@ -1441,45 +801,9 @@ impl CompositorAdapter {
             .filter(|node_key| !retained_nodes.contains(node_key))
             .collect();
 
-        for node_key in stale_callbacks.union(&stale_native_textures).copied() {
+        for node_key in stale_native_textures {
             Self::retire_node_content_resources(ui_render_backend, node_key);
         }
-    }
-
-    /// Host-neutral registered-content-pass composition — takes a
-    /// [`ContentPassPainter`] trait object. The egui host constructs an
-    /// [`EguiContentPassPainter`]; the future iced host constructs its
-    /// own impl. Shared with
-    /// [`Self::compose_webview_content_pass_with_painter`].
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn compose_registered_content_pass_with_painter(
-        painter: &mut dyn ContentPassPainter,
-        node_key: NodeKey,
-        tile_rect: PortableRect,
-    ) -> CompositedContentPassOutcome {
-        let Some(callback) = Self::registered_content_pass_callback(node_key) else {
-            return CompositedContentPassOutcome::MissingContentCallback;
-        };
-        painter.register_content_callback_on_layer(node_key, tile_rect, callback);
-        CompositedContentPassOutcome::CallbackFallbackRegistered
-    }
-
-    /// Backwards-compatible egui entry point — constructs an
-    /// [`EguiContentPassPainter`] internally, converts the egui rect to
-    /// portable form, and delegates to
-    /// [`Self::compose_registered_content_pass_with_painter`].
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn compose_registered_content_pass(
-        ctx: &Context,
-        node_key: NodeKey,
-        tile_rect: EguiRect,
-    ) -> CompositedContentPassOutcome {
-        let mut painter = EguiContentPassPainter { ctx };
-        Self::compose_registered_content_pass_with_painter(
-            &mut painter,
-            node_key,
-            portable_rect_from_egui(tile_rect),
-        )
     }
 
     fn paint_native_content_texture(
@@ -1627,234 +951,6 @@ impl CompositorAdapter {
             webview.resize(target_size);
         }
     }
-
-    #[cfg(feature = "gl_compat")]
-    fn content_callback_from_parent_render(
-        node_key: NodeKey,
-        bridge_path: &'static str,
-        bridge_mode: &'static str,
-        render_to_parent: BackendParentRenderCallback,
-    ) -> CompositorContentCallback {
-        let _ = (node_key, bridge_path, bridge_mode);
-        std::sync::Arc::new(move |gl, clip: BackendViewportInPixels| {
-            let rect_in_parent = BackendParentRenderRegionInPixels {
-                left_px: clip.left_px,
-                from_bottom_px: clip.from_bottom_px,
-                width_px: clip.width_px,
-                height_px: clip.height_px,
-            };
-            render_to_parent(gl, rect_in_parent);
-        })
-    }
-
-    #[cfg(feature = "gl_compat")]
-    fn register_content_callback_from_render_context(
-        node_key: NodeKey,
-        render_context: &OffscreenRenderingContext,
-    ) -> bool {
-        let Some(selection) = select_content_bridge_from_render_context(render_context) else {
-            return false;
-        };
-
-        let bridge_path = backend_content_bridge_path(selection.mode);
-        let bridge_mode = backend_content_bridge_mode_label(selection.mode);
-
-        Self::register_content_callback(
-            node_key,
-            bridge_path,
-            bridge_mode,
-            Self::content_callback_from_parent_render(
-                node_key,
-                bridge_path,
-                bridge_mode,
-                selection.callback,
-            ),
-        );
-        true
-    }
-
-    #[cfg(feature = "gl_compat")]
-    fn registered_content_pass_callback(node_key: NodeKey) -> Option<BackendCustomPass> {
-        let registered = content_callback_registry()
-            .lock()
-            .expect("compositor content callback registry mutex poisoned")
-            .get(&node_key)
-            .cloned()?;
-
-        Some(custom_pass_from_backend_viewport(
-            move |gl, clip: BackendViewportInPixels| {
-                #[cfg(feature = "diagnostics")]
-                let started = std::time::Instant::now();
-
-                let probe_context = BridgeProbeContext {
-                    bridge_path: registered.bridge_path,
-                    bridge_mode: registered.bridge_mode,
-                    tile_rect_px: [
-                        clip.left_px,
-                        clip.from_bottom_px,
-                        clip.width_px,
-                        clip.height_px,
-                    ],
-                    render_size_px: [clip.width_px as u32, clip.height_px as u32],
-                };
-
-                CompositorAdapter::run_content_callback_with_guardrails(
-                    node_key,
-                    gl,
-                    probe_context,
-                    || (registered.callback)(gl, clip),
-                );
-
-                #[cfg(feature = "diagnostics")]
-                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                    "tile_compositor::content_pass_callback",
-                    started.elapsed().as_micros() as u64,
-                );
-            },
-        ))
-    }
-
-    /// GL compat path: full guardrail machinery with GL state capture/restore,
-    /// scissor isolation, chaos perturbation, and violation detection.
-    #[cfg(feature = "gl_compat")]
-    pub(crate) fn run_content_callback_with_guardrails<F>(
-        _node_key: NodeKey,
-        gl: &BackendGraphicsContext,
-        probe_context: BridgeProbeContext,
-        render: F,
-    ) where
-        F: FnOnce(),
-    {
-        let started = std::time::Instant::now();
-        let chaos_enabled = compositor_chaos_mode_enabled();
-        let chaos_seed = COMPOSITOR_REPLAY_SEQUENCE.load(Ordering::Relaxed);
-        let scissor_box_before = capture_scissor_box(gl);
-
-        let (violated, before, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || capture_gl_state(gl),
-                || run_render_with_scissor_isolation(gl, render),
-                || {
-                    if chaos_enabled {
-                        inject_chaos_gl_perturbation(gl, chaos_seed);
-                    }
-                },
-                |snapshot| restore_gl_state(gl, snapshot),
-            );
-        let scissor_box_after = capture_scissor_box(gl);
-        let scissor_box_changed = scissor_box_before != scissor_box_after;
-        let mut restore_verified = restore_verified;
-        if scissor_box_changed {
-            restore_scissor_box(gl, scissor_box_before);
-            restore_verified = restore_verified && capture_scissor_box(gl) == scissor_box_before;
-        }
-        let violation_detected = violated || scissor_box_changed;
-        let chaos_passed = chaos_probe_passed(chaos_enabled, violation_detected, restore_verified);
-        emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
-        let (
-            viewport_changed,
-            scissor_changed,
-            blend_changed,
-            active_texture_changed,
-            framebuffer_binding_changed,
-        ) = gl_state_change_flags(before, after);
-        let scissor_changed = scissor_changed || scissor_box_changed;
-
-        let elapsed = started.elapsed().as_micros() as u64;
-        let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        push_replay_sample(CompositorReplaySample {
-            sequence,
-            node_key: _node_key,
-            duration_us: elapsed,
-            callback_us: elapsed,
-            presentation_us: elapsed,
-            violation: violation_detected,
-            bridge_path: probe_context.bridge_path,
-            bridge_mode: probe_context.bridge_mode,
-            tile_rect_px: probe_context.tile_rect_px,
-            render_size_px: probe_context.render_size_px,
-            chaos_enabled,
-            restore_verified,
-            viewport_changed,
-            scissor_changed,
-            blend_changed,
-            active_texture_changed,
-            framebuffer_binding_changed,
-            before,
-            after,
-        });
-
-        #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-                byte_len: std::mem::size_of::<CompositorReplaySample>(),
-            },
-        );
-
-        #[cfg(feature = "diagnostics")]
-        {
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-                    byte_len: std::mem::size_of::<NodeKey>(),
-                },
-            );
-
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-                    byte_len: elapsed as usize,
-                },
-            );
-
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-                    byte_len: elapsed as usize,
-                },
-            );
-        }
-
-        if violation_detected {
-            #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
-                    byte_len: std::mem::size_of::<NodeKey>()
-                        + std::mem::size_of::<GlStateSnapshot>(),
-                },
-            );
-
-            #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
-                    byte_len: std::mem::size_of::<CompositorReplaySample>(),
-                },
-            );
-
-            #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-                    byte_len: std::mem::size_of::<NodeKey>(),
-                },
-            );
-        }
-
-        #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-            "tile_compositor::content_pass_guarded_callback",
-            elapsed,
-        );
-    }
-
-    // The non-GL variant of `run_content_callback_with_guardrails` was retired
-    // alongside the gl_compat gating cascade: without `gl_compat`, the callback
-    // registry that fed it doesn't exist, so the function had no callers. The
-    // diagnostics it emitted (clean replay sample, bridge-callback timing) are
-    // moot when no callback ever ran.
 
     pub(crate) fn draw_overlay_stroke(
         ctx: &Context,
@@ -2130,46 +1226,22 @@ mod tests {
 
     use crate::graph::NodeKey;
     use crate::shell::desktop::render_backend::{
-        BackendContentBridgeCapabilities, BackendParentRenderCallback,
-        BackendParentRenderRegionInPixels, BackendTextureToken, HostNeutralRenderBackend,
-        UiRenderBackendContract, backend_bridge_test_env_lock, backend_content_bridge_mode_label,
-        backend_content_bridge_path, clear_backend_bridge_env_for_tests,
-        select_backend_content_bridge_with_capabilities, set_backend_bridge_mode_env_for_tests,
+        BackendTextureToken, HostNeutralRenderBackend, UiRenderBackendContract,
     };
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
         CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
-        CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-    };
-    #[cfg(feature = "gl_compat")]
-    use crate::shell::desktop::runtime::registries::{
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
-        CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     };
     use crate::shell::desktop::workbench::pane_model::TileRenderMode;
     use egui::Stroke;
 
     use super::{
-        CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
-        COMPOSITOR_REPLAY_RING_CAPACITY, CompositedContentPassOutcome, CompositorAdapter,
-        CompositorPassTracker, ContentSurfaceHandle, GlStateSnapshot, OverlayAffordanceStyle,
-        OverlayStrokePass, ViewerSurfaceFramePath, ViewerSurfaceRegistry,
-        clear_content_callbacks_for_tests, clear_native_textures_for_tests,
-        clear_replay_samples_for_tests, compositor_native_texture_registry,
-        content_callback_registry, push_replay_sample,
-        record_registered_content_bridge_receipt_for_tests, replay_samples_snapshot,
-    };
-    #[cfg(feature = "gl_compat")]
-    use super::{
-        chaos_mode_enabled_from_raw, chaos_probe_passed, emit_chaos_probe_outcome,
-        framebuffer_binding_target, gl_state_change_flags, gl_state_violated, run_guarded_callback,
-        run_guarded_callback_with_snapshots, run_guarded_callback_with_snapshots_and_perturbation,
+        CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
+        CompositorPassTracker, ContentSurfaceHandle, OverlayAffordanceStyle, OverlayStrokePass,
+        ViewerSurfaceFramePath, ViewerSurfaceRegistry, clear_native_textures_for_tests,
+        compositor_native_texture_registry,
     };
 
     struct RecordingBackend {
@@ -2544,318 +1616,6 @@ mod tests {
     }
 
     #[test]
-    fn content_pass_routes_through_painter_trait() {
-        // M3.5 extraction seam for content-pass operations: verify a
-        // non-egui painter receives the register-callback call when a
-        // content callback has been pre-registered. Pins the contract
-        // that the future iced painter will rely on. Parallel to
-        // `overlay_affordance_pass_routes_through_painter_trait`.
-        use super::{CompositorContentCallback, ContentPassPainter as PainterTrait};
-        use crate::shell::desktop::render_backend::{BackendCustomPass, BackendTextureToken};
-        use std::cell::RefCell;
-        use std::sync::Arc;
-
-        let _guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-
-        #[derive(Default)]
-        struct RecordingPainter {
-            registered: RefCell<Vec<NodeKey>>,
-            native_painted: RefCell<Vec<NodeKey>>,
-        }
-
-        impl PainterTrait for RecordingPainter {
-            fn register_content_callback_on_layer(
-                &mut self,
-                node_key: NodeKey,
-                _tile_rect: super::PortableRect,
-                _callback: BackendCustomPass,
-            ) {
-                self.registered.borrow_mut().push(node_key);
-            }
-
-            fn paint_native_content_texture(
-                &mut self,
-                node_key: NodeKey,
-                _tile_rect: super::PortableRect,
-                _texture_token: BackendTextureToken,
-            ) {
-                self.native_painted.borrow_mut().push(node_key);
-            }
-        }
-
-        let node = NodeKey::new(303);
-        let callback: CompositorContentCallback = Arc::new(|_gl, _clip| {});
-        CompositorAdapter::register_content_callback(node, "test", "test", callback);
-
-        let mut painter = RecordingPainter::default();
-        let tile_rect = super::portable_rect_from_egui(egui::Rect::from_min_size(
-            egui::pos2(0.0, 0.0),
-            egui::vec2(50.0, 50.0),
-        ));
-
-        let outcome = CompositorAdapter::compose_registered_content_pass_with_painter(
-            &mut painter,
-            node,
-            tile_rect,
-        );
-
-        assert_eq!(
-            outcome,
-            CompositedContentPassOutcome::CallbackFallbackRegistered
-        );
-        assert_eq!(painter.registered.borrow().as_slice(), &[node]);
-        assert!(painter.native_painted.borrow().is_empty());
-
-        CompositorAdapter::unregister_content_callback(node);
-    }
-
-    #[test]
-    fn compose_registered_content_pass_requires_registered_callback() {
-        let _guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-
-        let ctx = egui::Context::default();
-        let outcome = CompositorAdapter::compose_registered_content_pass(
-            &ctx,
-            NodeKey::new(901),
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
-        );
-
-        assert_eq!(
-            outcome,
-            CompositedContentPassOutcome::MissingContentCallback
-        );
-    }
-
-    #[test]
-    fn synthetic_viewer_can_register_generic_content_callback() {
-        let _guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-
-        let ctx = egui::Context::default();
-        let node_key = NodeKey::new(902);
-        CompositorAdapter::register_content_callback(
-            node_key,
-            "test.synthetic_viewer",
-            "test.synthetic_mode",
-            std::sync::Arc::new(|_, _| {}),
-        );
-
-        let outcome = CompositorAdapter::compose_registered_content_pass(
-            &ctx,
-            node_key,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(80.0, 40.0)),
-        );
-
-        assert_eq!(
-            outcome,
-            CompositedContentPassOutcome::CallbackFallbackRegistered
-        );
-        assert!(CompositorAdapter::unregister_content_callback(node_key));
-        assert!(!CompositorAdapter::unregister_content_callback(node_key));
-    }
-
-    #[test]
-    fn retire_node_content_resources_releases_callback_and_native_texture() {
-        let _guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-
-        let node_key = NodeKey::new(905);
-        let texture_token = BackendTextureToken(egui::TextureId::Managed(77));
-        CompositorAdapter::register_content_callback(
-            node_key,
-            "test.retire_node",
-            "test.retire_node_mode",
-            std::sync::Arc::new(|_, _| {}),
-        );
-        compositor_native_texture_registry()
-            .lock()
-            .expect("compositor native texture registry mutex poisoned")
-            .insert(node_key, texture_token);
-
-        let mut backend = RecordingBackend::default();
-        CompositorAdapter::retire_node_content_resources(&mut backend, node_key);
-
-        assert!(
-            content_callback_registry()
-                .lock()
-                .expect("compositor content callback registry mutex poisoned")
-                .get(&node_key)
-                .is_none(),
-            "callback should be removed when retiring node resources"
-        );
-        assert!(
-            compositor_native_texture_registry()
-                .lock()
-                .expect("compositor native texture registry mutex poisoned")
-                .get(&node_key)
-                .is_none(),
-            "native texture should be removed when retiring node resources"
-        );
-        assert_eq!(backend.freed_textures, vec![texture_token]);
-    }
-
-    #[test]
-    fn retire_stale_content_resources_only_prunes_unretained_nodes() {
-        let _guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-
-        let retained_node = NodeKey::new(906);
-        let stale_callback_node = NodeKey::new(907);
-        let stale_texture_node = NodeKey::new(908);
-        let stale_both_node = NodeKey::new(909);
-
-        for node_key in [retained_node, stale_callback_node, stale_both_node] {
-            CompositorAdapter::register_content_callback(
-                node_key,
-                "test.retire_stale",
-                "test.retire_stale_mode",
-                std::sync::Arc::new(|_, _| {}),
-            );
-        }
-
-        let retained_texture = BackendTextureToken(egui::TextureId::Managed(101));
-        let stale_texture = BackendTextureToken(egui::TextureId::Managed(102));
-        let stale_both_texture = BackendTextureToken(egui::TextureId::Managed(103));
-        compositor_native_texture_registry()
-            .lock()
-            .expect("compositor native texture registry mutex poisoned")
-            .extend([
-                (retained_node, retained_texture),
-                (stale_texture_node, stale_texture),
-                (stale_both_node, stale_both_texture),
-            ]);
-
-        let mut backend = RecordingBackend::default();
-        CompositorAdapter::retire_stale_content_resources(
-            &mut backend,
-            &HashSet::from([retained_node]),
-        );
-
-        let callbacks = content_callback_registry()
-            .lock()
-            .expect("compositor content callback registry mutex poisoned");
-        assert!(callbacks.contains_key(&retained_node));
-        assert!(!callbacks.contains_key(&stale_callback_node));
-        assert!(!callbacks.contains_key(&stale_both_node));
-        drop(callbacks);
-
-        let native_textures = compositor_native_texture_registry()
-            .lock()
-            .expect("compositor native texture registry mutex poisoned");
-        assert_eq!(native_textures.get(&retained_node), Some(&retained_texture));
-        assert!(!native_textures.contains_key(&stale_texture_node));
-        assert!(!native_textures.contains_key(&stale_both_node));
-        drop(native_textures);
-
-        assert_eq!(
-            backend
-                .freed_textures
-                .iter()
-                .copied()
-                .collect::<HashSet<_>>(),
-            HashSet::from([stale_texture, stale_both_texture]),
-            "only stale native textures should be freed"
-        );
-    }
-
-    #[test]
-    fn selected_bridge_metadata_flows_through_registration_into_diagnostics() {
-        // Two disjoint test globals live on the same content-callback +
-        // native-texture registries, so acquire both locks for the whole
-        // of this test's publish / read / clear dance.
-        let _retirement_guard = resource_retirement_test_lock()
-            .lock()
-            .expect("resource retirement test lock poisoned");
-        let _env_guard = backend_bridge_test_env_lock()
-            .lock()
-            .expect("env lock poisoned");
-        clear_backend_bridge_env_for_tests();
-        clear_content_callbacks_for_tests();
-        clear_native_textures_for_tests();
-        clear_replay_samples_for_tests();
-        let callback: BackendParentRenderCallback =
-            std::sync::Arc::new(|_: &_, _: BackendParentRenderRegionInPixels| {});
-
-        let supported = select_backend_content_bridge_with_capabilities(
-            callback.clone(),
-            BackendContentBridgeCapabilities {
-                supports_wgpu_parent_render_bridge: true,
-                supports_wgpu_shared_texture: true,
-            },
-        );
-        let supported_node = NodeKey::new(903);
-        CompositorAdapter::register_content_callback(
-            supported_node,
-            backend_content_bridge_path(supported.mode),
-            backend_content_bridge_mode_label(supported.mode),
-            std::sync::Arc::new(|_, _| {}),
-        );
-        let supported_sample = record_registered_content_bridge_receipt_for_tests(supported_node)
-            .expect("supported bridge receipt should be recorded");
-
-        let unsupported = select_backend_content_bridge_with_capabilities(
-            callback,
-            BackendContentBridgeCapabilities {
-                supports_wgpu_parent_render_bridge: false,
-                supports_wgpu_shared_texture: true,
-            },
-        );
-        let unsupported_node = NodeKey::new(904);
-        CompositorAdapter::register_content_callback(
-            unsupported_node,
-            backend_content_bridge_path(unsupported.mode),
-            backend_content_bridge_mode_label(unsupported.mode),
-            std::sync::Arc::new(|_, _| {}),
-        );
-        let unsupported_sample =
-            record_registered_content_bridge_receipt_for_tests(unsupported_node)
-                .expect("fallback bridge receipt should be recorded");
-
-        let supported_payload =
-            DiagnosticsState::bridge_spike_measurement_value_from_samples(&[supported_sample]);
-        let unsupported_payload =
-            DiagnosticsState::bridge_spike_measurement_value_from_samples(&[unsupported_sample]);
-
-        assert_eq!(
-            supported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
-            Some("wgpu_preferred_fallback_gl_callback")
-        );
-        assert_eq!(
-            supported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
-            Some("wgpu.preferred.fallback_gl.render_to_parent_callback")
-        );
-        assert_eq!(
-            unsupported_payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
-            Some("gl_callback")
-        );
-        assert_eq!(
-            unsupported_payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
-            Some("gl.render_to_parent_callback")
-        );
-
-        clear_backend_bridge_env_for_tests();
-        clear_content_callbacks_for_tests();
-        clear_replay_samples_for_tests();
-    }
-
-    #[test]
     fn execute_overlay_affordance_pass_native_overlay_emits_chrome_style_without_violation() {
         let mut diagnostics = DiagnosticsState::new();
         let ctx = egui::Context::default();
@@ -2913,556 +1673,13 @@ mod tests {
         );
     }
 
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn gl_state_violation_detects_differences() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        let after = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: true,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        assert!(gl_state_violated(before, after));
-        assert!(!gl_state_violated(before, before));
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn framebuffer_binding_target_returns_none_for_default_framebuffer() {
-        assert_eq!(framebuffer_binding_target(0), None);
-        assert_eq!(framebuffer_binding_target(-1), None);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn framebuffer_binding_target_returns_handle_for_non_default_framebuffer() {
-        let target = framebuffer_binding_target(12)
-            .expect("non-default framebuffer binding should produce native handle");
-        assert_eq!(target.0.get(), 12_u32);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_restores_state_when_callback_leaks() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        let after = GlStateSnapshot {
-            viewport: [10, 20, 300, 200],
-            scissor_enabled: true,
-            blend_enabled: true,
-            active_texture: 2,
-            framebuffer_binding: 9,
-        };
-
-        let state = RefCell::new(before);
-        let restored = Cell::new(false);
-
-        let violated = run_guarded_callback(
-            || *state.borrow(),
-            || {
-                *state.borrow_mut() = after;
-            },
-            |snapshot| {
-                *state.borrow_mut() = snapshot;
-                restored.set(true);
-            },
-        );
-
-        assert!(violated);
-        assert!(restored.get());
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_skips_restore_when_state_is_unchanged() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let restored = Cell::new(false);
-
-        let violated = run_guarded_callback(
-            || *state.borrow(),
-            || {},
-            |_| {
-                restored.set(true);
-            },
-        );
-
-        assert!(!violated);
-        assert!(!restored.get());
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_with_snapshots_returns_before_and_after_states() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        let after = GlStateSnapshot {
-            viewport: [0, 0, 110, 90],
-            scissor_enabled: true,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 2,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, captured_before, captured_after) = run_guarded_callback_with_snapshots(
-            || *state.borrow(),
-            || {
-                *state.borrow_mut() = after;
-            },
-            |snapshot| {
-                *state.borrow_mut() = snapshot;
-            },
-        );
-
-        assert!(violated);
-        assert_eq!(captured_before, before);
-        assert_eq!(captured_after, after);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_perturbation_detects_viewport_invariant() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, _, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {},
-                || {
-                    state.borrow_mut().viewport = [7, 11, 3, 5];
-                },
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_ne!(after.viewport, before.viewport);
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_perturbation_detects_scissor_invariant() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, _, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {},
-                || {
-                    state.borrow_mut().scissor_enabled = true;
-                },
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_ne!(after.scissor_enabled, before.scissor_enabled);
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_perturbation_detects_blend_invariant() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, _, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {},
-                || {
-                    state.borrow_mut().blend_enabled = true;
-                },
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_ne!(after.blend_enabled, before.blend_enabled);
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_perturbation_detects_active_texture_invariant() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, _, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {},
-                || {
-                    state.borrow_mut().active_texture = 3;
-                },
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_ne!(after.active_texture, before.active_texture);
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_callback_perturbation_detects_framebuffer_binding_invariant() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, _, after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {},
-                || {
-                    state.borrow_mut().framebuffer_binding = 9;
-                },
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_ne!(after.framebuffer_binding, before.framebuffer_binding);
-        assert_eq!(*state.borrow(), before);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn guarded_mock_callback_detects_all_gl_state_invariants() {
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        let state = RefCell::new(before);
-        let (violated, captured_before, captured_after, restore_verified) =
-            run_guarded_callback_with_snapshots_and_perturbation(
-                || *state.borrow(),
-                || {
-                    // Simulate a backend callback that mutates every tracked GL state field.
-                    let mut snapshot = *state.borrow();
-                    snapshot.viewport = [11, 13, 97, 89];
-                    snapshot.scissor_enabled = true;
-                    snapshot.blend_enabled = true;
-                    snapshot.active_texture = 3;
-                    snapshot.framebuffer_binding = 9;
-                    *state.borrow_mut() = snapshot;
-                },
-                || {},
-                |snapshot| {
-                    *state.borrow_mut() = snapshot;
-                },
-            );
-
-        assert!(violated);
-        assert!(restore_verified);
-        assert_eq!(captured_before, before);
-        assert_eq!(*state.borrow(), before);
-
-        let (
-            viewport_changed,
-            scissor_changed,
-            blend_changed,
-            active_texture_changed,
-            framebuffer_binding_changed,
-        ) = gl_state_change_flags(captured_before, captured_after);
-
-        assert!(viewport_changed);
-        assert!(scissor_changed);
-        assert!(blend_changed);
-        assert!(active_texture_changed);
-        assert!(framebuffer_binding_changed);
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn compositor_chaos_env_parser_accepts_truthy_values() {
-        assert!(chaos_mode_enabled_from_raw(Some("1")));
-        assert!(chaos_mode_enabled_from_raw(Some("true")));
-        assert!(chaos_mode_enabled_from_raw(Some("ON")));
-        assert!(!chaos_mode_enabled_from_raw(Some("0")));
-        assert!(!chaos_mode_enabled_from_raw(Some("no")));
-        assert!(!chaos_mode_enabled_from_raw(None));
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn chaos_probe_pass_and_fail_decision_is_explicit() {
-        assert!(chaos_probe_passed(false, false, false));
-        assert!(chaos_probe_passed(true, true, true));
-        assert!(!chaos_probe_passed(true, false, true));
-        assert!(!chaos_probe_passed(true, true, false));
-    }
-
-    #[test]
-    #[cfg(feature = "gl_compat")]
-    fn chaos_probe_outcome_emits_channels() {
-        let mut diagnostics = DiagnosticsState::new();
-
-        emit_chaos_probe_outcome(true, true);
-        emit_chaos_probe_outcome(true, false);
-
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests();
-        let channel_counts = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .expect("diagnostics snapshot must include message_counts");
-
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-    }
-
-    #[test]
-    fn replay_ring_is_bounded_to_capacity() {
-        clear_replay_samples_for_tests();
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        let after = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        for index in 0..(COMPOSITOR_REPLAY_RING_CAPACITY + 5) {
-            push_replay_sample(super::CompositorReplaySample {
-                sequence: index as u64 + 1,
-                node_key: NodeKey::new(index + 1),
-                duration_us: 5,
-                callback_us: 5,
-                presentation_us: 5,
-                violation: false,
-                bridge_path: "test.bridge",
-                bridge_mode: "test.bridge_mode",
-                tile_rect_px: [0, 0, 100, 100],
-                render_size_px: [100, 100],
-                chaos_enabled: false,
-                restore_verified: true,
-                viewport_changed: false,
-                scissor_changed: false,
-                blend_changed: false,
-                active_texture_changed: false,
-                framebuffer_binding_changed: false,
-                before,
-                after,
-            });
-        }
-
-        let snapshot = replay_samples_snapshot();
-        assert_eq!(snapshot.len(), COMPOSITOR_REPLAY_RING_CAPACITY);
-        assert_eq!(snapshot.first().map(|s| s.sequence), Some(6));
-        assert_eq!(
-            snapshot.last().map(|s| s.sequence),
-            Some((COMPOSITOR_REPLAY_RING_CAPACITY + 5) as u64)
-        );
-    }
-
-    #[test]
-    fn replay_channels_emit_for_sample_and_violation_artifact() {
-        let mut diagnostics = DiagnosticsState::new();
-        clear_replay_samples_for_tests();
-        let before = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: false,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-        let after = GlStateSnapshot {
-            viewport: [0, 0, 100, 100],
-            scissor_enabled: true,
-            blend_enabled: false,
-            active_texture: 0,
-            framebuffer_binding: 1,
-        };
-
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-                byte_len: std::mem::size_of_val(&before),
-            },
-        );
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-                byte_len: std::mem::size_of::<NodeKey>(),
-            },
-        );
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-                byte_len: 27,
-            },
-        );
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-                byte_len: 31,
-            },
-        );
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
-                byte_len: std::mem::size_of_val(&after),
-            },
-        );
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-                byte_len: std::mem::size_of::<NodeKey>(),
-            },
-        );
-
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests();
-        let channel_counts = snapshot
-            .get("channels")
-            .and_then(|c| c.get("message_counts"))
-            .expect("diagnostics snapshot must include message_counts");
-
-        assert!(
-            channel_counts
-                .get(CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-        assert!(
-            channel_counts
-                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        );
-    }
+    // GL state guardrail tests (gl_state_violation_detects_differences,
+    // framebuffer_binding_target_*, guarded_callback_*, perturbation
+    // tests, chaos tests, replay_ring_is_bounded_to_capacity,
+    // replay_channels_emit_for_sample_and_violation_artifact) were
+    // retired alongside the gl_compat feature deletion. The wgpu
+    // compositor never produces GL state changes to guard against, so
+    // capture/restore/perturbation has no analog here.
 
     // -----------------------------------------------------------------------
     // ViewerSurfaceRegistry — frame-path diagnostics (M4.5 parity coverage)

@@ -441,7 +441,7 @@ impl EguiHost {
                 let shared_wgpu_device = shared_wgpu_device.clone();
                 let shared_wgpu_queue = shared_wgpu_queue.clone();
                 move || {
-                    crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceBacking::NativeRenderingContext(
+                    crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceBacking(
                         create_shared_wgpu_rendering_context(
                             shared_wgpu_device.clone(),
                             shared_wgpu_queue.clone(),

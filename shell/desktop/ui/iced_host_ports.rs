@@ -361,7 +361,6 @@ impl<'a> crate::shell::desktop::ui::host_ports::ServoAccessibilityInjectionPort
 #[cfg(feature = "servo-engine")]
 mod servo_engine_painter_stubs {
     use super::*;
-    use crate::shell::desktop::render_backend::BackendCustomPass;
     use crate::shell::desktop::workbench::compositor_adapter::{
         ContentPassPainter, OverlayAffordancePainter, OverlayStrokePass,
     };
@@ -379,20 +378,10 @@ mod servo_engine_painter_stubs {
 
     #[derive(Default)]
     pub(crate) struct IcedContentPassPainter {
-        pub(crate) registered_count: usize,
         pub(crate) native_painted_count: usize,
     }
 
     impl ContentPassPainter for IcedContentPassPainter {
-        fn register_content_callback_on_layer(
-            &mut self,
-            _node_key: NodeKey,
-            _tile_rect: PortableRect,
-            _callback: BackendCustomPass,
-        ) {
-            self.registered_count += 1;
-        }
-
         fn paint_native_content_texture(
             &mut self,
             _node_key: NodeKey,

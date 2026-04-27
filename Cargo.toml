@@ -59,9 +59,8 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["servo-engine", "gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge", "gl_compat"]
+default = ["servo-engine", "gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge"]
 diagnostics = []
-gl_compat = ["dep:glow"]
 diagnostics_tests = []
 ux-semantics = []
 ux-probes = ["ux-semantics"]
@@ -241,7 +240,6 @@ qrcode = "0.14"
 base64 = "0.22"
 mdns-sd = "0.12"
 gilrs = "0.11.1"
-glow = { version = "0.17.0", optional = true }
 headers = "0.4"
 serde_json = "1.0"
 sysinfo = "0.37"

@@ -4849,7 +4849,6 @@ dependencies = [
  "fjall",
  "futures-util",
  "gilrs",
- "glow 0.17.0",
  "graph-canvas",
  "graph-cartography",
  "graph-tree",

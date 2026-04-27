@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use egui::{Context, LayerId, Rect as EguiRect};
+use egui::Context;
 use egui_wgpu::RendererOptions;
 use egui_wgpu::winit::Painter;
 use egui_winit::EventResponse;
@@ -15,46 +15,12 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-use super::{
-    BackendTextureToken, BackendViewportInPixels, UiRenderBackendInit,
-};
-#[cfg(feature = "gl_compat")]
-use super::BackendGraphicsContext;
-
-#[derive(Clone, Default)]
-pub(crate) struct BackendCustomPass;
+use super::{BackendTextureToken, UiRenderBackendInit};
 
 struct PendingFrame {
     textures_delta: egui::TexturesDelta,
     clipped_primitives: Vec<egui::epaint::ClippedPrimitive>,
     pixels_per_point: f32,
-}
-
-/// GL-shaped stub: creates a no-op custom pass on the wgpu backend.
-///
-/// This is the `ParentRenderCallback` fallback path shape. It does not wire
-/// into the wgpu pre-render texture handoff model (`SharedWgpuTexture`).
-/// Retained for GL compat fallback builds; retire with Phase F.
-#[cfg(feature = "gl_compat")]
-pub(crate) fn custom_pass_from_backend_viewport<F>(_render: F) -> BackendCustomPass
-where
-    F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
-{
-    BackendCustomPass
-}
-
-/// GL-shaped stub: no-op paint callback registration on the wgpu backend.
-///
-/// This is the `ParentRenderCallback` fallback path shape. The wgpu primary
-/// path (`SharedWgpuTexture`) composes via pre-render texture import, not
-/// egui paint callbacks. Retained for GL compat fallback builds; retire with Phase F.
-#[cfg(feature = "gl_compat")]
-pub(crate) fn register_custom_paint_callback(
-    _ctx: &Context,
-    _layer: LayerId,
-    _rect: EguiRect,
-    _callback: BackendCustomPass,
-) {
 }
 
 pub(crate) fn texture_token_from_handle(handle: &egui::TextureHandle) -> BackendTextureToken {

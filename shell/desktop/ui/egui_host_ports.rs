@@ -42,10 +42,8 @@ use arboard::Clipboard;
 use graphshell_runtime::{ToastSeverity, ToastSpec};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::render_backend::BackendViewportInPixels;
-#[cfg(feature = "gl_compat")]
-use crate::shell::desktop::render_backend::BackendGraphicsContext;
+use crate::shell::desktop::render_backend::UiRenderBackendHandle;
 use crate::shell::desktop::ui::host_ports::{
     HostAccessibilityPort, HostClipboardPort, HostInputPort, HostPaintPort, HostSurfacePort,
     HostTexturePort, HostToastPort,
@@ -155,14 +153,9 @@ impl<'a> HostInputPort for EguiHostPorts<'a> {
 // ---------------------------------------------------------------------------
 
 impl<'a> HostSurfacePort for EguiHostPorts<'a> {
-    /// The egui host's compositor expects a `glow::Context` as the
-    /// content-callback graphics context (legacy GL path through
-    /// Servo's compositor). Without `gl_compat`, the GL path is gone
-    /// and the associated type is `()` to keep the trait surface
-    /// portable.
-    #[cfg(feature = "gl_compat")]
-    type BackendContext = BackendGraphicsContext;
-    #[cfg(not(feature = "gl_compat"))]
+    /// No host-specific graphics-context type is needed: the wgpu compositor
+    /// imports per-webview textures directly via
+    /// `upsert_native_content_texture`, not through a graphics-callback path.
     type BackendContext = ();
 
     fn present_surface(&mut self, node_key: NodeKey) {
@@ -179,25 +172,9 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
         }
     }
 
-    #[cfg(feature = "gl_compat")]
-    fn register_content_callback(
-        &mut self,
-        node_key: NodeKey,
-        callback: Arc<dyn Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync>,
-    ) {
-        CompositorAdapter::register_content_callback(
-            node_key,
-            "gl.render_to_parent_callback",
-            "gl_callback",
-            callback,
-        );
-    }
-
-    /// Without `gl_compat` the content-callback registry doesn't exist and the
-    /// GL fallback path is gone; this becomes a no-op so any caller that still
-    /// invokes the trait method (e.g., a Servo-side surface notifier) compiles
-    /// and silently drops the callback.
-    #[cfg(not(feature = "gl_compat"))]
+    /// No-op: the GL parent-render callback path was retired alongside the
+    /// `gl_compat` feature deletion. The trait method stays so the runtime
+    /// can call it unconditionally; any callback handed in is silently dropped.
     fn register_content_callback(
         &mut self,
         _node_key: NodeKey,
@@ -205,12 +182,6 @@ impl<'a> HostSurfacePort for EguiHostPorts<'a> {
     ) {
     }
 
-    #[cfg(feature = "gl_compat")]
-    fn unregister_content_callback(&mut self, node_key: NodeKey) {
-        CompositorAdapter::unregister_content_callback(node_key);
-    }
-
-    #[cfg(not(feature = "gl_compat"))]
     fn unregister_content_callback(&mut self, _node_key: NodeKey) {}
 }
 

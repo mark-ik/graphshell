@@ -19,14 +19,10 @@
 //! ## Wgpu-first scoping
 //!
 //! Earlier drafts considered including GL `make_current` / `prepare_for_rendering`
-//! in the trait. They were dropped: graphshell is on wgpu (Servo lives at the
-//! `servo-wgpu` fork; renderer is `webrender-wgpu`), and the GL-compat fallback
-//! path is gated behind the deprecated `gl_compat` feature inside the shell's
-//! GL-backed `OffscreenRenderingContext` consumers. That path is path-specific,
-//! not producer-level — `compositor_adapter::paint_offscreen_content_pass`
-//! handles it against the concrete `OffscreenRenderingContext` type. A
-//! wgpu-first producer (whether Servo's `SharedWgpuRenderingContext` today or
-//! iced-host's eventual native producer) has no notion of "make current".
+//! in the trait. They were dropped: graphshell is wgpu-only (Servo lives at the
+//! `servo-wgpu` fork; renderer is `webrender-wgpu`). A wgpu-first producer
+//! (Servo's `SharedWgpuRenderingContext` today or iced-host's eventual native
+//! producer) has no notion of "make current".
 
 /// Host-neutral viewer-surface rendering-context contract.
 ///
