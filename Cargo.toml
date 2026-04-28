@@ -10,6 +10,7 @@ publish = false
 rust-version = "1.92.0"
 
 [workspace]
+exclude = ["vendor"]
 members = [
     "crates/graph-canvas",
     "crates/graph-cartography",
@@ -125,7 +126,7 @@ infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 # M5: iced is the second host backend. Pulled only under the `iced-host`
 # feature; egui remains the default host until M5/M6 reach parity.
-iced = { path = "../iced-wgpu29", optional = true, features = ["canvas"] }
+iced = { path = "vendor/iced", optional = true, features = ["canvas"] }
 # Iced middlenet viewer lives in its own crate so it can be developed,
 # tested, and demoed without pulling in the heavy Servo/webrender deps
 # of the main graphshell crate. The graphshell-side host adapter
@@ -309,7 +310,7 @@ servo-wgpu-interop-adapter = { path = "../wgpu-gui-bridge/servo-wgpu-interop-ada
 wgpu-native-texture-interop = { path = "../wgpu-gui-bridge/wgpu-native-texture-interop" }
 
 [patch."https://github.com/iced-rs/cryoglyph.git"]
-cryoglyph = { path = "../cryoglyph-wgpu29" }
+cryoglyph = { path = "vendor/cryoglyph" }
 
 [[test]]
 name = "scenarios"

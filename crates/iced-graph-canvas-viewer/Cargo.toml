@@ -9,7 +9,7 @@ rust-version = "1.92.0"
 description = "Iced canvas widget that renders graph-canvas ProjectedScenes with pan/zoom + camera state."
 
 [dependencies]
-iced = { path = "../../../iced-wgpu29", features = ["canvas"] }
+iced = { path = "../../vendor/iced", features = ["canvas"] }
 graph-canvas = { path = "../graph-canvas" }
 graphshell-core = { path = "../graphshell-core" }
 euclid = { version = "0.22", features = ["serde"] }
