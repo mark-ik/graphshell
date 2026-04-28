@@ -37,6 +37,27 @@ pub mod servo_engine {
     pub use servo::*;
 }
 
+/// Host GPU context contract for engine-to-host texture sharing.
+///
+/// 2026-04-27 Lane 2: resolves the "Servo shared device" question — iced is
+/// the host-owned GPU context; content engines import textures into it rather
+/// than owning the device. See [`host_gpu_port::HostGpuPort`].
+pub mod host_gpu_port;
+
+/// Accessibility producer contract for content engines.
+///
+/// 2026-04-27 Lane 2: typed liveness state for the accessibility bridge.
+/// [`content_accessibility_producer::AbsentContentAccessibilityProducer`]
+/// provides the no-engine stub (returns `EngineUnavailable`, degrades viewer
+/// labels to URL + title).
+pub mod content_accessibility_producer;
+
+pub use content_accessibility_producer::{
+    AbsentContentAccessibilityProducer, ContentAccessibilityProducer,
+    ContentAccessibilityProducerState,
+};
+pub use host_gpu_port::{HostGpuCapabilities, HostGpuPort};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EngineChoice {
     Middlenet,

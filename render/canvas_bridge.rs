@@ -28,61 +28,17 @@ use graph_canvas::projection::{ProjectionMode, ViewDimension};
 use graph_canvas::scene::{CanvasEdge, CanvasNode, CanvasSceneInput, SceneMode, ViewId};
 
 use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode, SelectionUpdateMode};
+use crate::app::canvas_scene::{
+    build_scene_input, scene_mode_to_canvas, view_id_to_canvas,
+};
 use crate::graph::{Graph, NodeKey};
 use crate::render::GraphAction;
 use graph_canvas::packet::ProjectedScene;
 
 // ── Scene input construction ────────────────────────────────────────────────
-
-/// Build a `CanvasSceneInput` from the domain graph and view state.
-///
-/// This is the primary host→canvas data path. The host calls this once per
-/// frame for each active graph view, then feeds the result into
-/// `derive_scene()`.
-pub fn build_scene_input(
-    graph: &Graph,
-    view_id: GraphViewId,
-    scene_mode: crate::app::SceneMode,
-    dimension: &ViewDimension,
-    visible_nodes: Option<&HashSet<NodeKey>>,
-    default_node_radius: f32,
-) -> CanvasSceneInput<NodeKey> {
-    let nodes: Vec<CanvasNode<NodeKey>> = graph
-        .nodes()
-        .filter(|(key, _)| visible_nodes.is_none_or(|mask| mask.contains(key)))
-        .map(|(key, node)| CanvasNode {
-            id: key,
-            position: node.projected_position(),
-            radius: default_node_radius,
-            label: Some(node.title.clone()),
-        })
-        .collect();
-
-    // One CanvasEdge per petgraph edge (not per EdgeView/family).
-    let edges: Vec<CanvasEdge<NodeKey>> = graph
-        .inner
-        .edge_references()
-        .filter(|edge| {
-            visible_nodes
-                .is_none_or(|mask| mask.contains(&edge.source()) && mask.contains(&edge.target()))
-        })
-        .map(|e| CanvasEdge {
-            source: e.source(),
-            target: e.target(),
-            weight: 1.0,
-        })
-        .collect();
-
-    CanvasSceneInput {
-        view_id: view_id_to_canvas(view_id),
-        nodes,
-        edges,
-        scene_objects: Vec::new(),
-        overlays: Vec::new(),
-        scene_mode: scene_mode_to_canvas(scene_mode),
-        projection: ProjectionMode::from_view_dimension(dimension),
-    }
-}
+// `build_scene_input`, `scene_mode_to_canvas`, and `view_id_to_canvas` live
+// in `crate::app::canvas_scene` so no-Servo (iced-only) builds can reach
+// them without gating on `render`. Re-exported above via `use`.
 
 /// Output of one host-neutral graph-canvas frame.
 ///
@@ -1397,23 +1353,6 @@ pub fn collect_canvas_events(ui: &egui::Ui) -> Vec<CanvasInputEvent> {
     events
 }
 
-// ── Type conversions ────────────────────────────────────────────────────────
-
-fn scene_mode_to_canvas(mode: crate::app::SceneMode) -> SceneMode {
-    match mode {
-        crate::app::SceneMode::Browse => SceneMode::Browse,
-        crate::app::SceneMode::Arrange => SceneMode::Arrange,
-        crate::app::SceneMode::Simulate => SceneMode::Simulate,
-    }
-}
-
-fn view_id_to_canvas(id: GraphViewId) -> ViewId {
-    // ViewId is an opaque u64. Use the UUID's lower 64 bits.
-    let uuid = id.as_uuid();
-    let bytes = uuid.as_bytes();
-    let lower = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
-    ViewId(lower)
-}
 
 #[cfg(test)]
 mod tests {

@@ -38,10 +38,10 @@ pub fn main() {
     // no Servo webviews, no persistence restore. Production chrome stays
     // on the egui path below until iced reaches parity.
     //
-    // 2026-04-25 servo-into-verso S2b: also requires servo-engine for
-    // now since iced_host_ports / iced_host pull in host_ports traits
-    // and render_backend types. Decoupling is S3 architectural work.
-    #[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+    // Lane 5a: no longer requires servo-engine — gui_state is now
+    // portable (Servo-coupled fields gated inside), so the iced path
+    // compiles with just `iced-host`.
+    #[cfg(feature = "iced-host")]
     if iced_requested() {
         let runtime = crate::shell::desktop::ui::gui_state::GraphshellRuntime::new_minimal();
         if let Err(err) = crate::shell::desktop::ui::iced_app::run_application(runtime) {

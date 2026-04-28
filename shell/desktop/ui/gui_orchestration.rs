@@ -30,7 +30,7 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;

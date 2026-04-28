@@ -242,6 +242,9 @@ pub(crate) mod runtime_ports;
 pub(crate) mod renderer_id;
 pub(crate) use renderer_id::RendererId;
 
+#[path = "app/canvas_scene.rs"]
+pub(crate) mod canvas_scene;
+
 #[derive(Default)]
 pub struct AppServices {
     persistence: Option<GraphStore>,

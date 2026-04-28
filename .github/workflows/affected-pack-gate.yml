@@ -33,6 +33,9 @@ jobs:
       - name: Cargo check (locked)
         run: cargo check --locked
 
+      - name: Engine feature matrix
+        run: bash scripts/dev/engine-feature-matrix.sh
+
       - name: Fetch PR base branch
         if: github.event_name == 'pull_request'
         run: git fetch origin ${{ github.base_ref }} --depth=1

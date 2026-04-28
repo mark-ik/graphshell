@@ -14,11 +14,9 @@ pub(crate) mod dialog;
 pub(crate) mod dialog_panels;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod egui_host_ports;
-// 2026-04-25 servo-into-verso S2b: these UI flow files all consume
-// gated `gui` / `gui_orchestration` / `persistence_ops`. Gated with
-// servo-engine until the egui-host UI flow is decoupled from the
-// shared finalize/search/palette paths in S3.
-#[cfg(feature = "servo-engine")]
+// `finalize_actions` is now ungated: it uses cfg blocks internally to
+// delegate to `gui_orchestration` (servo-engine) or call runtime
+// helpers directly (iced-only path).
 pub(crate) mod finalize_actions;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod graph_search_flow;
@@ -30,11 +28,10 @@ pub(crate) mod gui;
 pub(crate) mod gui_frame;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod gui_orchestration;
-// 2026-04-25 servo-into-verso S2b: gui_state holds GraphshellRuntime
-// which threads through host_ports, webview_backpressure, and
-// compositor_adapter (all gated). S3 will extract a host-neutral
-// runtime surface; for now the whole module is gated.
-#[cfg(feature = "servo-engine")]
+// `gui_frame_inbox` is ungated — iced-host and egui-host both use it.
+pub(crate) mod gui_frame_inbox;
+// `gui_state` is now ungated: Servo-coupled fields (viewer_surfaces,
+// viewer_surface_host) are gated inside the file on servo-engine.
 pub(crate) mod gui_state;
 // 2026-04-25 servo-into-verso S3a: host_ports is now a thin
 // re-export shim over the trait surface in `graphshell-runtime`.
@@ -46,30 +43,23 @@ pub(crate) mod host_ports;
 // workbench_host all consume Servo embedder, render_backend, or
 // compositor_adapter types and only run on the Servo+egui-host
 // path. Gated together until they're refactored.
-// 2026-04-25 servo-into-verso S2b/S3b.1: iced launch path modules.
-// `iced_host_ports` is fully decoupled from Servo-coupled modules
-// after S3a (trait extraction → graphshell-runtime) + S3b.1
-// (CachedTexture relocation), so it ships under just `iced-host`.
-// The remaining iced launch path (iced_app, iced_host,
-// iced_graph_canvas, iced_events, iced_middlenet_viewer) still
-// consumes `gui_state::GraphshellRuntime` (gated) so they require
-// both features for now. Extracting GraphshellRuntime is the next
-// S3b slice; until then, the iced no-Servo path is via the
-// standalone `crates/iced-{middlenet,graph-canvas,wry}-viewer`
-// demo crates.
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+// 2026-04-25 S3b.1 / Lane 5a: iced launch path modules are now
+// ungated from servo-engine.  gui_state is portable; Servo-coupled
+// fields are gated inside it.  iced_host's IcedWgpuContext block is
+// gated on servo-engine inside the file.
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_app;
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_events;
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_graph_canvas;
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_host;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_host_ports;
-#[cfg(all(feature = "iced-host", feature = "servo-engine"))]
+#[cfg(feature = "iced-host")]
 pub(crate) mod iced_middlenet_viewer;
-#[cfg(all(feature = "iced-host", feature = "servo-engine", test))]
+#[cfg(all(feature = "iced-host", test))]
 pub(crate) mod iced_parity;
 #[cfg(feature = "servo-engine")]
 pub(crate) mod nav_targeting;

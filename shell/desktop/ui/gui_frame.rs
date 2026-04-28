@@ -33,7 +33,7 @@ use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
     self, ActivePrewarmArgs, RuntimeReconcileArgs,
 };
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::registries::input::action_id;
 #[cfg(all(

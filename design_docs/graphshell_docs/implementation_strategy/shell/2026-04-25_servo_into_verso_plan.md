@@ -327,8 +327,8 @@ Decision matrix:
 | middlenet content rendering | works | works |
 | wry overlay (fullnet) | works (when `wry` feature on) | works (when `wry` feature on) |
 | `viewer:webview` (Servo) | works | unavailable; routes to wry / middlenet / unsupported |
-| Servo wgpu shared device | works | not constructed |
-| Servo accesskit bridge | works | stubbed |
+| GPU context (`HostGpuPort`, iced-owned) | works (iced device; Servo textures imported via `import_content_texture`) | works (iced device only; no Servo texture producer) |
+| Content accessibility (`ContentAccessibilityProducer`) | `Active` (Servo impl) | `EngineUnavailable` stub; viewer labels degrade to URL + title |
 | Webview backpressure | works | reduced to wry-only path |
 | Workbench compositor `ViewerSurfaceBacking::NativeRenderingContext` | works | always `None`; callback-fallback or wry-only |
 
@@ -347,10 +347,11 @@ Decision matrix:
    but no impls are imported. The variant becomes uninhabitable —
    but the enum compiles fine; just no producers.
 3. **`shared_wgpu_context.rs`**: holds `servo::wgpu::Device` +
-   `servo::wgpu::Queue`. Either gate the whole file behind
-   `servo-engine`, or extract the wgpu types into a `verso::wgpu`
-   re-export so `servo-engine`-off builds use a stub or the
-   `wgpu` crate directly.
+   `servo::wgpu::Queue`. Gate the whole file behind `servo-engine`.
+   GPU context ownership is now defined by `verso::host_gpu_port::HostGpuPort`
+   (Lane 2, 2026-04-27): iced is the host-owned device; Servo imports textures
+   into it rather than owning the device root. No `verso::wgpu` re-export or
+   stub is needed — the iced host's `HostGpuPort` impl fills the role.
 
 For S3 first pass: **gate liberally, document the architectural
 follow-ons, don't refactor the trait surface**. Goal is a working
@@ -415,12 +416,16 @@ verso's existing dispatch) instead of attempting Servo.
 3. **Accesskit bridge**: Servo provides accesskit tree updates per
    webview. Without Servo, the bridge has no producers but still
    has consumers (chrome accesskit). Stub the producer side.
-4. **Shared wgpu device acquisition**: today Servo provides the
-   wgpu device that webrender + the compositor share. Without
-   Servo, the chrome's iced renderer is the only wgpu consumer
-   (plus future iced-graph-canvas-viewer with WebRender — but
-   that's webrender-wgpu's wgpu, not Servo's). Need to identify
-   who owns the device in non-Servo builds.
+4. **GPU context ownership** ✅ resolved (Lane 2, 2026-04-27):
+   `verso::host_gpu_port::HostGpuPort` defines iced as the host-owned GPU
+   context. Servo-produced textures are one import source via
+   `import_content_texture`; Servo does not own the device. Without
+   `servo-engine`, the host GPU context (iced's device/queue) still exists;
+   there are simply no Servo-produced textures to import.
+   `AbsentContentAccessibilityProducer` in
+   `verso::content_accessibility_producer` handles the no-engine accessibility
+   path — it returns `EngineUnavailable` and the viewer falls back to URL +
+   title labels.
 
 ---
 
@@ -459,6 +464,44 @@ to prevent silent regressions of the no-Servo paths.
 ---
 
 ## 6. Execution log
+
+- **2026-04-27 (Lane 5a: first no-Servo iced launch)**: `cargo run
+  --no-default-features --features iced-host -- --iced` now opens a
+  usable iced window. Three root blockers removed:
+  (1) `build_scene_input` / `scene_mode_to_canvas` / `view_id_to_canvas`
+  extracted from `render/canvas_bridge` (gated on `servo-engine`) into
+  new ungated `app/canvas_scene.rs`; `iced_graph_canvas.rs` updated to
+  call the new location.
+  (2) `gui/frame_inbox.rs` content moved to ungated
+  `shell/desktop/ui/gui_frame_inbox.rs`; `gui/frame_inbox.rs` stubbed
+  as a re-export shim; `gui_state.rs` imports updated to the new path.
+  (3) `gui_state::GraphshellRuntime` ungated: `viewer_surfaces` /
+  `viewer_surface_host` / `omnibar_provider_suggestion_driver` fields
+  gated on `servo-engine`; `ToolbarAuthorityMut` struct+impl gated on
+  `servo-engine`; `persistence_ops` and `compositor_adapter` call sites
+  in `gui_state.rs` gated on `servo-engine`; `iced_host.rs`
+  `viewer_surfaces.bump_content_generation` gated on `servo-engine`.
+  `finalize_actions.rs` ungated with a no-servo no-op branch (webview
+  queues are always empty on the iced-only path). `mod.rs` iced-module
+  gates changed from `all(iced-host, servo-engine)` to `iced-host`;
+  `cli.rs` iced branch gate changed to `cfg(feature = "iced-host")`.
+  **Receipts**: `cargo check --no-default-features --features iced-host`
+  clean (0 errors); default servo-engine build clean; binary ran for
+  5+ seconds without crash (window opened, event loop running). URL
+  navigation returns "engine not available" as expected.
+
+- **2026-04-27 (Lane 2: verso host-port contracts)**: added
+  `verso::host_gpu_port` (`HostGpuPort`, `HostGpuCapabilities`) and
+  `verso::content_accessibility_producer` (`ContentAccessibilityProducer`,
+  `ContentAccessibilityProducerState`, `AbsentContentAccessibilityProducer`).
+  `HostGpuPort` resolves the "Servo shared device" question from §3/§4: iced is
+  the host-owned GPU context; Servo-produced textures are imported via
+  `import_content_texture` rather than owning the device. The typed
+  `ContentAccessibilityProducerState::EngineUnavailable` + the absent stub
+  replace the "Servo accesskit bridge: stubbed" row with a concrete degraded-mode
+  path. Plan wording updated in §3 decision matrix, §3 "Key code areas" item 3,
+  §4 item 4, and the S3b.1 execution log entry. No new Cargo deps required —
+  verso's port modules use only primitive and `std` types.
 
 - **2026-04-25 (S1)**: Added `servo-engine` feature + optional `servo`
   dep + `verso::servo_engine` re-export module to `crates/verso`.
@@ -510,10 +553,14 @@ to prevent silent regressions of the no-Servo paths.
   without re-doing port plumbing.
 - **2026-04-25 (S3b.1 IcedWgpuContext gate + iced_host_ports
   ungating)**: smaller incremental S3b slice. `IcedWgpuContext`
-  (slot for iced-side wgpu device/queue) was Servo-typed because
-  its only intended consumer was Servo-produced texture imports;
-  gated on `servo-engine` so iced-only builds don't carry the
-  Servo wgpu surface. `CachedTexture` relocated from `iced_host.rs`
+  (a stopgap holding `servo::wgpu::{Device,Queue}`) is gated on
+  `servo-engine` so iced-only builds don't carry Servo's wgpu surface.
+  End-state captured by `verso::host_gpu_port::HostGpuPort` (Lane 2,
+  2026-04-27): iced provides the host GPU context as its own
+  device/queue; Servo-produced textures are one import source via
+  `import_content_texture` rather than the device owner.
+  `IcedWgpuContext` remains gated until the iced `HostGpuPort` impl
+  lands (Lane 5b). `CachedTexture` relocated from `iced_host.rs`
   into `iced_host_ports.rs` so the ports module has no shell-side
   gated deps; `iced_host_ports` is now ungated from `servo-engine`
   in `ui/mod.rs` and ships under just `iced-host`. The remaining
@@ -727,6 +774,31 @@ to prevent silent regressions of the no-Servo paths.
   making the no-Servo path *launchable*, which routes through the
   canonical GraphshellRuntime extraction (slice-by-slice), not
   more gating.
+- **2026-04-27 (gl_compat retirement — Phase F)**: completed the
+  gl_compat retirement in a single commit (`b7b70f4b`). The
+  runtime-validation blocker noted in the gating cascade entry did not
+  need a separate smoke step — the wgpu-only compositor was stable at
+  prototype scale; the deprecation window was collapsed. Deleted:
+  `gl_compat` feature from `Cargo.toml`; `glow` dep (was `optional`);
+  `shell/desktop/render_backend/gl_backend.rs` (GL state guardrail
+  helpers, 139 lines); `BackendContentBridgeMode/Selection/Capabilities`,
+  9 selection/capability helpers, `GRAPHSHELL_BACKEND_BRIDGE_MODE`
+  env-var, and 6 bridge tests from `render_backend/mod.rs` (~280 lines);
+  `custom_pass_from_backend_viewport` / `register_custom_paint_callback`
+  GL-shaped stubs from `wgpu_backend.rs`; from `compositor_adapter.rs`:
+  content-callback registry (`COMPOSITOR_CONTENT_CALLBACKS` static +
+  register/unregister/compose family, ~250 lines), 13 GL state guardrail
+  functions (capture/restore, chaos perturbation, scissor isolation,
+  ~200 lines), 17 GL-only tests, `BridgeProbeContext` +
+  `COMPOSITOR_REPLAY_SEQUENCE`. `ViewerSurfaceBacking` collapsed from
+  two-variant enum to single-field tuple struct (`CompatGlOffscreen`
+  variant deleted). `EguiHostPorts: HostSurfacePort` two-fork collapsed
+  to the unconditional `BackendContext = ()` shape. `GlStateSnapshot`
+  retained as a frozen-default struct (diagnostics export carries
+  `before`/`after` snapshot fields). Matrix slot 4 (the "no-gl_compat"
+  combo) removed — `gl_compat` no longer exists; 3/3 is the canonical
+  matrix. **Phase F closed.** Receipts: engine-feature matrix 3/3 PASS;
+  compositor_adapter and render_backend tests pass.
 
 ### S3b proper (in flight): GraphshellRuntime extraction
 

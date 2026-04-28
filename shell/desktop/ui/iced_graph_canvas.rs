@@ -41,7 +41,7 @@ const DEFAULT_NODE_RADIUS: f32 = 16.0;
 /// method; moved here as a free function so the
 /// `iced-graph-canvas-viewer` crate stays graphshell-app-agnostic.
 pub(crate) fn from_graph_app(app: &GraphBrowserApp, view_id: GraphViewId) -> GraphCanvasProgram {
-    let scene_input = crate::render::canvas_bridge::build_scene_input(
+    let scene_input = crate::app::canvas_scene::build_scene_input(
         app.render_graph(),
         view_id,
         SceneMode::default(),

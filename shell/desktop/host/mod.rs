@@ -16,6 +16,7 @@ pub(crate) mod headed_window;
 pub(crate) mod headless_window;
 pub(crate) mod keyutils;
 pub(crate) mod running_app_state;
+pub(crate) mod servo_content_accessibility_producer;
 pub(crate) mod webdriver_runtime;
 #[cfg(feature = "webxr")]
 pub(crate) mod webxr;

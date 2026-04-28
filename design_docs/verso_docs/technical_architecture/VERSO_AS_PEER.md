@@ -12,7 +12,7 @@
 
 Verso is a **native mod** — compiled into the Graphshell binary, registered at startup via `inventory::submit!`, not sandboxed. It is the single "Browser Capability" mod. It does two things:
 
-1. **Web Peer**: brings Servo (the browser engine) and the `wry` OS webview fallback into the registry as `viewer:webview` and `viewer:wry`. These are how Graphshell renders the web.
+1. **Web Peer**: brings Servo (the browser engine, behind the `verso/servo-engine` Cargo feature) and the `wry` OS webview (behind `verso/wry-engine`) into the registry as `viewer:webview` and `viewer:wry`. These are how Graphshell renders the web.
 2. **Bilateral Peer Agent**: manages Graphshell's identity, pairing, Device Sync, and co-op participation over iroh. Verso is the local agent that holds the user's keys, establishes named-peer connections, and exchanges `SyncUnit` deltas with trusted peers.
 
 These two roles are unified in Verso because they share the same trust infrastructure: the keypair that signs Verso's bilateral sync payloads is the same identity that signs the mod's capabilities. A user who enables Verso gets both web access and peer-to-peer collaboration from a single, coherent module.
@@ -34,10 +34,10 @@ On startup (via `inventory::submit!`), Verso registers the following with the re
 
 **ViewerRegistry entries:**
 
-| Viewer ID | Backend | Rendering mode | Usable in |
-| --------- | ------- | -------------- | --------- |
-| `viewer:webview` | Servo (libservo) | Texture (GPU surface) | Graph canvas + workbench tiles |
-| `viewer:wry` | wry (OS webview) | Overlay (native window) | Workbench tiles only |
+| Viewer ID | Backend | Rendering mode | Usable in | Cargo feature |
+| --------- | ------- | -------------- | --------- | ------------- |
+| `viewer:webview` | Servo (libservo) | Texture (GPU surface) | Graph canvas + workbench tiles | `verso/servo-engine` |
+| `viewer:wry` | wry (OS webview) | Overlay (native window) | Workbench tiles only | `verso/wry-engine` |
 
 `viewer:webview` is the canonical default that all nodes use unless the user has set a preference. Switching to `viewer:wry` makes new webviews use the native OS webview. Per-node and per-frame overrides use specific IDs.
 
@@ -227,8 +227,8 @@ This distinction keeps Graphshell local-first and prevents co-op or sync from im
 ModManifest {
     id: "verso",
     provides: &[
-        "viewer:webview",
-        "viewer:wry",           // only if compiled with --features wry
+        "viewer:webview",       // only if compiled with verso/servo-engine feature
+        "viewer:wry",           // only if compiled with verso/wry-engine feature
         "protocol:http",
         "protocol:https",
         "protocol:file",
@@ -251,7 +251,7 @@ ModManifest {
 }
 ```
 
-If Verso is not loaded (or if the `network` capability is denied), `viewer:webview`, `viewer:wry`, `protocol:http/https`, and all Verse actions are simply not registered. Graphshell degrades gracefully to the core viewer set with no web access.
+If Verso is not loaded, if the relevant engine features are absent (`verso/servo-engine`, `verso/wry-engine`), or if the `network` capability is denied, the affected viewers and actions are simply not registered. Verso degrades gracefully: without `servo-engine`, `viewer:webview` and Servo-backed protocols are absent; without `wry-engine`, `viewer:wry` is absent. Graphshell falls back to core viewers with no web access when neither engine feature is compiled in.
 
 ---
 

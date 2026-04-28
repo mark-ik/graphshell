@@ -1,7 +1,7 @@
 # Graphshell Runtime Crate Extraction Plan
 
-Status: Closed for this canonical lane - done gate met; next work splits into source-trait extraction or S2c body-level cascade cleanup  
-Last updated: April 25, 2026
+Status: Done gate met — every `GraphshellRuntime` field is portable or cfg-gated; next work: iced-host ungate or bookmark_import_dialog  
+Last updated: April 27, 2026
 
 Related docs:
 
@@ -642,6 +642,41 @@ Progress log:
   per the servo-into-verso plan's audit, `viewer_surfaces` is the
   next recommended take (with `bookmark_import_dialog` deferred
   since it's already reduced to a `bool` projection).
+- 2026-04-27: Landed **webview_creation_backpressure extraction** —
+  the last active closure-note item before the done gate. Two new
+  portable types joined `graphshell-runtime::webview_backpressure`:
+  `WebviewCreationProbeState` (viewer identity as `ViewerSurfaceId`
+  packed through the renderer-id registry + `started_at:
+  PortableInstant`) and `WebviewCreationBackpressureState` (composes
+  `WebviewAttachRetryState` + optional probe + optional cooldown
+  deadline as `PortableInstant` + `cooldown_notified: bool`). The
+  `cooldown_notified` flag replaces the original `Option<Instant>`
+  equality comparison that would have been impossible with
+  `PortableInstant` storage; it suppresses redundant
+  `MarkRuntimeBlocked` pushes within a single cooldown window and is
+  reset whenever `cooldown_until` is armed or cleared. Shell-side
+  `webview_backpressure.rs` gained two adapter fns:
+  `viewer_surface_id_from_servo_webview` (packs `RendererId::as_raw()`
+  into `ViewerSurfaceId::from_u64`) and
+  `servo_webview_id_from_viewer_surface` (reverses via the registry).
+  `MarkRuntimeBlocked.retry_at: Option<std::time::Instant>` stays
+  unchanged at the app-domain level; push sites compute the `Instant`
+  deadline from `Instant::now() + Duration::from_millis(delay_ms)`
+  independently of the portable `cooldown_until` field. All 8 shell
+  import sites for `WebviewCreationBackpressureState` migrated from
+  the shell lifecycle module to `graphshell_runtime::`:
+  `gui_state.rs`, `gui_orchestration.rs`, `gui_frame.rs`,
+  `gui_frame/keyboard_phase.rs`, `gui/semantic_lifecycle_flow.rs`,
+  `gui/toolbar_phase_flow.rs`, `lifecycle/lifecycle_reconcile.rs`
+  (split `self, State` import), `workbench/tile_view_ops.rs` (same
+  split). Validation: graphshell-runtime tests 40 → 43 (3 new:
+  `backpressure_state_default_is_idle`,
+  `probe_state_viewer_surface_id_roundtrip_via_u64`,
+  `cooldown_until_ordering_reflects_ms_comparison`); shell
+  `test_arm_creation_cooldown_advances_step_and_deadline` updated to
+  use `PortableInstant(10_000)` fixed point; engine-feature matrix
+  all 3/3 PASS. Done gate met: every `GraphshellRuntime` field is
+  now either portable or cfg-gated.
 
 ## Risks and guardrails
 

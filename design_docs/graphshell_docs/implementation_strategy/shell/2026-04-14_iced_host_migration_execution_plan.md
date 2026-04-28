@@ -23,6 +23,11 @@ contract authoritative.
 - `../graph/GRAPH.md`
 - `../aspect_render/2026-04-12_rendering_pipeline_status_quo_plan.md`
 - Servo companion plan: `servo-wgpu/docs/2026-04-18_servo_wgpuification_plan.md`
+- Engine selectivity lane: `2026-04-25_servo_into_verso_plan.md`
+  (Servo moves behind `verso/servo-engine` following the wry Phase A2 pattern;
+  S1 = feature scaffold mirroring Phase A1, S2/S3 = code migration into
+  `verso::servo_engine` + import sweep; establishes the three combos validated
+  by `scripts/dev/engine-feature-matrix.{sh,ps1}`)
 - Companion extraction lane: `2026-04-24_graphshell_runtime_crate_plan.md`
   (host-neutral runtime kernel pulled out of `graphshell` into
   `crates/graphshell-runtime/` to lighten the parity-test compile surface)
@@ -844,6 +849,11 @@ This is the recommended first task stack, in order.
   (see §12.12). Remaining: `#[derive(PartialEq)]` on view-model
   sub-structs for full struct-level equality; graph-canvas packet
   snapshot replay; CI gate on divergence.
+- [ ] Phase A2 sibling: move Servo impl into `verso/servo-engine` (S2/S3 in
+  `2026-04-25_servo_into_verso_plan.md`); receipt: `cargo test -p verso
+  --features servo-engine` green + engine-feature-matrix all three combos pass;
+  unblocks `--no-default-features --features wry` and `--features iced-host,wry`
+  launch paths (Lane 5a prerequisite)
 
 ---
 
@@ -2707,6 +2717,23 @@ that had built up over ~10 days of rapid execution.
   follow-on or M5 prerequisite.
 - Cross-section terminology: "Lane A / Lane B / Lane B'" coexists with
   "Lane 1" in the 2026-04-24 entry above; should pick one vocabulary.
+
+### (pending) — Phase A2 sibling: Servo impl → verso (S2/S3)
+
+Mirrors the wry Phase A2 entry (2026-04-25 above). Tracked in
+[`2026-04-25_servo_into_verso_plan.md`](2026-04-25_servo_into_verso_plan.md)
+S2/S3.
+
+Expected changes (receipts to be filled when S2/S3 land):
+
+- Servo engine implementation moves from graphshell main's
+  `mods/native/web_runtime/` into `crates/verso/src/servo_engine/`, behind
+  the `verso/servo-engine` Cargo feature.
+- Graphshell main's `servo::*` imports become `verso::servo_engine::*`.
+- `cargo test -p verso --features servo-engine` becomes the primary Servo
+  receipt target, parallel to `--features wry-engine` established in Phase A2.
+- `--no-default-features --features wry` and `--features iced-host,wry` builds
+  stop pulling Servo, unblocking Lane 5a (first no-Servo iced launch).
 
 ---
 

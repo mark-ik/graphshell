@@ -3,7 +3,7 @@
     An open source, prototype, spatial browser that represents webpages as nodes in a force-directed graph
 
 - Force-directed node graph canvas with adjustable physics and node/edge criteria enabling many graph topologies
-- Servo-powered web rendering
+- Pluggable web rendering: Servo engine, wry OS webview, and iced-host UI path (engine selection via `verso` Cargo features)
 - Clipping: DOM inspection & element extraction from nodes into graph UI as nodes
 - Local-first, permissions-based P2P co-op browsing
 
@@ -18,10 +18,11 @@ and yours. Graphshell is a local-first, tiling web browser built on a graph
 canvas — think Obsidian's graph view, but the nodes are live webpages, files,
 and notes you can actually work in.
 
-If you want to be technical: Servo-powered spatial browser with a
-force-directed graph canvas, a tiling workbench, and optional P2P co-browsing.
-Long-term it's a "knowledge user agent" — the browser crawls and organizes on
-your behalf instead of passively rendering.
+If you want to be technical: Servo-powered spatial browser — Servo and wry OS
+webview are both selectable via `verso` Cargo features, with an iced-host UI
+path as a third configuration. Force-directed graph canvas, tiling workbench,
+and optional P2P co-browsing. Long-term it's a "knowledge user agent" — the
+browser crawls and organizes on your behalf instead of passively rendering.
 
 ## Features
 

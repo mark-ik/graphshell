@@ -4,11 +4,13 @@
 
 //! Shell-local facade for runtime finalize-action drains.
 //!
-//! `GraphshellRuntime` owns when finalize actions are drained, but the
-//! shell still owns the current adapters that bridge `GraphBrowserApp`
-//! into the extracted runtime helpers. This facade keeps that seam local
-//! to `ui/` so `gui_state` no longer reaches through the broader
-//! `gui_orchestration` surface just to trigger toast/clipboard drains.
+//! Ungated — both the egui-host and iced-host paths call this.
+//!
+//! With `servo-engine`: delegates to `gui_orchestration` wrappers that
+//! add diagnostic-channel instrumentation.
+//! Without `servo-engine`: calls the portable runtime helpers directly
+//! with a no-op clipboard-failure callback (no diagnostic infra yet on
+//! the iced-only path).
 
 use crate::app::GraphBrowserApp;
 use graphshell_runtime::ports::RuntimeTickPorts;
@@ -19,10 +21,18 @@ pub(crate) fn drain_pending_runtime_finalize_actions<P>(
 ) where
     P: RuntimeTickPorts,
 {
-    crate::shell::desktop::ui::gui_orchestration::handle_pending_node_status_notices(
-        graph_app, ports,
-    );
-    crate::shell::desktop::ui::gui_orchestration::handle_pending_clipboard_copy_requests(
-        graph_app, ports,
-    );
+    #[cfg(feature = "servo-engine")]
+    {
+        crate::shell::desktop::ui::gui_orchestration::handle_pending_node_status_notices(
+            graph_app, ports,
+        );
+        crate::shell::desktop::ui::gui_orchestration::handle_pending_clipboard_copy_requests(
+            graph_app, ports,
+        );
+    }
+    #[cfg(not(feature = "servo-engine"))]
+    {
+        // No webviews on the iced-only path — these queues are always empty.
+        let _ = (graph_app, ports);
+    }
 }

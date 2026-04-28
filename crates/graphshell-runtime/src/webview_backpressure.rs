@@ -2,16 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Host-neutral metadata view for webview/viewer creation backpressure.
+//! Host-neutral metadata view and full state for webview/viewer creation
+//! backpressure.
 //!
-//! 2026-04-26 follow-on to the metadata-source extraction: the retry/cooldown
-//! *core* now lives here too, as [`WebviewAttachRetryState`]. The shell still
-//! owns the pending-probe identity (Servo `WebViewId`) and the wall-clock
-//! deadline (`std::time::Instant`); those depend on a host that this crate
-//! does not have. The retry counter, cooldown step, and exponential delay
-//! computation are pure data, so they belong on the portable side.
+//! 2026-04-26: retry/cooldown core [`WebviewAttachRetryState`] added.
+//! 2026-04-27: portable probe state [`WebviewCreationProbeState`] and
+//! full per-node state [`WebviewCreationBackpressureState`] added.
+//! The probe uses [`ViewerSurfaceId`] for the viewer identity (shell adapter
+//! converts from `servo::WebViewId` via the renderer-id registry) and
+//! [`PortableInstant`] for time values, keeping this module free of
+//! host-specific clocks and Servo types.
 
 use graphshell_core::graph::NodeKey;
+use graphshell_core::time::PortableInstant;
+
+use crate::ports::ViewerSurfaceId;
 
 /// Host-neutral per-node attach-attempt metadata.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,6 +119,48 @@ impl WebviewAttachRetryState {
     }
 }
 
+/// Portable pending-probe record for a webview/viewer creation attempt.
+///
+/// The probe tracks which viewer surface is being waited on and when the
+/// attempt started. The shell adapter converts `servo::WebViewId` to
+/// [`ViewerSurfaceId`] via the renderer-id registry before storing it here,
+/// and reverses the conversion when consuming the probe in the reconcile pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WebviewCreationProbeState {
+    /// Host-neutral identity of the in-flight viewer surface. Packed as a
+    /// `u64` renderer-id via [`ViewerSurfaceId::from_u64`] / [`ViewerSurfaceId::as_u64`].
+    pub viewer_surface_id: ViewerSurfaceId,
+    /// Monotonic start time for timeout / age calculations (ms from app start).
+    pub started_at: PortableInstant,
+}
+
+/// Full portable per-node state for webview/viewer creation backpressure.
+///
+/// Composed of:
+/// - [`WebviewAttachRetryState`] — retry counter + cooldown step (no time refs)
+/// - An optional pending probe ([`WebviewCreationProbeState`])
+/// - An optional cooldown deadline ([`PortableInstant`])
+/// - A `cooldown_notified` flag that suppresses redundant `MarkRuntimeBlocked`
+///   intents across frames while in the same cooldown window
+///
+/// The shell keeps Servo-coupled logic (webview creation, `window.contains_webview`,
+/// `MarkRuntimeBlocked` intent construction with `std::time::Instant`) in its
+/// adapter layer; this struct stores only portable data.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WebviewCreationBackpressureState {
+    pub retry: WebviewAttachRetryState,
+    /// Pending probe waiting for confirmation or timeout. `None` when idle or
+    /// in cooldown.
+    pub pending: Option<WebviewCreationProbeState>,
+    /// Earliest time (ms from app start) at which the next creation attempt
+    /// is allowed. `None` when not in cooldown.
+    pub cooldown_until: Option<PortableInstant>,
+    /// True once a `MarkRuntimeBlocked` intent has been pushed for the current
+    /// cooldown window. Reset to `false` whenever `cooldown_until` is armed or
+    /// cleared so the shell pushes exactly one intent per cooldown period.
+    pub cooldown_notified: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +256,40 @@ mod tests {
         state.reset_retry_count();
         assert_eq!(state.retry_count, 0);
         assert_eq!(state.cooldown_step, 5);
+    }
+
+    #[test]
+    fn backpressure_state_default_is_idle() {
+        let state = WebviewCreationBackpressureState::default();
+        assert!(state.pending.is_none());
+        assert!(state.cooldown_until.is_none());
+        assert!(!state.cooldown_notified);
+        assert_eq!(state.retry, WebviewAttachRetryState::default());
+    }
+
+    #[test]
+    fn probe_state_viewer_surface_id_roundtrip_via_u64() {
+        let original = ViewerSurfaceId::new(7, 42);
+        let probe = WebviewCreationProbeState {
+            viewer_surface_id: original,
+            started_at: PortableInstant(1_000),
+        };
+        // Verify the u64 round-trip the shell adapter uses.
+        let packed = probe.viewer_surface_id.as_u64();
+        let recovered = ViewerSurfaceId::from_u64(packed);
+        assert_eq!(recovered, original);
+    }
+
+    #[test]
+    fn cooldown_until_ordering_reflects_ms_comparison() {
+        let earlier = PortableInstant(500);
+        let later = PortableInstant(1_500);
+        assert!(earlier < later);
+
+        let mut state = WebviewCreationBackpressureState::default();
+        state.cooldown_until = Some(later);
+        // Simulated "is cooldown still active?" check.
+        assert!(earlier < state.cooldown_until.unwrap());
+        assert!(later >= state.cooldown_until.unwrap());
     }
 }

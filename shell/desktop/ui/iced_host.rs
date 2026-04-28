@@ -214,9 +214,12 @@ impl IcedHost {
         // Drain deferred surface requests: the registry lives on the
         // runtime, which `tick` has just released, so the bumps are
         // safe now.
+        #[cfg(feature = "servo-engine")]
         for key in self.pending_present_requests.drain(..) {
             self.runtime.viewer_surfaces.bump_content_generation(&key);
         }
+        #[cfg(not(feature = "servo-engine"))]
+        self.pending_present_requests.clear();
 
         // Bound the toast queue so unbounded enqueue streams can't
         // grow memory over a long session.

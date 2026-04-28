@@ -54,7 +54,8 @@ moves to a separate side-channel for GL compat only — not the primary resource
 
 **Files**: `tile_compositor.rs`, `compositor_adapter.rs`
 
-### Phase B — `BackendContentBridge` redesign
+### Phase B — `BackendContentBridge` redesign ✅
+
 Add a `SharedWgpuTexture` variant; demote `ParentRenderCallback` to named fallback.
 
 ```rust
@@ -69,6 +70,13 @@ become deletable once `ParentRenderCallback` is demoted — they're the wrong sh
 wgpu's pre-render texture handoff model.
 
 **Files**: `render_backend/mod.rs`, `render_backend/wgpu_backend.rs`
+
+**Done**: Implementation went further than the redesign plan. The
+`SharedWgpuTexture` variant was briefly added (commit `94f14a0a`) then
+deleted because the wgpu shared-texture path bypasses `BackendContentBridge`
+entirely via `upsert_native_content_texture`. The entire `BackendContentBridge`
+enum and all selection machinery were deleted in the gl_compat retirement
+(commit `b7b70f4b`), along with the GL-shaped wgpu backend stubs.
 
 ### Phase C — 3-axis invalidation
 Split `CompositedContentSignature { webview_id, rect_px, semantic_generation }` into
@@ -118,13 +126,24 @@ decoupling plan; the wgpu redesign reinforces the same constraint.
 `PaneId → TileId` lookup inside `tile_selection_state_for_pane`, keeping
 the compositor's interface TileId-free.
 
-### Phase F — GL guardrail retirement
+### Phase F — GL guardrail retirement ✅
+
 After Phase A-D are stable on WgpuShared:
 - Move `capture_gl_state`, `restore_gl_state`, chaos perturbation, scissor
   isolation behind `#[cfg(feature = "gl_compat")]`
 - Delete when WgpuShared path is confirmed stable in production builds
 
 **Files**: `compositor_adapter.rs` (guardrail machinery), `render_backend/gl_backend.rs`
+
+**Done** (commit `b7b70f4b`, 2026-04-27): `gl_compat` feature and `glow` dep
+deleted. `gl_backend.rs` deleted (139 lines). From `compositor_adapter.rs`:
+13 GL state guardrail functions deleted (`capture_gl_state`,
+`restore_gl_state`, chaos perturbation, scissor isolation, ~200 lines), 17
+GL-only tests deleted, `BridgeProbeContext` + `COMPOSITOR_REPLAY_SEQUENCE`
+deleted. `GlStateSnapshot` retained as a frozen-default struct for diagnostics
+export compatibility. The deprecation window (slice 2 "default-off") was
+collapsed into the deletion — the prototype context confirmed the wgpu-only
+path was stable without a separate smoke step.
 
 ### Phase G — Graph rendering (separate track)
 Keep explicitly separate from webview composition redesign:

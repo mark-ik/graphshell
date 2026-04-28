@@ -63,5 +63,5 @@ pub use frame_inbox::FrameInboxState;
 pub use rendering_context_producer::RenderingContextProducer;
 pub use webview_backpressure::{
     NodePaneAttachAttemptMetadata, RuntimeWebviewBackpressureMetadataSource,
-    WebviewAttachRetryState,
+    WebviewAttachRetryState, WebviewCreationBackpressureState, WebviewCreationProbeState,
 };

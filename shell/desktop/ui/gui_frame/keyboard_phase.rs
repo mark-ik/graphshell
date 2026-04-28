@@ -13,7 +13,7 @@ use crate::graph::NodeKey;
 use crate::input;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::ui::nav_targeting;
 use crate::shell::desktop::ui::toolbar_routing;

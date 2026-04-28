@@ -9,19 +9,20 @@ use std::time::Duration;
 
 use crate::app::{GraphBrowserApp, GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 #[cfg(any(test, feature = "iced-host"))]
 use crate::shell::desktop::runtime::registry_signal_router::RegistrySignalRouter;
 use crate::shell::desktop::ui::command_palette_state::CommandPaletteSession;
 use crate::shell::desktop::ui::finalize_actions::drain_pending_runtime_finalize_actions;
-use crate::shell::desktop::ui::gui::frame_inbox::GuiFrameInbox;
+use crate::shell::desktop::ui::gui_frame_inbox::GuiFrameInbox;
 #[cfg(any(test, feature = "iced-host"))]
-use crate::shell::desktop::ui::gui::frame_inbox::spawn_gui_frame_inbox;
+use crate::shell::desktop::ui::gui_frame_inbox::spawn_gui_frame_inbox;
 use crate::shell::desktop::ui::omnibar_state::{
     OmnibarSearchSession, OmnibarSessionKind, ProviderSuggestionError, ProviderSuggestionStatus,
 };
+#[cfg(feature = "servo-engine")]
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
@@ -44,8 +45,10 @@ use graphshell_runtime::{
     project_graph_search_view_model, project_omnibar_view_model, project_settings_view_model,
     project_toolbar_view_model, project_transient_frame_outputs,
 };
+#[cfg(all(any(test, feature = "iced-host"), feature = "servo-engine"))]
+use verso_host::NoopViewerSurfaceHost;
 #[cfg(any(test, feature = "iced-host"))]
-use verso_host::{NoopViewerSurfaceHost, TokioAsyncSpawner};
+use verso_host::TokioAsyncSpawner;
 
 // Toolbar session types moved to `graphshell_core::shell_state::toolbar`
 // in M4 slice 2 (2026-04-22). Re-exported here so existing call sites
@@ -150,6 +153,7 @@ pub(crate) use graphshell_core::shell_state::authorities::FocusAuthorityMut;
 /// pass it down. Fields are `pub(crate)` so deep call stacks that still
 /// expect raw refs (egui TextEdit callbacks wanting `&mut String`) can
 /// reach them without forcing a method signature rewrite.
+#[cfg(feature = "servo-engine")]
 pub(crate) struct ToolbarAuthorityMut<'a> {
     pub(crate) editable: &'a mut ToolbarEditable,
     pub(crate) show_clear_data_confirm: &'a mut bool,
@@ -164,6 +168,7 @@ pub(crate) struct ToolbarAuthorityMut<'a> {
     >,
 }
 
+#[cfg(feature = "servo-engine")]
 impl<'a> ToolbarAuthorityMut<'a> {
     /// Reborrow the bundle with a shorter lifetime so it can be threaded
     /// through sub-functions without moving out of the outer bundle.
@@ -296,9 +301,11 @@ pub(crate) struct GraphshellRuntime {
 
     /// Phase D unified viewer surface registry keyed by NodeKey. Single
     /// authority for per-node content surface state.
+    #[cfg(feature = "servo-engine")]
     pub(crate) viewer_surfaces: ViewerSurfaceRegistry,
 
     /// Host-owned viewer surface allocator/retirer.
+    #[cfg(feature = "servo-engine")]
     pub(crate) viewer_surface_host: Box<dyn ViewerSurfaceHost<ViewerSurfaceRegistry>>,
 
     /// Runtime backpressure state for tile-driven viewer creation retries.
@@ -332,6 +339,7 @@ pub(crate) struct GraphshellRuntime {
     /// (which is `AsyncRequestState<ProviderSuggestionFetchOutcome>`).
     /// The toolbar frame bridges this into the portable mailbox state
     /// at the top of each render. Introduced M4 slice 5 (2026-04-22).
+    #[cfg(feature = "servo-engine")]
     pub(crate) omnibar_provider_suggestion_driver: Option<
         crate::shell::desktop::ui::toolbar::toolbar_provider_driver::ProviderSuggestionDriver,
     >,
@@ -482,6 +490,7 @@ impl GraphshellRuntime {
         if self.frame_inbox.take_semantic_index_refresh() {
             self.graph_app.refresh_registry_backed_view_lenses();
         }
+        #[cfg(feature = "servo-engine")]
         if self.frame_inbox.take_workbench_projection_refresh() {
             let _ = crate::shell::desktop::ui::persistence_ops::refresh_workbench_projection_from_manifests(
                 &mut self.graph_app,
@@ -566,6 +575,8 @@ impl GraphshellRuntime {
         // project_graph_runtime_layout_view_model`. The shell-side
         // egui::Rect → PortableRect conversion stays here; the runtime
         // helper consumes the already-portable form.
+        // No-servo path: active_pane_rects is always empty (no webviews).
+        #[cfg(feature = "servo-engine")]
         let layout_active_pane_rects: Vec<_> = self
             .graph_app
             .workspace
@@ -582,6 +593,12 @@ impl GraphshellRuntime {
                 )
             })
             .collect();
+        #[cfg(not(feature = "servo-engine"))]
+        let layout_active_pane_rects: Vec<(
+            crate::shell::desktop::workbench::pane_model::PaneId,
+            crate::graph::NodeKey,
+            graphshell_core::geometry::PortableRect,
+        )> = Vec::new();
         let layout_projection =
             project_graph_runtime_layout_view_model(GraphRuntimeLayoutProjectionInput {
                 active_pane_rects: &layout_active_pane_rects,
@@ -783,7 +800,9 @@ impl GraphshellRuntime {
             registry_runtime: Arc::new(RegistryRuntime::default()),
             signal_router,
             tokio_runtime,
+            #[cfg(feature = "servo-engine")]
             viewer_surfaces: ViewerSurfaceRegistry::new(),
+            #[cfg(feature = "servo-engine")]
             viewer_surface_host: Box::new(NoopViewerSurfaceHost),
             webview_creation_backpressure: HashMap::new(),
             thumbnail_capture_in_flight: std::collections::HashSet::new(),
@@ -798,6 +817,7 @@ impl GraphshellRuntime {
             focus_ring_node_key: None,
             focus_ring_started_at: None,
             omnibar_search_session: None,
+            #[cfg(feature = "servo-engine")]
             omnibar_provider_suggestion_driver: None,
             focus_authority: RuntimeFocusAuthorityState::default(),
             toolbar_drafts: HashMap::new(),
