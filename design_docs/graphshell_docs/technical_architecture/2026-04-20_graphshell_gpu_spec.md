@@ -343,11 +343,25 @@ confined to:
 **Rationale**: lets the same consumer code (middlenet-render, vello, etc.)
 run in both envelopes without cfg-heavy branching.
 
-### 5.5 Font shaping: parley + swash
+### 5.5 Font shaping: parley + swash; atlas ownership scoped per path
 
-**Decision (leaning)**: use **parley** for shaping (already intended for
-vello integration and Direct Lane rendering), **swash** for glyph rasterization.
-Single glyph atlas keyed by `(font_id, glyph_id, size_bucket, subpixel_pos)`.
+**Decision (recorded 2026-04-28)**: **parley** for shaping; **swash**
+for glyph rasterization on graphshell-gpu-owned paths. Atlas ownership
+is **scoped per render path, not global**:
+
+- Direct Lane / vello and any graphshell-gpu-rendered content:
+  graphshell-gpu owns the atlas, keyed by
+  `(font_id, glyph_id, size_bucket, subpixel_pos)`.
+- WebRender path (HTML Lane and any webrender-wgpu-rendered content):
+  webrender-wgpu owns the atlas internally; graphshell-gpu does not
+  duplicate it. See
+  [`../../../../webrender-wgpu/wr-wgpu-notes/2026-04-28_idiomatic_wgsl_pipeline_plan.md`](../../../../webrender-wgpu/wr-wgpu-notes/2026-04-28_idiomatic_wgsl_pipeline_plan.md)
+  §10 Q14.
+
+WebRender does not shape — embedders submit pre-shaped glyph runs via
+its display-list API — so parley sits *above* webrender-wgpu in the
+HTML Lane stack (Stylo → Taffy → Parley → webrender-wgpu) without API
+conflict.
 
 **Why not cosmic-text?** Parley is where the Servo/vello ecosystem is
 converging. Cosmic-text is nice but diverges from Servo's direction.

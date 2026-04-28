@@ -2735,6 +2735,87 @@ Expected changes (receipts to be filled when S2/S3 land):
 - `--no-default-features --features wry` and `--features iced-host,wry` builds
   stop pulling Servo, unblocking Lane 5a (first no-Servo iced launch).
 
+### 2026-04-28 — wgpu 29 parity reached via vendored iced
+
+Iced is now on wgpu 29, matching `webrender-wgpu`, `servo-wgpu`, and
+`egui-wgpu` 0.34.1. Achieved by vendoring iced (with one supporting
+crate) rather than waiting on upstream — the bump was simple in
+practice. Resolves the 28/29 split that was the load-bearing
+motivation for the [GPUI host integration plan](2026-04-27_gpui_host_integration_plan.md)
+and the wgpu-unification argument in the [Blitz-shaped chrome
+scoping](2026-04-24_blitz_shaped_chrome_scoping.md).
+
+Implications:
+
+- Iced is no longer a "permanently awkward" host for Servo content;
+  shared-wgpu interop (Options B/C from the
+  [renderer-boot research](../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md))
+  is no longer blocked on a version bridge.
+- GPUI demoted from "long-run candidate" to "branch experiment, after
+  iced stabilizes." Phase 0/1 of the GPUI plan is no longer urgent.
+- Blitz-shaped chrome retains independent merit (HTML/CSS as source
+  of truth, Firefox-grade selectors, Servo-aligned architecture) but
+  the wgpu-unification cost case is gone — that path is now justified
+  by chrome semantics, not GPU-stack alignment.
+- `Cargo.toml` mobile target-cfg deps pruned alongside this work
+  (Android, OHOS, mobile surfman with `sm-angle-default`); EGL entry
+  point already deleted. Source-code mobile cfg gates remain in 12
+  .rs files plus `build.rs` — orphaned but not yet swept.
+
+### 2026-04-28 — egui-host Cargo feature gate landed
+
+`Cargo.toml` now exposes `egui-host` as a real feature. The six egui
+crates (`egui`, `egui-file-dialog`, `egui-winit`, `egui-wgpu`,
+`egui_tiles`, `egui-notify`) are all `optional = true`; `egui-host`
+activates them. `egui-host` is in default features, and `servo-engine`
+chains it transitively so existing `#[cfg(feature = "servo-engine")]`
+gates in `shell::desktop::ui` (which currently conflate engine and host
+ownership) keep pulling egui in.
+
+Verified via `cargo tree -e features`:
+
+- Default build: all 6 egui crates present (no behavior change).
+- `--no-default-features --features iced-host,wry`: zero egui crates
+  in the dep graph.
+
+What this slice does *not* do: the iced-only build still won't compile
+because ~30 files in `shell::desktop::ui` and ~16 in
+`shell::desktop::workbench` import egui directly under
+`#[cfg(feature = "servo-engine")]` gates. The Cargo gate is the
+"architectural signal" slice; the next slice splits the existing
+servo-engine gates into `all(servo-engine, egui-host)` (or pulls
+the egui-only modules behind a pure `egui-host` gate where Servo
+isn't actually involved) so that `--features iced-host` actually
+compiles.
+
+### 2026-04-28 — egui_tiles retirement plan scoped
+
+The audit confirmed §M1's "tiles is presentation-only" claim is
+true at the *semantic* level but `egui_tiles::Tree<TileKind>` is
+still the structural data owner: ~60 files reference egui_tiles
+types (~187 call sites), `Tree::ui(&mut Behavior)` is still the
+sole render entry point at `tile_post_render.rs:404`, and
+`TileId` (~142 references) is still the compositor identity in
+parts of `tile_compositor.rs` (~2,988 LOC). `graph-tree`'s
+`compute_layout()` already returns the
+`pane_rects`/`tab_order`/`split_boundaries` data the retirement
+needs.
+
+The retirement is mechanical (no new authority work). Scoped as
+five shippable slices in
+[`2026-04-28_egui_tiles_retirement_plan.md`](2026-04-28_egui_tiles_retirement_plan.md):
+
+- S1: extract `Behavior` methods to standalone functions
+- S2: replace `Tree::ui()` with direct iteration over `LayoutResult`
+- S3: rekey compositor from `TileId` to `NodeKey`
+- S4: migrate persistence; delete `tiles_tree` field
+- S5: drop `egui_tiles` dep + delete dual-write/sync glue
+
+S5's receipt is the done condition for the whole retirement:
+`--no-default-features --features iced-host,wry` compiles. No
+implementation committed pending decision on sequencing relative
+to M5/M6 chrome work.
+
 ---
 
 ## 11. Summary

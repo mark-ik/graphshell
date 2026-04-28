@@ -280,3 +280,22 @@ Dep graph before/after:
 wgpu 27 is fully eliminated. iced_wgpu, cryoglyph, and vello now share wgpu 28.
 Two winit versions (iced-rs fork 0.30.8 + crates.io 0.30.13) — acceptable.
 The 28/29 gap remains; single-wgpu requires the GPUI path (Phase 3 gate).
+
+**2026-04-28** — wgpu 29 parity reached via vendored iced. Iced (and one
+supporting crate) vendored in-tree and bumped to wgpu 29; the change was
+simple in practice. Dep graph: single wgpu 29 across iced, vello, servo,
+webrender, and egui.
+
+This eliminates the load-bearing motivation for prioritizing GPUI: the
+patch shape proposed in §Findings was justified by *single-wgpu through a
+shared device*, but iced now satisfies that on its own. The plan is not
+withdrawn — gpui-component's widget richness, the Glass-HQ/Zed lineage,
+and the architectural cleanness of native wgpu external-texture support
+remain genuine advantages — but it moves from "long-run candidate" to
+"branch experiment after iced stabilizes." Re-evaluate when the iced
+chrome work has matured enough to define what a better host would
+actually need to deliver.
+
+Phase 0 (local external-texture proof) and Phase 1 (Glass-HQ outreach)
+are not urgent. Phase 3 migration gate stays as written for whenever
+the experiment is revisited.

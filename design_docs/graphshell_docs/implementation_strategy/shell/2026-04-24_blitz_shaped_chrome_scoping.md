@@ -8,6 +8,25 @@
 **Lane**: Long-horizon alternative to the iced chrome track; informs
 when/if to abandon iced for an HTML/CSS-rendered chrome stack.
 
+**2026-04-28 update — premise shift**: Iced reached wgpu 29 parity by
+vendoring (see [GPUI plan progress entry](2026-04-27_gpui_host_integration_plan.md#progress)
+and [iced migration plan progress entry](2026-04-14_iced_host_migration_execution_plan.md#10-progress-log)).
+The wgpu version split that this doc treats as a permanent
+architectural cost (§1, §3.5, §5 comparison table) **no longer
+exists**. "Removing iced *also removes the version split*" is no
+longer a unique benefit of Blitz-shaped — that win is already
+captured in iced.
+
+This doc's case for Blitz-shaped therefore reduces to the
+*non-GPU* arguments: HTML/CSS as the source of truth for chrome,
+Firefox-grade selectors via Stylo, and architectural alignment
+with Servo's own renderer model. Those are still substantive but
+they're a chrome-semantics case, not a GPU-stack-alignment case.
+Any future activation of this plan should re-anchor §1 on those
+arguments rather than the wgpu split. Decision criteria in §8
+remain valid — the "wgpu version split causes a real, blocking
+problem" trigger is now defensively unlikely to fire.
+
 **Context**: The 2026-04-24 [renderer-boot research](../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md)
 turned up two architectural surprises that shift the cost/benefit
 of replacing iced:
