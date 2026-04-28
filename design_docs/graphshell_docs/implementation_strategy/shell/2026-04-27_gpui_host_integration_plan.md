@@ -192,3 +192,19 @@ Confirm with `cargo tree -d` after wiring up: no duplicate wgpu entries.
 iced remains the active implementation target until Phase 3 gate is met.
 Glass-HQ outreach targeted for June 2026 (post-Blade wgpu backend settling
 period). Plan written; no code changed.
+
+**2026-04-27** — iced bumped from 0.14 (wgpu 27) to 0.15.0-dev git master
+(wgpu 28) on the `iced-wgpu-bump` branch. One code change required:
+`Event::Clipboard(_) => None` added to `iced_events.rs` for the new
+clipboard-read response variant. pdfium-render bumped 0.8→0.9 to resolve
+a web-sys exact-version conflict (`iced_winit` pins `=0.3.85`; pdfium 0.8.37
+was locked to 0.3.95 — pdfium 0.9.0 resolves to 0.3.85).
+
+Dep graph before/after:
+
+- Before: wgpu 27 (iced), 28 (vello), 29 (servo/egui/webrender) — 3 versions
+- After:  wgpu 28 (iced+vello), 29 (servo/egui/webrender) — 2 versions
+
+wgpu 27 is fully eliminated. iced_wgpu, cryoglyph, and vello now share wgpu 28.
+Two winit versions (iced-rs fork 0.30.8 + crates.io 0.30.13) — acceptable.
+The 28/29 gap remains; single-wgpu requires the GPUI path (Phase 3 gate).
