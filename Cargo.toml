@@ -125,7 +125,7 @@ infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 # M5: iced is the second host backend. Pulled only under the `iced-host`
 # feature; egui remains the default host until M5/M6 reach parity.
-iced = { git = "https://github.com/iced-rs/iced", branch = "master", optional = true, features = ["canvas"] }
+iced = { path = "../iced-wgpu29", optional = true, features = ["canvas"] }
 # Iced middlenet viewer lives in its own crate so it can be developed,
 # tested, and demoed without pulling in the heavy Servo/webrender deps
 # of the main graphshell crate. The graphshell-side host adapter
@@ -307,6 +307,9 @@ wr_malloc_size_of = { path = "../webrender-wgpu/wr_malloc_size_of" }
 [patch."https://github.com/mark-ik/wgpu-gui-bridge"]
 servo-wgpu-interop-adapter = { path = "../wgpu-gui-bridge/servo-wgpu-interop-adapter" }
 wgpu-native-texture-interop = { path = "../wgpu-gui-bridge/wgpu-native-texture-interop" }
+
+[patch."https://github.com/iced-rs/cryoglyph.git"]
+cryoglyph = { path = "../cryoglyph-wgpu29" }
 
 [[test]]
 name = "scenarios"
