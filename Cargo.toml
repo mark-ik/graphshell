@@ -125,7 +125,7 @@ infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 # M5: iced is the second host backend. Pulled only under the `iced-host`
 # feature; egui remains the default host until M5/M6 reach parity.
-iced = { version = "0.14", optional = true, features = ["canvas"] }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master", optional = true, features = ["canvas"] }
 # Iced middlenet viewer lives in its own crate so it can be developed,
 # tested, and demoed without pulling in the heavy Servo/webrender deps
 # of the main graphshell crate. The graphshell-side host adapter
@@ -251,7 +251,7 @@ servo_allocator = { path = "../servo-wgpu/components/allocator", package = "serv
 surfman = { version = "0.12.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
 wry = { version = "0.55", optional = true }
-pdfium-render = { version = "0.8", optional = true }
+pdfium-render = { version = "0.9", optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["mp3", "ogg", "flac", "wav", "aac"] }
 rodio = { version = "0.20", optional = true, default-features = false }
 

@@ -9,7 +9,7 @@ rust-version = "1.92.0"
 description = "Iced widget that mounts a wry::WebView as a child of the iced window. Per-platform overlay-region positioning sync."
 
 [dependencies]
-iced = { version = "0.14", features = ["canvas"] }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["canvas"] }
 verso = { path = "../verso", features = ["wry-engine"] }
 log = "0.4"
 raw-window-handle = "0.6"
