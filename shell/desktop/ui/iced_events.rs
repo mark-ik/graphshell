@@ -37,6 +37,9 @@ pub(crate) fn from_iced_event(event: &iced::Event) -> Option<HostEvent> {
         // host-neutral IME vocabulary yet; drop them until an explicit
         // IME pass lands in `HostEvent`.
         iced::Event::InputMethod(_) => None,
+        // iced 0.15 added `Clipboard` for clipboard-read response events.
+        // No host-neutral clipboard read vocabulary yet; drop until needed.
+        iced::Event::Clipboard(_) => None,
     }
 }
 

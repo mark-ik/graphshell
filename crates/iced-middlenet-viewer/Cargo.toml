@@ -9,7 +9,7 @@ rust-version = "1.92.0"
 description = "Iced widget that paints middlenet RenderScenes (Gemini, RSS, Markdown, plain text)."
 
 [dependencies]
-iced = { version = "0.14", features = ["canvas"] }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master", features = ["canvas"] }
 middlenet-engine = { path = "../middlenet-engine" }
 middlenet-core = { path = "../middlenet-core" }
 
