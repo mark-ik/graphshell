@@ -9,8 +9,6 @@ use std::fs::{self, read_to_string};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
-#[cfg(any(target_os = "android", target_env = "ohos"))]
-use std::sync::OnceLock;
 use std::{env, fmt};
 
 use bpaf::*;
@@ -18,9 +16,7 @@ use euclid::Size2D;
 use log::warn;
 use serde_json::Value;
 use servo::user_contents::UserStyleSheet;
-use servo::{
-    DeviceIndependentPixel, DiagnosticsLogging, Opts, OutputOptions, PrefValue, Preferences,
-};
+use servo::{DeviceIndependentPixel, DiagnosticsLogging, Opts, PrefValue, Preferences};
 use url::Url;
 
 use crate::VERSION;
@@ -33,8 +29,6 @@ pub(crate) static EXPERIMENTAL_PREFS: &[&str] = &[
     "dom_notification_enabled",
     "dom_offscreen_canvas_enabled",
     "dom_permissions_enabled",
-    "dom_webgl2_enabled",
-    "dom_webgpu_enabled",
     "layout_columns_enabled",
     "layout_container_queries_enabled",
     "layout_grid_enabled",
@@ -59,7 +53,6 @@ impl Default for FileAccessPolicy {
     }
 }
 
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 #[derive(Clone)]
 pub(crate) struct AppPreferences {
     /// A URL to load when starting Graphshell.
@@ -80,7 +73,7 @@ pub(crate) struct AppPreferences {
     pub headless: bool,
     /// Filter directives for our tracing implementation.
     ///
-    /// Overrides directives specified via `SERVO_TRACING` if set.
+    /// Overrides directives specified via `GRAPHSHELL_TRACING` if set.
     /// See: <https://docs.rs/tracing-subscriber/0.3.19/tracing_subscriber/filter/struct.EnvFilter.html#directives>
     pub tracing_filter: Option<String>,
     /// The initial requested inner size of the window.
@@ -114,13 +107,6 @@ pub(crate) struct AppPreferences {
     pub webdriver_port: Cell<Option<u16>>,
     /// Whether the CLI option to enable experimental prefs was present at startup.
     pub experimental_preferences_enabled: bool,
-    /// Log filter given in the `log_filter` spec as a String, if any.
-    /// If a filter is passed, the logger should adjust accordingly.
-    #[cfg(target_env = "ohos")]
-    pub log_filter: Option<String>,
-    /// Log also to a file
-    #[cfg(target_env = "ohos")]
-    pub log_to_file: bool,
 }
 
 impl Default for AppPreferences {
@@ -129,7 +115,7 @@ impl Default for AppPreferences {
             clean_shutdown: false,
             device_pixel_ratio_override: None,
             headless: false,
-            homepage: "https://servo.org".into(),
+            homepage: "about:blank".into(),
             initial_window_size: Size2D::new(1024, 740),
             no_native_titlebar: true,
             screen_size_override: None,
@@ -146,35 +132,17 @@ impl Default for AppPreferences {
             worker_idle_threshold_secs: None,
             file_access_policy: FileAccessPolicy::default(),
             webdriver_port: Cell::new(None),
-            #[cfg(target_env = "ohos")]
-            log_filter: None,
-            #[cfg(target_env = "ohos")]
-            log_to_file: false,
             experimental_preferences_enabled: false,
         }
     }
 }
 
-#[cfg(all(
-    unix,
-    not(target_os = "macos"),
-    not(target_os = "ios"),
-    not(target_os = "android"),
-    not(target_env = "ohos")
-))]
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios")))]
 pub fn default_config_dir() -> Option<PathBuf> {
     let mut config_dir = ::dirs::config_dir().unwrap();
-    config_dir.push("servo");
+    config_dir.push("graphshell");
     config_dir.push("default");
     Some(config_dir)
-}
-
-/// Overrides the default preference dir
-#[cfg(any(target_os = "android", target_env = "ohos"))]
-pub(crate) static DEFAULT_CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
-#[cfg(any(target_os = "android", target_env = "ohos"))]
-pub fn default_config_dir() -> Option<PathBuf> {
-    DEFAULT_CONFIG_DIR.get().cloned()
 }
 
 #[cfg(target_os = "macos")]
@@ -182,14 +150,14 @@ pub fn default_config_dir() -> Option<PathBuf> {
     // FIXME: use `config_dir()` ($HOME/Library/Preferences)
     // instead of `data_dir()` ($HOME/Library/Application Support) ?
     let mut config_dir = ::dirs::data_dir().unwrap();
-    config_dir.push("Servo");
+    config_dir.push("Graphshell");
     Some(config_dir)
 }
 
 #[cfg(target_os = "windows")]
 pub fn default_config_dir() -> Option<PathBuf> {
     let mut config_dir = ::dirs::config_dir().unwrap();
-    config_dir.push("Servo");
+    config_dir.push("Graphshell");
     Some(config_dir)
 }
 
@@ -246,10 +214,8 @@ pub fn read_prefs_map(txt: &str) -> HashMap<String, PrefValue> {
 }
 
 #[expect(clippy::large_enum_variant)]
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) enum ArgumentParsingResult {
     ChromeProcess(Opts, Preferences, AppPreferences),
-    ContentProcess(String),
     Exit,
     ErrorParsing,
 }
@@ -374,23 +340,6 @@ where
     construct!([arg, just_flag]).optional()
 }
 
-fn profile() -> impl Parser<Option<OutputOptions>> {
-    flag_with_default_parser(
-        Some('p'),
-        "profile",
-        "",
-        "uses 5.0 output as standard if no argument supplied",
-        OutputOptions::Stdout(5.0),
-        |val: String| {
-            if let Ok(float) = val.parse::<f64>() {
-                OutputOptions::Stdout(float)
-            } else {
-                OutputOptions::FileName(val)
-            }
-        },
-    )
-}
-
 fn userscripts() -> impl Parser<Option<PathBuf>> {
     flag_with_default_parser(
         None,
@@ -402,6 +351,7 @@ fn userscripts() -> impl Parser<Option<PathBuf>> {
     )
 }
 
+#[cfg(feature = "webdriver")]
 fn webdriver_port() -> impl Parser<Option<u16>> {
     flag_with_default_parser(
         None,
@@ -418,17 +368,12 @@ fn map_debug_options(arg: String) -> Vec<String> {
 }
 
 #[derive(Bpaf, Clone, Debug)]
-#[bpaf(options, version(VERSION), usage("servo [OPTIONS] URL"))]
+#[bpaf(options, version(VERSION), usage("graphshell [OPTIONS] URL"))]
 // Newlines in comments are intentional to have the right formatting for the help message.
 struct CmdArgs {
     /// Background Hang Monitor enabled.
     #[bpaf(short('B'), long("bhm"))]
     background_hang_monitor: bool,
-
-    ///
-    ///  Path to find SSL certificates.
-    #[bpaf(argument("/home/servo/resources/certs"))]
-    certificate_path: Option<PathBuf>,
 
     /// Do not shutdown until all threads have finished (macos only).
     #[bpaf(long)]
@@ -436,7 +381,7 @@ struct CmdArgs {
 
     ///
     ///  Config directory following xdg spec on linux platform.
-    #[bpaf(argument("~/.config/servo"))]
+    #[bpaf(argument("~/.config/graphshell"))]
     config_dir: Option<PathBuf>,
 
     /// Override GraphShell graph persistence directory.
@@ -451,11 +396,6 @@ struct CmdArgs {
     /// low-frequency suspension mode. Defaults to 120 s.
     #[bpaf(long("worker-idle-threshold-secs"), argument("120"))]
     worker_idle_threshold_secs: Option<u64>,
-
-    ///
-    ///  Run as a content process and connect to the given pipe.
-    #[bpaf(argument("servo-ipc-channel.abcdefg"))]
-    content_process: Option<String>,
 
     ///
     ///  A comma-separated string of debug options. Pass help to show available options.
@@ -473,14 +413,6 @@ struct CmdArgs {
     #[bpaf(argument("1.0"))]
     device_pixel_ratio: Option<f32>,
 
-    /// Start remote devtools server on port.
-    #[bpaf(argument("0"))]
-    devtools: Option<u16>,
-
-    /// Start remote devtools server on a specific host:port listen address.
-    #[bpaf(long("devtools-address"), argument("127.0.0.1:6000"))]
-    devtools_address: Option<String>,
-
     ///
     ///  Whether or not to enable experimental web platform features.
     #[bpaf(long)]
@@ -489,14 +421,6 @@ struct CmdArgs {
     // Exit after Servo has loaded the page and detected a stable output image.
     #[bpaf(short('x'), long)]
     exit: bool,
-
-    // Use ipc_channel in singleprocess mode.
-    #[bpaf(short('I'), long("force-ipc"))]
-    force_ipc: bool,
-
-    /// Exit on thread failure instead of displaying about:failure.
-    #[bpaf(short('f'), long)]
-    hard_fail: bool,
 
     /// Headless mode.
     #[bpaf(short('z'), long)]
@@ -510,25 +434,6 @@ struct CmdArgs {
     /// Number of threads to use for layout.
     #[bpaf(short('y'), long, argument("1"))]
     layout_threads: Option<i64>,
-
-    ///
-    ///  Directory root with unminified scripts.
-    #[bpaf(argument("~/.local/share/servo"))]
-    local_script_source: Option<PathBuf>,
-
-    #[cfg(target_env = "ohos")]
-    /// Define a custom filter for logging.
-    #[bpaf(argument("FILTER"))]
-    log_filter: Option<String>,
-
-    #[cfg(target_env = "ohos")]
-    /// Also log to a file (/data/app/el2/100/base/org.servo.servo/cache/servo.log).
-    #[bpaf(long)]
-    log_to_file: bool,
-
-    /// Run in multiprocess mode.
-    #[bpaf(short('M'), long)]
-    multiprocess: bool,
 
     /// Do not use native titlebar.
     #[bpaf(short('b'), long)]
@@ -544,19 +449,9 @@ struct CmdArgs {
     #[bpaf(short('o'), argument("test.png"), long)]
     output: Option<PathBuf>,
 
-    /// Time profiler flag and either a TSV output filename
-    /// OR an interval for output to Stdout (blank for Stdout with interval of 5s).
-    #[bpaf(external)]
-    profile: Option<OutputOptions>,
-
-    ///
-    ///  Path to dump a self-contained HTML timeline of profiler traces.
-    #[bpaf(argument("trace.html"), long)]
-    profiler_trace_path: Option<PathBuf>,
-
     ///
     ///  A preference to set.
-    #[bpaf(argument("dom_bluetooth_enabled"), many)]
+    #[bpaf(argument("layout_threads=4"), many)]
     pref: Vec<String>,
 
     ///
@@ -567,18 +462,6 @@ struct CmdArgs {
     /// Print Progressive Web Metrics.
     #[bpaf(long)]
     print_pwm: bool,
-
-    ///
-    ///  Probability of randomly closing a pipeline (for testing constellation hardening).
-    #[bpaf(argument("0.25"))]
-    random_pipeline_closure_probability: Option<f32>,
-
-    /// A fixed seed for repeatbility of random pipeline closure.
-    random_pipeline_closure_seed: Option<usize>,
-
-    /// Run in a sandbox if multiprocess.
-    #[bpaf(short('S'), long)]
-    sandbox: bool,
 
     /// Shaders will be loaded from the specified directory instead of using the builtin ones.
     shaders: Option<PathBuf>,
@@ -594,17 +477,9 @@ struct CmdArgs {
     #[bpaf(long("simulate-touch-events"))]
     simulate_touch_events: bool,
 
-    /// Define a custom filter for traces. Overrides `SERVO_TRACING` if set.
+    /// Define a custom filter for traces. Overrides `GRAPHSHELL_TRACING` if set.
     #[bpaf(long("tracing-filter"), argument("FILTER"))]
     tracing_filter: Option<String>,
-
-    /// Unminify Javascript.
-    #[bpaf(long)]
-    unminify_js: bool,
-
-    /// Unminify Css.
-    #[bpaf(long)]
-    unminify_css: bool,
 
     ///
     ///  Set custom user agent string (or ios / android / desktop for platform default).
@@ -622,6 +497,7 @@ struct CmdArgs {
     user_stylesheet: Vec<Rc<UserStyleSheet>>,
 
     /// Start remote WebDriver server on port.
+    #[cfg(feature = "webdriver")]
     #[bpaf(external)]
     webdriver_port: Option<u16>,
 
@@ -631,7 +507,7 @@ struct CmdArgs {
     window_size: Option<Size2D<u32, DeviceIndependentPixel>>,
 
     /// The url we should load.
-    #[bpaf(positional("URL"), fallback(String::from("https://www.servo.org")))]
+    #[bpaf(positional("URL"), fallback(String::from("about:blank")))]
     url: String,
 }
 
@@ -639,14 +515,6 @@ fn update_preferences_from_command_line_arguemnts(
     preferences: &mut Preferences,
     cmd_args: &CmdArgs,
 ) {
-    if let Some(address) = cmd_args.devtools_address.as_deref() {
-        preferences.devtools_server_enabled = true;
-        preferences.devtools_server_listen_address = address.to_string();
-    } else if let Some(port) = cmd_args.devtools {
-        preferences.devtools_server_enabled = true;
-        preferences.devtools_server_listen_address = format!("127.0.0.1:{port}");
-    }
-
     if cmd_args.enable_experimental_web_platform_features {
         for pref in EXPERIMENTAL_PREFS {
             preferences.set_value(pref, PrefValue::Bool(true));
@@ -673,6 +541,7 @@ fn update_preferences_from_command_line_arguemnts(
         preferences.user_agent = user_agent;
     }
 
+    #[cfg(feature = "webdriver")]
     if cmd_args.webdriver_port.is_some() {
         preferences.dom_testing_html_input_element_select_files_enabled = true;
     }
@@ -692,18 +561,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
     let cmd_args = match cmd_args {
         Ok(cmd_args) => cmd_args,
         Err(error) => {
-            // Servo will exit after printing the parsing error, which makes the stdout / stderr
-            // redirection via a seperate thread racy, so we log directly to the system logger.
-            if cfg!(target_os = "android") || cfg!(target_env = "ohos") {
-                match &error {
-                    ParseFailure::Stderr(doc) => log::error!("{doc}"),
-                    // '--help' will be parsed by the next one.
-                    ParseFailure::Stdout(doc, _) => log::error!("{doc}"),
-                    ParseFailure::Completion(_) => log::error!("Not supported on these platforms"),
-                }
-            } else {
-                error.print_message(80);
-            }
+            error.print_message(80);
 
             return if error.exit_code() == 0 {
                 ArgumentParsingResult::Exit
@@ -712,11 +570,6 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             };
         }
     };
-
-    // If this is the content process, we'll receive the real options over IPC. So fill in some dummy options for now.
-    if let Some(content_process) = cmd_args.content_process {
-        return ArgumentParsingResult::ContentProcess(content_process);
-    }
 
     let config_dir = cmd_args
         .config_dir
@@ -727,22 +580,9 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
                 fs::create_dir_all(config_dir).expect("Could not create config_dir");
             }
         });
-    if let Some(ref time_profiler_trace_path) = cmd_args.profiler_trace_path {
-        let mut path = PathBuf::from(time_profiler_trace_path);
-        path.pop();
-        fs::create_dir_all(&path).expect("Error in creating profiler trace path");
-    }
-
     let mut preferences = get_preferences(&cmd_args.prefs_file, &config_dir);
 
     update_preferences_from_command_line_arguemnts(&mut preferences, &cmd_args);
-
-    // FIXME: enable JIT compilation on 32-bit Android after the startup crash issue (#31134) is fixed.
-    if cfg!(target_os = "android") && cfg!(target_pointer_width = "32") {
-        preferences.js_baseline_interpreter_enabled = false;
-        preferences.js_baseline_jit_enabled = false;
-        preferences.js_ion_enabled = false;
-    }
 
     // Make sure the default window size is not larger than any provided screen size.
     let default_window_size = Size2D::new(1024, 740);
@@ -751,6 +591,11 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         .map_or(default_window_size, |screen_size_override| {
             default_window_size.min(screen_size_override)
         });
+
+    #[cfg(feature = "webdriver")]
+    let webdriver_port = cmd_args.webdriver_port;
+    #[cfg(not(feature = "webdriver"))]
+    let webdriver_port = None;
 
     let mut app_preferences = AppPreferences {
         url: Some(cmd_args.url),
@@ -762,7 +607,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         initial_window_size: cmd_args.window_size.unwrap_or(default_window_size),
         screen_size_override: cmd_args.screen_size_override,
         simulate_touch_events: cmd_args.simulate_touch_events,
-        webdriver_port: Cell::new(cmd_args.webdriver_port),
+        webdriver_port: Cell::new(webdriver_port),
         output_image_path: cmd_args.output.map(|p| p.to_string_lossy().into_owned()),
         exit_after_stable_image: cmd_args.exit,
         userscripts_directory: cmd_args.userscripts,
@@ -771,12 +616,6 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         graph_snapshot_interval_secs: cmd_args.graph_snapshot_interval_secs,
         worker_idle_threshold_secs: cmd_args.worker_idle_threshold_secs,
         experimental_preferences_enabled: cmd_args.enable_experimental_web_platform_features,
-        #[cfg(target_env = "ohos")]
-        log_filter: cmd_args.log_filter.or_else(|| {
-            (!preferences.log_filter.is_empty()).then(|| preferences.log_filter.clone())
-        }),
-        #[cfg(target_env = "ohos")]
-        log_to_file: cmd_args.log_to_file,
         ..Default::default()
     };
 
@@ -794,28 +633,22 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
 
     let opts = Opts {
         debug: debug_options,
-        time_profiling: cmd_args.profile,
-        time_profiler_trace_path: cmd_args
-            .profiler_trace_path
-            .map(|p| p.to_string_lossy().into_owned()),
-        hard_fail: cmd_args.hard_fail,
-        multiprocess: cmd_args.multiprocess,
+        time_profiling: None,
+        time_profiler_trace_path: None,
+        hard_fail: false,
+        multiprocess: false,
         background_hang_monitor: cmd_args.background_hang_monitor,
-        sandbox: cmd_args.sandbox,
-        random_pipeline_closure_probability: cmd_args.random_pipeline_closure_probability,
-        random_pipeline_closure_seed: cmd_args.random_pipeline_closure_seed,
+        sandbox: false,
+        random_pipeline_closure_probability: None,
+        random_pipeline_closure_seed: None,
         config_dir: config_dir.clone(),
         shaders_path: cmd_args.shaders,
-        certificate_path: cmd_args
-            .certificate_path
-            .map(|p| p.to_string_lossy().into_owned()),
+        certificate_path: None,
         ignore_certificate_errors: cmd_args.ignore_certificate_errors,
-        unminify_js: cmd_args.unminify_js,
-        local_script_source: cmd_args
-            .local_script_source
-            .map(|p| p.to_string_lossy().into_owned()),
-        unminify_css: cmd_args.unminify_css,
-        force_ipc: cmd_args.force_ipc,
+        unminify_js: false,
+        local_script_source: None,
+        unminify_css: false,
+        force_ipc: false,
     };
 
     ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences)
@@ -885,9 +718,6 @@ fn apply_env_overrides(app_preferences: &mut AppPreferences) {
 fn test_parse_pref(arg: &str) -> Preferences {
     let args = ["--pref", arg];
     match parse_command_line_arguments(args.as_slice()) {
-        ArgumentParsingResult::ContentProcess(..) => {
-            unreachable!("No preferences for content process")
-        }
         ArgumentParsingResult::ChromeProcess(_, preferences, _) => preferences,
         ArgumentParsingResult::Exit => {
             panic!("we supplied a --pref argument above which should be parsed")
@@ -901,11 +731,11 @@ fn test_parse_pref(arg: &str) -> Preferences {
 #[test]
 fn test_parse_pref_from_command_line() {
     // Test with boolean values.
-    let preferences = test_parse_pref("dom_bluetooth_enabled=true");
-    assert!(preferences.dom_bluetooth_enabled);
+    let preferences = test_parse_pref("dom_permissions_enabled=true");
+    assert!(preferences.dom_permissions_enabled);
 
-    let preferences = test_parse_pref("dom_bluetooth_enabled=false");
-    assert!(!preferences.dom_bluetooth_enabled);
+    let preferences = test_parse_pref("dom_permissions_enabled=false");
+    assert!(!preferences.dom_permissions_enabled);
 
     // Test with numbers
     let preferences = test_parse_pref("layout_threads=42");
@@ -916,8 +746,8 @@ fn test_parse_pref_from_command_line() {
     assert_eq!(preferences.fonts_default, "Lucida");
 
     // Test with no value (defaults to true).
-    let preferences = test_parse_pref("dom_bluetooth_enabled");
-    assert!(preferences.dom_bluetooth_enabled);
+    let preferences = test_parse_pref("dom_permissions_enabled");
+    assert!(preferences.dom_permissions_enabled);
 }
 
 #[test]
@@ -939,7 +769,7 @@ fn test_create_prefs_map() {
     let json_str = "{
         \"layout.writing-mode.enabled\": true,
         \"network.mime.sniff\": false,
-        \"shell.homepage\": \"https://servo.org\"
+        \"shell.homepage\": \"about:blank\"
     }";
     assert_eq!(read_prefs_map(json_str).len(), 3);
 }
@@ -949,9 +779,6 @@ fn test_parse(arg: &str) -> (Opts, Preferences, AppPreferences) {
     // bpaf requires the arguments that are separated by whitespace to be different elements of the vector.
     let args_split: Vec<&str> = arg.split_whitespace().collect();
     match parse_command_line_arguments(args_split.as_slice()) {
-        ArgumentParsingResult::ContentProcess(..) => {
-            unreachable!("No preferences for content process")
-        }
         ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
             (opts, preferences, app_preferences)
         }
@@ -962,29 +789,6 @@ fn test_parse(arg: &str) -> (Opts, Preferences, AppPreferences) {
 }
 
 #[test]
-fn test_profiling_args() {
-    assert_eq!(
-        test_parse("-p").0.time_profiling.unwrap(),
-        OutputOptions::Stdout(5_f64)
-    );
-
-    assert_eq!(
-        test_parse("-p 10").0.time_profiling.unwrap(),
-        OutputOptions::Stdout(10_f64)
-    );
-
-    assert_eq!(
-        test_parse("-p 10.0").0.time_profiling.unwrap(),
-        OutputOptions::Stdout(10_f64)
-    );
-
-    assert_eq!(
-        test_parse("-p foo.txt").0.time_profiling.unwrap(),
-        OutputOptions::FileName(String::from("foo.txt"))
-    );
-}
-
-#[test]
 fn test_graphshell_cmd() {
     assert_eq!(
         test_parse("--screen-size=1000x1000")
@@ -992,14 +796,6 @@ fn test_graphshell_cmd() {
             .screen_size_override
             .unwrap(),
         Size2D::new(1000, 1000)
-    );
-
-    assert_eq!(
-        test_parse("--certificate-path=/tmp/test")
-            .0
-            .certificate_path
-            .unwrap(),
-        String::from("/tmp/test")
     );
 
     assert_eq!(
@@ -1017,22 +813,6 @@ fn test_graphshell_cmd() {
             .unwrap(),
         120
     );
-}
-
-#[test]
-fn test_devtools_address_argument_sets_listen_address() {
-    let (_, preferences, _) = test_parse("--devtools-address 0.0.0.0:6001");
-
-    assert!(preferences.devtools_server_enabled);
-    assert_eq!(preferences.devtools_server_listen_address, "0.0.0.0:6001");
-}
-
-#[test]
-fn test_devtools_address_overrides_port_argument() {
-    let (_, preferences, _) = test_parse("--devtools 7000 --devtools-address 0.0.0.0:6001");
-
-    assert!(preferences.devtools_server_enabled);
-    assert_eq!(preferences.devtools_server_listen_address, "0.0.0.0:6001");
 }
 
 #[test]

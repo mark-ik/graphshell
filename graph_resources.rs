@@ -2,19 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::env;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::{env, fs};
 
 use cfg_if::cfg_if;
-use servo::resources::{self, Resource};
 
 static CMD_RESOURCE_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-static RESOURCE_READER: ResourceReader = ResourceReader;
-
-struct ResourceReader;
-
-servo::submit_resource_reader!(&RESOURCE_READER);
 
 pub fn init() {
     let _ = resources_dir_path();
@@ -50,12 +44,12 @@ pub(crate) fn resources_dir_path() -> PathBuf {
     }
 
     cfg_if! {
-        if #[cfg(servo_production)] {
+        if #[cfg(graphshell_production)] {
             panic!("Can't find resources directory")
         } else {
             // Static assert that this is really a non-production build, rather
             // than a failure of the build script’s production check.
-            const _: () = assert!(cfg!(servo_do_not_use_in_production));
+            const _: () = assert!(cfg!(graphshell_development));
 
             // Try ./resources in the current directory, then each of its ancestors.
             // Not to be used in production builds without considering the security implications!
@@ -73,19 +67,5 @@ pub(crate) fn resources_dir_path() -> PathBuf {
                 }
             }
         }
-    }
-}
-
-impl resources::ResourceReaderMethods for ResourceReader {
-    fn read(&self, file: Resource) -> Vec<u8> {
-        let mut path = resources_dir_path();
-        path.push(file.filename());
-        fs::read(path).expect("Can't read file")
-    }
-    fn sandbox_access_files_dirs(&self) -> Vec<PathBuf> {
-        vec![resources_dir_path()]
-    }
-    fn sandbox_access_files(&self) -> Vec<PathBuf> {
-        vec![]
     }
 }

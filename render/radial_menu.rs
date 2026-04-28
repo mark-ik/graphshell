@@ -45,7 +45,6 @@ const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
 const HOVER_LABEL_MAX_CHARS: usize = 18;
 const HOVER_LABEL_OFFSET: f32 = 28.0;
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
-const RADIAL_GAMEPAD_INPUTS_KEY: &str = "radial_menu_gamepad_inputs";
 const RADIAL_SELECTED_DOMAIN_KEY: &str = "radial_menu_selected_domain";
 const RADIAL_LAYOUT_HOST_KEY: &str = "radial_menu_layout_surface_host";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
@@ -64,16 +63,6 @@ fn active_theme_tokens(
         app.default_registry_theme_id(),
     )
     .tokens
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RadialGamepadInput {
-    NavigateUp,
-    NavigateDown,
-    NavigateLeft,
-    NavigateRight,
-    Confirm,
-    Cancel,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -219,28 +208,6 @@ fn persist_radial_geometry(
     });
 }
 
-pub(crate) fn queue_gamepad_input(ctx: &egui::Context, input: RadialGamepadInput) {
-    let queue_id = egui::Id::new(RADIAL_GAMEPAD_INPUTS_KEY);
-    ctx.data_mut(|d| {
-        let mut pending = d
-            .get_temp::<Vec<RadialGamepadInput>>(queue_id)
-            .unwrap_or_default();
-        pending.push(input);
-        d.insert_temp(queue_id, pending);
-    });
-}
-
-fn take_gamepad_inputs(ctx: &egui::Context) -> Vec<RadialGamepadInput> {
-    ctx.data_mut(|d| {
-        let queue_id = egui::Id::new(RADIAL_GAMEPAD_INPUTS_KEY);
-        let pending = d
-            .get_temp::<Vec<RadialGamepadInput>>(queue_id)
-            .unwrap_or_default();
-        d.remove::<Vec<RadialGamepadInput>>(queue_id);
-        pending
-    })
-}
-
 fn radial_command_selection_state_id(category: ActionCategory) -> egui::Id {
     egui::Id::new("radial_menu_selected_command").with(category_persisted_name(category))
 }
@@ -334,7 +301,7 @@ fn build_radial_action_context(
         focused_pane_available: focused_pane_node.is_some(),
         undo_available: app.undo_stack_len() > 0,
         redo_available: app.redo_stack_len() > 0,
-        input_mode: InputMode::Gamepad,
+        input_mode: InputMode::MouseKeyboard,
         view_id: app
             .workspace
             .graph_runtime
@@ -499,7 +466,6 @@ pub fn render_radial_command_menu(
         .or(pointer)
         .unwrap_or(egui::pos2(320.0, 220.0));
     ctx.data_mut(|d| d.insert_persisted(center_id, center));
-    let pending_gamepad_inputs = take_gamepad_inputs(ctx);
     let visible_layout_surface_hosts = app.visible_navigator_surface_hosts();
     let configuring_layout_surface_host = match &app.workspace.workbench_session.ux_config_mode {
         UxConfigMode::Configuring { surface_host } => Some(surface_host.clone()),
@@ -559,60 +525,6 @@ pub fn render_radial_command_menu(
         }
         if keyboard_slot_count > 0 && ctx.input(|i| i.key_pressed(Key::ArrowDown)) {
             command_idx = (command_idx + 1) % keyboard_slot_count;
-        }
-        for input in pending_gamepad_inputs.iter().copied() {
-            match input {
-                RadialGamepadInput::NavigateLeft => {
-                    group_idx =
-                        (group_idx + NodeContextGroup::ALL.len() - 1) % NodeContextGroup::ALL.len();
-                    command_idx = 0;
-                }
-                RadialGamepadInput::NavigateRight => {
-                    group_idx = (group_idx + 1) % NodeContextGroup::ALL.len();
-                    command_idx = 0;
-                }
-                RadialGamepadInput::NavigateUp => {
-                    let keyboard_commands =
-                        NodeContextGroup::ALL[group_idx].actions(&action_context);
-                    if !keyboard_commands.is_empty() {
-                        command_idx =
-                            (command_idx + keyboard_commands.len() - 1) % keyboard_commands.len();
-                    }
-                }
-                RadialGamepadInput::NavigateDown => {
-                    let keyboard_commands =
-                        NodeContextGroup::ALL[group_idx].actions(&action_context);
-                    if !keyboard_commands.is_empty() {
-                        command_idx = (command_idx + 1) % keyboard_commands.len();
-                    }
-                }
-                RadialGamepadInput::Confirm => {
-                    let keyboard_commands =
-                        NodeContextGroup::ALL[group_idx].actions(&action_context);
-                    if let Some(entry) = keyboard_commands.get(command_idx)
-                        && entry.enabled
-                    {
-                        record_recent_category(ctx, entry.id.category());
-                        super::command_palette::execute_action_with_layout_target(
-                            app,
-                            entry.id,
-                            selected_layout_surface_host.clone(),
-                            pair_context,
-                            source_context,
-                            &mut intents,
-                            focused_pane_node,
-                            focused_pane_id,
-                        );
-                        should_close = true;
-                    }
-                }
-                RadialGamepadInput::Cancel => {
-                    should_close = true;
-                }
-            }
-            if should_close {
-                break;
-            }
         }
         if ctx.input(|i| i.key_pressed(Key::Enter)) {
             if let Some(entry) = keyboard_commands.get(command_idx)
@@ -875,119 +787,6 @@ pub fn render_radial_command_menu(
             selected_domain_idx = domain.index();
         }
 
-        for input in pending_gamepad_inputs.iter().copied() {
-            match input {
-                RadialGamepadInput::NavigateLeft => {
-                    let current_category = ordered_categories[selected_domain_idx];
-                    let current_command_state_id =
-                        radial_command_selection_state_id(current_category);
-                    let current_commands =
-                        list_radial_actions_for_category(&action_context, current_category);
-                    let current_command_idx = ctx
-                        .data_mut(|d| d.get_persisted::<usize>(current_command_state_id))
-                        .unwrap_or(0);
-                    let current_entry = if current_commands.is_empty() {
-                        None
-                    } else {
-                        current_commands.get(current_command_idx % current_commands.len())
-                    };
-                    if visible_layout_surface_hosts.len() > 1
-                        && layout_action_requires_explicit_host(current_entry)
-                    {
-                        selected_layout_surface_host = cycle_layout_surface_host(
-                            &visible_layout_surface_hosts,
-                            &selected_layout_surface_host,
-                            -1,
-                        );
-                        action_context = build_radial_action_context(
-                            app,
-                            source_context,
-                            pair_context,
-                            any_selected,
-                            focused_pane_node,
-                            selected_layout_surface_host.clone(),
-                        );
-                    } else {
-                        selected_domain_idx = (selected_domain_idx + RadialDomain::ALL.len() - 1)
-                            % RadialDomain::ALL.len();
-                    }
-                }
-                RadialGamepadInput::NavigateRight => {
-                    let current_category = ordered_categories[selected_domain_idx];
-                    let current_command_state_id =
-                        radial_command_selection_state_id(current_category);
-                    let current_commands =
-                        list_radial_actions_for_category(&action_context, current_category);
-                    let current_command_idx = ctx
-                        .data_mut(|d| d.get_persisted::<usize>(current_command_state_id))
-                        .unwrap_or(0);
-                    let current_entry = if current_commands.is_empty() {
-                        None
-                    } else {
-                        current_commands.get(current_command_idx % current_commands.len())
-                    };
-                    if visible_layout_surface_hosts.len() > 1
-                        && layout_action_requires_explicit_host(current_entry)
-                    {
-                        selected_layout_surface_host = cycle_layout_surface_host(
-                            &visible_layout_surface_hosts,
-                            &selected_layout_surface_host,
-                            1,
-                        );
-                        action_context = build_radial_action_context(
-                            app,
-                            source_context,
-                            pair_context,
-                            any_selected,
-                            focused_pane_node,
-                            selected_layout_surface_host.clone(),
-                        );
-                    } else {
-                        selected_domain_idx = (selected_domain_idx + 1) % RadialDomain::ALL.len();
-                    }
-                }
-                RadialGamepadInput::NavigateUp
-                | RadialGamepadInput::NavigateDown
-                | RadialGamepadInput::Confirm => {
-                    let category = ordered_categories[selected_domain_idx];
-                    let command_state_id = radial_command_selection_state_id(category);
-                    let commands = list_radial_actions_for_category(&action_context, category);
-                    let mut selected_command_idx = ctx
-                        .data_mut(|d| d.get_persisted::<usize>(command_state_id))
-                        .unwrap_or(0);
-                    if !commands.is_empty() {
-                        selected_command_idx %= commands.len();
-                        match input {
-                            RadialGamepadInput::NavigateUp => {
-                                selected_command_idx =
-                                    (selected_command_idx + commands.len() - 1) % commands.len();
-                            }
-                            RadialGamepadInput::NavigateDown => {
-                                selected_command_idx = (selected_command_idx + 1) % commands.len();
-                            }
-                            RadialGamepadInput::Confirm => {
-                                if let Some(entry) = commands.get(selected_command_idx).cloned()
-                                    && entry.enabled
-                                {
-                                    clicked_entry = Some(entry);
-                                    should_close = true;
-                                }
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        selected_command_idx = 0;
-                    }
-                    ctx.data_mut(|d| d.insert_persisted(command_state_id, selected_command_idx));
-                }
-                RadialGamepadInput::Cancel => {
-                    should_close = true;
-                }
-            }
-            if should_close {
-                break;
-            }
-        }
         ctx.data_mut(|d| d.insert_persisted(selected_domain_state_id, selected_domain_idx));
 
         let selected_domain = RadialDomain::ALL[selected_domain_idx];
@@ -1025,7 +824,7 @@ pub fn render_radial_command_menu(
         } else {
             selected_command_idx % MAX_VISIBLE_ACTIONS_PER_RING
         };
-        if !pending_gamepad_inputs.is_empty() || hovered_domain.is_none() {
+        if hovered_domain.is_none() {
             hovered_domain = Some(selected_domain);
             hovered_entry = selected_visible_commands.get(selected_visible_idx).cloned();
         }
@@ -2336,7 +2135,7 @@ mod tests {
         );
     }
 
-    /// §6 scenario 6 (partial): Keyboard/gamepad angular selection resolves to the
+    /// §6 scenario 6 (partial): Keyboard angular selection resolves to the
     /// same entry as pointer-based nearest-entry resolution when both aim at the
     /// same angular position. Full dispatch parity requires egui context (integration test).
     #[test]

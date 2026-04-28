@@ -7,10 +7,10 @@
     reason = "Lane-scoped scaffolding is intentionally staged before full runtime wiring."
 )]
 
-use cfg_if::cfg_if;
-
 #[cfg(test)]
 mod test;
+
+use cfg_if::cfg_if;
 
 // Graph browser core modules
 #[path = "graph_app.rs"]
@@ -30,20 +30,13 @@ mod services;
 mod shell;
 mod util;
 
-#[cfg(not(target_os = "android"))]
 mod backtrace;
-#[cfg(not(target_env = "ohos"))]
 mod crash_handler;
-#[cfg(any(target_os = "android", target_env = "ohos"))]
-mod egl;
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod mods;
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod panic_hook;
 // 2026-04-25 servo-into-verso S2b: parser is Servo-typed at its
 // public surface (ServoUrl). Its only consumers in graphshell main
-// are themselves gated behind servo-engine (host/, lifecycle/) or
-// behind egl/* (mobile/ohos paths).
+// are themselves gated behind servo-engine (host/, lifecycle/).
 #[cfg(feature = "servo-engine")]
 mod parser;
 // prefs is Servo-typed at most of its surface (Opts, Preferences,
@@ -85,9 +78,8 @@ mod prefs {
         Ok((resolved, source))
     }
 }
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod registries;
-#[cfg(all(not(target_os = "android"), feature = "servo-engine"))]
+#[cfg(feature = "servo-engine")]
 #[path = "graph_resources.rs"]
 mod resources;
 
@@ -102,14 +94,12 @@ pub mod platform {
     pub fn deinit(_clean_shutdown: bool) {}
 }
 
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn main() {
     shell::desktop::runtime::cli::main()
 }
 
 /// Initialize Servo's bundled resource files. No-op when servo-engine
 /// is off (the resource pipeline only exists for the Servo path).
-#[cfg(not(target_os = "android"))]
 pub(crate) fn init_resources() {
     #[cfg(feature = "servo-engine")]
     crate::resources::init();
@@ -154,8 +144,8 @@ pub fn init_tracing(filter_directives: Option<&str>) {
         #[cfg(feature = "tracing-perfetto")]
         let subscriber = {
             // Set up a PerfettoLayer for performance tracing.
-            // The servo.pftrace file can be uploaded to https://ui.perfetto.dev for analysis.
-            let file = std::fs::File::create("servo.pftrace").unwrap();
+            // The graphshell.pftrace file can be uploaded to https://ui.perfetto.dev for analysis.
+            let file = std::fs::File::create("graphshell.pftrace").unwrap();
             let perfetto_layer = tracing_perfetto::PerfettoLayer::new(std::sync::Mutex::new(file))
                 .with_filter_by_marker(|field_name| field_name == "servo_profiling")
                 .with_debug_annotations(true);
@@ -168,7 +158,7 @@ pub fn init_tracing(filter_directives: Option<&str>) {
             subscriber.with(HitraceLayer::default())
         };
 
-        // Filter events and spans by the directives in SERVO_TRACING, using EnvFilter as a global filter.
+        // Filter events and spans by the directives in GRAPHSHELL_TRACING, using EnvFilter as a global filter.
         // <https://docs.rs/tracing-subscriber/0.3.18/tracing_subscriber/layer/index.html#global-filtering>
         let filter_builder = tracing_subscriber::EnvFilter::builder()
             .with_default_directive(tracing::level_filters::LevelFilter::OFF.into());
@@ -176,7 +166,7 @@ pub fn init_tracing(filter_directives: Option<&str>) {
             filter_builder.parse_lossy(filters)
         } else {
             filter_builder
-                .with_env_var("SERVO_TRACING")
+                .with_env_var("GRAPHSHELL_TRACING")
                 .from_env_lossy()
         };
 
@@ -191,7 +181,12 @@ pub fn init_tracing(filter_directives: Option<&str>) {
     }
 }
 
-pub const VERSION: &str = concat!("Servo ", env!("CARGO_PKG_VERSION"), "-", env!("GIT_SHA"));
+pub const VERSION: &str = concat!(
+    "Graphshell ",
+    env!("CARGO_PKG_VERSION"),
+    "-",
+    env!("GIT_SHA")
+);
 
 /// Plumbs tracing spans into HiTrace, with the following caveats:
 ///

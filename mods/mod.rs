@@ -6,10 +6,10 @@
 
 pub(crate) mod native;
 
-#[cfg(not(any(target_os = "android", target_env = "ohos", target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 pub(crate) mod wasm;
 
-#[cfg(any(target_os = "android", target_env = "ohos", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 pub(crate) mod wasm {
     use crate::registries::infrastructure::mod_loader::{ModManifest, WasmModSource};
 

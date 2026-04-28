@@ -2,12 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 use std::path::{Path, PathBuf};
 
 use servo::{ServoUrl, is_reg_domain};
 
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn parse_url_or_filename(cwd: &Path, input: &str) -> Result<ServoUrl, ()> {
     match ServoUrl::parse(input) {
         Ok(url) => Ok(url),
@@ -18,7 +16,6 @@ pub fn parse_url_or_filename(cwd: &Path, input: &str) -> Result<ServoUrl, ()> {
     }
 }
 
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn get_default_url(
     url_opt: Option<&str>,
     cwd: impl AsRef<Path>,

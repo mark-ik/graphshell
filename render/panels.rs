@@ -19,7 +19,7 @@ use crate::graph::{
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
-    GamepadButton, InputBinding, InputBindingRemap, InputBindingSection, InputContext, action_id,
+    InputBinding, InputBindingSection, InputContext, action_id,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings, phase3_resolve_active_theme,
@@ -4126,57 +4126,6 @@ fn render_settings_surface_in_ui_with_control_panel(
                         {
                             app.set_context_command_surface_preference(preference);
                         }
-                    }
-
-                    let radial_open_east_preset = InputBindingRemap {
-                        old: InputBinding::Gamepad {
-                            button: GamepadButton::South,
-                            modifier: None,
-                        },
-                        new: InputBinding::Gamepad {
-                            button: GamepadButton::East,
-                            modifier: None,
-                        },
-                        context: InputContext::GraphView,
-                    };
-                    let active_remaps = app.input_binding_remaps();
-                    let radial_profile_label = if active_remaps.is_empty() {
-                        "South / A (Default)"
-                    } else if active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset
-                    {
-                        "East / B"
-                    } else {
-                        "Custom"
-                    };
-                    ui.label(format!("Gamepad radial palette open: {radial_profile_label}"));
-                    if ui
-                        .selectable_label(active_remaps.is_empty(), "South / A (Default)")
-                        .clicked()
-                        && let Err(error) = app.set_input_binding_remaps(&[])
-                    {
-                        log::warn!("failed to restore default input remaps: {error:?}");
-                    }
-                    if ui
-                        .selectable_label(
-                            active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset,
-                            "East / B",
-                        )
-                        .clicked()
-                        && let Err(error) =
-                            app.set_input_binding_remaps(&[radial_open_east_preset.clone()])
-                    {
-                        log::warn!("failed to apply radial-open remap preset: {error:?}");
-                    }
-                    if !active_remaps.is_empty()
-                        && !(active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset)
-                    {
-                        themed_secondary_small_label(
-                            ui,
-                            phase3_resolve_active_theme(app.default_registry_theme_id())
-                                .tokens
-                                .command_notice,
-                            "Stored remaps include custom bindings outside these presets.",
-                        );
                     }
 
                     ui.separator();

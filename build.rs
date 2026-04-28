@@ -3,9 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::error::Error;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 fn git_sha() -> Result<String, String> {
@@ -62,8 +61,8 @@ fn stage_mozangle_runtime_dlls(build_dir: &Path, profile_dir: &Path) -> Result<(
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo::rustc-check-cfg=cfg(servo_production)");
-    println!("cargo::rustc-check-cfg=cfg(servo_do_not_use_in_production)");
+    println!("cargo::rustc-check-cfg=cfg(graphshell_production)");
+    println!("cargo::rustc-check-cfg=cfg(graphshell_development)");
     // Cargo does not expose the profile name to crates or their build scripts,
     // but we can extract it from OUT_DIR and set a custom cfg() ourselves.
     let out = std::env::var("OUT_DIR")?;
@@ -77,9 +76,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap()
         .to_string_lossy();
     if profile == "production" || profile.starts_with("production-") {
-        println!("cargo:rustc-cfg=servo_production");
+        println!("cargo:rustc-cfg=graphshell_production");
     } else {
-        println!("cargo:rustc-cfg=servo_do_not_use_in_production");
+        println!("cargo:rustc-cfg=graphshell_development");
     }
 
     // Note: We can't use `#[cfg(windows)]`, since that would check the host platform
@@ -90,8 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(windows)]
         {
             let mut res = winresource::WindowsResource::new();
-            res.set_icon("resources/servo.ico");
-            res.set_manifest_file("platform/windows/servo.exe.manifest");
+            res.set_manifest_file("platform/windows/graphshell.exe.manifest");
             res.compile().unwrap();
         }
         #[cfg(not(windows))]
@@ -103,16 +101,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         cc::Build::new()
             .file("platform/macos/count_threads.c")
             .compile("count_threads");
-    } else if target_os == "android" {
-        // FIXME: We need this workaround since jemalloc-sys still links
-        // to libgcc instead of libunwind, but Android NDK 23c and above
-        // don't have libgcc. We can't disable jemalloc for Android as
-        // in 64-bit aarch builds, the system allocator uses tagged
-        // pointers by default which causes the assertions in SM & mozjs
-        // to fail. See https://github.com/servo/servo/issues/32175.
-        let mut libgcc = File::create(out.join("libgcc.a")).unwrap();
-        libgcc.write_all(b"INPUT(-lunwind)").unwrap();
-        println!("cargo:rustc-link-search=native={}", out.display());
     }
 
     match git_sha() {

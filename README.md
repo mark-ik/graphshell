@@ -85,7 +85,7 @@ Graphshell has scripts for defining build environments, but I use cargo first an
     cargo build
 
     # Run (debug profile)
-    cargo run -- https://example.com (or the first node will default to https://www.servo.org)
+    cargo run -- https://example.com (or the first node will default to about:blank)
 
     # Test (debug profile by default)
     cargo test

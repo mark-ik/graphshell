@@ -34,18 +34,5 @@ fn main() {
         // the commandline, then the call will fail, which we can ignore.
         let _result = AttachConsole(ATTACH_PARENT_PROCESS);
     }
-    cfg_if::cfg_if! {
-        if #[cfg(not(any(target_os = "android", target_env = "ohos")))] {
-            graphshell::main()
-        } else {
-            // Android: see egl/android/mod.rs.
-            // OpenHarmony: see egl/ohos/mod.rs.
-            println!(
-                "Cannot run the graphshell `bin` executable on platforms such as \
-                 Android or OpenHarmony. On these platforms you need to compile \
-                 the graphshell library as a `cdylib` and integrate it with the \
-                 platform app code into an `apk` (android) or `hap` (OpenHarmony)."
-            );
-        }
-    }
+    graphshell::main()
 }

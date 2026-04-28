@@ -36,7 +36,7 @@ wry = { version = "0.55", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 image = { version = "0.25", default-features = false, optional = true, features = ["png"] }
 log = { version = "0.4", optional = true }
-servo = { path = "../../../servo-wgpu/components/servo", default-features = false, features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], optional = true }
+servo = { path = "../../../servo-wgpu/components/servo", default-features = false, features = ["background_hang_monitor", "baked-in-resources", "wgpu_backend"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = { version = "0.38.2", optional = true }

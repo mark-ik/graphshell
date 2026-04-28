@@ -60,39 +60,42 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["servo-engine", "gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics", "wry", "ux-probes", "ux-bridge"]
+default = ["servo-engine", "egui-host", "js_jit", "max_log_level", "diagnostics", "wry", "ux-probes", "ux-bridge"]
 diagnostics = []
 diagnostics_tests = []
 ux-semantics = []
 ux-probes = ["ux-semantics"]
 ux-bridge = ["ux-semantics"]
+webdriver = ["dep:webdriver_server"]
 test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
+# 2026-04-28 host gate: `egui-host` activates the egui dep stack.
+# Today's #[cfg(feature = "servo-engine")] gates in shell::desktop::ui
+# implicitly assume egui is also on, so `servo-engine` chains
+# `egui-host` here. A future split would gate those modules on
+# all(servo-engine, egui-host) explicitly and break this transitive
+# tie; until then this preserves current behavior with a real
+# Cargo dep gate. Iced-only path: `cargo build --no-default-features
+# --features iced-host,wry,…`.
+egui-host = [
+    "dep:egui",
+    "dep:egui-file-dialog",
+    "dep:egui-winit",
+    "dep:egui-wgpu",
+    "dep:egui_tiles",
+    "dep:egui-notify",
+]
 # 2026-04-25 servo-into-verso lane (S2): graphshell main's servo
 # dep is now optional and gated behind this feature, which also
 # activates `verso/servo-engine` so verso owns the dep ownership
-# per VERSO_AS_PEER.md. All previously-existing servo-forwarded
-# features (gamepad, webgpu, etc.) require `servo-engine` so
-# they pull in the dep transitively. To build without Servo:
+# per VERSO_AS_PEER.md. Servo-forwarded features require
+# `servo-engine` so they pull in the dep transitively. To build without Servo:
 # `cargo build --no-default-features --features iced-host,wry,…`.
-servo-engine = ["dep:servo", "verso/servo-engine"]
-crown = ["servo-engine", "servo/crown"]
-debugmozjs = ["servo-engine", "servo/debugmozjs"]
-gamepad = ["servo-engine", "servo/gamepad"]
-jitspew = ["servo-engine", "servo/jitspew"]
-js_backtrace = ["servo-engine", "servo/js_backtrace"]
-js_jit = ["servo-engine", "servo/js_jit"]
+servo-engine = ["dep:servo", "verso/servo-engine", "egui-host"]
+js_jit = ["servo-engine", "servo?/js_jit"]
 max_log_level = ["log/release_max_level_info"]
-media-gstreamer = ["servo-engine", "servo/media-gstreamer"]
-native-bluetooth = ["servo-engine", "servo/native-bluetooth"]
-profilemozjs = ["servo-engine", "servo/profilemozjs"]
-refcell_backtrace = ["servo-engine", "servo/refcell_backtrace"]
-tracing = ["dep:tracing", "dep:tracing-subscriber", "servo-engine", "servo/tracing"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "servo-engine", "servo?/tracing"]
 tracing-hitrace = ["tracing", "dep:hitrace"]
 tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
-vello = ["servo-engine", "servo/vello"]
-webgl_backtrace = ["servo-engine", "servo/webgl_backtrace"]
-webgpu = ["servo-engine", "servo/webgpu"]
-webxr = ["servo-engine", "servo/webxr"]
 wry = ["dep:wry", "verso/wry-engine"]
 pdf = ["dep:pdfium-render"]
 audio = ["dep:symphonia", "dep:rodio"]
@@ -147,7 +150,7 @@ image = { version = "0.25", default-features = false, features = ["avif", "rayon
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 libc = "0.2"
-servo = { path = "../servo-wgpu/components/servo", features = ["background_hang_monitor", "bluetooth", "testbinding", "wgpu_backend"], default-features = false, optional = true }
+servo = { path = "../servo-wgpu/components/servo", features = ["background_hang_monitor", "baked-in-resources", "wgpu_backend"], default-features = false, optional = true }
 log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
@@ -172,52 +175,27 @@ tracing = { version = "0.1.44", optional = true }
 tracing-perfetto = { version = "0.1.5", optional = true }
 tracing-subscriber = { version = "0.3.23", optional = true, features = ["env-filter"] }
 url = "2.5"
-uuid = { version = "1.23.0", features = ["serde", "v4"] }
+uuid = { version = "1.23.0", features = ["serde", "v4", "v5"] }
 rand = "0.8"
 rand_09 = { package = "rand", version = "0.9" }
-webdriver_server = { path = "../servo-wgpu/components/webdriver_server", package = "servo-webdriver-server" }
-
-[target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.15"
-jni = "0.21.1"
-
-[target.'cfg(not(target_os = "android"))'.dependencies]
+webdriver_server = { path = "../servo-wgpu/components/webdriver_server", package = "servo-webdriver-server", optional = true }
 backtrace = "0.3"
-
-[target.'cfg(target_env = "ohos")'.dependencies]
-env_filter = "0.1.4"
-euclid = "0.22"
-hilog = "0.2.2"
-# force inprocess until we add multi-process support for ohos
-ipc-channel = { version = "0.21", features = ["force-inprocess"] }
-napi-derive-ohos = "1.1.6"
-napi-ohos = "1.1.6"
-ohos-abilitykit-sys = { version = "0.1.5", features = ["api-14"] }
-ohos-deviceinfo = "0.1.0"
-ohos-ime = "0.4.2"
-ohos-ime-sys = "0.2.3"
-ohos-vsync = "0.1.3"
-ohos-window-manager-sys = { version = "0.1", features = ["api-14"] }
-xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
-
-[target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
-base = { path = "../servo-wgpu/components/shared/base", package = "servo-base" }
-nix = { version = "0.30", features = ["fs"] }
-serde_json = "1.0"
-surfman = { version = "0.12.0", features = ["sm-angle-default", "chains"] }
-
-[target.'cfg(not(any(target_os = "android", target_env = "ohos", target_os = "ios")))'.dependencies]
 dirs = "6.0"
-egui = "0.34.1"
-egui-file-dialog = "0.13.0"
-egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
-egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"] }
-egui_tiles = { version = "0.15.0", features = ["serde"] }
+# egui crates are gated behind the `egui-host` feature. `servo-engine`
+# transitively activates `egui-host` so existing servo-engine-gated
+# modules in shell::desktop::ui (gui, gui_frame, dialog, etc.) keep
+# pulling them in. A non-egui build uses `--no-default-features
+# --features iced-host,wry,…`.
+egui = { version = "0.34.1", optional = true }
+egui-file-dialog = { version = "0.13.0", optional = true }
+egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"], optional = true }
+egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"], optional = true }
+egui_tiles = { version = "0.15.0", features = ["serde"], optional = true }
 graph-canvas = { path = "crates/graph-canvas" }
 graph-cartography = { path = "crates/graph-cartography" }
 graph-tree = { path = "crates/graph-tree" }
 graphshell-core = { path = "crates/graphshell-core" }
-egui-notify = "0.22.0"
+egui-notify = { version = "0.22.0", optional = true }
 arboard = "3"
 nucleo = "0.5.0"
 parking_lot = "0.12"
@@ -240,27 +218,23 @@ iroh = "0.97"
 qrcode = "0.14"
 base64 = "0.22"
 mdns-sd = "0.12"
-gilrs = "0.11.1"
 headers = "0.4"
 serde_json = "1.0"
 sysinfo = "0.37"
 extism = "1.21.0"
 wasmparser = "0.240.0"
 pollster = "0.4.0"
-# For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
-servo_allocator = { path = "../servo-wgpu/components/allocator", package = "servo-allocator" }
-surfman = { version = "0.12.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
 winit = "0.30.13"
 wry = { version = "0.55", optional = true }
 pdfium-render = { version = "0.9", optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["mp3", "ogg", "flac", "wav", "aac"] }
 rodio = { version = "0.20", optional = true, default-features = false }
 
-[target.'cfg(any(all(target_os = "linux", not(target_env = "ohos")), target_os = "macos"))'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 sig = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-servo = { path = "../servo-wgpu/components/servo", features = ["no-wgl"], optional = true }
+servo = { path = "../servo-wgpu/components/servo", features = ["no-wgl"], default-features = false, optional = true }
 webview2-com = "0.38.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
@@ -296,6 +270,7 @@ inventory = "0.3"
 wat = "1"
 
 [patch.crates-io]
+gpu-allocator = { path = "../servo-wgpu/support/patches/gpu-allocator" }
 webrender = { path = "../webrender-wgpu/webrender" }
 webrender_api = { path = "../webrender-wgpu/webrender_api" }
 wr_malloc_size_of = { path = "../webrender-wgpu/wr_malloc_size_of" }

@@ -26,14 +26,12 @@ use serde::{Deserialize, Serialize};
 
 /// Preferred input mode, used as a layout hint by control surfaces.
 ///
-/// `InputMode` is not a gate — both surfaces work in both modes — but
-/// surfaces may use it to choose their default presentation (e.g.
-/// radial menu as the primary surface in Gamepad mode).
+/// `InputMode` is not a gate; surfaces may use it to choose their
+/// default presentation.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum InputMode {
     #[default]
     MouseKeyboard,
-    Gamepad,
 }
 
 /// Logical grouping of actions, used for separators and ordering in
