@@ -9,10 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-#[cfg(all(
-    feature = "diagnostics",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
+#[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent};
 use log::debug;
 
@@ -44,18 +41,12 @@ impl WindowGraphEventQueue {
     }
 
     pub(super) fn take_pending(&self) -> Vec<WebViewLifecycleEvent> {
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         let drain_started = Instant::now();
 
         let events = std::mem::take(&mut *self.pending_events.borrow_mut());
 
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         {
             diagnostics::emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: "window.graph_event.drain",
@@ -145,9 +136,9 @@ impl WindowGraphEventQueue {
                     event.seq, elapsed_ms, request.url, request.source, request.parent_webview_id
                 );
             }
-            WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { intent } => {
+            WebViewLifecycleEventKind::WorkbenchIntentRequested { intent } => {
                 debug!(
-                    "graph_event_trace seq={} t_ms={} kind=webdriver_workbench_intent intent={intent:?}",
+                    "graph_event_trace seq={} t_ms={} kind=workbench_intent intent={intent:?}",
                     event.seq, elapsed_ms
                 );
             }

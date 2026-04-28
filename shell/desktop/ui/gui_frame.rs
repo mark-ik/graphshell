@@ -20,11 +20,6 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::host::gamepad::GamepadUiCommand;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -33,27 +28,18 @@ use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
     self, ActivePrewarmArgs, RuntimeReconcileArgs,
 };
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
-use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::runtime::registries::input::action_id;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::runtime::registries::input::{
-    GamepadButton, InputBinding, InputContext,
-};
-use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRANSITION};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::gui_state::{BookmarkImportDialogEvent, BookmarkImportDialogState};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
-use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 use crate::shell::desktop::workbench::pane_model::{PaneViewState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
+use graphshell_runtime::WebviewCreationBackpressureState;
 #[cfg(test)]
 use verso_host::NoopViewerSurfaceHost;
 
@@ -119,211 +105,6 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_channel,
         thumbnail_capture_in_flight,
     } = args;
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    {
-        let focused_node = graph_app
-            .embedded_content_focus_webview()
-            .and_then(|renderer_id| graph_app.get_node_for_webview(renderer_id));
-        let radial_menu_open = graph_app.workspace.chrome_ui.show_radial_menu;
-        for command in app_state.take_pending_gamepad_ui_commands() {
-            let (binding, context) = match command {
-                GamepadUiCommand::NavigateUp => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::DPadUp,
-                        modifier: None,
-                    },
-                    if radial_menu_open {
-                        InputContext::RadialMenuOpen
-                    } else {
-                        InputContext::GraphView
-                    },
-                ),
-                GamepadUiCommand::NavigateDown => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::DPadDown,
-                        modifier: None,
-                    },
-                    if radial_menu_open {
-                        InputContext::RadialMenuOpen
-                    } else {
-                        InputContext::GraphView
-                    },
-                ),
-                GamepadUiCommand::NavigateLeft => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::DPadLeft,
-                        modifier: None,
-                    },
-                    if radial_menu_open {
-                        InputContext::RadialMenuOpen
-                    } else {
-                        InputContext::GraphView
-                    },
-                ),
-                GamepadUiCommand::NavigateRight => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::DPadRight,
-                        modifier: None,
-                    },
-                    if radial_menu_open {
-                        InputContext::RadialMenuOpen
-                    } else {
-                        InputContext::GraphView
-                    },
-                ),
-                GamepadUiCommand::Confirm => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::LeftStickPress,
-                        modifier: None,
-                    },
-                    InputContext::RadialMenuOpen,
-                ),
-                GamepadUiCommand::Cancel => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::East,
-                        modifier: None,
-                    },
-                    InputContext::RadialMenuOpen,
-                ),
-                GamepadUiCommand::ToggleCommandPalette => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::Start,
-                        modifier: None,
-                    },
-                    InputContext::GraphView,
-                ),
-                GamepadUiCommand::ToggleRadialMenu => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::South,
-                        modifier: None,
-                    },
-                    InputContext::GraphView,
-                ),
-                GamepadUiCommand::NavigateBack => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::LeftBumper,
-                        modifier: None,
-                    },
-                    InputContext::DetailView,
-                ),
-                GamepadUiCommand::NavigateForward => (
-                    InputBinding::Gamepad {
-                        button: GamepadButton::RightBumper,
-                        modifier: None,
-                    },
-                    InputContext::DetailView,
-                ),
-            };
-
-            let Some(action_id) =
-                registries::phase2_resolve_typed_input_action_id(&binding, context)
-            else {
-                continue;
-            };
-
-            match action_id.as_str() {
-                action_id::graph::CYCLE_FOCUS_REGION => {
-                    render::dispatch_action_id(
-                        graph_app,
-                        render::action_registry::ActionId::GraphCycleFocusRegion,
-                        None,
-                        focused_node,
-                        focused_node,
-                        None,
-                    );
-                }
-                action_id::graph::COMMAND_PALETTE_OPEN => {
-                    render::dispatch_action_id(
-                        graph_app,
-                        render::action_registry::ActionId::GraphCommandPalette,
-                        None,
-                        focused_node,
-                        focused_node,
-                        None,
-                    );
-                }
-                action_id::graph::RADIAL_MENU_OPEN => {
-                    render::dispatch_action_id(
-                        graph_app,
-                        render::action_registry::ActionId::GraphRadialMenu,
-                        None,
-                        focused_node,
-                        focused_node,
-                        None,
-                    );
-                }
-                action_id::toolbar::NAV_BACK => {
-                    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
-                        window.focused_pane(),
-                        focused_node,
-                        None,
-                        None,
-                    );
-                    let _ = toolbar_routing::run_nav_action(
-                        graph_app,
-                        window,
-                        command_bar_focus_target,
-                        ToolbarNavAction::Back,
-                    );
-                }
-                action_id::toolbar::NAV_FORWARD => {
-                    let command_bar_focus_target = nav_targeting::command_bar_focus_target(
-                        window.focused_pane(),
-                        focused_node,
-                        None,
-                        None,
-                    );
-                    let _ = toolbar_routing::run_nav_action(
-                        graph_app,
-                        window,
-                        command_bar_focus_target,
-                        ToolbarNavAction::Forward,
-                    );
-                }
-                action_id::radial_menu::CATEGORY_PREVIOUS => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::NavigateLeft,
-                    );
-                }
-                action_id::radial_menu::CATEGORY_NEXT => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::NavigateRight,
-                    );
-                }
-                action_id::radial_menu::SELECTION_PREVIOUS => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::NavigateUp,
-                    );
-                }
-                action_id::radial_menu::SELECTION_NEXT => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::NavigateDown,
-                    );
-                }
-                action_id::radial_menu::CONFIRM => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::Confirm,
-                    );
-                }
-                action_id::radial_menu::CANCEL => {
-                    render::radial_menu::queue_gamepad_input(
-                        ctx,
-                        render::radial_menu::RadialGamepadInput::Cancel,
-                    );
-                }
-                _ => {}
-            }
-        }
-    }
 
     frame_intents.extend(thumbnail_pipeline::load_pending_thumbnail_results(
         graph_app,

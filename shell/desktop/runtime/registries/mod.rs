@@ -4239,10 +4239,10 @@ mod tests {
         });
 
         let remap = InputBindingRemap {
-            old: "gamepad:left_bumper"
+            old: "key:alt:arrow_left"
                 .parse::<InputBinding>()
                 .expect("old binding should parse"),
-            new: "gamepad:left_bumper+east"
+            new: "key:alt:char:b"
                 .parse::<InputBinding>()
                 .expect("new binding should parse"),
             context: InputContext::DetailView,

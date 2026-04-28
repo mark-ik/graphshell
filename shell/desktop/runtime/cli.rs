@@ -3,9 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use log::warn;
-use std::{env, fs};
 #[cfg(feature = "servo-engine")]
 use std::panic;
+use std::{env, fs};
 
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_STARTUP_CONFIG_SNAPSHOT;
@@ -106,7 +106,6 @@ fn run_servo_launch_path() {
     // Skip the first argument, which is the binary name.
     let args: Vec<String> = env::args().skip(1).collect();
     let (opts, preferences, app_preferences) = match parse_command_line_arguments(&*args) {
-        ArgumentParsingResult::ContentProcess(token) => return servo::run_content_process(token),
         ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
             (opts, preferences, app_preferences)
         }

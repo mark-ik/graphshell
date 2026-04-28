@@ -7,66 +7,31 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-#[cfg(all(
-    feature = "diagnostics",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
+#[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
 use image::{DynamicImage, ImageFormat};
-#[cfg(all(
-    any(coverage, llvm_pgo),
-    any(target_os = "android", target_env = "ohos")
-))]
-use libc::c_char;
 use log::{error, info};
 use servo::user_contents::UserStyleSheet;
 use servo::{
     AllowOrDenyRequest, ConsoleLogLevel, CreateNewWebViewRequest, EventLoopWaker, PrefValue,
     Preferences, Servo, ServoDelegate, ServoError, UserContentManager, WebView, WebViewDelegate,
-    WebViewId, pref,
+    WebViewId,
 };
 use url::Url;
 
 use crate::app::{PendingCreateToken, RuntimeUserStylesheetSpec, WorkspaceUserStylesheetSetting};
 use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::shell::desktop::host::embedder::EmbedderCore;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-pub(crate) use crate::shell::desktop::host::gamepad::AppGamepadProvider;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::host::gamepad::GamepadUiCommand;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::host::gamepad_runtime::GamepadRuntime;
 use crate::shell::desktop::host::webdriver_runtime::WebDriverRuntime;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, PlatformWindow, WebViewCreationContext, WebViewLifecycleEvent,
 };
-#[cfg(all(
-    feature = "diagnostics",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
+#[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent, SpanPhase};
 
 mod webview_delegate;
 use self::webview_delegate::RunningAppStateWebViewDelegate;
-#[cfg(all(
-    any(coverage, llvm_pgo),
-    any(target_os = "android", target_env = "ohos")
-))]
-unsafe extern "C" {
-    fn __llvm_profile_set_filename(file: *const c_char);
-    fn __llvm_profile_write_file();
-}
-
 #[derive(Default)]
 pub struct WebViewCollection {
     /// List of top-level browsing contexts.
@@ -207,13 +172,6 @@ impl StableImageOutput {
 }
 
 pub(crate) struct RunningAppState {
-    /// Host-side gamepad coordination and haptics state.
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    gamepad: GamepadRuntime,
-
     /// Host-side WebDriver coordination and transport state.
     webdriver: WebDriverRuntime,
 
@@ -352,22 +310,6 @@ mod tests {
             }
         }
     }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    #[test]
-    fn gamepad_content_target_is_none_when_host_has_reclaimed_input() {
-        let prefs = AppPreferences::default();
-        let window = EmbedderWindow::new(HeadlessWindow::new(&prefs), Arc::new(AtomicU64::new(0)));
-        window.set_input_target(Some(InputTarget::Host));
-
-        assert_eq!(
-            crate::shell::desktop::host::gamepad_runtime::resolve_content_webview_id(&window),
-            None
-        );
-    }
 }
 
 impl RunningAppState {
@@ -377,11 +319,6 @@ impl RunningAppState {
         event_loop_waker: Box<dyn EventLoopWaker>,
         user_content_manager: Rc<UserContentManager>,
         default_preferences: Preferences,
-        #[cfg(all(
-            feature = "gamepad",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        gamepad_provider: Option<Rc<AppGamepadProvider>>,
     ) -> Self {
         servo.set_delegate(Rc::new(GraphshellServoDelegate));
         let embedder_core = EmbedderCore::new(servo);
@@ -391,12 +328,6 @@ impl RunningAppState {
             event_loop_waker,
             default_preferences,
         );
-        #[cfg(all(
-            feature = "gamepad",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        let gamepad = GamepadRuntime::new(gamepad_provider);
-
         let experimental_preferences_enabled =
             Cell::new(app_preferences.experimental_preferences_enabled);
         let managed_user_stylesheets = app_preferences
@@ -415,11 +346,6 @@ impl RunningAppState {
             .collect();
 
         Self {
-            #[cfg(all(
-                feature = "gamepad",
-                not(any(target_os = "android", target_env = "ohos"))
-            ))]
-            gamepad,
             webdriver,
             app_preferences,
             stable_image_output: Default::default(),
@@ -470,7 +396,6 @@ impl RunningAppState {
         self.embedder_core.focus_window(window);
     }
 
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn window(&self, id: EmbedderWindowId) -> Option<Rc<EmbedderWindow>> {
         self.embedder_core.window(id)
     }
@@ -492,28 +417,6 @@ impl RunningAppState {
         // to run wpt test using servodriver.
         self.app_preferences.webdriver_port.set(None);
         self.exit_scheduled.set(true);
-
-        #[cfg(all(
-            any(coverage, llvm_pgo),
-            any(target_os = "android", target_env = "ohos")
-        ))]
-        {
-            use std::ffi::CString;
-
-            use crate::prefs::default_config_dir;
-
-            let mut profile_path = default_config_dir().expect("Need a config dir");
-            profile_path.push("profiles/");
-            let filename = format!(
-                "{}/profile-%h-%p.profraw",
-                profile_path.to_str().expect("Should be unicode")
-            );
-            let c_filename = CString::new(filename).expect("Need a valid cstring");
-            unsafe {
-                __llvm_profile_set_filename(c_filename.as_ptr() as *const c_char);
-                __llvm_profile_write_file()
-            }
-        }
     }
 
     pub(crate) fn store_pending_create_request(
@@ -530,12 +433,10 @@ impl RunningAppState {
         self.pending_create_store.take(token)
     }
 
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn experimental_preferences_enabled(&self) -> bool {
         self.experimental_preferences_enabled.get()
     }
 
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn set_experimental_preferences_enabled(&self, new_value: bool) {
         let old_value = self.experimental_preferences_enabled.replace(new_value);
         if old_value == new_value {
@@ -555,16 +456,10 @@ impl RunningAppState {
     }
 
     pub(crate) fn take_pending_graph_events(&self) -> Vec<WebViewLifecycleEvent> {
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         let started = Instant::now();
         let events = self.embedder_core.drain_window_graph_events();
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "running_app_state::take_pending_graph_events",
             started.elapsed().as_micros() as u64,
@@ -574,7 +469,6 @@ impl RunningAppState {
 
     /// Spins the internal application event loop.
     ///
-    /// - Notifies Servo about incoming gamepad events
     /// - Spin the Servo event loop, which will update Servo's embedding layer and trigger
     ///   delegate methods.
     ///
@@ -585,23 +479,9 @@ impl RunningAppState {
     ) -> bool {
         self.webdriver.handle_messages(self, create_platform_window);
 
-        #[cfg(all(
-            feature = "gamepad",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        if pref!(dom_gamepad_enabled) {
-            self.handle_gamepad_events();
-        }
-
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         let servo_spin_started = Instant::now();
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::Span {
             name: "servo.spin_event_loop",
             phase: SpanPhase::Enter,
@@ -610,10 +490,7 @@ impl RunningAppState {
 
         self.embedder_core.servo().spin_event_loop();
 
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         {
             let elapsed = servo_spin_started.elapsed().as_micros() as u64;
             diagnostics::emit_event(DiagnosticEvent::MessageReceived {
@@ -673,22 +550,6 @@ impl RunningAppState {
     fn maybe_request_screenshot(&self, webview: WebView) {
         self.stable_image_output
             .maybe_request_screenshot(&self.app_preferences, webview);
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    pub(crate) fn handle_gamepad_events(&self) {
-        self.gamepad.handle_events(self.focused_window());
-    }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    pub(crate) fn take_pending_gamepad_ui_commands(&self) -> Vec<GamepadUiCommand> {
-        self.gamepad.take_pending_ui_commands()
     }
 
     pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
@@ -764,8 +625,6 @@ impl ServoDelegate for GraphshellServoDelegate {
     }
 
     fn show_console_message(&self, level: ConsoleLogLevel, message: String) {
-        // For messages without a WebView context, apply platform-specific behavior
-        #[cfg(not(any(target_os = "android", target_env = "ohos")))]
         println!("{message}");
         log::log!(level.into(), "{message}");
     }

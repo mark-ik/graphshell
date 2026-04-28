@@ -14,7 +14,7 @@ use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
 use crate::shell::desktop::runtime::registries::input::{
-    GamepadButton, InputBinding, InputBindingRemap, InputContext,
+    InputBinding, InputBindingRemap, InputContext, Keycode, ModifierMask, NamedKey,
 };
 use crate::shell::desktop::runtime::registries::workbench_surface::WorkbenchSurfaceRegistry;
 use crate::shell::desktop::runtime::registries::{
@@ -460,13 +460,13 @@ fn set_input_binding_remaps_persist_across_restart() {
     let dir = TempDir::new().expect("temp dir should be created");
     let path = dir.path().to_path_buf();
     let remaps = [InputBindingRemap {
-        old: InputBinding::Gamepad {
-            button: GamepadButton::South,
-            modifier: None,
+        old: InputBinding::Key {
+            modifiers: ModifierMask::NONE,
+            keycode: Keycode::Named(NamedKey::F3),
         },
-        new: InputBinding::Gamepad {
-            button: GamepadButton::East,
-            modifier: None,
+        new: InputBinding::Key {
+            modifiers: ModifierMask::CTRL,
+            keycode: Keycode::Char('m'),
         },
         context: InputContext::GraphView,
     }];

@@ -89,7 +89,7 @@ pub(crate) fn runtime_events_from_semantic_events(
                 );
                 events_out.push(RuntimeEvent::HostOpenRequest { request });
             }
-            WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { intent } => {
+            WebViewLifecycleEventKind::WorkbenchIntentRequested { intent } => {
                 workbench_intents.push(intent);
             }
         }
@@ -129,7 +129,7 @@ pub(crate) fn runtime_events_and_responsive_from_events(
             }
             WebViewLifecycleEventKind::WebViewCrashed { .. }
             | WebViewLifecycleEventKind::HostOpenRequest { .. }
-            | WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { .. } => {}
+            | WebViewLifecycleEventKind::WorkbenchIntentRequested { .. } => {}
         }
     }
 
@@ -235,7 +235,7 @@ mod tests {
     #[case(
         event(WebViewLifecycleEventKind::HostOpenRequest {
             request: crate::app::HostOpenRequest {
-                url: "servo:newtab".to_string(),
+                url: "about:blank".to_string(),
                 source: crate::app::OpenSurfaceSource::KeyboardShortcut,
                 parent_webview_id: None,
                 pending_create_token: None,
@@ -329,7 +329,7 @@ mod tests {
                         }
                     },
                     WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::HostOpenRequest { .. }, .. } => {},
-                    WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { .. }, .. } => {},
+                    WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::WorkbenchIntentRequested { .. }, .. } => {},
                     WebViewLifecycleEvent { kind: WebViewLifecycleEventKind::WebViewCrashed { .. }, .. } => {},
                 }
                 set

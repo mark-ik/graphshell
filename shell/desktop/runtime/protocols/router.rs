@@ -2,60 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Thin registration router for custom protocol handlers.
-//!
-//! This keeps protocol wiring centralized so new schemes can be plugged in
-//! without touching app initialization logic.
+//! Outbound fetch routing for graph/runtime protocol adapters.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
 use reqwest::blocking::Client;
-use servo::protocol_handler::{ProtocolHandler, ProtocolRegistry};
 use url::Url;
-
-use crate::shell::desktop::runtime::protocols;
-
-pub(crate) struct AppSchemeRouter {
-    registry: ProtocolRegistry,
-}
-
-impl AppSchemeRouter {
-    pub(crate) fn new() -> Self {
-        Self {
-            registry: ProtocolRegistry::default(),
-        }
-    }
-
-    pub(crate) fn register<H>(&mut self, scheme: &'static str, handler: H) -> bool
-    where
-        H: ProtocolHandler + 'static,
-    {
-        self.registry.register(scheme, handler).is_ok()
-    }
-
-    pub(crate) fn register_default_handlers(&mut self) {
-        let _ = self.register(
-            "urlinfo",
-            protocols::urlinfo::UrlInfoProtocolHander::default(),
-        );
-        let _ = self.register("servo", protocols::servo::ServoProtocolHandler::default());
-        let _ = self.register(
-            "resource",
-            protocols::resource::ResourceProtocolHandler::default(),
-        );
-    }
-
-    pub(crate) fn into_registry(self) -> ProtocolRegistry {
-        self.registry
-    }
-}
-
-impl Default for AppSchemeRouter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[derive(Debug)]
 pub(crate) enum OutboundFetchError {

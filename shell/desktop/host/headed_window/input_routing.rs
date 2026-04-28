@@ -22,7 +22,7 @@ use winit::event::{ElementState, KeyEvent, MouseButton, TouchPhase};
 use winit::keyboard::KeyCode;
 use winit::window::CursorIcon;
 
-use crate::app::OpenSurfaceSource;
+use crate::app::{GraphViewId, PendingTileOpenMode, WorkbenchIntent};
 use crate::shell::desktop::host::geometry::winit_position_to_euclid_point;
 use crate::shell::desktop::host::keyutils::{
     CMD_OR_ALT, CMD_OR_CONTROL, keyboard_event_from_winit,
@@ -191,11 +191,6 @@ pub(super) fn handle_keyboard_input(
         return;
     };
 
-    for xr_window_pose in headed.xr_window_poses.borrow().iter() {
-        xr_window_pose.handle_xr_rotation(&winit_event, headed.modifiers_state.get());
-        xr_window_pose.handle_xr_translation(&keyboard_event);
-    }
-
     let id = webview.notify_input_event(InputEvent::Keyboard(keyboard_event.clone()));
     headed
         .pending_keyboard_events
@@ -316,16 +311,10 @@ pub(super) fn handle_intercepted_key_bindings(
             || active_webview.exit_fullscreen(),
         )
         .shortcut(CMD_OR_CONTROL, 'T', || {
-            window.notify_host_open_request(
-                "servo:newtab".to_string(),
-                OpenSurfaceSource::KeyboardShortcut,
-                Some(
-                    crate::shell::desktop::lifecycle::webview_status_sync::renderer_id_from_servo(
-                        active_webview.id(),
-                    ),
-                ),
-                None,
-            );
+            window.notify_workbench_intent_request(WorkbenchIntent::OpenGraphViewPane {
+                view_id: GraphViewId::new(),
+                mode: PendingTileOpenMode::Tab,
+            });
         })
         .shortcut(CMD_OR_CONTROL, 'Q', || state.schedule_exit())
         .otherwise(|| handled = false);

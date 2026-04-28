@@ -25,12 +25,9 @@ use crate::registries::infrastructure::mod_loader::runtime_has_capability;
 use crate::shell::desktop::host::event_loop::AppEventLoop;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::headless_window::HeadlessWindow;
-#[cfg(feature = "gamepad")]
-use crate::shell::desktop::host::running_app_state::AppGamepadProvider;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{EmbedderWindowId, PlatformWindow};
 use crate::shell::desktop::runtime::nip07_bridge;
-use crate::shell::desktop::runtime::protocols;
 use crate::shell::desktop::runtime::tracing::trace_winit_event;
 
 const BUILTIN_USERSCRIPTS_DIRECTORY: &str = "resources/user-agent-js";
@@ -83,27 +80,14 @@ impl App {
 
     /// Initialize Application once event loop start running.
     pub fn init(&mut self, active_event_loop: Option<&ActiveEventLoop>) {
-        let mut scheme_router = protocols::router::AppSchemeRouter::new();
-        scheme_router.register_default_handlers();
-        let protocol_registry = scheme_router.into_registry();
-
         let servo_builder = ServoBuilder::default()
             .opts(self.opts.clone())
             .preferences(self.preferences.clone())
-            .protocol_registry(protocol_registry)
+            .protocol_registry(servo::protocol_handler::ProtocolRegistry::default())
             .event_loop_waker(self.waker.clone());
 
         let url = self.initial_url.as_url().clone();
         let platform_window = self.create_platform_window(url, active_event_loop);
-
-        #[cfg(feature = "webxr")]
-        let servo_builder = servo_builder.webxr_registry(
-            crate::shell::desktop::host::webxr::XrDiscoveryWebXrRegistry::new_boxed(
-                platform_window.clone(),
-                active_event_loop,
-                &self.preferences,
-            ),
-        );
 
         let servo = servo_builder.build();
         servo.setup_logging();
@@ -130,8 +114,6 @@ impl App {
             self.waker.clone(),
             user_content_manager,
             self.preferences.clone(),
-            #[cfg(feature = "gamepad")]
-            AppGamepadProvider::maybe_new().map(Rc::new),
         ));
         running_state.open_window(platform_window, self.initial_url.as_url().clone());
 

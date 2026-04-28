@@ -68,11 +68,11 @@ fn wry_render_mode_preference_label(preference: WryRenderModePreference) -> &'st
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
-    state: &RunningAppState,
+    _state: &RunningAppState,
     command_bar_focus_target: CommandBarFocusTarget,
     prefer_overlay: bool,
-    frame_intents: &mut Vec<GraphIntent>,
-    location_dirty: &mut bool,
+    _frame_intents: &mut Vec<GraphIntent>,
+    _location_dirty: &mut bool,
     _window: &EmbedderWindow,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -315,37 +315,6 @@ pub(super) fn render_settings_menu(
                     kind: ToolPaneState::Diagnostics,
                 });
                 ui.close();
-            }
-
-            ui.separator();
-            ui.label("Browser");
-            if ui.button("Open Config Page").clicked() {
-                super::request_open_settings_page(graph_app, frame_intents, "servo:config");
-                ui.close();
-            }
-            if ui.button("Open Preferences Page").clicked() {
-                super::request_open_settings_page(graph_app, frame_intents, "servo:preferences");
-                ui.close();
-            }
-            if ui.button("Open Experimental Preferences").clicked() {
-                super::request_open_settings_page(
-                    graph_app,
-                    frame_intents,
-                    "servo:experimental-preferences",
-                );
-                ui.close();
-            }
-            let mut experimental_preferences_enabled = state.experimental_preferences_enabled();
-            let prefs_toggle = ui
-                .toggle_value(
-                    &mut experimental_preferences_enabled,
-                    "Experimental Preferences",
-                )
-                .on_hover_text("Enable experimental prefs");
-            if prefs_toggle.clicked() {
-                state.set_experimental_preferences_enabled(experimental_preferences_enabled);
-                *location_dirty = false;
-                graph_app.request_reload_all();
             }
 
             ui.separator();

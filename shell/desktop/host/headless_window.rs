@@ -144,15 +144,6 @@ impl PlatformWindowRendering for HeadlessWindow {
 
         Some(new_size)
     }
-
-    #[cfg(feature = "webxr")]
-    fn new_glwindow(
-        &self,
-        _event_loop: &winit::event_loop::ActiveEventLoop,
-    ) -> Rc<dyn servo::webxr::GlWindow> {
-        error!("HeadlessWindow does not support WebXR GL windows");
-        std::process::abort()
-    }
 }
 
 impl PlatformWindowOps for HeadlessWindow {

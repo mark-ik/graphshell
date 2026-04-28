@@ -11,10 +11,8 @@ use egui::{
 };
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use euclid::Length;
-use log::warn;
 use servo::{
-    AlertDialog, AuthenticationRequest, BluetoothDeviceDescription,
-    BluetoothDeviceSelectionRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
+    AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
     DeviceIndependentPixel, DeviceIntRect, EmbedderControlId, FilePicker, PermissionRequest,
     PromptDialog, RgbColor, SelectElement, SelectElementOption, SelectElementOptionOrOptgroup,
     SimpleDialog, WebViewId,
@@ -56,11 +54,6 @@ pub enum Dialog {
     Permission {
         message: String,
         request: Option<PermissionRequest>,
-    },
-    SelectDevice {
-        devices: Vec<BluetoothDeviceDescription>,
-        selected_device_index: usize,
-        request: Option<BluetoothDeviceSelectionRequest>,
     },
     SelectElement {
         maybe_prompt: Option<SelectElement>,
@@ -146,14 +139,6 @@ impl Dialog {
         Dialog::Permission {
             message,
             request: Some(permission_request),
-        }
-    }
-
-    pub fn new_device_selection_dialog(request: BluetoothDeviceSelectionRequest) -> Self {
-        Dialog::SelectDevice {
-            devices: request.devices().clone(),
-            selected_device_index: 0,
-            request: Some(request),
         }
     }
 
@@ -477,66 +462,6 @@ impl Dialog {
                                 let request =
                                     request.take().expect("non-None until dialog is closed");
                                 request.deny();
-                                is_open = false;
-                            }
-                        },
-                    );
-                });
-                if !is_open {
-                    emit_navigation_transition_dialog_close();
-                }
-                DialogUpdateResult {
-                    keep_open: is_open,
-                    command: None,
-                }
-            }
-            Dialog::SelectDevice {
-                devices,
-                selected_device_index,
-                request,
-            } => {
-                let mut is_open = true;
-                let modal = Modal::new("device_picker".into());
-                modal.show(ctx, |ui| {
-                    let mut frame = egui::Frame::default().inner_margin(10.0).begin(ui);
-                    frame.content_ui.set_min_width(MINIMUM_UI_ELEMENT_WIDTH);
-
-                    frame.content_ui.heading("Choose a Device");
-                    frame.content_ui.add_space(10.0);
-
-                    egui::ComboBox::from_label("")
-                        .selected_text(&devices[*selected_device_index].name)
-                        .show_ui(&mut frame.content_ui, |ui| {
-                            for (i, device) in devices.iter().enumerate() {
-                                ui.selectable_value(selected_device_index, i, &device.name);
-                            }
-                        });
-
-                    frame.end(ui);
-
-                    egui::Sides::new().show(
-                        ui,
-                        |_ui| {},
-                        |ui| {
-                            if ui.button("Ok").clicked()
-                                || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                            {
-                                if let Some(request) = request.take()
-                                    && let Err(e) =
-                                        request.pick_device(&devices[*selected_device_index])
-                                {
-                                    warn!("Failed to send device selection: {}", e);
-                                }
-                                is_open = false;
-                            }
-                            if ui.button("Cancel").clicked()
-                                || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                            {
-                                if let Some(request) = request.take()
-                                    && let Err(e) = request.cancel()
-                                {
-                                    warn!("Failed to send cancellation: {}", e);
-                                }
                                 is_open = false;
                             }
                         },

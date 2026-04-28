@@ -140,11 +140,10 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
     fn show_bluetooth_device_dialog(
         &self,
-        webview: WebView,
+        _webview: WebView,
         request: BluetoothDeviceSelectionRequest,
     ) {
-        self.window_for_webview_id(webview.id())
-            .show_bluetooth_device_dialog(webview.id(), request);
+        let _ = request.cancel();
     }
 
     fn request_permission(&self, webview: WebView, permission_request: PermissionRequest) {

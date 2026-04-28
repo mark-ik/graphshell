@@ -16,12 +16,12 @@ use keyboard_types::ShortcutMatcher;
 use log::{debug, info, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use servo::{
-    AuthenticationRequest, BluetoothDeviceSelectionRequest, Cursor, DeviceIndependentIntRect,
-    DeviceIndependentPixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint,
-    EmbedderControl, EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult,
-    InputMethodControl, KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext,
-    PermissionRequest, RenderingContextCore, ScreenGeometry, Theme, TouchEvent, TouchEventType,
-    TouchId, WebView, WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
+    AuthenticationRequest, Cursor, DeviceIndependentIntRect, DeviceIndependentPixel,
+    DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel, DevicePoint, EmbedderControl,
+    EmbedderControlId, ImeEvent, InputEvent, InputEventId, InputEventResult, InputMethodControl,
+    KeyboardEvent, MouseLeftViewportEvent, OffscreenRenderingContext, PermissionRequest,
+    RenderingContextCore, ScreenGeometry, Theme, TouchEvent, TouchEventType, TouchId, WebView,
+    WebViewId, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
     convert_rect_to_css_pixel,
 };
 use url::Url;
@@ -31,8 +31,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::WindowAttributesExtWayland;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-use winit::window::Icon;
 #[cfg(target_os = "macos")]
 use {
     objc2_app_kit::{NSColorSpace, NSView},
@@ -40,7 +38,6 @@ use {
 };
 
 use crate::prefs::AppPreferences;
-use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::geometry::{
     winit_position_to_euclid_point, winit_size_to_euclid_size,
@@ -65,7 +62,6 @@ use crate::shell::desktop::ui::toolbar_routing::ToolbarNavAction;
 mod clip_extraction;
 mod embedder_controls;
 mod input_routing;
-mod xr;
 
 pub(crate) const INITIAL_WINDOW_TITLE: &str = "Graphshell";
 
@@ -81,7 +77,6 @@ pub struct HeadedWindow {
     inner_size: Cell<PhysicalSize<u32>>,
     fullscreen: Cell<bool>,
     device_pixel_ratio_override: Option<f32>,
-    xr_window_poses: RefCell<Vec<Rc<xr::XRWindowPose>>>,
     modifiers_state: Cell<ModifiersState>,
     /// GL-backed context retained for egui/UI internals that still depend on
     /// the compat path.
@@ -152,12 +147,6 @@ impl HeadedWindow {
             .create_window(window_attr)
             .expect("Failed to create window.");
 
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        {
-            let icon_bytes = include_bytes!("../../../resources/servo_64.png");
-            winit_window.set_window_icon(Some(load_icon(icon_bytes)));
-        }
-
         let window_handle = winit_window
             .window_handle()
             .expect("winit window did not have a window handle");
@@ -187,13 +176,6 @@ impl HeadedWindow {
             WindowRenderingContext::new(display_handle, window_handle, inner_size)
                 .expect("Could not create RenderingContext for Window"),
         );
-
-        // Setup for GL accelerated media handling. This is only active on certain Linux platforms
-        // and Windows.
-        {
-            let details = window_rendering_context.surfman_details();
-            setup_gl_accelerated_media(details.0, details.1);
-        }
 
         // Make sure the gl context is made current.
         if let Some(gl) = window_rendering_context.gl() {
@@ -229,7 +211,6 @@ impl HeadedWindow {
             monitor,
             screen_size,
             device_pixel_ratio_override: app_preferences.device_pixel_ratio_override,
-            xr_window_poses: RefCell::new(vec![]),
             modifiers_state: Cell::new(ModifiersState::empty()),
             window_rendering_context,
             touch_event_simulator: app_preferences.simulate_touch_events.then(Default::default),
@@ -1116,11 +1097,6 @@ impl PlatformWindowRendering for HeadedWindow {
                 )
             })
     }
-
-    #[cfg(feature = "webxr")]
-    fn new_glwindow(&self, event_loop: &ActiveEventLoop) -> Rc<dyn servo::webxr::GlWindow> {
-        xr::new_glwindow(self, event_loop)
-    }
 }
 
 impl PlatformWindowOps for HeadedWindow {
@@ -1175,14 +1151,6 @@ impl PlatformWindowDialogs for HeadedWindow {
 
     fn hide_embedder_control(&self, webview_id: WebViewId, embedder_control_id: EmbedderControlId) {
         embedder_controls::hide_embedder_control(self, webview_id, embedder_control_id);
-    }
-
-    fn show_bluetooth_device_dialog(
-        &self,
-        webview_id: WebViewId,
-        request: BluetoothDeviceSelectionRequest,
-    ) {
-        embedder_controls::show_bluetooth_device_dialog(self, webview_id, request);
     }
 
     fn show_permission_dialog(&self, webview_id: WebViewId, permission_request: PermissionRequest) {
@@ -1282,21 +1250,6 @@ impl PlatformWindow for HeadedWindow {
     fn as_headed_window(&self) -> Option<&Self> {
         Some(self)
     }
-}
-
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-fn load_icon(icon_bytes: &[u8]) -> Icon {
-    let (icon_rgba, icon_width, icon_height) = {
-        use image::{GenericImageView, Pixel};
-        let image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
-        let (width, height) = image.dimensions();
-        let mut rgba = Vec::with_capacity((width * height) as usize * 4);
-        for (_, _, pixel) in image.pixels() {
-            rgba.extend_from_slice(&pixel.to_rgba().0);
-        }
-        (rgba, width, height)
-    };
-    Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to load icon")
 }
 
 #[derive(Default)]

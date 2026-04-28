@@ -238,66 +238,11 @@ impl FromStr for Keycode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum GamepadButton {
-    South,
-    DPadUp,
-    DPadDown,
-    DPadLeft,
-    DPadRight,
-    LeftBumper,
-    RightBumper,
-    LeftStickPress,
-    East,
-    Start,
-}
-
-impl GamepadButton {
-    fn label(self) -> &'static str {
-        match self {
-            Self::South => "south",
-            Self::DPadUp => "dpad_up",
-            Self::DPadDown => "dpad_down",
-            Self::DPadLeft => "dpad_left",
-            Self::DPadRight => "dpad_right",
-            Self::LeftBumper => "left_bumper",
-            Self::RightBumper => "right_bumper",
-            Self::LeftStickPress => "left_stick_press",
-            Self::East => "east",
-            Self::Start => "start",
-        }
-    }
-}
-
-impl FromStr for GamepadButton {
-    type Err = ();
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "south" => Ok(Self::South),
-            "dpad_up" => Ok(Self::DPadUp),
-            "dpad_down" => Ok(Self::DPadDown),
-            "dpad_left" => Ok(Self::DPadLeft),
-            "dpad_right" => Ok(Self::DPadRight),
-            "left_bumper" => Ok(Self::LeftBumper),
-            "right_bumper" => Ok(Self::RightBumper),
-            "left_stick_press" => Ok(Self::LeftStickPress),
-            "east" => Ok(Self::East),
-            "start" => Ok(Self::Start),
-            _ => Err(()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum InputBinding {
     Key {
         modifiers: ModifierMask,
         keycode: Keycode,
-    },
-    Gamepad {
-        button: GamepadButton,
-        modifier: Option<GamepadButton>,
     },
     Chord(Vec<InputBinding>),
 }
@@ -308,12 +253,6 @@ impl InputBinding {
             Self::Key { modifiers, keycode } => {
                 format!("key:{}:{}", modifiers.label(), keycode.label())
             }
-            Self::Gamepad { button, modifier } => match modifier {
-                Some(modifier) => {
-                    format!("gamepad:{}+{}", modifier.label(), button.label())
-                }
-                None => format!("gamepad:{}", button.label()),
-            },
             Self::Chord(sequence) => {
                 let parts = sequence.iter().map(Self::label).collect::<Vec<_>>();
                 format!("chord:{}", parts.join(">"))
@@ -358,10 +297,6 @@ impl InputBinding {
                 });
                 parts.join("+")
             }
-            Self::Gamepad { button, modifier } => match modifier {
-                Some(modifier) => format!("{}+{}", modifier.label(), button.label()),
-                None => button.label().to_string(),
-            },
             Self::Chord(sequence) => sequence
                 .iter()
                 .map(Self::display_label)
@@ -426,20 +361,6 @@ impl FromStr for InputBinding {
             let modifiers = parts.next().ok_or(())?.parse()?;
             let keycode = parts.next().ok_or(())?.parse()?;
             return Ok(Self::Key { modifiers, keycode });
-        }
-
-        if let Some(rest) = normalized.strip_prefix("gamepad:") {
-            if let Some((modifier, button)) = rest.split_once('+') {
-                return Ok(Self::Gamepad {
-                    button: button.parse()?,
-                    modifier: Some(modifier.parse()?),
-                });
-            }
-
-            return Ok(Self::Gamepad {
-                button: rest.parse()?,
-                modifier: None,
-            });
         }
 
         if let Some(rest) = normalized.strip_prefix("chord:") {
@@ -596,83 +517,6 @@ fn toolbar_nav_reload_binding() -> InputBinding {
     InputBinding::Key {
         modifiers: ModifierMask::NONE,
         keycode: Keycode::Named(NamedKey::F5),
-    }
-}
-
-fn gamepad_command_palette_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::Start,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_menu_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::South,
-        modifier: None,
-    }
-}
-
-fn gamepad_cycle_focus_binding(button: GamepadButton) -> InputBinding {
-    InputBinding::Gamepad {
-        button,
-        modifier: None,
-    }
-}
-
-fn gamepad_nav_back_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::LeftBumper,
-        modifier: None,
-    }
-}
-
-fn gamepad_nav_forward_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::RightBumper,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_category_previous_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::DPadLeft,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_category_next_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::DPadRight,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_selection_previous_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::DPadUp,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_selection_next_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::DPadDown,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_confirm_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::LeftStickPress,
-        modifier: None,
-    }
-}
-
-fn gamepad_radial_cancel_binding() -> InputBinding {
-    InputBinding::Gamepad {
-        button: GamepadButton::East,
-        modifier: None,
     }
 }
 
@@ -1061,22 +905,17 @@ impl InputRegistry {
         context: InputContext,
     ) -> Option<InputBinding> {
         let normalized = action_id.to_ascii_lowercase();
-        let mut gamepad_binding: Option<InputBinding> = None;
         for ((entry_context, binding), slot) in &self.bindings {
             if *entry_context != context {
                 continue;
             }
             if let BindingSlot::Routed(routed) = slot {
                 if routed == &normalized {
-                    // Prefer keyboard/key bindings over gamepad for display
-                    if matches!(binding, InputBinding::Key { .. }) {
-                        return Some(binding.clone());
-                    }
-                    gamepad_binding = Some(binding.clone());
+                    return Some(binding.clone());
                 }
             }
         }
-        gamepad_binding
+        None
     }
 
     pub(crate) fn describe_bindable_actions(&self) -> Vec<InputActionBindingDescriptor> {
@@ -1267,76 +1106,6 @@ impl Default for InputRegistry {
         for spec in default_binding_specs() {
             registry.register_binding(spec.binding, spec.action_id, spec.context);
         }
-        registry.register_binding(
-            gamepad_command_palette_binding(),
-            action_id::graph::COMMAND_PALETTE_OPEN,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_radial_menu_binding(),
-            action_id::graph::RADIAL_MENU_OPEN,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_cycle_focus_binding(GamepadButton::DPadUp),
-            action_id::graph::CYCLE_FOCUS_REGION,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_cycle_focus_binding(GamepadButton::DPadDown),
-            action_id::graph::CYCLE_FOCUS_REGION,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_cycle_focus_binding(GamepadButton::DPadLeft),
-            action_id::graph::CYCLE_FOCUS_REGION,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_cycle_focus_binding(GamepadButton::DPadRight),
-            action_id::graph::CYCLE_FOCUS_REGION,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            gamepad_nav_back_binding(),
-            action_id::toolbar::NAV_BACK,
-            InputContext::DetailView,
-        );
-        registry.register_binding(
-            gamepad_nav_forward_binding(),
-            action_id::toolbar::NAV_FORWARD,
-            InputContext::DetailView,
-        );
-        registry.register_binding(
-            gamepad_radial_category_previous_binding(),
-            action_id::radial_menu::CATEGORY_PREVIOUS,
-            InputContext::RadialMenuOpen,
-        );
-        registry.register_binding(
-            gamepad_radial_category_next_binding(),
-            action_id::radial_menu::CATEGORY_NEXT,
-            InputContext::RadialMenuOpen,
-        );
-        registry.register_binding(
-            gamepad_radial_selection_previous_binding(),
-            action_id::radial_menu::SELECTION_PREVIOUS,
-            InputContext::RadialMenuOpen,
-        );
-        registry.register_binding(
-            gamepad_radial_selection_next_binding(),
-            action_id::radial_menu::SELECTION_NEXT,
-            InputContext::RadialMenuOpen,
-        );
-        registry.register_binding(
-            gamepad_radial_confirm_binding(),
-            action_id::radial_menu::CONFIRM,
-            InputContext::RadialMenuOpen,
-        );
-        registry.register_binding(
-            gamepad_radial_cancel_binding(),
-            action_id::radial_menu::CANCEL,
-            InputContext::RadialMenuOpen,
-        );
         registry
     }
 }
@@ -1459,115 +1228,12 @@ mod tests {
     }
 
     #[test]
-    fn input_registry_resolves_graph_view_gamepad_bindings() {
-        let registry = InputRegistry::default();
-
-        let command_palette =
-            registry.resolve(&gamepad_command_palette_binding(), InputContext::GraphView);
-        assert_eq!(
-            command_palette.action_id.as_deref(),
-            Some(action_id::graph::COMMAND_PALETTE_OPEN)
-        );
-
-        let radial_menu = registry.resolve(&gamepad_radial_menu_binding(), InputContext::GraphView);
-        assert_eq!(
-            radial_menu.action_id.as_deref(),
-            Some(action_id::graph::RADIAL_MENU_OPEN)
-        );
-
-        let focus_cycle = registry.resolve(
-            &gamepad_cycle_focus_binding(GamepadButton::DPadLeft),
-            InputContext::GraphView,
-        );
-        assert_eq!(
-            focus_cycle.action_id.as_deref(),
-            Some(action_id::graph::CYCLE_FOCUS_REGION)
-        );
-    }
-
-    #[test]
-    fn input_registry_resolves_detail_view_gamepad_nav_bindings() {
-        let registry = InputRegistry::default();
-
-        let back = registry.resolve(&gamepad_nav_back_binding(), InputContext::DetailView);
-        assert_eq!(
-            back.action_id.as_deref(),
-            Some(action_id::toolbar::NAV_BACK)
-        );
-
-        let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
-        assert_eq!(
-            forward.action_id.as_deref(),
-            Some(action_id::toolbar::NAV_FORWARD)
-        );
-    }
-
-    #[test]
-    fn input_registry_resolves_radial_menu_gamepad_bindings() {
-        let registry = InputRegistry::default();
-
-        let category_previous = registry.resolve(
-            &gamepad_radial_category_previous_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            category_previous.action_id.as_deref(),
-            Some(action_id::radial_menu::CATEGORY_PREVIOUS)
-        );
-
-        let category_next = registry.resolve(
-            &gamepad_radial_category_next_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            category_next.action_id.as_deref(),
-            Some(action_id::radial_menu::CATEGORY_NEXT)
-        );
-
-        let selection_previous = registry.resolve(
-            &gamepad_radial_selection_previous_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            selection_previous.action_id.as_deref(),
-            Some(action_id::radial_menu::SELECTION_PREVIOUS)
-        );
-
-        let selection_next = registry.resolve(
-            &gamepad_radial_selection_next_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            selection_next.action_id.as_deref(),
-            Some(action_id::radial_menu::SELECTION_NEXT)
-        );
-
-        let confirm = registry.resolve(
-            &gamepad_radial_confirm_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            confirm.action_id.as_deref(),
-            Some(action_id::radial_menu::CONFIRM)
-        );
-
-        let cancel = registry.resolve(
-            &gamepad_radial_cancel_binding(),
-            InputContext::RadialMenuOpen,
-        );
-        assert_eq!(
-            cancel.action_id.as_deref(),
-            Some(action_id::radial_menu::CANCEL)
-        );
-    }
-
-    #[test]
     fn input_binding_remap_round_trips_through_string_encoding() {
         let remap = InputBindingRemap {
-            old: gamepad_radial_menu_binding(),
-            new: InputBinding::Gamepad {
-                button: GamepadButton::East,
-                modifier: Some(GamepadButton::LeftBumper),
+            old: toolbar_nav_back_binding(),
+            new: InputBinding::Key {
+                modifiers: ModifierMask::ALT,
+                keycode: Keycode::Char('b'),
             },
             context: InputContext::GraphView,
         };
@@ -1579,26 +1245,26 @@ mod tests {
     #[test]
     fn input_registry_remap_binding_replaces_existing_binding() {
         let mut registry = InputRegistry::default();
-        let old = gamepad_radial_menu_binding();
-        let new = InputBinding::Gamepad {
-            button: GamepadButton::East,
-            modifier: None,
+        let old = toolbar_nav_back_binding();
+        let new = InputBinding::Key {
+            modifiers: ModifierMask::ALT,
+            keycode: Keycode::Char('b'),
         };
 
         registry
-            .remap_binding(old.clone(), new.clone(), InputContext::GraphView)
+            .remap_binding(old.clone(), new.clone(), InputContext::DetailView)
             .expect("remap should succeed");
 
         assert_eq!(
-            registry.resolve(&old, InputContext::GraphView).action_id,
+            registry.resolve(&old, InputContext::DetailView).action_id,
             None
         );
         assert_eq!(
             registry
-                .resolve(&new, InputContext::GraphView)
+                .resolve(&new, InputContext::DetailView)
                 .action_id
                 .as_deref(),
-            Some(action_id::graph::RADIAL_MENU_OPEN)
+            Some(action_id::toolbar::NAV_BACK)
         );
     }
 
@@ -1606,28 +1272,28 @@ mod tests {
     fn input_registry_remap_binding_detects_target_conflicts() {
         let mut registry = InputRegistry::default();
         let result = registry.remap_binding(
-            gamepad_radial_menu_binding(),
-            gamepad_command_palette_binding(),
-            InputContext::GraphView,
+            toolbar_nav_back_binding(),
+            toolbar_nav_forward_binding(),
+            InputContext::DetailView,
         );
 
         assert!(matches!(result, Err(InputConflict::TargetConflict { .. })));
         assert_eq!(
             registry
-                .resolve(&gamepad_radial_menu_binding(), InputContext::GraphView)
+                .resolve(&toolbar_nav_back_binding(), InputContext::DetailView)
                 .action_id
                 .as_deref(),
-            Some(action_id::graph::RADIAL_MENU_OPEN)
+            Some(action_id::toolbar::NAV_BACK)
         );
     }
 
     #[test]
     fn input_registry_with_remaps_replays_on_top_of_defaults() {
         let remaps = [InputBindingRemap {
-            old: gamepad_nav_back_binding(),
-            new: InputBinding::Gamepad {
-                button: GamepadButton::East,
-                modifier: Some(GamepadButton::LeftBumper),
+            old: toolbar_nav_back_binding(),
+            new: InputBinding::Key {
+                modifiers: ModifierMask::ALT,
+                keycode: Keycode::Char('b'),
             },
             context: InputContext::DetailView,
         }];

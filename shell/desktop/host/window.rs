@@ -19,11 +19,11 @@ use euclid::Scale;
 #[cfg(feature = "wry")]
 use raw_window_handle::RawWindowHandle;
 use servo::{
-    AuthenticationRequest, BluetoothDeviceSelectionRequest, ConsoleLogLevel, Cursor,
-    DeviceIndependentIntRect, DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel,
-    EmbedderControl, EmbedderControlId, InputEventId, InputEventResult, MediaSessionEvent,
-    PermissionRequest, RenderingContextCore, ScreenGeometry, Servo, UserContentManager, WebView,
-    WebViewBuilder, WebViewDelegate, WebViewId,
+    AuthenticationRequest, ConsoleLogLevel, Cursor, DeviceIndependentIntRect,
+    DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel, EmbedderControl,
+    EmbedderControlId, InputEventId, InputEventResult, MediaSessionEvent, PermissionRequest,
+    RenderingContextCore, ScreenGeometry, Servo, UserContentManager, WebView, WebViewBuilder,
+    WebViewDelegate, WebViewId,
 };
 use url::Url;
 
@@ -34,10 +34,7 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::lifecycle::webview_status_sync::{
     forget_renderer_id_for_servo, renderer_id_from_servo, servo_webview_id_from_renderer,
 };
-#[cfg(all(
-    feature = "diagnostics",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
+#[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::workbench::pane_model::PaneId;
@@ -49,14 +46,11 @@ pub(crate) trait WebViewCreationContext {
 }
 
 // This should vary by zoom level and maybe actual text size (focused or under cursor)
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) const LINE_HEIGHT: f32 = 76.0;
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) const LINE_WIDTH: f32 = 76.0;
 
 /// <https://github.com/web-platform-tests/wpt/blob/9320b1f724632c52929a3fdb11bdaf65eafc7611/webdriver/tests/classic/set_window_rect/set.py#L287-L290>
 /// "A window size of 10x10px shouldn't be supported by any browser."
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) const MIN_WINDOW_INNER_SIZE: DeviceIntSize = DeviceIntSize::new(100, 100);
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
@@ -93,7 +87,7 @@ pub(crate) enum WebViewLifecycleEventKind {
     HostOpenRequest {
         request: HostOpenRequest,
     },
-    WebDriverWorkbenchIntentRequested {
+    WorkbenchIntentRequested {
         intent: WorkbenchIntent,
     },
     WebViewCrashed {
@@ -262,7 +256,6 @@ impl EmbedderWindow {
         self.runtime_state.set_needs_repaint()
     }
 
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn schedule_close(&self) {
         self.runtime_state.schedule_close()
     }
@@ -428,18 +421,12 @@ impl EmbedderWindow {
             webview_id: renderer_id_from_servo(webview.id()),
             new_url: new_url.to_string(),
         };
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "window.graph_event.url_changed",
             byte_len: 1,
         });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "servo.delegate.url_changed",
             byte_len: 1,
@@ -459,18 +446,12 @@ impl EmbedderWindow {
             entries: entries.into_iter().map(|u| u.to_string()).collect(),
             current,
         };
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "window.graph_event.history_changed",
             byte_len: 1,
         });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "servo.delegate.history_changed",
             byte_len: 1,
@@ -484,18 +465,12 @@ impl EmbedderWindow {
             webview_id: renderer_id_from_servo(webview.id()),
             title,
         };
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "window.graph_event.title_changed",
             byte_len: 1,
         });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "servo.delegate.title_changed",
             byte_len: 1,
@@ -523,9 +498,9 @@ impl EmbedderWindow {
         self.set_needs_update();
     }
 
-    pub(crate) fn notify_webdriver_workbench_intent_request(&self, intent: WorkbenchIntent) {
+    pub(crate) fn notify_workbench_intent_request(&self, intent: WorkbenchIntent) {
         self.graph_events
-            .enqueue(WebViewLifecycleEventKind::WebDriverWorkbenchIntentRequested { intent });
+            .enqueue(WebViewLifecycleEventKind::WorkbenchIntentRequested { intent });
         self.set_needs_update();
     }
 
@@ -540,18 +515,12 @@ impl EmbedderWindow {
             reason,
             has_backtrace: backtrace.as_deref().is_some_and(|b| !b.is_empty()),
         };
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "window.graph_event.webview_crashed",
             byte_len: 1,
         });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
+        #[cfg(feature = "diagnostics")]
         diagnostics::emit_event(DiagnosticEvent::MessageSent {
             channel_id: "servo.delegate.webview_crashed",
             byte_len: 1,
@@ -560,7 +529,6 @@ impl EmbedderWindow {
         self.set_needs_update();
     }
 
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn hidpi_scale_factor_changed(&self) {
         let new_scale_factor = self.platform_window.hidpi_scale_factor();
         self.runtime_state
@@ -568,13 +536,11 @@ impl EmbedderWindow {
     }
 
     /// Return a list of all webviews that have favicons that have not yet been loaded by egui.
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn take_pending_favicon_loads(&self) -> Vec<WebViewId> {
         self.ui_signals.take_pending_favicon_loads()
     }
 
     /// Return webviews that should schedule thumbnail capture.
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     pub(crate) fn take_pending_thumbnail_capture_requests(&self) -> Vec<WebViewId> {
         self.ui_signals.take_pending_thumbnail_capture_requests()
     }
@@ -599,20 +565,6 @@ impl EmbedderWindow {
         ));
         self.platform_window
             .show_embedder_control(webview.id(), embedder_control);
-        self.set_needs_update();
-        self.set_needs_repaint();
-    }
-
-    pub(crate) fn show_bluetooth_device_dialog(
-        &self,
-        webview_id: WebViewId,
-        request: BluetoothDeviceSelectionRequest,
-    ) {
-        self.set_dialog_owner(Some(
-            self.projection_state.dialog_owner_for_webview(webview_id),
-        ));
-        self.platform_window
-            .show_bluetooth_device_dialog(webview_id, request);
         self.set_needs_update();
         self.set_needs_repaint();
     }
@@ -663,7 +615,6 @@ impl EmbedderWindow {
 pub(crate) trait PlatformWindowRendering {
     fn id(&self) -> EmbedderWindowId;
     fn screen_geometry(&self) -> ScreenGeometry;
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
     fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
     /// This returns [`RenderingContext`] matching the viewport.
@@ -683,7 +634,6 @@ pub(crate) trait PlatformWindowRendering {
     /// Request that the `Window` rebuild its user interface, if it has one. This should
     /// not repaint, but should prepare the user interface for painting when it is
     /// actually requested.
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn rebuild_user_interface(&self, _: &RunningAppState, _: &EmbedderWindow) {}
     /// Inform the `Window` that the state of a `WebView` has changed and that it should
     /// do an incremental update of user interface state. Returns `true` if the user
@@ -691,14 +641,6 @@ pub(crate) trait PlatformWindowRendering {
     fn update_user_interface_state(&self, _: &RunningAppState, _: &EmbedderWindow) -> bool {
         false
     }
-    #[cfg(all(
-        feature = "webxr",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn new_glwindow(
-        &self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-    ) -> Rc<dyn servo::webxr::GlWindow>;
     /// Returns the raw OS window handle for use with native child-window creation (e.g. wry).
     ///
     /// Only available for headed windows; headless windows return `None`.
@@ -714,7 +656,6 @@ pub(crate) trait PlatformWindowOps {
     fn has_platform_focus(&self) -> bool {
         true
     }
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn get_fullscreen(&self) -> bool;
     fn set_fullscreen(&self, _state: bool) {}
     fn set_position(&self, _point: DeviceIntPoint) {}
@@ -727,12 +668,6 @@ pub(crate) trait PlatformWindowDialogs {
     fn show_embedder_control(&self, _: WebViewId, _: EmbedderControl) {}
     fn hide_embedder_control(&self, _: WebViewId, _: EmbedderControlId) {}
     fn dismiss_embedder_controls_for_webview(&self, _: WebViewId) {}
-    fn show_bluetooth_device_dialog(
-        &self,
-        _: WebViewId,
-        _request: BluetoothDeviceSelectionRequest,
-    ) {
-    }
     fn show_permission_dialog(&self, _: WebViewId, _: PermissionRequest) {}
     fn show_http_authentication_dialog(&self, _: WebViewId, _: AuthenticationRequest) {}
 }
@@ -761,22 +696,15 @@ pub(crate) trait PlatformWindowSignals {
 /// Capabilities are grouped into sub-traits:
 /// - [`PlatformWindowRendering`]: geometry, scale, rendering context, UI lifecycle
 /// - [`PlatformWindowOps`]: focus, fullscreen, position, cursor, maximize
-/// - [`PlatformWindowDialogs`]: embedder controls, permission/auth/bluetooth dialogs
+/// - [`PlatformWindowDialogs`]: embedder controls and permission/auth dialogs
 /// - [`PlatformWindowSignals`]: Servo-to-shell notifications and accessibility
 pub(crate) trait PlatformWindow:
     PlatformWindowRendering + PlatformWindowOps + PlatformWindowDialogs + PlatformWindowSignals
 {
-    #[cfg(not(any(target_os = "android", target_env = "ohos")))]
     /// If this window is a headed window, access the concrete type.
     fn as_headed_window(
         &self,
     ) -> Option<&crate::shell::desktop::host::headed_window::HeadedWindow> {
-        None
-    }
-
-    #[cfg(any(target_os = "android", target_env = "ohos"))]
-    /// If this window is a headed window, access the concrete type.
-    fn as_headed_window(&self) -> Option<&crate::egl::app::EmbeddedPlatformWindow> {
         None
     }
 }
