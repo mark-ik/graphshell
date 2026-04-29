@@ -156,11 +156,84 @@ gpui's custom-renderer story is still upstream-gap-blocked
 ([zed-industries/zed#45996](https://github.com/zed-industries/zed/discussions/45996));
 the patch shape below is exactly what would close it for Graphshell.
 
+**Ecosystem update (2026-04-29): `gpui.rs` + `gpui-ce`.** The public
+[`gpui.rs`](https://www.gpui.rs/) site is currently best read as upstream GPUI
+onboarding: `Application::new().run`, `App::open_window`, `Entity<T>` views,
+`Render`, `div()`/tailwind-style element builders, context documentation,
+key dispatch, and examples for canvas, images, input, uniform lists, window
+positioning, etc. It points learners back to Zed crates for larger-app
+patterns.
+
+[`gpui-ce/gpui-ce`](https://github.com/gpui-ce/gpui-ce) is a community edition
+published as `gpui-ce` 0.3.x while preserving `use gpui::...` imports via
+`package = "gpui-ce"`. It is useful as a distilled GPUI learning corpus: a
+single primary crate, explicit `docs/contexts.md` and `docs/key_dispatch.md`,
+`examples/learn/custom_drawing.rs` for `canvas` + `PathBuilder` +
+`window.paint_*`, and `examples/bench/data_table.rs` for `uniform_list`,
+virtualized row rendering, scroll handles, and custom scrollbar hit-testing.
+Those examples strongly support a Graphshell structure based on small
+`Entity`-owned models and custom elements/canvases at the graph and Navigator
+boundaries.
+
+But `gpui-ce` is not the best dependency candidate for Graphshell's GPU goal
+as of this survey: its Linux path is on `wgpu = "24"`, macOS remains Metal,
+Windows remains DirectX, and repository search found no `WgpuContext` /
+`PaintSurface` / external-`wgpu::TextureView` hook. Treat it as a pattern and
+API-learning source, not the Phase 0 patch base. Glass-HQ / upstream Zed remain
+the relevant code lines for shared-device external texture research.
+
+**Ecosystem update (2026-04-29): `awesome-gpui`.** The
+[`zed-industries/awesome-gpui`](https://github.com/zed-industries/awesome-gpui)
+index widens the research space beyond core GPUI/forks. The relevant options
+for Graphshell split into five buckets:
+
+- **Shell chrome dependency candidate:** `gpui-component` remains the strongest
+  candidate for Dock/Tabs/panels, virtualized Table/List, Tree, command
+  palette, notifications, themes, markdown/simple HTML, charts, and editor
+  widgets. Use it behind Graphshell-owned shell abstractions; do not let it own
+  runtime, focus, or content-surface authority.
+- **Architecture bridge candidate:** `gpui-tea` is a serious option for an
+  experimental GPUI host because it preserves TEA-style `init/update/view`,
+  `Command`, `Subscription`, nested models, keyed async effects, cancellation,
+  backpressure policies, and runtime telemetry while mounting as a GPUI
+  `Entity`. It can bridge Graphshell's existing portable-contract / intent
+  model to GPUI before a full observer-model rewrite.
+- **Graph canvas candidates:** `gpui-flow` is the quickest React Flow-style
+  prototype path: custom GPUI node renderers, Bezier/Straight/SmoothStep edges,
+  handles, pan/zoom, selection, undo/redo, minimap, controls, and viewport
+  culling. `ferrum-flow` is more useful as an architectural reference for
+  plugin/command/model separation, collaboration, and extensibility, but looks
+  too alpha to own Graphshell's canvas dependency graph today. In both cases,
+  keep Graphshell's graph domain model owned by Graphshell; borrow interaction
+  and rendering patterns, not authority.
+- **Pattern-only app references:** Zed remains the production GPUI architecture
+  reference. Arbor is useful for daemon/runtime split and long-running local
+  workflows. Hunk appears close to the browser/offscreen-frame problem, but its
+  GPL licensing means study patterns only unless licensing changes. DBFlux,
+  Zedis, Fulgur, Okena/terminal apps, and similar developer tools are useful
+  for keyboard-first workspace ergonomics, panes, virtualized data views,
+  command palettes, and background task UX.
+- **Defer/reject:** `gpui-nav` and `gpui-router` solve app screen routing, not
+  Graphshell's browser/navigation/focus model. `gpui-hooks` may be useful for
+  small component ergonomics, but Graphshell's runtime/focus/surface lifecycle
+  should stay explicit. `gpui-form` and `gpui-storybook` are later settings and
+  component-harness tools. Plotting libraries (`gpui-d3rs`, `gpui-px`,
+  `plotters-gpui`) are later diagnostics/analytics candidates, not the main
+  graph canvas. Simple demo apps are learning references only.
+
+The ecosystem still does **not** contain a ready-made shared-`wgpu` /
+external-texture solution for Navigator/Servo surfaces. The closest references
+are GPUI/Zed renderer internals, `gpui-video-player`'s frame buffering and
+`CVPixelBuffer`/sprite-atlas fallback, Hunk's browser/offscreen-frame patterns,
+and React Native GPUI's foreign-runtime/view-tree/event boundary discipline.
+External texture integration remains Graphshell-owned.
+
 **GPUI blocking gap:** No public API for custom GPU renderer embedding. No
-community workaround exists as of 2026-04-27 (confirmed by exhaustive search:
-zero repos, zero PRs, one unanswered discussion thread). The only surface
-injection in all of GPUI is a macOS-only `CVPixelBuffer` path for camera
-frames. See patch shape below.
+known community workaround exists as of 2026-04-29 after checking Glass-HQ,
+upstream Zed, `gpui.rs`, and `gpui-ce`: the available public patterns are
+GPUI-native vector/image/canvas painting, not cross-renderer texture
+composition. The only surface injection in all of the Zed/Glass-HQ lineage is
+a macOS-only `CVPixelBuffer` path for camera frames. See patch shape below.
 
 **iced status:** Not frozen — master (0.15-dev) is on wgpu 28 after bumping
 in January 2026 (~1 month lag from wgpu release). The published 0.14.0 release
@@ -352,6 +425,93 @@ stack on top of those load-bearing wins, not under them.
 
 Each stage is independently shippable; landing one does not commit to the
 next.
+
+### GPUI-shaped Graphshell structure
+
+The ecosystem pass suggests a concrete crate and ownership shape for a future
+`gpui` experiment:
+
+- Add a host adapter crate, tentatively `crates/gpui-graphshell-host` or
+  `crates/gpui-shell`. It should depend on `graphshell-runtime`,
+  `graph-canvas`, and the selected GPUI line, but `graphshell-runtime` must
+  not depend on GPUI.
+- Mirror the current iced adapter boundary rather than rewriting domain
+  logic. `crates/iced-graph-canvas-viewer` becomes the comparison point for a
+  future `crates/gpui-graph-canvas-viewer`: translate GPUI input/layout/paint
+  into existing `graph-canvas` camera, hit-test, scene, and interaction types.
+- Wrap existing `app/*` domain state in GPUI-owned runtime objects at the
+  host boundary. There are two viable shapes: raw GPUI `Entity<T>` models for
+  a fully idiomatic experiment, or `gpui-tea` `Model`/`Program` values for a
+  lower-risk TEA bridge. Natural first models are `GraphModel`,
+  `NavigatorModel`, `WorkbenchModel`, `ViewerModel`, and `ShellModel`,
+  matching the runtime five-domain split instead of one monolithic iced
+  `Message` loop.
+- Keep `ActionSurfaceState`, focus-selection state, routing, and workspace
+  commands host-neutral. The GPUI layer should bind keyboard shortcuts and
+  menus to GPUI `actions!`, then dispatch into the existing command/intention
+  vocabulary.
+- Treat graph canvas as a GPUI-native custom `canvas`/`Element` first. The
+  `gpui-ce` custom drawing and data-table examples show that native
+  `canvas`, `PathBuilder`, `window.paint_path`, `uniform_list`, scroll
+  handles, and direct mouse-event hit-testing are enough for a serious first
+  prototype. Only require Vello/shared-wgpu if native paths are insufficient
+  for edge quality or scale.
+- Treat Navigator/web content differently from graph canvas: it remains a
+  cross-renderer texture-composition problem. Do not model it as a GPUI image
+  or canvas unless the goal is a temporary pixel-copy fallback. The durable
+  route is still `PaintSurface::WgpuTexture` against Glass-HQ/upstream Zed.
+- Make Phase 0 a tiny GPUI sample app before touching Graphshell: one window,
+  one host-owned model, one graph-canvas-style custom canvas, one simulated
+  external texture, and a command palette action. That proves the architecture
+  seams independently from Servo/NetRender complexity.
+
+### `gpui-tea` bridge option
+
+`gpui-tea` deserves its own branch-spike if the GPUI experiment continues. It
+is not a renderer solution and does not change the external-texture gap, but it
+may substantially reduce app-architecture migration risk.
+
+Pros:
+
+- It maps closely to Graphshell's existing TEA-ish iced shape: explicit
+  messages, `update`, `view`, commands/effects, and subscriptions.
+- It mounts as a GPUI `Entity<Program<M>>`, so it still lives inside GPUI's
+  app/window model and can coexist with GPUI elements and gpui-component.
+- It supports keyed latest-wins foreground/background effects and cancellation,
+  which maps well to Navigator loads, content-surface lifecycle changes,
+  graph-layout recomputation, search queries, command-palette queries, and
+  MCP/agent tasks.
+- Declarative subscriptions keyed by stable identity are a strong fit for
+  frame ticks, runtime event streams, file/watch events, network/runtime
+  lifecycle notifications, and per-surface producer streams.
+- The `Composite` derive and explicit child paths are a clean bridge from a
+  monolithic shell model to the five-domain split without leaking GPUI types
+  into `graphshell-runtime`.
+- Queue policies and telemetry hooks are directly useful for backpressure and
+  diagnostics; Graphshell already treats runtime observability as a first-class
+  concern.
+
+Risks:
+
+- `gpui-tea` depends on crates.io `gpui = 0.2.2`. The GPUI renderer patch work
+  may target Glass-HQ or upstream Zed git, so compatibility must be proven. A
+  fork or patch may be required if the selected GPUI line diverges.
+- It can preserve too much of the iced-era pull/message architecture. If used
+  permanently for every subsystem, Graphshell may miss GPUI's finer-grained
+  observer re-render model.
+- It introduces another runtime layer exactly where Graphshell already has a
+  runtime crate. The right use is host-boundary orchestration, not replacing
+  `graphshell-runtime`'s host-neutral contracts.
+- The library is young (`0.1.x`, first released March 2026). Treat it as a
+  spike candidate, not a foundational commitment until compatibility and
+  maintenance pace are clear.
+
+Recommended spike: build the Phase 0 GPUI sample twice — once with raw GPUI
+`Entity` models and once as a `gpui-tea::Program`. Compare command dispatch,
+subscription/backpressure behavior, focus integration, and how much glue is
+required to keep `graphshell-runtime` host-neutral. If `gpui-tea` wins, make it
+Stage A's app shell wrapper; if not, keep the architectural lessons and proceed
+with raw GPUI entities.
 
 #### Stage A — Portable-contract shim (post-Phase 3)
 
@@ -545,3 +705,30 @@ stabilizes. The calibration sharpens the case for *when* to revisit
 (when the iced chrome work surfaces a chrome-quality bar gpui-component
 clearly clears that the iced stack does not) rather than leaving the
 revisit trigger ambiguous.
+
+**2026-04-29** — GPUI ecosystem expansion pass started on branch `gpui`.
+Added `gpui-ce/gpui-ce`, `gpui.rs`, and `awesome-gpui` to the survey. Initial
+conclusion: `gpui-ce` is valuable as a compact learning corpus for GPUI app
+shape (`Entity` models, `Render` views, context use, actions/key contexts,
+`canvas`, `PathBuilder`, `uniform_list`, custom scroll/hit-test logic), but
+it is not a strong shared-`wgpu` patch base because its Linux renderer remains
+on `wgpu = "24"`, while macOS/Windows remain backend-native. `awesome-gpui`
+adds three serious Graphshell research threads: `gpui-component` for shell
+chrome, `gpui-flow`/`ferrum-flow` for graph canvas patterns, and `gpui-tea` as
+an app-architecture bridge. The practical Graphshell structure to research next
+is: GPUI-native chrome behind Graphshell abstractions; graph canvas as a GPUI
+custom `canvas`/element first, with `gpui-flow`/`ferrum-flow` mined for
+interaction patterns and Vello/shared-wgpu required only if native paths are
+insufficient; Navigator surfaces behind a narrow external-texture patch against
+Glass-HQ/upstream Zed rather than `gpui-ce`.
+
+**2026-04-29** — `gpui-tea` examined as a serious bridge option. It is a young
+Apache-2.0 crate (`gpui_tea` 0.1.1) that depends on crates.io `gpui = 0.2.2`
+and provides TEA-style `Model`, `Program`, `Command`, `Subscription`, keyed
+latest-wins async effects, cancellation, queue policies, nested `Composite`
+models, and runtime telemetry. It does not solve renderer integration, but it
+may reduce GPUI host migration risk by preserving Graphshell's existing
+message/update/subscription architecture while mounting inside GPUI. Next spike:
+implement the tiny Phase 0 GPUI sample once with raw GPUI `Entity` models and
+once with `gpui-tea::Program`, then compare compatibility with the selected
+GPUI line, command/focus integration, and host-neutral runtime cleanliness.

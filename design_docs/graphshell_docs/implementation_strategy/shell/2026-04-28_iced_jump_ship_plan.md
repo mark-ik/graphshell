@@ -1096,7 +1096,199 @@ Items the plan explicitly addresses are excluded here; see §4 and
 
 ---
 
-## 12. Bottom line
+## 12. Idiomatic iced — programming model and stages
+
+Sections §1–§11 above describe what to build (slices), what to avoid
+(anti-patterns), and where the gaps are. This section is the positive
+corollary to §5: what idiomatic iced *does* look like, mapped to the
+[browser subsystem taxonomy](../../technical_architecture/2026-04-22_browser_subsystem_taxonomy_and_mapping.md).
+It is structured as the parallel to the
+[gpui plan's "Idiomatic GPUI Adaptation"](2026-04-27_gpui_host_integration_plan.md)
+section so the host-framework comparison stays symmetric.
+
+### 12.1 Programming-model summary
+
+iced is The Elm Architecture: one `Application`, single mutation point
+in `update`, pure derivation in `view`, `Subscription` for clocks /
+winit / async streams. The portable contract (`runtime.tick()`,
+`FrameViewModel`, `HostPorts`) was designed for exactly this shape —
+that's why iced was picked. "Designed for" is not the same as
+"idiomatic by default"; the scaffold has several choices to make.
+
+The defining iced idioms:
+
+| Idiom | What it does |
+|---|---|
+| `Application::view(&self) -> Element<Message>` | Pure derivation; runs per frame |
+| `Application::update(&mut self, msg) -> Command<Message>` | Single mutation point; emits async via `Command` |
+| `Subscription` | Time / winit / async streams merged into one Message stream |
+| `pane_grid::PaneGrid<Pane>` | Native resizable, nestable layout primitive |
+| `canvas::Program<Message>` + `Program::State` | Retained 2D drawing with hit-testing; widget-local state |
+| `shader` widget | Direct wgpu access; Vello and external textures live here |
+| `Element<Message>` | Universal composition currency |
+| `widget::Operation` | Imperative widget-level actions (focus moves, scroll-to) |
+| `iced::Theme` | Theming system; `libcosmic` extends |
+| `text_input` (iced 0.14) | IME-aware text entry |
+| `iced_accessibility` | AccessKit bridge |
+| `iced_aw` widgets | Tabs, ContextMenu, Sidebar, Modal |
+| `iced_webview` | Web content embedding (Servo / Blitz / litehtml / CEF feature flags) |
+| `libcosmic` widgets | List/grid views, drag-drop, theme extensions |
+
+### 12.2 Per-subsystem mapping — idiomatic shape
+
+Cross-referenced against the
+[browser subsystem taxonomy](../../technical_architecture/2026-04-22_browser_subsystem_taxonomy_and_mapping.md).
+This is the iced-side detail; the
+[gpui plan §Idiomatic GPUI Adaptation](2026-04-27_gpui_host_integration_plan.md)
+holds the parallel gpui-side detail.
+
+| Taxonomy subsystem | Idiomatic iced shape |
+|---|---|
+| §3.6 FrameTree (Window → splits → Panes) | `pane_grid::State<Pane>` *is* the FrameTree authority; `pane_grid` widget renders it; resize and drag are built in |
+| §3.6 Tab bar over active tiles | `iced_aw::Tabs` inside each tile pane |
+| §3.6 Omnibar | `text_input` + `Subscription` for focus/results; Navigator-projected breadcrumb in a `row!`; per-pane drafts via existing `OmnibarSearchSession` |
+| §3.6 Command palette | `Modal` overlay + filtered list driven by Messages routed through `ActionRegistry` |
+| §3.6 Context palette | `iced_aw::ContextMenu` triggered by mouse-right Message |
+| §3.6 Radial palette | Custom `canvas::Program` overlay (radial geometry isn't a built-in widget) |
+| §3.6 Toasts | `Stack` widget + custom toast Element + `Subscription` for timeout |
+| §3.1 Graph canvas (Vello) | `canvas::Program` for hit-testing; camera/hover/drag state in `Program::State` (**not** Application); Vello scene rendered via `shader` widget |
+| §3.1 `WebViewSurface<NodeKey>` | Custom widget consuming `iced_webview` Servo feature, or direct `shader` widget over Servo's wgpu external image API per [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183); texture lifecycle in widget state |
+| §3.1 Wry viewer | `iced-wry-viewer` already exists in the Cargo tree; consume directly |
+| §3.7 Six-track focus (G1) | LocalWidget = iced per-widget focus via `widget::focus()` `Operation`; the other five tracks live in `graphshell-runtime`; iced widgets read runtime focus state in `view` |
+| §3.7 IME (G8) | `text_input` IME (iced 0.14); Servo IME forwarded through `WebViewSurface` |
+| §3.7 AccessKit (G9) | `iced_accessibility` integration |
+| §3.5 Navigator sidebar | `scrollable` + lazy `column!` of items derived from `FrameViewModel`; activation toggle dispatches HostIntent |
+| §3.5 History view | `lazy` + `scrollable` for virtualization |
+| §3.8 Diagnostics Inspector | Same shape — `lazy` + `scrollable` over the channel ring buffer |
+| §3.6 Settings panes | `column!` of forms; route through `verso://settings/<section>` Messages |
+| §4.5 Canvas base layer | Application root `view` returns either `pane_grid` or graph canvas widget when FrameTree is empty |
+| §3.6 Theming | `iced::Theme` extension with palette derived from `settings_persistence` |
+| §3.13 Async work | `Command::perform` for one-shots, `Subscription` for streams, `cosmic-time` for animations |
+
+### 12.3 Stages of idiomatic adoption
+
+§6 organizes work by *what to build* (S0–S6). The stages below organize
+by *how iced should be used* — they cut across slices. Each stage
+tightens iced idiom; the previous stage stays valid.
+
+#### Stage A — Application + Subscription closure (S3 done condition)
+
+`Application` owns Runtime; `update` dispatches Messages → HostIntents;
+`view` consumes `FrameViewModel`; `Subscription` drives tick (60Hz),
+winit input, async results. All 24 `todo(m5)` markers in
+`iced_host_ports.rs` resolved.
+
+This is where the S3 done condition lands.
+
+#### Stage B — `pane_grid` for FrameTree (overlaps S5)
+
+`pane_grid::State<Pane>` is the FrameTree authority — not a
+side-structure, not a hand-rolled split tree. H/V splits are
+`pane_grid` splits; resize is built-in. Each Pane renders as a tile
+pane (active tiles in a graphlet) or canvas pane (graph canvas).
+
+Buys: native split rendering and resize without writing a layout
+engine; pane focus integrates with iced's built-in focus model.
+
+#### Stage C — Canvas Program with local state (overlaps S4)
+
+The graph canvas uses a `canvas::Program<Message>`. Camera (pan/zoom),
+hover state, drag interaction state live in `Program::State`, not in
+`Application`. Vello renders through the `shader` widget; canvas
+Program handles overlay drawing + input.
+
+This is the §5 anti-pattern correction made concrete: don't thread
+camera state through Messages each frame. The egui scaffold's
+camera-in-app-state is the failure mode being avoided.
+
+#### Stage D — `WebViewSurface` as custom widget
+
+Custom widget with explicit `wgpu::Texture` lifecycle, focus
+integration via `widget::Operation`, IME forwarding to Servo through
+`web_runtime`. Built on `iced_webview`'s Servo feature path or a
+direct shader-widget impl. G5 / G6 in §11 are the home of this work.
+
+Buys: native focus integration (Tab cycles into web content), iced
+input event flow to Servo, no shader-widget wrapper at the chrome
+boundary.
+
+#### Stage E — AccessKit + IME closure
+
+`iced_accessibility` integration; `text_input` IME shipped in chrome
+inputs; Servo IME forwarding through `WebViewSurface`. G8 / G9 in §11.
+
+Buys: WCAG 2.2 AA path; CJK / Arabic users covered without leaving
+testing-invisible regressions.
+
+#### Stage F — Theme + style consolidation
+
+Inline styles consolidated into an `iced::Theme` extension; settings
+drive theme; `libcosmic` compatibility considered if COSMIC DE
+first-class citizenship becomes a target.
+
+Buys: dark/light/high-contrast variants without per-widget edits;
+themable distribution if Graphshell ever ships as a libcosmic
+applet-like surface.
+
+### 12.4 Cross-reference to existing slices
+
+| Jump-ship slice | Idiomatic stage |
+|---|---|
+| S0 (Cargo gate, landed) | pre-stage |
+| S1 (Freeze egui) | pre-stage |
+| S2 (UX target doc) | pre-stage |
+| S3 (Iced host runtime closure) | **Stage A** |
+| S4 (Iced surfaces to UX target) | **Stages B + C + D + E**, surface-by-surface |
+| S5 (Graphlet projection plumbing) | **Stages B + C** primarily |
+| S6 (Delete egui) | post-stage receipt |
+
+The stages are an orthogonal lens on the same work. Reading §6
+slice-by-slice tells you *what to build*; reading §12 stage-by-stage
+tells you *how it should look once built*. Both are necessary.
+
+### 12.5 Where the scaffold lands today
+
+The scaffold is mid-Stage A. The 24 `todo(m5)` markers in
+`shell::desktop::ui::iced_host_ports.rs` are the Stage A closure.
+`iced_graph_canvas.rs` is described in S4 as "a starting point;
+promote it to a real `CanvasBackend<NodeKey>` impl consuming
+`ProjectedScene`" — that promotion *is* the Stage C move.
+
+Stages B (pane_grid for FrameTree), D (WebViewSurface widget), E
+(AccessKit + IME), and F (Theme consolidation) are S4 / S5 work that
+hasn't started.
+
+### 12.6 Relationship to §5 anti-patterns
+
+§5 says what not to do; §12 says what to do instead. The two together
+close the circle.
+
+The single biggest "iced-shaped egui" risk in the current scaffold is
+**camera state in `Application`**. Egui's immediate-mode habits push
+toward putting camera/hover/drag state at the top and threading deltas
+through messages each frame. Iced's `canvas::Program::State` is the
+right home; that is the Stage C correction. The §5 rule names it; the
+stage makes it concrete.
+
+A second risk is **polling `runtime` for state instead of subscribing**
+to its events. Per-frame polling works in iced because `view` runs
+every frame, but it leaves the runtime's event stream unused. When
+the runtime emits an event (graph mutation, network result,
+diagnostics channel push), prefer a `Subscription` so `update` only
+runs on real changes. This becomes load-bearing at Stage A's done
+condition (the 60Hz tick is a `Subscription`; per-frame polling on
+top of it is doubly redundant).
+
+A third risk is **manual tabs replicating egui_tiles**. The
+`egui_tiles::Tree<TileKind>` model is what we're escaping; do not
+reimplement its tab semantics on top of iced. Use `iced_aw::Tabs`
+inside tile panes and let the FrameTree (`pane_grid`) handle
+splits — the two abstractions are orthogonal in iced, while
+egui_tiles conflated them.
+
+---
+
+## 13. Bottom line
 
 Stop patching the boat. Egui is broken, freeze it where it is, build
 iced to a refined UX target grounded in the existing five-domain
@@ -1107,5 +1299,6 @@ graph-canvas, graph-tree, HostPorts, FrameViewModel) is the asset
 that makes this cheap.
 
 Receipts in §8 are the done condition. Gaps in §11 are the
-comprehensive blind-spot register. Questions in §10 are the
-gating input for S2. Everything else is ordered work.
+comprehensive blind-spot register. Stages in §12 are how iced should
+look once built. Questions in §10 are the gating input for S2.
+Everything else is ordered work.
