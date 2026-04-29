@@ -149,8 +149,8 @@ Status labels follow [`ARCHITECTURAL_OVERVIEW.md`](ARCHITECTURAL_OVERVIEW.md) §
 |---|---|---|---|
 | Back/forward list | Traversal edges in the graph are the canonical back/forward representation. Per-node navigation history is preserved alongside. | ✅ | `../implementation_strategy/subsystem_history/edge_traversal_spec.md` |
 | Global browse history | `History Manager` pane — full timeline, filtered views | ✅ | `../implementation_strategy/subsystem_history/SUBSYSTEM_HISTORY.md` |
-| Session restore | `SessionWorkspace` snapshot + workbench-manifest restore at startup | ✅ | `app/startup_persistence.rs` |
-| Bookmarks | Node creation is bookmarking. Import adapters exist for Firefox/Chrome bookmarks HTML and JSON. Not a separate bookmark manager. | ✅ | `../implementation_strategy/subsystem_history/2026-04-11_browser_import_normalized_carrier_sketch.md` |
+| Session restore | Graph is the session; tile Active/Inactive state per graphlet is recoverable from graph + last-known projection. **FrameTree persistence schema is an open gap** (G11 in iced plan §11): Shell-owned FrameTree split axes, proportions, Pane types, and `GraphletId`s have no persistence schema yet. | ✅ / ❏ | `app/startup_persistence.rs`; [`../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md`](../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §11 G11 |
+| Bookmarks | Tagged graphlets (2026-04-28+): a "bookmark" is a graphlet tagged as such, with node references recreatable across graphs. Folder hierarchy maps to nested graphlets. Import = one-shot graph population command (nodes from URL list, tagged graphlet, semantic autotagging for history). Legacy import adapters for Firefox/Chrome HTML/JSON remain. | 🔨 | [`../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md`](../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §4.6; `subsystem_history/2026-04-11_browser_import_normalized_carrier_sketch.md` |
 | Autocomplete / suggestions | `OmnibarSearchSession` in `shell/desktop/ui/omnibar_state.rs`. Omnibar aggregates local graph + external search providers. | ✅ / 🔨 | `../implementation_strategy/aspect_command/command_surface_interaction_spec.md` |
 | Temporal preview / replay | Spec exists; runtime pending | 📋 | `../implementation_strategy/subsystem_history/edge_traversal_spec.md` |
 | New tab page | No persistent "new tab" in the Chromium sense — opening content creates or activates a graph node | ⛔ | GRAPHSHELL_AS_BROWSER.md §3 |
@@ -160,7 +160,9 @@ Status labels follow [`ARCHITECTURAL_OVERVIEW.md`](ARCHITECTURAL_OVERVIEW.md) §
 
 | Subsystem | Graphshell home | Status | Canonical spec |
 |---|---|---|---|
-| Tab bar / window manager | `graph-tree` crate + `shell/desktop/workbench/`. Tile Tree with Tab Group / Split / Grid containers. Tabs are a UI affordance over Tiles. | ✅ | `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md` + TERMINOLOGY.md |
+| Host UI framework | Active: **iced** (vendored to wgpu 29 on 2026-04-28; single shared device across iced, Vello, and Servo/NetRender). Realistic iced widget surface = iced core + `iced_aw` (Tabs, Menu, Context Menu, Sidebar, pickers) + `libcosmic` (System76 COSMIC DE — list/grid views, context menus, drag-drop, theming, IME progress) + `iced_webview` (Servo/Blitz/litehtml/CEF feature flags); production exposure via Kraken desktop app, COSMIC DE, Halloy, Sniffnet, Liana, Veloren. Branch experiment: **GPUI** via Glass-HQ fork + `longbridge/gpui-component` (60+ widgets, single-vendor; strongest on command palette, virtualized Table/List, code editor with LSP/Tree-Sitter), downgraded from "long-run candidate" to "branch experiment after iced stabilizes" once iced reached wgpu 29 parity. Custom-GPU-renderer gap is upstream-wide on gpui ([zed-industries/zed#45996](https://github.com/zed-industries/zed/discussions/45996)); iced has had custom-wgpu pipeline integration since [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183). Xilem/Masonry monitored but blocked on HiDPI + pointer-capture as of 2026-04-27. Egui frozen (jump-ship in progress). | 🔨 | [`../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md`](../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md); [`../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md`](../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md); [`../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md`](../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md) |
+| Cross-stack GPU device unification | Single `Arc<wgpu::Device>` shared across host chrome, graph canvas (Vello), and content surfaces (Servo/NetRender, Wry, MiddleNet). Achieved on iced 2026-04-28 via vendored wgpu 29 bump. Was the load-bearing motivation for the GPUI Glass-HQ experiment; now satisfied without patch debt. Re-evaluated when content-surface or canvas lanes need shared-device features (zero-copy, device-loss recovery) the host doesn't expose. | ✅ | [`../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md`](../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md) §Phase 3; [`../research/2026-04-24_iced_renderer_boot_and_isolation_model.md`](../research/2026-04-24_iced_renderer_boot_and_isolation_model.md) |
+| Tab bar / window manager | Shell-owned FrameTree (iced host, 2026-04-28+): OS Window → FrameTree → Frames (H/V splits, adjustable) → Panes (tile or canvas type, each with a `GraphletId`). Tabs are an affordance over active tiles in a tile pane. Multiple Panes in one window = multiple simultaneous graphlet views; no second OS window required. Canvas base layer shown when FrameTree is empty. | 🔨 | [`../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md`](../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §4.5; TERMINOLOGY.md (correction pass pending) |
 | URL bar / omnibox | `shell/desktop/ui/toolbar/` + `omnibar_state.rs`. Per-pane drafts, scope-aware. | ✅ | `../implementation_strategy/aspect_command/command_surface_interaction_spec.md` |
 | Bookmarks bar | No dedicated bar. Graph canvas + Navigator sidebar + History Manager cover the use cases. | ⛔ by design | — |
 | Downloads manager | Delegated to Servo/OS for web downloads; no first-class Graphshell download UI yet. | ❓ | — |
@@ -271,10 +273,11 @@ These are axes that don't exist as first-class concerns in Chromium/Firefox/WebK
 
 ### 4.2 Workbench
 
-- **Tile Tree** over `egui_tiles::Tree<TileKind>` (egui host). Tab Group / Split / Grid containers.
-- **Panes** as the workbench-owned presentation of a node. `PaneId` is the workbench identity; `NodeKey` is the graph identity; the Projection Rule connects them.
-- **Graphlets** as meaningful bounded graph subsets, produced by projections. Graphlet anchors, primary anchors, backbones, migration proposals — none of which have a browser equivalent.
-- **Canonical spec**: `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md`.
+- **Shell-owned FrameTree** (iced host, 2026-04-28+). An OS window is a FrameTree. FrameTree internal nodes are **Frames** (H/V splits, adjustable, nestable). Leaves are **Panes** — each Pane has a `GraphletId` and a type: tile pane (shows a graphlet's active tiles; Navigator controls activation) or canvas pane (force-directed graph canvas, scoped to a graphlet, full graph, or query). Canvas base layer is the fallback when the FrameTree is empty. Replaces `egui_tiles::Tree<TileKind>` and the former Tab Group / Split / Grid container model.
+- **Active / Inactive** as the two presentation states for tiles in a graphlet. Active = tile shown in a pane; Inactive = node exists in graphlet, tile not rendered. State is per-graphlet, Navigator-controlled.
+- **Three node operations**: Close tile (deactivate, safe), Remove from graphlet (organizational, non-destructive), Tombstone (destructive, confirmation required). Replaces the former Promotion / Demotion vocabulary, which is retired.
+- **Graphlets** as meaningful bounded graph subsets (multiple per graph; graph also contains orphan nodes and nodes in several graphlets simultaneously). Graphlet anchors, primary anchors, and projections — none of which have a browser equivalent.
+- **Canonical spec**: [`../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md`](../implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §4.4–§4.5; TERMINOLOGY.md (correction pass pending per iced plan §6 S2).
 
 ### 4.3 Navigator and Projections
 
@@ -367,7 +370,13 @@ Items where the right answer for Graphshell is genuinely undetermined and a scop
 7. **Crash reporting** — stack traces are captured locally; no policy on whether/how to surface them.
 8. **Safe Browsing / URL reputation** — mod-based implementation possible; no list provider chosen.
 9. **Multi-process architecture** — single-process is the status quo. Expected to become a real architectural question as the portable-core extraction matures.
-10. **Find-in-page** — viewer-level, not yet implemented. Graph Search (Ctrl+G) is orthogonal (searches graph content, not the current page's DOM).
+10. **Find-in-page** — viewer-level, not yet implemented. Graph Search (Ctrl+G) is orthogonal (searches graph content, not the current page's DOM). Iced plan tracking: G14 (§11).
+11. **FrameTree persistence schema** — the Shell-owned FrameTree (Frame splits, proportions, Pane types, `GraphletId` per leaf) is a new concept with no persistence schema. Without it, layout state is lost on restart and session restore is incomplete. Iced plan tracking: G11 (§11).
+12. **Active / Inactive state persistence** — per-graphlet node activation state is a new concept; where it lives persistently (graph WAL, workbench manifest, or separate layer) is undecided. Affects session restore and cross-device sync semantics. Iced plan tracking: G12 (§11).
+13. **Node creation timing** — the "every tile is a graph node" policy (Bet 2, iced plan §4.4) requires a decision on when a node is created during navigation (URL entry vs. first byte vs. load completion), what state it holds while loading, and what happens on failed or abandoned navigation. Iced plan tracking: G13 (§11).
+14. **Six-track focus model in iced host** — the six-track `RuntimeFocusAuthorityState` (§4.5) has no direct mapping in iced's widget-focus model. Reconciliation is required before the iced composition skeleton and command surfaces can be specified. Iced plan tracking: G1 (§11).
+15. **IME in iced host** — iced IME handling and in-page IME forwarding through `WebViewSurface` to Servo are not yet designed. Invisible in English-only testing; critical for CJK / Arabic users. Iced plan tracking: G8 (§11).
+16. **Long-run host framework choice** — iced is the active implementation target. GPUI via Glass-HQ + gpui-component is a branch experiment whose load-bearing motivation (single shared wgpu device) was eliminated when iced reached wgpu 29 parity on 2026-04-28. A 2026-04-29 ecosystem survey corrected an earlier framing in the gpui plan that compared gpui-component against bare iced; against the realistic iced stack (iced + `iced_aw` + `libcosmic` + `iced_webview`), gpui-component is **concentrated** (single-vendor, Longbridge — strongest on command palette, virtualized Table/List, code editor) rather than broadly richer. iced is broader, has more independent maintainers, and is the only side with a documented Servo embedding path (`iced_webview`'s Servo feature) and custom-wgpu pipeline integration ([iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183)). gpui's custom-renderer gap is upstream-wide ([zed-industries/zed#45996](https://github.com/zed-industries/zed/discussions/45996)); the Glass-HQ patch is local. The decision is deferred until the iced chrome work matures enough to define what a better host would actually need to deliver. See [`../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md`](../implementation_strategy/shell/2026-04-27_gpui_host_integration_plan.md) Phase 3 gates and Monitor conditions.
 
 ---
 
@@ -386,6 +395,7 @@ For fast lookup. Each entry points at the canonical home for that concern.
 | Web runtime provider (Servo / Wry integration) | `mods/native/web_runtime/` |
 | Egui host adapter | `shell/desktop/ui/gui.rs` (`EguiHost`) |
 | Iced host adapter (scaffold) | `shell/desktop/ui/iced_host.rs` |
+| Future host adapters (per iced jump-ship plan §3.1) | `crates/hosts/iced-shell/` (active target), `crates/hosts/xilem-shell/` (monitored), `crates/hosts/gpui-shell/` (branch experiment) |
 | Runtime state | `shell/desktop/ui/gui_state.rs` (`GraphshellRuntime`) |
 | Host port surface | `shell/desktop/ui/host_ports.rs` |
 | Compositor | `shell/desktop/workbench/tile_compositor.rs` |
@@ -422,7 +432,7 @@ Graphshell as a browser, told in the shape that browser engineers already know:
 - **Process/isolation**: single-process today; sandbox + multi-process are open gaps.
 - **Storage**: WAL + snapshots + runtime caches, all Graphshell-owned. No cloud account.
 - **Navigation**: graph nodes/edges ARE navigation; History Manager + per-node + traversal edges supersede back/forward lists.
-- **Chrome**: workbench tile tree + toolbar + three command surfaces (palette / radial / context). No bookmarks bar, no download manager UI (yet).
+- **Chrome**: Shell-owned FrameTree (Window → Frames → Panes) + toolbar + three command surfaces (palette / radial / context). Canvas base layer when FrameTree is empty. No bookmarks bar; downloads are graph nodes (live progress UI TBD — G15).
 - **Input/a11y**: six-track focus authority; AccessKit bridge; Graph Reader planned.
 - **DevTools**: deliberate gap. Diagnostics Inspector is the adjacent concern.
 - **Extensions**: mod model (native + WASM), not WebExtensions.
