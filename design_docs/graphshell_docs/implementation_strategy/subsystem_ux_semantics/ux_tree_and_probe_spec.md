@@ -89,7 +89,7 @@ logically separate:
   `role`, `label`, `state` (`focused`, `selected`, `blocked`, `degraded`),
   `allowed_actions`, and domain identity (`GraphViewId`, `NodeKey`, tool kind).
 - **Presentation layer** (non-authoritative hints): bounds/rect hints, render mode
-  (`CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, `Placeholder`), and z-pass/
+  (`CompositedTexture`, `NativeOverlay`, `EmbeddedHost`, `Placeholder`), and z-pass/
   visual/transient flags.
 - **Interaction/runtime trace layer** (non-authoritative telemetry): per-node event route,
   backend path, timing, diagnostic counters, and command-surface target-resolution
@@ -132,8 +132,8 @@ When `ux-semantics` is active, every visible pane (`TileKind::Graph`, `TileKind:
 `TileKind::Pane` payloads are pane-only semantic surfaces; they must not be treated as
 graph-enrolled node panes. `TileKind::Graph(GraphViewId)` payloads are hosted
 presentations of graph-owned scoped views already named by Graph Bar chrome; they must
-not be treated as owning the `GraphViewId`. Invisible or hidden tiles (outside the viewport, collapsed
-by egui_tiles simplification) may be omitted.
+not be treated as owning the `GraphViewId`. Invisible or hidden panes (outside the viewport,
+collapsed by the active workbench layout adapter) may be omitted.
 
 **C4 — No partial-construction panics**
 If a pane's internal state is inconsistent (e.g., a `NodePaneState` references a
@@ -227,7 +227,7 @@ uxnode://radial-menu/sector[open-in-new-tab]
 | `focused` | Focus subsystem: the node that holds keyboard/accessibility focus per the Focus subsystem's authority. |
 | `selected` | Graph selection state (`SelectionState`): true for nodes in the current selection set. |
 | `expanded` | Applicable only to expandable containers (e.g., subsystem pane sections, command palette groups). |
-| `hidden` | Derived from `egui_tiles` visibility: a pane not in the current active tab of its Tab Group is hidden. |
+| `hidden` | Derived from active workbench-layout visibility: a pane not in the current active tab of its Tab Group is hidden. |
 | `blocked` | `NodeLifecycle::RuntimeBlocked`: true when the graph node's lifecycle is blocked. |
 | `degraded` | `TileRenderMode::Placeholder`: true when the tile is in the fallback render mode. Also true for builder-detected inconsistent pane state (C4). |
 | `loading` | WebView creation in progress: true between `MapWebviewToNode` intent and first `UrlChanged` event for the node. |
@@ -562,7 +562,7 @@ UxProbeSet continue operating.
 - Violation emits `ux:contract_warning`.
 
 `AC3` — **Structural spine authority**
-- UxTree build traverses `egui_tiles` as the structural spine.
+- UxTree build traverses the active workbench layout source as the structural spine. The current egui host still uses an egui_tiles-backed adapter; the target path is the GraphTree-backed walker.
 - Semantic ownership does not depend on backend-specific GL callback state or APIs.
 
 `AC4` — **Graph surface enrichment**
@@ -601,7 +601,7 @@ UxTree is a **read-only projection** built from two runtime authorities that it 
 
 | Runtime authority | Owns | UxTree relationship |
 |---|---|---|
-| `egui_tiles::Tree<TileKind>` | Pane layout, tab grouping, tile visibility, active-tile set | Structural spine — UxTree traverses it as the walk order source |
+| Active workbench layout source (`GraphTreeWalker` target; egui_tiles adapter during transition) | Pane layout, tab grouping, tile visibility, active-pane set | Structural spine — UxTree traverses it as the walk order source |
 | `GraphBrowserApp` / `GraphWorkspace` | Graph state, node selection, focus, camera, viewer registry | Semantic enrichment — UxTree reads but does not mutate |
 
 UxTree's job is to make runtime state **contract-visible and testable**, not to become a third authority that the other two must consult.
@@ -619,7 +619,7 @@ Authority expansion follows a gate sequence tied to pre-WGPU readiness milestone
 #### Gate G2 — Pane lifecycle (closed)
 
 **Done-gate**: Node pane open/close/focus-cycle are traceable through UxTree role changes without orphaned entries.
-**Non-goal**: UxTree does not own pane ordering or tab group membership; `egui_tiles` retains layout authority.
+**Non-goal**: UxTree does not own pane ordering or tab group membership; the active workbench layout authority retains that state.
 **Evidence**: `pane_lifecycle_*` scenarios in `pre_wgpu_critical_path.rs`.
 
 #### Gate G3 — Viewer fallback/degraded state (closed)
@@ -656,7 +656,7 @@ Authority expansion follows a gate sequence tied to pre-WGPU readiness milestone
 
 The following expansions are **out of scope** until post-WGPU stabilization:
 
-1. **UxTree as layout authority** — tile ordering, tab grouping, and active-tile selection remain owned by `egui_tiles`. UxTree must not write back into tile tree state.
+1. **UxTree as layout authority** — pane ordering, tab grouping, and active-pane selection remain owned by the active workbench layout authority. UxTree must not write back into layout state.
 2. **UxTree as focus authority** — keyboard focus assignment remains owned by the Focus subsystem and `egui`. UxTree reflects focus state; it does not set it.
 3. **UxTree as viewer-resolver** — viewer backend selection remains owned by the viewer registry. UxTree reflects `TileRenderMode`; it does not determine it.
 4. **UxTree as intent dispatcher** — command routing remains owned by `gui_orchestration` and the `WorkbenchIntent`/`GraphIntent` reducer chain. UxTree is not an intermediate in the dispatch path.
@@ -665,9 +665,9 @@ The following expansions are **out of scope** until post-WGPU stabilization:
 
 | Dependency | Risk | Control |
 |---|---|---|
-| `egui_tiles` structural spine | API changes in `egui_tiles` break UxTree traversal | UxTree only uses the public `Tree::active_tiles()` + `Tiles::iter()` surface; no internal tile-tree access |
+| Transition layout spine | Adapter API changes break UxTree traversal | UxTree goes through the walker/adapter seam; egui_tiles-specific traversal remains temporary host-adapter code |
 | `egui_graphs` rendering | Graph canvas state leaks into UxTree build path | UxTree reads from `GraphBrowserApp` state only; it does not call into `egui_graphs` render APIs |
-| Two-authority consistency | `egui_tiles` and `GraphBrowserApp` diverge (e.g., pane exists in tile tree with no corresponding graph node) | `presentation_id_consistency_violation` detects orphaned IDs; `UxNodeState::degraded` signals broken viewer bindings |
+| Two-authority consistency | The workbench layout source and `GraphBrowserApp` diverge (e.g., pane exists in layout state with no corresponding graph node) | `presentation_id_consistency_violation` detects orphaned IDs; `UxNodeState::degraded` signals broken viewer bindings |
 
 ### 12.5 Readiness criteria for post-WGPU authority expansion
 

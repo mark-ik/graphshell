@@ -16,6 +16,30 @@ use crate::graph::{NodeKey, NodeLifecycle};
 
 use super::tile_kind::TileKind;
 
+#[derive(Clone, Debug)]
+struct NodePaneAdapterEntry {
+    node_key: NodeKey,
+    pane_id: super::pane_model::PaneId,
+    render_mode: super::pane_model::TileRenderMode,
+    viewer_id: Option<String>,
+}
+
+fn node_pane_adapter_entries(tiles_tree: &Tree<TileKind>) -> Vec<NodePaneAdapterEntry> {
+    tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) => Some(NodePaneAdapterEntry {
+                node_key: state.node,
+                pane_id: state.pane_id,
+                render_mode: state.render_mode,
+                viewer_id: state.resolved_viewer_id.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Map Graphshell's `NodeLifecycle` to graph-tree's `Lifecycle`.
 pub(crate) fn to_graph_tree_lifecycle(lc: NodeLifecycle) -> Lifecycle {
     match lc {
@@ -96,46 +120,28 @@ pub(crate) fn sync_active(graph_tree: &mut GraphTree<NodeKey>, node_key: NodeKey
 pub(crate) fn build_node_pane_id_map(
     tiles_tree: &Tree<TileKind>,
 ) -> std::collections::HashMap<NodeKey, super::pane_model::PaneId> {
-    use egui_tiles::Tile;
-    let mut map = std::collections::HashMap::new();
-    for (_tile_id, tile) in tiles_tree.tiles.iter() {
-        if let Tile::Pane(kind) = tile {
-            if let Some(state) = kind.node_state() {
-                map.insert(state.node, state.pane_id);
-            }
-        }
-    }
-    map
+    node_pane_adapter_entries(tiles_tree)
+        .into_iter()
+        .map(|entry| (entry.node_key, entry.pane_id))
+        .collect()
 }
 
 pub(crate) fn build_pane_render_mode_map(
     tiles_tree: &Tree<TileKind>,
 ) -> std::collections::HashMap<super::pane_model::PaneId, super::pane_model::TileRenderMode> {
-    use egui_tiles::Tile;
-    let mut map = std::collections::HashMap::new();
-    for (_tile_id, tile) in tiles_tree.tiles.iter() {
-        if let Tile::Pane(kind) = tile {
-            if let Some(mode) = kind.node_render_mode() {
-                map.insert(kind.pane_id(), mode);
-            }
-        }
-    }
-    map
+    node_pane_adapter_entries(tiles_tree)
+        .into_iter()
+        .map(|entry| (entry.pane_id, entry.render_mode))
+        .collect()
 }
 
 pub(crate) fn build_pane_viewer_id_map(
     tiles_tree: &Tree<TileKind>,
 ) -> std::collections::HashMap<super::pane_model::PaneId, String> {
-    use egui_tiles::Tile;
-    let mut map = std::collections::HashMap::new();
-    for (_tile_id, tile) in tiles_tree.tiles.iter() {
-        if let Tile::Pane(TileKind::Node(state)) = tile {
-            if let Some(viewer_id) = state.resolved_viewer_id.as_ref() {
-                map.insert(state.pane_id, viewer_id.clone());
-            }
-        }
-    }
-    map
+    node_pane_adapter_entries(tiles_tree)
+        .into_iter()
+        .filter_map(|entry| entry.viewer_id.map(|viewer_id| (entry.pane_id, viewer_id)))
+        .collect()
 }
 
 /// Produce `(PaneId, NodeKey, egui::Rect)` tuples from GraphTree layout, matching
@@ -151,21 +157,10 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
 ) -> Vec<(super::pane_model::PaneId, NodeKey, egui::Rect)> {
     let layout = graph_tree.compute_layout(available);
     let mut result = Vec::new();
+    let pane_ids_by_node = build_node_pane_id_map(tiles_tree);
 
     for (member, rect) in &layout.pane_rects {
-        // Look up PaneId from the tile tree (migration bridge).
-        let pane_id = tiles_tree.tiles.iter().find_map(|(_, tile)| {
-            if let Tile::Pane(kind) = tile {
-                if let Some(state) = kind.node_state() {
-                    if state.node == *member {
-                        return Some(state.pane_id);
-                    }
-                }
-            }
-            None
-        });
-
-        if let Some(pane_id) = pane_id {
+        if let Some(pane_id) = pane_ids_by_node.get(member).copied() {
             let egui_rect =
                 egui::Rect::from_min_size(egui::pos2(rect.x, rect.y), egui::vec2(rect.w, rect.h));
             result.push((pane_id, *member, egui_rect));

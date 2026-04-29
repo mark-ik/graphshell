@@ -43,7 +43,7 @@ debt-clear plan itself.
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `InputRegistry` | ✅ | Partial | Typed key bindings and context-aware resolution are landed for the current keyboard path; missing gamepad, chords, runtime rebind, and wider surface coverage |
+| `InputRegistry` | ✅ | Partial | Typed key bindings and context-aware resolution are landed for the current keyboard path; missing chords, runtime rebind depth, and wider surface coverage. The inherited servoshell gamepad path has been removed and is not standing debt. |
 | `ActionRegistry` | ✅ | Partial | Only 7 actions; no namespace enforcement; no capability guard; sync-only handlers |
 | `RendererRegistry` | ✅ | Phase B1 landed | Follow-through is mostly validation and broader authority-path cleanup under debtclear, not missing registry scaffolding |
 
@@ -134,20 +134,19 @@ When a pane is closed:
 
 ---
 
-## Phase B2 — InputRegistry: Gamepad, context, and chords
+## Phase B2 — InputRegistry: Context and Chords
 
-**Unlocks:** Gamepad radial menu dispatch (CLAUDE.md directive); full input parity.
+**Unlocks:** full typed/context-aware input parity for Graphshell-owned keyboard and pointer paths.
 
 ### B2.1 — Typed `InputBinding` and modifier representation
 
-Execution note (2026-03-09): the current keyboard path now uses typed `InputBinding` values plus `InputContext`-aware resolution for the existing toolbar submit/navigation bindings and a graph-view Enter mapping. Gamepad and chord variants remain scaffolded-but-unwired follow-on work.
+Execution note (2026-03-09): the current keyboard path now uses typed `InputBinding` values plus `InputContext`-aware resolution for the existing toolbar submit/navigation bindings and a graph-view Enter mapping. Chord variants remain scaffolded-but-unwired follow-on work. The inherited gamepad route has since been removed; reintroduce gamepad only through a fresh Graphshell-native input design.
 
 Replace the flat string key with a typed binding:
 
 ```rust
 pub enum InputBinding {
     Key { modifiers: ModifierMask, keycode: Keycode },
-    Gamepad { button: GamepadButton, modifier: Option<GamepadButton> },
     Chord(Vec<InputBinding>),       // sequential input sequence
 }
 
@@ -193,33 +192,18 @@ pub fn resolve(&self, binding: &InputBinding, context: InputContext)
 - [ ] Conflict detection: two actions bound to same (binding, context) pair emits `Warn` diagnostic.
 - [ ] Unit tests for each context variant.
 
-### B2.3 — Gamepad bindings
+### B2.3 — Retired inherited gamepad path
 
-Per CLAUDE.md: radial menu default in Gamepad mode; D-pad/stick navigation; 8-sector; no
-concentric rings; both menus work in both input modes; all routes through ActionRegistry.
+The servoshell-inherited gamepad/radial-menu control path has been removed from
+the active implementation track. It should not be treated as missing work for
+Sector B completion.
 
-Current status (2026-03-09): the current host-surface gamepad path is now routed through the
-typed `InputRegistry` for radial-menu open, directional radial navigation, confirm, cancel,
-command palette open, and browser back/forward. This lands the context-aware binding layer for
-the existing gamepad path, but full per-sector action normalization remains future work.
+Future gamepad support is allowed only as a deliberate Graphshell-native input
+design with its own capability model, user-visible settings, and tests. It must
+not resurrect the old path where controller buttons implicitly drove browser or
+workbench commands because servoshell did.
 
-Register built-in gamepad bindings:
-
-| Gamepad input | Context | Action |
-|---|---|---|
-| Right shoulder | GraphView | `radial_menu:open` |
-| D-pad directions (×8) | RadialMenuOpen | `radial_menu:select_sector_{0–7}` |
-| Left stick press | RadialMenuOpen | `radial_menu:confirm` |
-| B / Circle | RadialMenuOpen | `radial_menu:cancel` |
-| Left bumper | GraphView | `graph:navigate_back` |
-| Right bumper | GraphView | `graph:navigate_forward` |
-| Start | GraphView | `workbench:command_palette_open` |
-
-**Done gates:**
-- [ ] All gamepad bindings registered in `InputRegistry::new()`.
-- [ ] Gamepad events from `EmbedderWindow` input handler are converted to `InputBinding::Gamepad`
-  and routed through `InputRegistry::resolve()`.
-- [ ] Unit tests: each gamepad binding resolves to expected action in expected context.
+**Done gate:** no active Sector B acceptance criterion depends on gamepad.
 
 ### B2.4 — Runtime rebinding
 
@@ -429,8 +413,8 @@ pub enum ActionCapability {
 ## Acceptance Criteria (Sector B complete)
 
 - [ ] `RendererRegistry` enforces the creation boundary: debtclear Phase 1 acceptance criterion met.
-- [ ] `InputRegistry` resolves gamepad bindings with same contract as keyboard bindings.
-- [ ] Radial menu sectors are bound to `radial_menu:select_sector_N` actions in gamepad context.
+- [ ] `InputRegistry` resolves active keyboard/pointer bindings through the typed context-aware contract.
+- [ ] Any future gamepad/radial-sector path is covered by a new Graphshell-native input design before implementation.
 - [ ] All action IDs follow `namespace:name` format.
 - [ ] Actions return intents, not direct mutations; workbench intents route to workbench authority.
 - [ ] `log::warn!` fires when workbench-authority intents reach `apply_reducer_intents()`.
@@ -445,5 +429,5 @@ pub enum ActionCapability {
 - [action_registry_spec.md](action_registry_spec.md)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) — two-authority model
 - [archived servoshell debt-clear plan](../../../../archive_docs/checkpoint_2026-03-22/graphshell_docs/implementation_strategy/system/2026-03-08_servoshell_debtclear_plan.md) — RendererRegistry requirement
-- [../2026-02-24_control_ui_ux_plan.md](../2026-02-24_control_ui_ux_plan.md) — gamepad/radial menu spec
+- [../2026-02-24_control_ui_ux_plan.md](../2026-02-24_control_ui_ux_plan.md) — historical control UI plan; inherited gamepad assumptions are not active debt
 - [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md) — master index

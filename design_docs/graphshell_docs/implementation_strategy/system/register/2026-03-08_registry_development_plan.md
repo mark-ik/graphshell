@@ -140,7 +140,7 @@ NodeKey + PaneId → RendererRegistry (attachment map)
                  → reconcile_webview_lifecycle (creation only after registry accepts)
 ```
 
-Current state: Both `InputRegistry` and `ActionRegistry` have functional cores but are incomplete (no gamepad bindings, no cross-context resolution, no namespace enforcement, no capability guards). `RendererRegistry` does not exist and is the most urgent new registry. Only that `RendererRegistry` slice is a servoshell debt-clear prerequisite.
+Current state: Both `InputRegistry` and `ActionRegistry` have functional cores but still need cross-context coverage, namespace enforcement, and capability guards. The inherited servoshell gamepad path has been removed rather than treated as standing registry debt; gamepad input should return only through an explicit Graphshell-native input design. `RendererRegistry` no longer blocks as missing scaffolding; remaining work is authority-path cleanup and validation.
 
 ---
 
@@ -253,7 +253,7 @@ The Register layer is considered complete when all of the following are true:
 1. Every registry in the inventory table has ✅ across all columns.
 2. The content pipeline chain (Sector A) is exercised end-to-end in a scenario test.
 3. `RendererRegistry` enforces the creation boundary: no renderer created outside `reconcile_webview_lifecycle()`.
-4. `InputRegistry` resolves gamepad bindings to actions with the same contract as keyboard bindings.
+4. `InputRegistry` resolves active keyboard/pointer bindings through the same typed/context-aware contract; gamepad support is not a completion gate unless reintroduced by a Graphshell-native input design.
 5. `IdentityRegistry` uses real ed25519 signing; `NostrCoreRegistry` draws keypair from it.
 6. All canvas parameters (layout algorithm, physics profile, theme tokens) are resolved through their respective registries — no hardcoded constants in `render/mod.rs` or `graph_app.rs`.
 7. `WorkbenchSurfaceRegistry` is the sole authority for tile-tree layout policy.
