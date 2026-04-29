@@ -45,9 +45,14 @@ Acceptance:
 ## Phase 1 — Glass-HQ outreach (after Phase 0)
 
 The Glass-HQ GPUI fork is the wgpu-aligned candidate, but keep the Zed GPUI
-lineage and the Glass-HQ renderer architecture distinct in the docs. If the
-March 2026 Blade-to-wgpu migration claim remains here, pin it to a source or
-commit before treating it as a durable fact.
+lineage and the Glass-HQ renderer architecture distinct in the docs.
+**Correction (2026-04-29)**: the "March 2026 Blade-to-wgpu migration" claim
+that previously appeared in this section was misattributed. The actual
+migration is upstream Zed — [zed-industries/zed#46758](https://github.com/zed-industries/zed/pull/46758),
+merged Feb 2026, removes Blade and reimplements the Linux renderer on wgpu.
+That PR is in the upstream tree, not a Glass-HQ-specific change. Glass-HQ
+remains the standalone-fork-of-gpui candidate; treat its rendering posture
+as inheriting upstream's wgpu work, not as an independent migration.
 
 - Open a discussion in `Glass-HQ/gpui` describing the use case and the patch
   shape (see *Findings* below), backed by the Phase 0 proof.
@@ -122,13 +127,34 @@ aligning all three rendering layers on one shared device.
 
 **GPUI strengths:**
 - gpui-component (longbridge): 60+ production widgets backed by a shipping
-  fintech app (Longbridge Pro). Dock/panel layout, virtualized lists, menus,
-  theming. 11k+ stars. Substantially richer than iced's current widget set for
-  shell chrome.
+  fintech app (Longbridge Pro). Dock/panel layout, virtualized Table/List,
+  Tree, command palette, code editor with LSP/Tree-Sitter, menus, theming.
+  11k+ stars.
 - Proven complex-app architecture: Zed is more architecturally demanding than
-  a typical widget showcase.
+  a typical widget showcase. FocusHandle / FocusableView is more explicit
+  than iced's per-widget focus and is a closer architectural fit for the
+  six-track focus model in §3.7.
 - Cross-platform: macOS, Linux (Wayland + X11, Vulkan), Windows (DX11 +
-  DirectWrite) — all shipping in Zed.
+  DirectWrite) — all shipping in Zed (Linux/Windows ports still stabilizing
+  per upstream as of 2026-Q1).
+
+**Calibration note (2026-04-29)**: an earlier framing of this section said
+gpui-component is "substantially richer than iced's current widget set for
+shell chrome." That comparison was against bare iced. The realistic iced
+stack — iced core + `iced_aw` (Tabs, Menu, Context Menu, Sidebar) +
+`libcosmic` (System76 COSMIC DE — list/grid views, drag-drop, theming, IME
+work) + `iced_webview` (Servo / Blitz / litehtml / CEF behind feature flags)
+— is **broader and more multi-source** than gpui-component, which is a
+single-vendor catalogue. gpui-component is genuinely stronger on three
+specific surfaces — command palette polish, virtualized Table/List
+performance, and the built-in code editor — and gpui's focus model is
+cleaner for multi-pane apps. iced's wins are: documented Servo embedding
+(`iced_webview`), shipping multi-platform reach (libcosmic on
+Win/macOS/Linux X11+Wayland), AccessKit integration in progress, and a
+documented custom-wgpu pipeline path since [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183).
+gpui's custom-renderer story is still upstream-gap-blocked
+([zed-industries/zed#45996](https://github.com/zed-industries/zed/discussions/45996));
+the patch shape below is exactly what would close it for Graphshell.
 
 **GPUI blocking gap:** No public API for custom GPU renderer embedding. No
 community workaround exists as of 2026-04-27 (confirmed by exhaustive search:
@@ -254,6 +280,204 @@ GPUI host feature/profile.
 
 ---
 
+## Idiomatic GPUI Adaptation
+
+Phases 0–3 above are about renderer plumbing — getting Graphshell's three GPU
+producers (chrome, graph canvas, content surfaces) onto a single shared
+`wgpu::Device` through GPUI. They do not describe what Graphshell looks like
+as a gpui *application*. This section does.
+
+The renderer-integration work makes the host run. The adaptation work makes
+the host idiomatic. Both can be partial; "idiomatic" is a slider, not a
+binary. Stage A below is the minimum to ship; Stages B–F are layered
+investments that each trade shim for idiom.
+
+### Programming model translation
+
+| Concept | iced (TEA pull) | gpui (reactive entity-view-model) |
+|---|---|---|
+| State authority | Application struct, mutated in `update` | `Model<T>`; mutations call `cx.notify()` |
+| Re-render trigger | Every frame: `view(&self) -> Element` | Observation: dependents re-render only on `cx.notify()` |
+| Long-lived view state | Application-held or widget-local | `View<T>` — persistent state per view instance |
+| Action dispatch | `Message` enum + `update` | `cx.dispatch(action)` + `actions!` macro + key bindings |
+| Focus | Per-widget; iced tracks one focused widget | `FocusHandle` per element; explicit register/observe; focus return on modal close is a first-class primitive |
+| Async | `Subscription` + `Command` | `cx.spawn(async move { ... })` + `BackgroundExecutor` |
+| Cross-element coordination | Through `Message` round-trips | Direct: views observe shared models; models notify |
+
+The portable contract (`runtime.tick()`, `FrameViewModel`, `HostPorts`) was
+shaped for the iced/egui pull loop. It still works on gpui — a root `View`
+whose `render` calls `runtime.tick()` and feeds the resulting view-model to
+children — but that shim leaves gpui's reactivity unused. Each subsequent
+stage trades shim for idiom.
+
+### Subsystem implementation — iced vs. gpui
+
+Cross-referenced against the
+[browser subsystem taxonomy](../../technical_architecture/2026-04-22_browser_subsystem_taxonomy_and_mapping.md).
+"Edge" is the calibrated read after the 2026-04-29 ecosystem survey
+(see [shell/2026-04-28_iced_jump_ship_plan.md](2026-04-28_iced_jump_ship_plan.md)
+for the iced-side plan and the realistic iced stack: iced + `iced_aw` +
+`libcosmic` + `iced_webview`).
+
+| Taxonomy subsystem | iced approach | gpui approach | Edge |
+|---|---|---|---|
+| §3.6 FrameTree (Window → H/V splits → Panes) | `pane_grid::PaneGrid<Pane>` — resizable, adjustable, nestable splits as a native primitive | gpui-component `Dock` — splits + tabs + tiles built in, Zed-style drag-rearrange | gpui (polish), iced (semantic purity) |
+| §3.6 Tab bar over active tiles | `iced_aw::Tabs` or libcosmic | gpui-component `Tabs` (production polish) | gpui |
+| §3.6 Omnibar (Shell input + Navigator breadcrumb) | `text_input` + `row!` + custom result list; per-pane drafts via existing `OmnibarSearchSession` | gpui-component `Palette` is a near-direct fit; Zed's command palette is the reference impl | gpui |
+| §3.6 Command palette | Custom; libcosmic launcher patterns adaptable | gpui-component `CommandPalette` | gpui (decisive) |
+| §3.6 Context palette (right-click) | `iced_aw::ContextMenu` | gpui-component menus | tie |
+| §3.6 Radial palette | Custom widget | Custom `Element` | tie |
+| §3.6 Toasts | Custom or libcosmic patterns | gpui-component `Notification` | gpui (small) |
+| §3.1 `WebViewSurface<NodeKey>` (Servo content) | `iced_webview` already has a Servo feature flag; or custom `shader` widget over Servo's wgpu external image API per [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183) | Glass-HQ's `PaintSurface::WgpuTexture` patch (still local; not upstream). Without it: no clean integration | **iced (decisive)** |
+| §3.1 Wry viewer (non-web content) | `iced-wry-viewer` already exists in the Cargo tree | Build from scratch | iced |
+| §3.1 Graph canvas (Vello) | `shader` widget submitting Vello scene's wgpu commands; canvas `Program` for hit-testing | Native Vello canvas `Element` via shared device (with Glass-HQ patch) | gpui (small) |
+| §3.7 Six-track focus (G1 in iced plan) | iced's per-widget focus is shallow; SemanticRegion / PaneActivation / GraphView / EmbeddedContent / ReturnCapture all live in `graphshell-runtime`; iced widgets consult runtime state | gpui's `FocusHandle` is explicit and Zed-tested for focus-return, multi-pane, multi-cursor; GraphView and EmbeddedContent map to `FocusHandle`s directly | gpui (modest) |
+| §3.7 IME (G8 in iced plan) | iced 0.14 IME + libcosmic Linux IME WIP; CJK testing uneven | Zed-tested macOS IME (solid); Linux Wayland fcitx/ibus behind | macOS → gpui; Linux → mixed |
+| §3.7 AccessKit (G9 in iced plan) | `iced_accessibility` exists, integration in progress | No public AccessKit story | iced |
+| §3.5 Navigator sidebar (graphlet members) | Custom tree view; libcosmic has list patterns | gpui-component `Tree` | gpui |
+| §3.5 History view | Custom virtualized list; libcosmic | gpui-component virtualized `List` | gpui (perf) |
+| §3.8 Diagnostics Inspector | Custom virtualization | gpui-component virtualized `Table` | gpui |
+| §3.6 Settings panes (`verso://settings/<section>`) | Forms via core widgets | gpui-component forms | tie |
+| §4.5 Canvas base layer (FrameTree empty) | Root `Container` swaps between `PaneGrid` and graph canvas widget | Root `View` swaps between `Dock` and canvas `Element` | tie |
+| §3.12 Cross-platform reach | Win/macOS/Linux(X11+Wayland) shipping today via libcosmic + iced core | macOS-first; Linux/Windows still stabilizing in Zed (2026-Q1) | iced |
+
+The two **load-bearing axes** for a browser shell are §3.1 (Servo embedding)
+and §3.7 (a11y). iced wins both today: `iced_webview` has a working Servo
+path, gpui needs the Glass-HQ patch landed before it has any path; AccessKit
+is in progress on iced and absent on gpui. The **shell-quality wins** for
+gpui (palette, virtualized list/table, Tree, focus model, polished Tabs/Dock)
+stack on top of those load-bearing wins, not under them.
+
+### Stages of adoption
+
+Each stage is independently shippable; landing one does not commit to the
+next.
+
+#### Stage A — Portable-contract shim (post-Phase 3)
+
+A single root `View` calls `runtime.tick()` inside `render`. The whole UI
+rebuilds each tick, like in iced. gpui-component provides the chrome (Dock,
+Tabs, Palette). Custom Elements for graph canvas and `WebViewSurface` use the
+Glass-HQ external-texture surface. Functional gpui app; reactivity unused.
+
+Done condition: the same UX target the iced host hits, on gpui.
+
+#### Stage B — Action dispatch through gpui actions
+
+`ActionRegistry`'s `namespace:name` actions become gpui `actions!`
+declarations. Key bindings register through `cx.bind_keys`. `HostIntent`
+variants become payload types on those actions. The omnibar and command
+palette dispatch through gpui rather than collecting a Message in iced
+fashion.
+
+Buys: native gpui-component `CommandPalette` integration; idiomatic key
+binding; no bespoke routing layer.
+
+#### Stage C — Runtime decomposition into observable models
+
+Split the monolithic Runtime into per-domain `Model<T>` instances aligned
+with [SHELL.md](SHELL.md)'s five domains: Graph, Navigator, Workbench,
+Viewer, Shell. Each Model holds its slice of state and `cx.notify()` on
+mutation. Views observe only the slices they render.
+
+Buys: per-View re-render scoping. The Navigator sidebar re-renders when
+graphlet membership changes, not when a frame border drags. The Diagnostics
+Inspector re-renders when a new event arrives, not when the graph canvas
+pans.
+
+Cost: the portable contract loses its single-tick-per-frame shape. Stage C
+moves pull-loop semantics out of the host and into a `Timer` subscription on
+the Graph and Workbench Models (driving physics + animation), with
+everything else event-driven. The portable types must stay free of gpui
+types — `graphshell-runtime` continues to expose plain `Model`-of-T-friendly
+state, and the gpui host wraps each domain in `Model` at the boundary.
+
+#### Stage D — Custom Elements for graph canvas and `WebViewSurface`
+
+Stage A renders both as opaque painted regions. Stage D makes them
+first-class gpui `Element` impls:
+
+- `GraphCanvasElement` — Vello scene submitted directly to gpui's wgpu
+  pass; hit-testing in `layout()`; pan/zoom state in the Element's View.
+- `WebViewSurfaceElement` — texture lifecycle, content generation signals,
+  pointer/keyboard/IME forwarding to Servo through `web_runtime`. Built on
+  `PaintSurface::WgpuTexture` (the patch in §Findings).
+
+Buys: native focus integration (Tab cycles into the canvas), gpui-style
+input event flow, no shader-widget wrapper.
+
+#### Stage E — `FocusHandle` integration with six-track focus
+
+The six-track `RuntimeFocusAuthorityState` (G1 in the iced jump-ship plan)
+carries authority for SemanticRegion, PaneActivation, GraphView,
+LocalWidget, EmbeddedContent, ReturnCapture. In gpui:
+
+- LocalWidget = gpui's native `FocusHandle` on the widget.
+- GraphView and EmbeddedContent = `FocusHandle` on the canvas /
+  `WebViewSurface` Element.
+- PaneActivation = `FocusHandle` on each Pane View.
+- SemanticRegion and ReturnCapture stay runtime-side (host-neutral); they
+  coordinate with gpui's focus by observing it.
+
+This is the cleanest fit gpui offers. Zed's focus-return-on-modal-close is
+exactly the ReturnCapture pattern.
+
+#### Stage F — AccessKit
+
+The largest gap. gpui has no public AccessKit story; Zed itself does not
+yet ship AccessKit. Three options:
+
+1. Build AccessKit support inside the Graphshell `gpui-shell` crate
+   (host-side, not upstream).
+2. Contribute AccessKit support to gpui upstream (large; uncertain
+   reception).
+3. Wait for upstream to add it (no signal as of 2026-04-29).
+
+Option 1 is the only one Graphshell can drive on its own timeline. The
+Graph Reader (planned virtual a11y tree) is host-neutral and lands either
+way; the gap is the rendered-tree side.
+
+### Gaps that block "fully idiomatic"
+
+These are not decisions to make today; they are the surface that has to be
+navigated if the experiment is revived past Stage A.
+
+- **AccessKit on gpui** — see Stage F. WCAG 2.2 AA target makes this
+  load-bearing.
+- **IME on Linux** — gpui's Wayland fcitx/ibus story is behind iced's.
+  Affects CJK / Arabic users on the largest Graphshell-target platform.
+- **`PaintSurface::WgpuTexture` patch** — Stage A through D depend on the
+  Glass-HQ patch surviving upstream churn or being merged.
+- **Runtime model decomposition (Stage C)** — touches the boundary of the
+  portable contract. Done carelessly, it leaks gpui types into
+  `graphshell-runtime`. Done carefully, it cleanly aligns the runtime with
+  the five-domain split that is already canonical in
+  [SHELL.md](SHELL.md).
+- **gpui-component pace** — single-vendor (Longbridge); if upstream
+  investment slows, the chrome-polish argument weakens.
+- **Cross-platform parity of Linux/Windows ports** — still stabilizing in
+  upstream Zed as of 2026-Q1.
+
+### What this sharpens about the revisit trigger
+
+The 2026-04-29 progress entry below records the revisit trigger as four
+named conditions. Stages A–F give the revisit a concrete shape: not "switch
+hosts" but "switch hosts and absorb adaptation cost X." Stage A alone is a
+real migration project; Stages B–F are layered. Picking the right stopping
+point depends on which trigger actually fired:
+
+- Trigger 1 (omnibar / palette quality) → Stage A is sufficient; gpui-component
+  delivers immediately.
+- Trigger 2 (Navigator sidebar / Diagnostics perf at scale) → Stages A + C
+  are needed; the perf win comes from per-Model observation, not from
+  gpui-component alone.
+- Trigger 3 (six-track focus reconciliation kludge) → Stages A + E.
+- Trigger 4 (AccessKit stall on iced) → Stages A + F. Stage F is where the
+  cost shape is least certain, and that uncertainty is itself a reason to
+  let the iced AccessKit work mature first.
+
+---
+
 ## Progress
 
 **2026-04-27** — Candidate promoted: GPUI via Glass-HQ is the primary long-run
@@ -299,3 +523,25 @@ actually need to deliver.
 Phase 0 (local external-texture proof) and Phase 1 (Glass-HQ outreach)
 are not urgent. Phase 3 migration gate stays as written for whenever
 the experiment is revisited.
+
+**2026-04-29** — ecosystem calibration. Two findings in §Findings were
+corrected after a focused iced-vs-gpui ecosystem survey:
+
+1. The "substantially richer than iced's current widget set" framing
+   compared against bare iced rather than the realistic iced stack
+   (iced + `iced_aw` + `libcosmic` + `iced_webview`). Replaced with a
+   calibration note enumerating where gpui-component genuinely wins
+   (command palette, virtualized Table/List, code editor) and where
+   iced wins (Servo embedding via `iced_webview`, multi-platform reach
+   via libcosmic, AccessKit in progress, documented custom-wgpu path
+   since [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183)).
+2. The "March 2026 Blade-to-wgpu migration" was misattributed to
+   Glass-HQ. The actual migration is upstream Zed
+   ([zed-industries/zed#46758](https://github.com/zed-industries/zed/pull/46758),
+   merged Feb 2026). Glass-HQ inherits upstream's wgpu work.
+
+Plan posture unchanged: GPUI remains a branch experiment after iced
+stabilizes. The calibration sharpens the case for *when* to revisit
+(when the iced chrome work surfaces a chrome-quality bar gpui-component
+clearly clears that the iced stack does not) rather than leaving the
+revisit trigger ambiguous.
