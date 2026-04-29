@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+#[cfg(feature = "egui-host")]
 use egui::Pos2;
 use euclid::Point2D;
 
@@ -14,11 +15,13 @@ pub(crate) const NODE_SCHEME_PREFIX: &str = "node://";
 pub(crate) const NOTES_SCHEME_PREFIX: &str = "notes://";
 
 pub(crate) trait CoordBridge {
+    #[cfg(feature = "egui-host")]
     fn to_pos2(self) -> Pos2;
     fn to_point2d<U>(self) -> Point2D<f32, U>;
 }
 
 impl<U> CoordBridge for Point2D<f32, U> {
+    #[cfg(feature = "egui-host")]
     fn to_pos2(self) -> Pos2 {
         Pos2::new(self.x, self.y)
     }
@@ -28,6 +31,7 @@ impl<U> CoordBridge for Point2D<f32, U> {
     }
 }
 
+#[cfg(feature = "egui-host")]
 impl CoordBridge for Pos2 {
     fn to_pos2(self) -> Pos2 {
         self

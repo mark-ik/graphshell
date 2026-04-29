@@ -15,11 +15,13 @@ pub(crate) const VIEWER_ID_FALLBACK: &str = "viewer:webview";
 /// link, or `SetNodeUrl` from a directory click) return them here so the tile
 /// behavior can queue them without the viewer holding a mutable reference to
 /// `GraphBrowserApp`.
+#[cfg(feature = "egui-host")]
 pub(crate) struct EmbeddedViewerOutput {
     pub(crate) intents: Vec<crate::app::GraphIntent>,
     pub(crate) app_commands: Vec<crate::app::AppCommand>,
 }
 
+#[cfg(feature = "egui-host")]
 impl EmbeddedViewerOutput {
     pub(crate) fn empty() -> Self {
         Self {
@@ -30,6 +32,7 @@ impl EmbeddedViewerOutput {
 }
 
 /// Read-only rendering context passed to each `EmbeddedViewer::render` call.
+#[cfg(feature = "egui-host")]
 pub(crate) struct EmbeddedViewerContext<'a> {
     pub(crate) node_key: crate::graph::NodeKey,
     pub(crate) node_url: &'a str,
@@ -42,16 +45,19 @@ pub(crate) struct EmbeddedViewerContext<'a> {
 /// Each concrete viewer owns its own per-node state (cached directory listings,
 /// async image decode handles, etc.) and is dispatched through the
 /// `EmbeddedViewerRegistry` rather than an inline `if/else` chain.
+#[cfg(feature = "egui-host")]
 pub(crate) trait EmbeddedViewer {
     fn viewer_id(&self) -> &'static str;
     fn render(&self, ui: &mut egui::Ui, ctx: &EmbeddedViewerContext<'_>) -> EmbeddedViewerOutput;
 }
 
 /// Registry mapping viewer IDs to concrete `EmbeddedViewer` trait objects.
+#[cfg(feature = "egui-host")]
 pub(crate) struct EmbeddedViewerRegistry {
     viewers: HashMap<&'static str, Box<dyn EmbeddedViewer + Send + Sync>>,
 }
 
+#[cfg(feature = "egui-host")]
 impl EmbeddedViewerRegistry {
     pub(crate) fn new() -> Self {
         Self {
@@ -86,7 +92,9 @@ impl EmbeddedViewerRegistry {
 }
 
 /// Settings viewer — delegates to the settings/history render surfaces.
+#[cfg(feature = "egui-host")]
 struct SettingsViewer;
+#[cfg(feature = "egui-host")]
 impl EmbeddedViewer for SettingsViewer {
     fn viewer_id(&self) -> &'static str {
         "viewer:settings"
@@ -100,7 +108,9 @@ impl EmbeddedViewer for SettingsViewer {
 }
 
 /// Fallback / metadata viewer — shown when no dedicated viewer is registered.
+#[cfg(feature = "egui-host")]
 struct FallbackViewer;
+#[cfg(feature = "egui-host")]
 impl EmbeddedViewer for FallbackViewer {
     fn viewer_id(&self) -> &'static str {
         "viewer:fallback"
@@ -127,7 +137,8 @@ impl EmbeddedViewer for FallbackViewer {
 pub(crate) enum ViewerRenderMode {
     CompositedTexture,
     NativeOverlay,
-    EmbeddedEgui,
+    #[serde(alias = "EmbeddedEgui")]
+    EmbeddedHost,
     Placeholder,
 }
 
@@ -516,7 +527,7 @@ fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
         "viewer:wry" => ViewerRenderMode::NativeOverlay,
         "viewer:middlenet" | "viewer:plaintext" | "viewer:markdown" | "viewer:pdf"
         | "viewer:csv" | "viewer:settings" | "viewer:metadata" | "viewer:audio" => {
-            ViewerRenderMode::EmbeddedEgui
+            ViewerRenderMode::EmbeddedHost
         }
         _ => ViewerRenderMode::Placeholder,
     }
@@ -709,6 +720,14 @@ mod tests {
             Some("access bridge degraded")
         );
         assert_eq!(restored.history.level, ConformanceLevel::None);
+    }
+
+    #[test]
+    fn viewer_render_mode_accepts_legacy_embedded_egui_payload() {
+        let mode: ViewerRenderMode =
+            serde_json::from_str("\"EmbeddedEgui\"").expect("legacy mode should deserialize");
+
+        assert_eq!(mode, ViewerRenderMode::EmbeddedHost);
     }
 
     // --- select_for tests ---

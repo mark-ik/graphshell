@@ -7,7 +7,7 @@
     reason = "Lane-scoped scaffolding is intentionally staged before full runtime wiring."
 )]
 
-#[cfg(test)]
+#[cfg(all(test, feature = "servo-engine"))]
 mod test;
 
 use cfg_if::cfg_if;
@@ -20,11 +20,10 @@ mod graph;
 mod input;
 pub use middlenet_engine as middlenet;
 mod model;
-// 2026-04-25 servo-into-verso S2b: render/ is the egui-host
-// rendering layer (canvas_egui_painter, panels, radial_menu, etc.).
-// Gated together with servo-engine; iced-host paints inline via
-// canvas::Program::draw and doesn't need this module.
-#[cfg(feature = "servo-engine")]
+// render/ is the legacy Servo+egui rendering layer
+// (canvas_egui_painter, panels, radial_menu, etc.). Iced-host paints
+// inline via canvas::Program::draw and does not need this module.
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 mod render;
 mod services;
 mod shell;

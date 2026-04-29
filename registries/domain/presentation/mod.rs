@@ -1,3 +1,5 @@
+use crate::shell::desktop::runtime::registries::theme::Color32;
+
 use crate::registries::atomic::lens::{
     PhysicsProfileResolution, THEME_ID_DARK, THEME_ID_LIGHT, ThemeResolution,
     resolve_physics_profile, resolve_theme_data,
@@ -30,12 +32,12 @@ impl PresentationColor {
         Self { r, g, b, a }
     }
 
-    pub(crate) fn to_color32(self) -> egui::Color32 {
-        egui::Color32::from_rgba_unmultiplied(self.r, self.g, self.b, self.a)
+    pub(crate) fn to_color32(self) -> Color32 {
+        Color32::from_rgba_unmultiplied(self.r, self.g, self.b, self.a)
     }
 
-    pub(crate) fn with_alpha(self, alpha: u8) -> egui::Color32 {
-        egui::Color32::from_rgba_unmultiplied(self.r, self.g, self.b, alpha)
+    pub(crate) fn with_alpha(self, alpha: u8) -> Color32 {
+        Color32::from_rgba_unmultiplied(self.r, self.g, self.b, alpha)
     }
 }
 

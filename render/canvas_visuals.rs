@@ -10,6 +10,9 @@ use crate::graph::{NodeKey, NodeLifecycle};
 use crate::model::graph::filter::{FacetExpr, FilterEvaluationSummary, evaluate_filter_result};
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::registries::phase3_resolve_active_presentation_profile;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    egui_rect_from_portable, portable_rect_from_egui,
+};
 use egui::Color32;
 use std::collections::HashSet;
 
@@ -191,15 +194,15 @@ pub(super) fn graph_visible_screen_rects(
         .workbench_navigation_geometry
         .as_ref()
     else {
-        return VisibleNavigationRegionSet::singleton(screen_rect);
+        return VisibleNavigationRegionSet::singleton(portable_rect_from_egui(screen_rect));
     };
 
     let visible_regions = geometry
         .visible_region_set_or_content()
-        .clipped_to(screen_rect);
+        .clipped_to(portable_rect_from_egui(screen_rect));
 
     if visible_regions.is_empty() && screen_rect.width() > 0.0 && screen_rect.height() > 0.0 {
-        VisibleNavigationRegionSet::singleton(screen_rect)
+        VisibleNavigationRegionSet::singleton(portable_rect_from_egui(screen_rect))
     } else {
         visible_regions
     }
@@ -209,7 +212,9 @@ pub(super) fn effective_graph_screen_rect(
     screen_rect: egui::Rect,
     app: &GraphBrowserApp,
 ) -> Option<egui::Rect> {
-    graph_visible_screen_rects(screen_rect, app).largest_rect()
+    graph_visible_screen_rects(screen_rect, app)
+        .largest_rect()
+        .map(egui_rect_from_portable)
 }
 
 pub(super) fn canvas_rect_from_view_frame(

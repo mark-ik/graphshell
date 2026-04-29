@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use egui::Color32;
+use crate::shell::desktop::runtime::registries::theme::Color32;
 
 use super::{LayoutMode, PhysicsProfile, THEME_ID_DEFAULT, ThemeData, resolve_theme_data};
 

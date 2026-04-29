@@ -1112,7 +1112,18 @@ fn record_simulate_release_impulses(
     app.workspace
         .graph_runtime
         .simulate_release_impulses
-        .insert(view_id, impulses);
+        .insert(
+            view_id,
+            impulses
+                .into_iter()
+                .map(|(key, impulse)| {
+                    (
+                        key,
+                        graphshell_core::geometry::PortableVector::new(impulse.x, impulse.y),
+                    )
+                })
+                .collect(),
+        );
 }
 
 pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {

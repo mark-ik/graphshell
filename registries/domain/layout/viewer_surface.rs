@@ -114,7 +114,7 @@ fn profile_id_for_viewer(viewer_id: &str, capability: Option<&ViewerCapability>)
     match capability.map(|cap| cap.render_mode) {
         Some(ViewerRenderMode::CompositedTexture) => VIEWER_SURFACE_WEB,
         Some(ViewerRenderMode::NativeOverlay) => VIEWER_SURFACE_NATIVE_OVERLAY,
-        Some(ViewerRenderMode::EmbeddedEgui) => VIEWER_SURFACE_EMBEDDED,
+        Some(ViewerRenderMode::EmbeddedHost) => VIEWER_SURFACE_EMBEDDED,
         Some(ViewerRenderMode::Placeholder) | None => VIEWER_SURFACE_DEFAULT,
     }
 }
@@ -173,7 +173,7 @@ mod tests {
             viewer_id: "viewer:markdown".to_string(),
             supported_mime_types: vec!["text/markdown".to_string()],
             supported_extensions: vec!["md".to_string()],
-            render_mode: ViewerRenderMode::EmbeddedEgui,
+            render_mode: ViewerRenderMode::EmbeddedHost,
             overlay_affordance: true,
             subsystems: crate::registries::atomic::viewer::ViewerSubsystemCapabilities::full(),
         };
@@ -190,7 +190,7 @@ mod tests {
             viewer_id: "viewer:middlenet".to_string(),
             supported_mime_types: vec!["text/gemini".to_string()],
             supported_extensions: vec!["gmi".to_string()],
-            render_mode: ViewerRenderMode::EmbeddedEgui,
+            render_mode: ViewerRenderMode::EmbeddedHost,
             overlay_affordance: true,
             subsystems: crate::registries::atomic::viewer::ViewerSubsystemCapabilities::full(),
         };

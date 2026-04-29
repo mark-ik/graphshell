@@ -11,9 +11,12 @@
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
 };
+#[cfg(feature = "egui-host")]
 use crate::shell::desktop::runtime::registries::input::{InputBinding, action_id};
+#[cfg(feature = "egui-host")]
 use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
+#[cfg(feature = "egui-host")]
 use egui::Key;
 
 /// Keyboard actions collected from egui input events.
@@ -59,6 +62,7 @@ pub struct KeyboardActions {
     pub cycle_focus_region: bool,
 }
 
+#[cfg(feature = "egui-host")]
 fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool {
     match binding {
         InputBinding::Key { modifiers, keycode } => {
@@ -143,6 +147,7 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
     }
 }
 
+#[cfg(feature = "egui-host")]
 fn action_binding_pressed(
     input: &egui::InputState,
     action_id: &str,
@@ -155,12 +160,14 @@ fn action_binding_pressed(
         .any(|binding| key_binding_pressed(input, binding))
 }
 
+#[cfg(feature = "egui-host")]
 pub(crate) fn graph_view_action_binding_pressed(input: &egui::InputState, action_id: &str) -> bool {
     let binding_descriptors = phase2_describe_input_bindings();
     action_binding_pressed(input, action_id, &binding_descriptors)
 }
 
 /// Collect keyboard actions from the egui context (input detection only).
+#[cfg(feature = "egui-host")]
 pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
@@ -472,7 +479,7 @@ pub fn dispatch_runtime_requests_from_actions(actions: &KeyboardActions) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "egui-host"))]
 mod tests {
     use super::*;
     use crate::app::GraphBrowserApp;

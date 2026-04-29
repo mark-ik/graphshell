@@ -69,13 +69,9 @@ ux-bridge = ["ux-semantics"]
 webdriver = ["dep:webdriver_server"]
 test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
 # 2026-04-28 host gate: `egui-host` activates the egui dep stack.
-# Today's #[cfg(feature = "servo-engine")] gates in shell::desktop::ui
-# implicitly assume egui is also on, so `servo-engine` chains
-# `egui-host` here. A future split would gate those modules on
-# all(servo-engine, egui-host) explicitly and break this transitive
-# tie; until then this preserves current behavior with a real
-# Cargo dep gate. Iced-only path: `cargo build --no-default-features
-# --features iced-host,wry,…`.
+# It is intentionally independent from `servo-engine`; default builds
+# still enable both, while proof builds can compile Servo ownership
+# without importing the egui workbench stack.
 egui-host = [
     "dep:egui",
     "dep:egui-file-dialog",
@@ -90,7 +86,7 @@ egui-host = [
 # per VERSO_AS_PEER.md. Servo-forwarded features require
 # `servo-engine` so they pull in the dep transitively. To build without Servo:
 # `cargo build --no-default-features --features iced-host,wry,…`.
-servo-engine = ["dep:servo", "verso/servo-engine", "egui-host"]
+servo-engine = ["dep:servo", "verso/servo-engine"]
 js_jit = ["servo-engine", "servo?/js_jit"]
 max_log_level = ["log/release_max_level_info"]
 tracing = ["dep:tracing", "dep:tracing-subscriber", "servo-engine", "servo?/tracing"]
@@ -181,11 +177,9 @@ rand_09 = { package = "rand", version = "0.9" }
 webdriver_server = { path = "../servo-wgpu/components/webdriver_server", package = "servo-webdriver-server", optional = true }
 backtrace = "0.3"
 dirs = "6.0"
-# egui crates are gated behind the `egui-host` feature. `servo-engine`
-# transitively activates `egui-host` so existing servo-engine-gated
-# modules in shell::desktop::ui (gui, gui_frame, dialog, etc.) keep
-# pulling them in. A non-egui build uses `--no-default-features
-# --features iced-host,wry,…`.
+# egui crates are gated behind the `egui-host` feature. Servo ownership
+# no longer activates this stack transitively; modules that need both
+# Servo and egui gate on both features explicitly.
 egui = { version = "0.34.1", optional = true }
 egui-file-dialog = { version = "0.13.0", optional = true }
 egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"], optional = true }

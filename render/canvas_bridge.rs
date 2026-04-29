@@ -27,10 +27,8 @@ use graph_canvas::interaction::CanvasAction;
 use graph_canvas::projection::{ProjectionMode, ViewDimension};
 use graph_canvas::scene::{CanvasEdge, CanvasNode, CanvasSceneInput, SceneMode, ViewId};
 
+use crate::app::canvas_scene::{build_scene_input, scene_mode_to_canvas, view_id_to_canvas};
 use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode, SelectionUpdateMode};
-use crate::app::canvas_scene::{
-    build_scene_input, scene_mode_to_canvas, view_id_to_canvas,
-};
 use crate::graph::{Graph, NodeKey};
 use crate::render::GraphAction;
 use graph_canvas::packet::ProjectedScene;
@@ -1352,7 +1350,6 @@ pub fn collect_canvas_events(ui: &egui::Ui) -> Vec<CanvasInputEvent> {
 
     events
 }
-
 
 #[cfg(test)]
 mod tests {
