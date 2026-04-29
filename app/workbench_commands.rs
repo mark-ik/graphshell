@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "egui-host")]
 use egui_tiles::{Tile, Tree};
 
 use crate::app::runtime_ports::diagnostics::{DiagnosticEvent, emit_event};
@@ -7,10 +8,11 @@ use crate::app::runtime_ports::registries::{
 };
 use crate::app::workbench_layout_policy::evaluate_layout_policy_report;
 use crate::shell::desktop::workbench::pane_model::PaneId;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::ux_tree::UxTreeSnapshot;
 
 use super::arrangement_graph_bridge::ArrangementSnapshot;
+#[cfg(feature = "egui-host")]
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 fn resolved_active_layout_constraints(
     profile: &WorkbenchProfile,
@@ -434,15 +436,10 @@ impl GraphBrowserApp {
         }
     }
 
-    pub fn prune_workbench_pane_selection(&mut self, tiles_tree: &Tree<TileKind>) {
-        let live_pane_ids: HashSet<PaneId> = tiles_tree
-            .tiles
-            .iter()
-            .filter_map(|(_, tile)| match tile {
-                Tile::Pane(kind) => Some(kind.pane_id()),
-                _ => None,
-            })
-            .collect();
+    pub fn prune_workbench_pane_selection_to_live_set(
+        &mut self,
+        live_pane_ids: &std::collections::HashSet<PaneId>,
+    ) {
         self.workbench_tile_selection
             .selected_pane_ids
             .retain(|pane_id| live_pane_ids.contains(pane_id));
@@ -465,10 +462,38 @@ impl GraphBrowserApp {
         }
     }
 
+    pub fn update_workbench_pane_selection_if_live(
+        &mut self,
+        live_pane_ids: &std::collections::HashSet<PaneId>,
+        pane_id: PaneId,
+        mode: SelectionUpdateMode,
+    ) -> bool {
+        self.prune_workbench_pane_selection_to_live_set(live_pane_ids);
+        if !live_pane_ids.contains(&pane_id) {
+            return false;
+        }
+        self.update_workbench_pane_selection(pane_id, mode);
+        true
+    }
+
+    #[cfg(feature = "egui-host")]
+    pub fn prune_workbench_pane_selection(&mut self, tiles_tree: &Tree<TileKind>) {
+        let live_pane_ids: HashSet<PaneId> = tiles_tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(kind) => Some(kind.pane_id()),
+                _ => None,
+            })
+            .collect();
+        self.prune_workbench_pane_selection_to_live_set(&live_pane_ids);
+    }
+
     /// Persist a tile-group arrangement for the given selection.
     ///
     /// Extracts pane tile-kinds from the tree and selection, then delegates
     /// to the arrangement→graph bridge via [`ArrangementSnapshot::TileGroup`].
+    #[cfg(feature = "egui-host")]
     pub(crate) fn persist_workbench_tile_group(
         &mut self,
         tiles_tree: &Tree<TileKind>,
@@ -494,6 +519,7 @@ impl GraphBrowserApp {
     ///
     /// Extracts all pane tile-kinds from the tree, then delegates to the
     /// arrangement→graph bridge via [`ArrangementSnapshot::Frame`].
+    #[cfg(feature = "egui-host")]
     pub(crate) fn sync_named_workbench_frame_graph_representation(
         &mut self,
         name: &str,

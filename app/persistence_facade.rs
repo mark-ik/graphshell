@@ -224,8 +224,10 @@ impl GraphBrowserApp {
 
     /// Persist reserved session frame layout only when the live runtime layout changes.
     ///
-    /// The persisted payload for `SESSION_WORKSPACE_LAYOUT_NAME` is the canonical
-    /// runtime `egui_tiles::Tree<TileKind>` JSON.
+    /// The persisted payload for `SESSION_WORKSPACE_LAYOUT_NAME` is the current
+    /// canonical runtime workbench-layout JSON. Today the egui-host adapter
+    /// still writes the legacy tile-tree shape; GraphTree JSON is persisted
+    /// separately by `save_graph_tree_json`.
     pub fn save_session_workspace_layout_json_if_changed(&mut self, layout_json: &str) {
         let next_hash = Self::layout_json_hash(layout_json);
         if self

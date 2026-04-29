@@ -501,7 +501,7 @@ impl GraphBrowserApp {
     pub fn set_graph_view_scene_bounds_override(
         &mut self,
         view_id: GraphViewId,
-        bounds: Option<egui::Rect>,
+        bounds: Option<graphshell_core::geometry::PortableRect>,
     ) {
         self.ensure_graph_view_registered(view_id);
         if let Some(bounds) = bounds {
@@ -564,9 +564,9 @@ impl GraphBrowserApp {
         &mut self,
         view_id: GraphViewId,
         region_id: SceneRegionId,
-        delta: egui::Vec2,
+        delta: graphshell_core::geometry::PortableVector,
     ) -> bool {
-        if delta.length_sq() <= f32::EPSILON {
+        if delta.square_length() <= f32::EPSILON {
             return false;
         }
         let Some(runtime) = self
@@ -601,7 +601,7 @@ impl GraphBrowserApp {
         view_id: GraphViewId,
         region_id: SceneRegionId,
         handle: SceneRegionResizeHandle,
-        pointer_canvas_pos: egui::Pos2,
+        pointer_canvas_pos: graphshell_core::geometry::PortablePoint,
     ) -> bool {
         let Some(runtime) = self
             .workspace
@@ -2724,6 +2724,14 @@ impl PersistedGraphViewLayoutManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use graphshell_core::geometry::{PortablePoint, PortableRect, PortableSize, PortableVector};
+
+    fn test_rect(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> PortableRect {
+        PortableRect::new(
+            PortablePoint::new(min_x, min_y),
+            PortableSize::new(max_x - min_x, max_y - min_y),
+        )
+    }
 
     #[test]
     fn refresh_registry_backed_view_lenses_preserves_active_filter_override() {
@@ -3058,7 +3066,7 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::rect(
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+            test_rect(0.0, 0.0, 64.0, 64.0),
             crate::graph::scene_runtime::SceneRegionEffect::Attractor { strength: 0.2 },
         );
 
@@ -3078,7 +3086,7 @@ mod tests {
         app.set_graph_view_scene_regions(
             view_id,
             vec![crate::graph::scene_runtime::SceneRegionRuntime::rect(
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+                test_rect(0.0, 0.0, 64.0, 64.0),
                 crate::graph::scene_runtime::SceneRegionEffect::Wall,
             )],
         );
@@ -3092,17 +3100,11 @@ mod tests {
     fn clearing_scene_regions_preserves_bounds_override_runtime() {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
-        app.set_graph_view_scene_bounds_override(
-            view_id,
-            Some(egui::Rect::from_min_max(
-                egui::pos2(0.0, 0.0),
-                egui::pos2(100.0, 100.0),
-            )),
-        );
+        app.set_graph_view_scene_bounds_override(view_id, Some(test_rect(0.0, 0.0, 100.0, 100.0)));
         app.add_graph_view_scene_region(
             view_id,
             crate::graph::scene_runtime::SceneRegionRuntime::rect(
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(64.0, 64.0)),
+                test_rect(0.0, 0.0, 64.0, 64.0),
                 crate::graph::scene_runtime::SceneRegionEffect::Wall,
             ),
         );
@@ -3120,17 +3122,11 @@ mod tests {
     fn clear_graph_view_scene_runtime_removes_all_scene_state() {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
-        app.set_graph_view_scene_bounds_override(
-            view_id,
-            Some(egui::Rect::from_min_max(
-                egui::pos2(0.0, 0.0),
-                egui::pos2(100.0, 100.0),
-            )),
-        );
+        app.set_graph_view_scene_bounds_override(view_id, Some(test_rect(0.0, 0.0, 100.0, 100.0)));
         app.add_graph_view_scene_region(
             view_id,
             crate::graph::scene_runtime::SceneRegionRuntime::circle(
-                egui::pos2(20.0, 20.0),
+                PortablePoint::new(20.0, 20.0),
                 12.0,
                 crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
             ),
@@ -3146,13 +3142,17 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::rect(
-            egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(40.0, 60.0)),
+            test_rect(10.0, 20.0, 40.0, 60.0),
             crate::graph::scene_runtime::SceneRegionEffect::Wall,
         );
         let region_id = region.id;
         app.add_graph_view_scene_region(view_id, region);
 
-        assert!(app.translate_graph_view_scene_region(view_id, region_id, egui::vec2(5.0, -4.0)));
+        assert!(app.translate_graph_view_scene_region(
+            view_id,
+            region_id,
+            PortableVector::new(5.0, -4.0)
+        ));
 
         let runtime = app
             .graph_view_scene_runtime(view_id)
@@ -3160,7 +3160,7 @@ mod tests {
         assert_eq!(
             runtime.regions[0].shape,
             crate::graph::scene_runtime::SceneRegionShape::Rect {
-                rect: egui::Rect::from_min_max(egui::pos2(15.0, 16.0), egui::pos2(45.0, 56.0)),
+                rect: test_rect(15.0, 16.0, 45.0, 56.0),
             }
         );
     }
@@ -3170,7 +3170,7 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
-            egui::pos2(20.0, 20.0),
+            PortablePoint::new(20.0, 20.0),
             12.0,
             crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
         );
@@ -3188,7 +3188,7 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
-            egui::pos2(20.0, 20.0),
+            PortablePoint::new(20.0, 20.0),
             12.0,
             crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
         );
@@ -3199,7 +3199,7 @@ mod tests {
             view_id,
             region_id,
             crate::graph::scene_runtime::SceneRegionResizeHandle::CircleRadius,
-            egui::pos2(80.0, 20.0),
+            PortablePoint::new(80.0, 20.0),
         ));
 
         let runtime = app
@@ -3208,7 +3208,7 @@ mod tests {
         assert_eq!(
             runtime.regions[0].shape,
             crate::graph::scene_runtime::SceneRegionShape::Circle {
-                center: egui::pos2(20.0, 20.0),
+                center: PortablePoint::new(20.0, 20.0),
                 radius: 60.0,
             }
         );
@@ -3219,7 +3219,7 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
-            egui::pos2(20.0, 20.0),
+            PortablePoint::new(20.0, 20.0),
             12.0,
             crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
         );
@@ -3243,7 +3243,7 @@ mod tests {
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         let region = crate::graph::scene_runtime::SceneRegionRuntime::circle(
-            egui::pos2(20.0, 20.0),
+            PortablePoint::new(20.0, 20.0),
             12.0,
             crate::graph::scene_runtime::SceneRegionEffect::Repulsor { strength: 4.0 },
         );

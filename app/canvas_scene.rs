@@ -45,9 +45,8 @@ pub(crate) fn build_scene_input(
         .inner
         .edge_references()
         .filter(|edge| {
-            visible_nodes.is_none_or(|mask| {
-                mask.contains(&edge.source()) && mask.contains(&edge.target())
-            })
+            visible_nodes
+                .is_none_or(|mask| mask.contains(&edge.source()) && mask.contains(&edge.target()))
         })
         .map(|e| CanvasEdge {
             source: e.source(),

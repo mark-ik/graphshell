@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
-use crate::shell::desktop::workbench::ux_tree::{UxDomainIdentity, UxTreeSnapshot};
 #[cfg(any(feature = "diagnostics", test))]
 use crate::shell::desktop::workbench::ux_tree::UxNodeRole;
+use crate::shell::desktop::workbench::ux_tree::{UxDomainIdentity, UxTreeSnapshot};
 
 use super::WorkbenchIntent;
 use super::settings_persistence::NavigatorSidebarSidePreference;

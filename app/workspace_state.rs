@@ -7,7 +7,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "egui-host")]
 use egui_tiles::TileId;
+use graphshell_core::geometry::{PortablePoint, PortableRect, PortableSize};
+#[cfg(not(feature = "egui-host"))]
+type TileId = u64;
 use uuid::Uuid;
 
 use crate::app::runtime_ports::RuntimeCaches;
@@ -35,11 +39,11 @@ use crate::graph::GraphletKind;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VisibleNavigationRegionSet {
-    rects: Vec<egui::Rect>,
+    rects: Vec<PortableRect>,
 }
 
 impl VisibleNavigationRegionSet {
-    pub(crate) fn from_rects(rects: Vec<egui::Rect>) -> Self {
+    pub(crate) fn from_rects(rects: Vec<PortableRect>) -> Self {
         Self {
             rects: rects
                 .into_iter()
@@ -48,11 +52,11 @@ impl VisibleNavigationRegionSet {
         }
     }
 
-    pub(crate) fn singleton(rect: egui::Rect) -> Self {
+    pub(crate) fn singleton(rect: PortableRect) -> Self {
         Self::from_rects(vec![rect])
     }
 
-    pub(crate) fn as_slice(&self) -> &[egui::Rect] {
+    pub(crate) fn as_slice(&self) -> &[PortableRect] {
         &self.rects
     }
 
@@ -64,29 +68,29 @@ impl VisibleNavigationRegionSet {
         self.rects.is_empty()
     }
 
-    pub(crate) fn contains_rect(&self, rect: egui::Rect) -> bool {
+    pub(crate) fn contains_rect(&self, rect: PortableRect) -> bool {
         self.rects.contains(&rect)
     }
 
-    pub(crate) fn contains_point(&self, point: egui::Pos2) -> bool {
+    pub(crate) fn contains_point(&self, point: PortablePoint) -> bool {
         self.rects.iter().any(|rect| rect.contains(point))
     }
 
-    pub(crate) fn intersects_rect(&self, rect: egui::Rect) -> bool {
-        self.rects.iter().any(|region| region.intersects(rect))
+    pub(crate) fn intersects_rect(&self, rect: PortableRect) -> bool {
+        self.rects.iter().any(|region| region.intersects(&rect))
     }
 
-    pub(crate) fn clipped_to(&self, clip_rect: egui::Rect) -> Self {
+    pub(crate) fn clipped_to(&self, clip_rect: PortableRect) -> Self {
         Self::from_rects(
             self.rects
                 .iter()
                 .copied()
-                .map(|rect| rect.intersect(clip_rect))
+                .filter_map(|rect| rect.intersection(&clip_rect))
                 .collect(),
         )
     }
 
-    pub(crate) fn largest_rect(&self) -> Option<egui::Rect> {
+    pub(crate) fn largest_rect(&self) -> Option<PortableRect> {
         self.rects.iter().copied().max_by(|left, right| {
             rect_area(*left)
                 .partial_cmp(&rect_area(*right))
@@ -94,7 +98,7 @@ impl VisibleNavigationRegionSet {
         })
     }
 
-    pub(crate) fn to_vec(&self) -> Vec<egui::Rect> {
+    pub(crate) fn to_vec(&self) -> Vec<PortableRect> {
         self.rects.clone()
     }
 }
@@ -102,19 +106,19 @@ impl VisibleNavigationRegionSet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorkbenchNavigationGeometry {
     /// Rect available to the workbench after reserved panels have been applied.
-    pub content_rect: egui::Rect,
+    pub content_rect: PortableRect,
 
     /// Visible workbench rects after subtracting overlay-only host occlusions.
     pub visible_regions: VisibleNavigationRegionSet,
 
     /// Host rects that visually occlude the workbench without shrinking `content_rect`.
-    pub occluding_host_rects: Vec<egui::Rect>,
+    pub occluding_host_rects: Vec<PortableRect>,
 }
 
 impl WorkbenchNavigationGeometry {
     pub(crate) fn from_content_rect(
-        content_rect: egui::Rect,
-        occluding_host_rects: Vec<egui::Rect>,
+        content_rect: PortableRect,
+        occluding_host_rects: Vec<PortableRect>,
     ) -> Self {
         let mut visible_rects = vec![content_rect];
 
@@ -142,26 +146,42 @@ impl WorkbenchNavigationGeometry {
     }
 }
 
-fn subtract_rect(base: egui::Rect, occlusion: egui::Rect) -> Vec<egui::Rect> {
-    if !rect_has_area(base) || !base.intersects(occlusion) {
+fn subtract_rect(base: PortableRect, occlusion: PortableRect) -> Vec<PortableRect> {
+    if !rect_has_area(base) || !base.intersects(&occlusion) {
         return vec![base];
     }
 
-    let overlap = base.intersect(occlusion);
+    let Some(overlap) = base.intersection(&occlusion) else {
+        return vec![base];
+    };
     if !rect_has_area(overlap) {
         return vec![base];
     }
 
     let mut remainder = Vec::with_capacity(4);
-    let top = egui::Rect::from_min_max(base.min, egui::pos2(base.max.x, overlap.top()));
-    let bottom = egui::Rect::from_min_max(egui::pos2(base.min.x, overlap.bottom()), base.max);
-    let left = egui::Rect::from_min_max(
-        egui::pos2(base.left(), overlap.top()),
-        egui::pos2(overlap.left(), overlap.bottom()),
+    let top = portable_rect_from_min_max(
+        rect_min_x(base),
+        rect_min_y(base),
+        rect_max_x(base),
+        rect_min_y(overlap),
     );
-    let right = egui::Rect::from_min_max(
-        egui::pos2(overlap.right(), overlap.top()),
-        egui::pos2(base.right(), overlap.bottom()),
+    let bottom = portable_rect_from_min_max(
+        rect_min_x(base),
+        rect_max_y(overlap),
+        rect_max_x(base),
+        rect_max_y(base),
+    );
+    let left = portable_rect_from_min_max(
+        rect_min_x(base),
+        rect_min_y(overlap),
+        rect_min_x(overlap),
+        rect_max_y(overlap),
+    );
+    let right = portable_rect_from_min_max(
+        rect_max_x(overlap),
+        rect_min_y(overlap),
+        rect_max_x(base),
+        rect_max_y(overlap),
     );
 
     for rect in [top, bottom, left, right] {
@@ -173,12 +193,35 @@ fn subtract_rect(base: egui::Rect, occlusion: egui::Rect) -> Vec<egui::Rect> {
     remainder
 }
 
-fn rect_has_area(rect: egui::Rect) -> bool {
-    rect.width() > 0.0 && rect.height() > 0.0
+fn portable_rect_from_min_max(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> PortableRect {
+    PortableRect::new(
+        PortablePoint::new(min_x, min_y),
+        PortableSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+    )
 }
 
-fn rect_area(rect: egui::Rect) -> f32 {
-    rect.width().max(0.0) * rect.height().max(0.0)
+fn rect_min_x(rect: PortableRect) -> f32 {
+    rect.origin.x
+}
+
+fn rect_min_y(rect: PortableRect) -> f32 {
+    rect.origin.y
+}
+
+fn rect_max_x(rect: PortableRect) -> f32 {
+    rect.origin.x + rect.size.width
+}
+
+fn rect_max_y(rect: PortableRect) -> f32 {
+    rect.origin.y + rect.size.height
+}
+
+fn rect_has_area(rect: PortableRect) -> bool {
+    rect.size.width > 0.0 && rect.size.height > 0.0
+}
+
+fn rect_area(rect: PortableRect) -> f32 {
+    rect.size.width.max(0.0) * rect.size.height.max(0.0)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,7 +304,7 @@ pub struct GraphViewRuntimeState {
     pub graph_view_frames: HashMap<GraphViewId, GraphViewFrame>,
 
     /// Last rendered graph-canvas rect per visible graph view, expressed in graph space.
-    pub graph_view_canvas_rects: HashMap<GraphViewId, egui::Rect>,
+    pub graph_view_canvas_rects: HashMap<GraphViewId, PortableRect>,
 
     /// Runtime-only per-view scene enrichment state.
     pub scene_runtimes: HashMap<GraphViewId, GraphViewSceneRuntime>,
@@ -277,18 +320,20 @@ pub struct GraphViewRuntimeState {
 
     /// NodeKey → PaneId mapping, populated by dual-write on pane open.
     ///
-    /// Eliminates the need to scan `egui_tiles::Tree` for PaneId lookup in the
-    /// compositor, GraphTree layout path, and focus queries. Once egui_tiles is
-    /// fully retired (M7), this becomes the sole PaneId authority.
+    /// Eliminates the need to scan a host layout tree for PaneId lookup in the
+    /// compositor, GraphTree layout path, and focus queries. Once the temporary
+    /// egui_tiles adapter is fully retired, this becomes the sole PaneId
+    /// authority.
     ///
     /// Placement note (M4 §5 runtime boundary design): the pre-M4 comment
     /// called this "host-side", but the map actually lives on
     /// `workspace.graph_runtime` — the app-layer, host-neutral side of
     /// the runtime/host boundary. That's correct: PaneId identities must
     /// survive the eventual iced migration because both `GraphTree` layout
-    /// and pane-target lookups consume them. `TileId` is the egui_tiles-
-    /// specific identity that stays on the host and retires in M7; the
-    /// NodeKey↔PaneId mapping here does not depend on TileId.
+    /// and pane-target lookups consume them. `TileId` is the temporary
+    /// host-layout identity that stays on the egui adapter and retires with
+    /// that adapter; the NodeKey↔PaneId mapping here does not depend on
+    /// TileId.
     pub node_pane_ids: HashMap<NodeKey, crate::shell::desktop::workbench::pane_model::PaneId>,
 
     /// Host-side PaneId → TileRenderMode mapping, refreshed per frame alongside
@@ -305,12 +350,12 @@ pub struct GraphViewRuntimeState {
     pub pane_viewer_ids: HashMap<crate::shell::desktop::workbench::pane_model::PaneId, String>,
 
     /// Cached active pane rects from GraphTree layout, refreshed per frame.
-    /// Eliminates the need for callers to scan `tiles_tree.active_tiles()` to
+    /// Eliminates the need for callers to scan the host layout tree to
     /// discover visible node panes and their positions.
     pub active_pane_rects: Vec<(
         crate::shell::desktop::workbench::pane_model::PaneId,
         crate::graph::NodeKey,
-        egui::Rect,
+        PortableRect,
     )>,
 
     /// Cached GraphTree tree rows (sidebar projection), refreshed per frame
@@ -337,7 +382,8 @@ pub struct GraphViewRuntimeState {
 
     /// Short-lived per-view release impulses used by `Simulate` mode so dragged
     /// node-objects can coast and settle briefly after pointer release.
-    pub simulate_release_impulses: HashMap<GraphViewId, HashMap<NodeKey, egui::Vec2>>,
+    pub simulate_release_impulses:
+        HashMap<GraphViewId, HashMap<NodeKey, graphshell_core::geometry::PortableVector>>,
 
     /// Hovered authored scene region under the pointer, if any.
     pub hovered_scene_region: Option<(GraphViewId, SceneRegionId)>,
@@ -441,7 +487,8 @@ pub struct GraphViewRuntimeState {
     /// Selected frame identity from graph-canvas backdrop interaction.
     pub selected_frame_name: Option<String>,
 
-    /// Runtime-only semantics for open frame tile groups keyed by the tabs-container tile id.
+    /// Runtime-only semantics for open frame tile groups keyed by the
+    /// temporary host-layout tabs-container id.
     pub(crate) frame_tile_groups: HashMap<TileId, FrameTileGroupRuntimeState>,
 
     /// Graph-owned hierarchical projection runtime state for navigator.
@@ -531,7 +578,8 @@ pub struct WorkbenchSessionState {
     /// Semantic tab overlay for the currently active named frame/workbench tree.
     pub(crate) current_frame_tab_semantics: Option<RuntimeFrameTabSemantics>,
 
-    /// True while current tile tree was synthesized without a named restore context.
+    /// True while the current workbench arrangement was synthesized without a
+    /// named restore context.
     pub(crate) current_workspace_is_synthesized: bool,
 
     /// True if graph-mutating action happened since last workspace baseline/save.
@@ -597,13 +645,21 @@ impl WorkbenchSessionState {
 
 #[cfg(test)]
 mod tests {
+    use graphshell_core::geometry::{PortablePoint, PortableRect, PortableSize};
+
     use super::WorkbenchNavigationGeometry;
+
+    fn rect(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> PortableRect {
+        PortableRect::new(
+            PortablePoint::new(min_x, min_y),
+            PortableSize::new(max_x - min_x, max_y - min_y),
+        )
+    }
 
     #[test]
     fn workbench_navigation_geometry_splits_content_around_overlay_sidebar() {
-        let content_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 300.0));
-        let overlay_rect =
-            egui::Rect::from_min_max(egui::pos2(320.0, 40.0), egui::pos2(400.0, 260.0));
+        let content_rect = rect(0.0, 0.0, 400.0, 300.0);
+        let overlay_rect = rect(320.0, 40.0, 400.0, 260.0);
 
         let geometry =
             WorkbenchNavigationGeometry::from_content_rect(content_rect, vec![overlay_rect]);
@@ -613,35 +669,20 @@ mod tests {
         assert!(
             geometry
                 .visible_regions
-                .contains_rect(egui::Rect::from_min_max(
-                    egui::pos2(0.0, 0.0),
-                    egui::pos2(400.0, 40.0),
-                ))
+                .contains_rect(rect(0.0, 0.0, 400.0, 40.0))
         );
         assert!(
             geometry
                 .visible_regions
-                .contains_rect(egui::Rect::from_min_max(
-                    egui::pos2(0.0, 260.0),
-                    egui::pos2(400.0, 300.0),
-                ))
+                .contains_rect(rect(0.0, 260.0, 400.0, 300.0))
         );
         assert!(
             geometry
                 .visible_regions
-                .contains_rect(egui::Rect::from_min_max(
-                    egui::pos2(0.0, 40.0),
-                    egui::pos2(320.0, 260.0),
-                ))
+                .contains_rect(rect(0.0, 40.0, 320.0, 260.0))
         );
         let largest_rect = geometry.visible_regions.largest_rect();
-        assert_eq!(
-            largest_rect,
-            Some(egui::Rect::from_min_max(
-                egui::pos2(0.0, 40.0),
-                egui::pos2(320.0, 260.0),
-            )),
-        );
+        assert_eq!(largest_rect, Some(rect(0.0, 40.0, 320.0, 260.0)));
     }
 }
 
