@@ -17,9 +17,9 @@ pub(crate) mod theme;
 // egui-host tile-tree registry; gated together with the workbench
 // tile pipeline. workflow consumes workbench_surface, so it's gated
 // too. Iced-host path doesn't use these registries today.
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod workbench_surface;
-#[cfg(not(feature = "servo-engine"))]
+#[cfg(not(all(feature = "servo-engine", feature = "egui-host")))]
 pub(crate) mod workbench_surface {
     pub(crate) use crate::registries::domain::layout::workbench_surface::{
         WORKBENCH_SURFACE_COMPARE as WORKBENCH_PROFILE_COMPARE,
@@ -90,6 +90,7 @@ pub(crate) mod workbench_surface {
             resolution
         }
 
+        #[cfg(feature = "egui-host")]
         pub(crate) fn dispatch_intent(
             &self,
             _graph_app: &mut crate::app::GraphBrowserApp,
@@ -440,8 +441,8 @@ pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE: &str =
     "compositor.overlay.mode.composited_texture";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY: &str =
     "compositor.overlay.mode.native_overlay";
-pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI: &str =
-    "compositor.overlay.mode.embedded_egui";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST: &str =
+    "compositor.overlay.mode.embedded_host";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER: &str =
     "compositor.overlay.mode.placeholder";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU: &str =
@@ -1981,6 +1982,7 @@ impl RegistryRuntime {
         self.knowledge.get_label(code).map(str::to_string)
     }
 
+    #[cfg(feature = "egui-host")]
     pub(crate) fn knowledge_color_hint(&self, code: &str) -> Option<egui::Color32> {
         self.knowledge.get_color_hint(code)
     }
@@ -2039,6 +2041,7 @@ impl RegistryRuntime {
         ));
     }
 
+    #[cfg(feature = "egui-host")]
     fn dispatch_workbench_surface_intent(
         &self,
         graph_app: &mut GraphBrowserApp,
@@ -3588,6 +3591,7 @@ pub(crate) fn phase3_knowledge_label(code: &str) -> Option<String> {
     runtime().knowledge_label(code)
 }
 
+#[cfg(feature = "egui-host")]
 pub(crate) fn phase3_knowledge_color_hint(code: &str) -> Option<egui::Color32> {
     runtime().knowledge_color_hint(code)
 }
@@ -3638,6 +3642,7 @@ pub(crate) fn phase3_shared_runtime() -> Arc<RegistryRuntime> {
     shared_runtime()
 }
 
+#[cfg(feature = "egui-host")]
 pub(crate) fn dispatch_workbench_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
@@ -4727,6 +4732,7 @@ mod tests {
         assert_eq!(observer_count.load(Ordering::Relaxed), 1);
     }
 
+    #[cfg(feature = "egui-host")]
     #[test]
     fn phase3_knowledge_runtime_exposes_query_and_validation_surface() {
         let runtime = RegistryRuntime::default();

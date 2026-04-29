@@ -1211,7 +1211,7 @@ impl DiagnosticsState {
 
                 for visible_rect in last.visible_regions.as_slice() {
                     painter.rect_filled(
-                        map_rect(*visible_rect),
+                        map_rect(egui_rect_from_portable(*visible_rect)),
                         2.0,
                         egui::Color32::from_rgba_unmultiplied(110, 190, 255, 32),
                     );

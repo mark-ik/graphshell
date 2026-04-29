@@ -89,6 +89,7 @@ impl ModifierMask {
         }
     }
 
+    #[cfg(feature = "egui-host")]
     pub(crate) fn from_egui(modifiers: &egui::Modifiers) -> Self {
         let mut mask = Self::NONE;
         if modifiers.ctrl || modifiers.command {
@@ -305,6 +306,7 @@ impl InputBinding {
         }
     }
 
+    #[cfg(feature = "egui-host")]
     pub(crate) fn from_egui_key(key: egui::Key, modifiers: &egui::Modifiers) -> Option<Self> {
         let keycode = match key {
             egui::Key::Enter => Keycode::Named(NamedKey::Enter),

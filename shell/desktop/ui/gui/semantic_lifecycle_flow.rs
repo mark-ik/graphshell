@@ -23,11 +23,11 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::ui::gui_frame::{self};
 use crate::shell::desktop::ui::gui_state::RuntimeFocusAuthorityState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::TileOpenMode;
+use graphshell_runtime::WebviewCreationBackpressureState;
 
 use super::workbench_intent_interceptor;
 

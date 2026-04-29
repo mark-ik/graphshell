@@ -46,8 +46,8 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, ContentSurfaceHandle,
-    OverlayAffordanceStyle, OverlayStrokePass, ViewerSurfaceFramePath, portable_rect_from_egui,
-    portable_stroke_from_egui,
+    OverlayAffordanceStyle, OverlayStrokePass, PortableRect, ViewerSurfaceFramePath,
+    egui_rect_from_portable, portable_rect_from_egui, portable_stroke_from_egui,
 };
 use crate::shell::desktop::workbench::interaction_policy::{
     InteractionUiState, OverlaySuppressionReason,
@@ -349,7 +349,7 @@ fn hash_render_mode(render_mode: TileRenderMode) -> u8 {
     match render_mode {
         TileRenderMode::CompositedTexture => 0,
         TileRenderMode::NativeOverlay => 1,
-        TileRenderMode::EmbeddedEgui => 2,
+        TileRenderMode::EmbeddedHost => 2,
         TileRenderMode::Placeholder => 3,
     }
 }
@@ -552,7 +552,7 @@ fn should_cull_tile_content(
 ) -> bool {
     tile_rect.width() <= 0.0
         || tile_rect.height() <= 0.0
-        || !viewport_regions.intersects_rect(tile_rect)
+        || !viewport_regions.intersects_rect(portable_rect_from_egui(tile_rect))
 }
 
 fn should_degrade_for_gpu_pressure(
@@ -927,7 +927,7 @@ fn schedule_active_node_pane_passes(
 
 /// Full layout output from GraphTree for the compositor.
 pub(crate) struct GraphTreeLayoutOutput {
-    pub pane_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
+    pub pane_rects: Vec<(PaneId, NodeKey, PortableRect)>,
     pub split_boundaries: Vec<graph_tree::SplitBoundary<NodeKey>>,
     /// Tree rows for sidebar rendering (always populated).
     pub tree_rows: Vec<graph_tree::OwnedTreeRow<NodeKey>>,
@@ -966,7 +966,7 @@ pub(crate) fn active_node_pane_rects_from_graph_tree(
             let pane_id = node_pane_ids.get(node_key).copied()?;
             let egui_rect =
                 egui::Rect::from_min_size(egui::pos2(rect.x, rect.y), egui::vec2(rect.w, rect.h));
-            Some((pane_id, *node_key, egui_rect))
+            Some((pane_id, *node_key, portable_rect_from_egui(egui_rect)))
         })
         .collect();
 
@@ -1179,7 +1179,9 @@ pub(crate) fn composite_active_node_pane_webviews(
         .workbench_navigation_geometry
         .as_ref()
         .map(|geometry| geometry.visible_region_set_or_content())
-        .unwrap_or_else(|| VisibleNavigationRegionSet::singleton(ctx.viewport_rect()));
+        .unwrap_or_else(|| {
+            VisibleNavigationRegionSet::singleton(portable_rect_from_egui(ctx.viewport_rect()))
+        });
     let frame_index = COMPOSITOR_ACTIVITY_FRAME_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let mut frame_activity = CompositorFrameActivitySummary {
         active_tile_keys: Vec::new(),
@@ -1415,7 +1417,7 @@ fn overlay_affordance_policy_for_render_mode(
             style: OverlayAffordanceStyle::ChromeOnly,
             rounding: 0.0,
         },
-        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => OverlayAffordancePolicy {
+        TileRenderMode::EmbeddedHost | TileRenderMode::Placeholder => OverlayAffordancePolicy {
             style: OverlayAffordanceStyle::AreaStroke,
             rounding: 4.0,
         },
@@ -2484,17 +2486,17 @@ mod tests {
     }
 
     #[test]
-    fn hover_overlay_for_embedded_egui_uses_area_style() {
+    fn hover_overlay_for_embedded_host_uses_area_style() {
         let node = NodeKey::new(45);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(60.0, 60.0), egui::pos2(160.0, 120.0));
         let overlay = hover_overlay_for_mode(
-            test_semantic_input(node, TileRenderMode::EmbeddedEgui),
+            test_semantic_input(node, TileRenderMode::EmbeddedHost),
             tile_rect,
             &test_presentation_profile(),
         );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::AreaStroke));
-        assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
+        assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedHost);
     }
 
     #[test]

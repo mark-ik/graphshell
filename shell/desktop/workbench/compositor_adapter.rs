@@ -3,9 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 //! Surface Composition Contract guardrails for compositor callback boundaries.
-//! The guarded callback path enforces that these OpenGL state fields are
-//! stable before/after content-pass rendering: viewport, scissor enable,
-//! blend enable, active texture unit, and framebuffer binding.
+//! The guarded callback path is the legacy GL-compat route; it verifies that
+//! viewport, scissor enable, blend enable, active texture unit, and framebuffer
+//! binding stay stable before/after content-pass rendering. Shared-wgpu/native
+//! texture presentation does not rely on those state snapshots.
 //!
 //! ## Host portability split
 //!
@@ -44,7 +45,7 @@ use crate::shell::desktop::render_backend::{
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED, CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
-    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
@@ -139,13 +140,15 @@ static COMPOSITOR_NATIVE_TEXTURES: OnceLock<Mutex<HashMap<NodeKey, BackendTextur
 /// Named abstraction for what the compositor currently holds for a given node.
 ///
 /// This is the Phase A concept from the GL→wgpu redesign plan. The primary
-/// path is `ImportedWgpu`: the Servo GL framebuffer has been imported into a
-/// shared wgpu texture and registered with egui for zero-copy blitting.
-/// `CallbackFallback` is the named GL compat path. `Placeholder` means no
-/// usable surface exists yet (node loading, runtime not ready, etc.).
+/// path is `ImportedWgpu`: a content engine has produced or imported a
+/// wgpu-compatible texture and registered it with the host for zero-copy
+/// presentation. `CallbackFallback` is the named legacy callback/GL-compat
+/// path. `Placeholder` means no usable surface exists yet (node loading,
+/// runtime not ready, etc.).
 ///
-/// Future: when WgpuShared is the only path, `CallbackFallback` is removed
-/// and `tile_rendering_contexts` (the GL context pool) retires with it.
+/// Future: when shared-wgpu/native texture presentation is the only path,
+/// `CallbackFallback` is removed and `tile_rendering_contexts` (the legacy
+/// callback context pool) retires with it.
 /// Shell-side specialization of the host-neutral
 /// [`graphshell_runtime::ContentSurfaceHandle`] over the egui-host
 /// `BackendTextureToken`. The enum shape and `is_wgpu()` live in
@@ -191,8 +194,8 @@ pub(crate) use graphshell_runtime::ViewerSurfaceFramePath;
 
 /// Per-node viewer surface state.
 ///
-/// Bundles the compositor-facing texture handle with the GL compat context
-/// (which remains as a side-channel for GL fallback builds). Surface
+/// Bundles the compositor-facing texture handle with the transitional backing
+/// context (which remains as a side-channel for legacy fallback builds). Surface
 /// lifecycle follows GraphTree node membership: attach → allocate,
 /// detach → drop.
 pub(crate) struct ViewerSurface {
@@ -203,9 +206,9 @@ pub(crate) struct ViewerSurface {
     pub(crate) content_generation: u64,
     /// Transitional surface backing owned by the registry. M4.5's target is
     /// that the registry owns all viewer-surface backing state (native/shared
-    /// wgpu in steady state, explicit GL compatibility producers only where
-    /// needed) so hot-path callers stop treating "has GL context" as the
-    /// authority check.
+    /// wgpu in steady state, explicit legacy compatibility producers only
+    /// where needed) so hot-path callers stop treating "has callback context"
+    /// as the authority check.
     pub(crate) backing: Option<ViewerSurfaceBacking>,
     /// The last viewer-surface/content-bridge path observed for this node
     /// during composition. Used by M4.5 diagnostics and parity work to pin
@@ -226,8 +229,8 @@ impl ViewerSurface {
 
 /// Unified registry of viewer surfaces keyed by `NodeKey`.
 ///
-/// This replaces the separate `tile_rendering_contexts` GL-context map and
-/// the static `COMPOSITOR_NATIVE_TEXTURES` wgpu-token map with a single
+/// This replaces the separate `tile_rendering_contexts` legacy-context map
+/// and the static `COMPOSITOR_NATIVE_TEXTURES` wgpu-token map with a single
 /// authority. `NodeKey` is the owner; `WebViewId` and `PaneId` are lookup
 /// keys within, not owners.
 ///
@@ -274,7 +277,7 @@ impl ViewerSurfaceRegistry {
     }
 
     /// Get the rendering context for a node, regardless of whether it is a
-    /// compat GL or host-native backing.
+    /// legacy callback or host-native backing.
     pub(crate) fn rendering_context(
         &self,
         key: &NodeKey,
@@ -483,7 +486,6 @@ pub(crate) fn replay_samples_snapshot() -> Vec<CompositorReplaySample> {
         .collect()
 }
 
-
 pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
 }
@@ -567,8 +569,8 @@ impl OverlayAffordancePainter for EguiOverlayAffordancePainter<'_> {
 
 /// Host-agnostic sink for content-pass registration and native-texture
 /// painting. Implementors turn host-neutral content-pass operations
-/// (register a GL callback at a node's content layer, paint a native
-/// shared-wgpu-texture at a node's content layer) into whatever
+/// (register a legacy callback at a node's content layer, paint a native
+/// shared-wgpu texture at a node's content layer) into whatever
 /// host-specific layer/painter API they have.
 ///
 /// The compositor generates content-pass outcomes in a host-neutral
@@ -628,7 +630,7 @@ fn overlay_mode_channel(render_mode: TileRenderMode) -> &'static str {
     match render_mode {
         TileRenderMode::CompositedTexture => CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
         TileRenderMode::NativeOverlay => CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
-        TileRenderMode::EmbeddedEgui => CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+        TileRenderMode::EmbeddedHost => CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST,
         TileRenderMode::Placeholder => CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
     }
 }
@@ -1450,11 +1452,11 @@ mod tests {
     }
 
     #[test]
-    fn tracker_does_not_emit_pass_order_violation_for_embedded_egui() {
+    fn tracker_does_not_emit_pass_order_violation_for_embedded_host() {
         let mut diagnostics = DiagnosticsState::new();
         let tracker = CompositorPassTracker::new();
 
-        tracker.record_overlay_pass(NodeKey::new(11), TileRenderMode::EmbeddedEgui);
+        tracker.record_overlay_pass(NodeKey::new(11), TileRenderMode::EmbeddedHost);
 
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests();
@@ -1470,7 +1472,7 @@ mod tests {
 
         assert_eq!(
             violation_count, 0,
-            "embedded egui path should not emit composited pass-order violation"
+            "embedded host path should not emit composited pass-order violation"
         );
     }
 

@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use crate::app::{GraphBrowserApp, GraphViewId, ToolSurfaceReturnTarget};
 use crate::graph::NodeKey;
-use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 #[cfg(any(test, feature = "iced-host"))]
@@ -25,11 +24,13 @@ use crate::shell::desktop::ui::omnibar_state::{
 #[cfg(feature = "servo-engine")]
 use crate::shell::desktop::workbench::compositor_adapter::ViewerSurfaceRegistry;
 use crate::shell::desktop::workbench::pane_model::PaneId;
+#[cfg(feature = "egui-host")]
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
 use graphshell_core::async_host::AsyncSpawner;
 use graphshell_core::content::{ContentLoadState, ViewerInstanceId};
 use graphshell_core::signal_router::SignalRouter;
 use graphshell_core::viewer_host::ViewerSurfaceHost;
+use graphshell_runtime::WebviewCreationBackpressureState;
 use graphshell_runtime::frame_projection::{
     GraphRuntimeLayoutProjectionInput, project_graph_runtime_layout_view_model,
 };
@@ -61,16 +62,19 @@ pub(crate) use graphshell_core::shell_state::toolbar::{
     ToolbarDraft, ToolbarEditable, ToolbarState,
 };
 
+#[cfg(feature = "egui-host")]
 pub(super) enum BookmarkImportDialogEvent {
     Continue,
     Picked(PathBuf),
     Cancelled,
 }
 
+#[cfg(feature = "egui-host")]
 pub(crate) struct BookmarkImportDialogState {
     dialog: EguiFileDialog,
 }
 
+#[cfg(feature = "egui-host")]
 impl BookmarkImportDialogState {
     pub(super) fn new() -> Self {
         let bookmark_file_filter = Filter::new(|path: &std::path::Path| {
@@ -106,6 +110,7 @@ impl BookmarkImportDialogState {
     }
 }
 
+#[cfg(feature = "egui-host")]
 pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> egui::Id {
     egui::Id::new((
         "location_input",
@@ -282,6 +287,7 @@ pub(crate) struct GraphshellRuntime {
     pub(crate) toolbar_state: ToolbarState,
 
     /// Graphshell-owned bookmark import file dialog state.
+    #[cfg(feature = "egui-host")]
     pub(crate) bookmark_import_dialog: Option<BookmarkImportDialogState>,
 
     /// Async worker supervision and intent queue.
@@ -379,6 +385,16 @@ pub(crate) struct GraphshellRuntime {
 }
 
 impl GraphshellRuntime {
+    #[cfg(feature = "egui-host")]
+    fn bookmark_import_dialog_is_open(&self) -> bool {
+        self.bookmark_import_dialog.is_some()
+    }
+
+    #[cfg(not(feature = "egui-host"))]
+    fn bookmark_import_dialog_is_open(&self) -> bool {
+        false
+    }
+
     /// Per-frame runtime tick.
     ///
     /// Conceptually this is the entry point described in the M3.5 runtime
@@ -654,7 +670,8 @@ impl GraphshellRuntime {
             }),
             overlays: transient_outputs.overlays,
             dialogs: project_dialogs_view_model(DialogsProjectionInput {
-                bookmark_import_open: self.bookmark_import_dialog.is_some(),
+                bookmark_import_open: cfg!(feature = "egui-host")
+                    && self.bookmark_import_dialog_is_open(),
                 command_palette_toggle_requested: self.command_palette_toggle_requested,
                 show_command_palette: chrome_ui.show_command_palette,
                 show_context_palette: chrome_ui.show_context_palette,
@@ -794,6 +811,7 @@ impl GraphshellRuntime {
             ),
             workbench_view_id: GraphViewId::new(),
             toolbar_state: ToolbarState::with_initial_location(""),
+            #[cfg(feature = "egui-host")]
             bookmark_import_dialog: None,
             control_panel,
             async_spawner,

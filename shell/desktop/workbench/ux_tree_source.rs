@@ -33,6 +33,7 @@
 
 use std::collections::HashSet;
 
+#[cfg(feature = "egui-host")]
 use egui_tiles::{Container, Tile, TileId, Tree};
 
 use crate::app::GraphBrowserApp;
@@ -100,11 +101,13 @@ pub(crate) trait PaneTreeWalker {
 /// Walker backed by an `egui_tiles::Tree<TileKind>`. Preserves the
 /// stable `"uxnode://workbench/tile/#N/..."` identity scheme used by
 /// the pre-refactor pane walk so existing snapshot tests still pass.
+#[cfg(feature = "egui-host")]
 pub(crate) struct TilesTreeWalker<'a> {
     tree: &'a Tree<TileKind>,
     active: HashSet<TileId>,
 }
 
+#[cfg(feature = "egui-host")]
 impl<'a> TilesTreeWalker<'a> {
     pub(crate) fn new(tree: &'a Tree<TileKind>) -> Self {
         let active = tree.active_tiles().into_iter().collect();
@@ -131,6 +134,7 @@ impl<'a> TilesTreeWalker<'a> {
     }
 }
 
+#[cfg(feature = "egui-host")]
 impl<'a> PaneTreeWalker for TilesTreeWalker<'a> {
     fn root(&self) -> Option<UxPaneHandle> {
         self.tree.root().map(Self::handle_for)
@@ -188,6 +192,7 @@ impl<'a> PaneTreeWalker for TilesTreeWalker<'a> {
 /// Extracted from `current_frame_tab_container_label` so the walker can
 /// embed the label in the resolved data without the downstream consumer
 /// needing to re-check the tree.
+#[cfg(feature = "egui-host")]
 fn tabs_root_label(
     tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -338,7 +343,7 @@ impl<'a> PaneTreeWalker for GraphTreeWalker<'a> {
 
 use crate::shell::desktop::workbench::pane_model::PaneId;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "egui-host"))]
 mod tests {
     use super::*;
     use crate::app::GraphViewId;

@@ -518,6 +518,7 @@ fn tag_panel_window_pos(
             .iter()
             .find(|(_, node_key, _)| *node_key == state.node_key)
     {
+        let rect = egui_rect_from_portable(*rect);
         return Pos2::new(rect.right() + 12.0, rect.top());
     }
 
@@ -528,6 +529,7 @@ fn tag_panel_window_pos(
             .graph_view_canvas_rects
             .get(&view_id)
     {
+        let rect = egui_rect_from_portable(*rect);
         return Pos2::new(
             (rect.right() - 372.0).max(rect.left() + 12.0),
             rect.top() + 12.0,
@@ -535,6 +537,13 @@ fn tag_panel_window_pos(
     }
 
     Pos2::new(24.0, 96.0)
+}
+
+fn egui_rect_from_portable(rect: graphshell_core::geometry::PortableRect) -> egui::Rect {
+    egui::Rect::from_min_size(
+        egui::pos2(rect.origin.x, rect.origin.y),
+        egui::vec2(rect.size.width, rect.size.height),
+    )
 }
 
 fn matching_emoji_icons(query: &str) -> Vec<BadgeIcon> {

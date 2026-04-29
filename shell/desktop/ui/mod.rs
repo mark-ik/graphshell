@@ -4,29 +4,28 @@
 
 pub(crate) mod command_palette_state;
 pub(crate) mod command_surface_telemetry;
-// 2026-04-25 servo-into-verso S2b: dialog + egui-host modules
-// surface Servo embedder events through egui widgets. Gated with
-// servo-engine since the egui-host path is the only consumer; the
-// iced-host path uses its own surfaces (iced_host*, gui_state).
-#[cfg(feature = "servo-engine")]
+// Legacy Servo+egui modules surface Servo embedder events through
+// egui widgets. The iced-host path uses its own surfaces
+// (iced_host*, gui_state).
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod dialog;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod dialog_panels;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod egui_host_ports;
 // `finalize_actions` is now ungated: it uses cfg blocks internally to
 // delegate to `gui_orchestration` (servo-engine) or call runtime
 // helpers directly (iced-only path).
 pub(crate) mod finalize_actions;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod graph_search_flow;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod graph_search_ui;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod gui;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod gui_frame;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod gui_orchestration;
 // `gui_frame_inbox` is ungated — iced-host and egui-host both use it.
 pub(crate) mod gui_frame_inbox;
@@ -59,29 +58,32 @@ pub(crate) mod iced_host;
 pub(crate) mod iced_host_ports;
 #[cfg(feature = "iced-host")]
 pub(crate) mod iced_middlenet_viewer;
-#[cfg(all(feature = "iced-host", test))]
+#[cfg(all(feature = "iced-host", feature = "egui-host", test))]
 pub(crate) mod iced_parity;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod nav_targeting;
 pub(crate) mod navigator_context;
 pub(crate) mod omnibar_state;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod overview_plane;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod persistence_ops;
 pub(crate) mod portable_time;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod shell_layout_pass;
+#[cfg(feature = "egui-host")]
 pub(crate) mod swatch;
+#[cfg(feature = "egui-host")]
 pub(crate) mod tag_panel;
 // 2026-04-25 servo-into-verso S2b: thumbnail capture pulls Servo
 // screenshot frames; gated together with servo-engine.
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod thumbnail_pipeline;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod toolbar;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod toolbar_routing;
+#[cfg(feature = "egui-host")]
 pub(crate) mod undo_boundary;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 pub(crate) mod workbench_host;

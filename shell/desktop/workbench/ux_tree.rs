@@ -10,7 +10,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(feature = "egui-host")]
 use egui_tiles::{Container, Tile, TileId, Tree};
+use graphshell_core::geometry::PortableRect;
 
 use super::ux_tree_source::PaneTreeWalker;
 
@@ -32,9 +34,9 @@ use graphshell_runtime::NodePaneAttachAttemptMetadata;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
-use crate::shell::desktop::workbench::pane_model::{PaneId, PanePresentationMode};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{PaneId, PanePresentationMode};
 
 #[cfg(not(feature = "servo-engine"))]
 fn take_node_pane_attach_attempt_metadata() -> HashMap<NodeKey, NodePaneAttachAttemptMetadata> {
@@ -439,6 +441,7 @@ pub(crate) fn build_snapshot_with_walker(
 /// callers (host pipeline, tests, webdriver) don't churn in a single
 /// commit. Follow-on cleanup migrates each caller onto
 /// `build_snapshot_with_walker` or retires it alongside tiles_tree.
+#[cfg(feature = "egui-host")]
 pub(crate) fn build_snapshot(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -574,6 +577,7 @@ fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
 }
 
 /// Tiles-backed convenience for `build_snapshot_with_walker_and_rects`.
+#[cfg(feature = "egui-host")]
 pub(crate) fn build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -581,7 +585,7 @@ pub(crate) fn build_snapshot_with_rects(
         &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     >,
     build_duration_us: u64,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
 ) -> UxTreeSnapshot {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
     build_snapshot_with_walker_and_rects(
@@ -603,7 +607,7 @@ pub(crate) fn build_snapshot_with_walker_and_rects(
         &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     >,
     build_duration_us: u64,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
 ) -> UxTreeSnapshot {
     #[cfg(test)]
     FORCE_UX_TREE_BUILD_FAILURE.with(|enabled| {
@@ -658,6 +662,7 @@ pub(crate) fn build_snapshot_with_walker_and_rects(
 }
 
 /// Tiles-backed convenience for `try_build_snapshot_with_walker_and_rects`.
+#[cfg(feature = "egui-host")]
 pub(crate) fn try_build_snapshot_with_rects(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -665,7 +670,7 @@ pub(crate) fn try_build_snapshot_with_rects(
         &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     >,
     build_duration_us: u64,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
 ) -> Result<UxTreeSnapshot, String> {
     let walker = super::ux_tree_source::TilesTreeWalker::new(tiles_tree);
     try_build_snapshot_with_walker_and_rects(
@@ -686,7 +691,7 @@ pub(crate) fn try_build_snapshot_with_walker_and_rects(
         &crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry,
     >,
     build_duration_us: u64,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
 ) -> Result<UxTreeSnapshot, String> {
     catch_unwind(AssertUnwindSafe(|| {
         build_snapshot_with_walker_and_rects(
@@ -739,7 +744,7 @@ fn append_command_surface_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: command_bar_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.bar",
         style_flags: vec!["surface:command-bar"],
         transient_flags: Vec::new(),
@@ -778,7 +783,7 @@ fn append_command_surface_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: omnibar_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.omnibar",
         style_flags: vec!["surface:omnibar"],
         transient_flags: if snapshot.omnibar.focused {
@@ -819,7 +824,7 @@ fn append_command_surface_nodes(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: command_palette_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "command.palette",
             style_flags: vec!["surface:command-palette"],
             transient_flags: vec!["mode:palette"],
@@ -857,7 +862,7 @@ fn append_command_surface_nodes(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: context_palette_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "command.context_palette",
             style_flags: vec!["surface:context-palette"],
             transient_flags: vec!["mode:contextual"],
@@ -991,7 +996,7 @@ fn append_workbench_semantics_nodes(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: lens_scope_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "workbench.graph.lens_scope",
             style_flags: vec!["surface:graph-lens-scope"],
             transient_flags: Vec::new(),
@@ -1071,7 +1076,7 @@ fn append_workbench_semantics_nodes(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: navigator_projection_node_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "workbench.navigator.projection",
             style_flags: vec!["surface:navigator"],
             transient_flags: Vec::new(),
@@ -1125,7 +1130,7 @@ fn append_workbench_semantics_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: route_node_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "workbench.route_open.boundary",
         style_flags: vec!["surface:route-open"],
         transient_flags: Vec::new(),
@@ -1182,7 +1187,7 @@ fn append_radial_palette_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: radial_root_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.radial",
         style_flags: vec!["surface:radial"],
         transient_flags: vec!["mode:radial"],
@@ -1220,7 +1225,7 @@ fn append_radial_palette_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: tier1_ring_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.radial.tier1",
         style_flags: vec!["surface:radial-tier"],
         transient_flags: Vec::new(),
@@ -1258,7 +1263,7 @@ fn append_radial_palette_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: tier2_ring_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.radial.tier2",
         style_flags: vec!["surface:radial-tier"],
         transient_flags: Vec::new(),
@@ -1298,7 +1303,7 @@ fn append_radial_palette_nodes(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: radial_summary_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "command.radial.summary",
         style_flags: vec!["surface:radial-summary"],
         transient_flags: Vec::new(),
@@ -1345,7 +1350,7 @@ fn append_radial_palette_nodes(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: sector_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "command.radial.sector",
             style_flags: vec!["surface:radial-sector"],
             transient_flags: if sector.hover_scale > 1.0 {
@@ -1437,7 +1442,7 @@ fn append_graph_point_lod_status_indicator(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: status_id.clone(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "graph.layer.status",
         style_flags: vec!["surface:status-indicator", "context:graph-lod-point"],
         transient_flags: Vec::new(),
@@ -1484,7 +1489,7 @@ fn append_graph_surface_semantics(
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: ux_node_id.to_string(),
         bounds: None,
-        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        render_mode: Some(TileRenderMode::EmbeddedHost),
         z_pass: "workbench.content",
         style_flags,
         transient_flags: Vec::new(),
@@ -1546,7 +1551,7 @@ fn append_graph_surface_semantics(
         presentation_nodes.push(UxPresentationNode {
             ux_node_id: graph_node_ux_id.clone(),
             bounds: None,
-            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            render_mode: Some(TileRenderMode::EmbeddedHost),
             z_pass: "graph.layer.node",
             style_flags: vec!["surface:graph-node", "backend:graph-canvas"],
             transient_flags: Vec::new(),
@@ -1565,7 +1570,7 @@ fn push_nodes(
     graph_app: &GraphBrowserApp,
     handle: super::ux_tree_source::UxPaneHandle,
     parent_ux_node_id: Option<&str>,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
     node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
@@ -1625,7 +1630,7 @@ fn push_pane_nodes(
     parent_ux_node_id: Option<&str>,
     focused: bool,
     payload: &TileKind,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
     node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
@@ -1746,7 +1751,7 @@ fn push_pane_nodes(
             presentation_nodes.push(UxPresentationNode {
                 ux_node_id: ux_node_id.to_string(),
                 bounds: None,
-                render_mode: Some(TileRenderMode::EmbeddedEgui),
+                render_mode: Some(TileRenderMode::EmbeddedHost),
                 z_pass: "workbench.tool",
                 style_flags: presentation_style_flags_for_mode(
                     &["surface:tool"],
@@ -1774,7 +1779,7 @@ fn push_node_pane_entries(
     focused: bool,
     tile_selected: bool,
     state: &crate::shell::desktop::workbench::pane_model::NodePaneState,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
     node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
@@ -1809,9 +1814,14 @@ fn push_node_pane_entries(
             attach_attempt: node_attach_attempts.get(&state.node).copied(),
         },
     });
-    let bounds = node_rects
-        .get(&state.node)
-        .map(|r| [r.min.x, r.min.y, r.max.x, r.max.y]);
+    let bounds = node_rects.get(&state.node).map(|r| {
+        [
+            rect_min_x(*r),
+            rect_min_y(*r),
+            rect_max_x(*r),
+            rect_max_y(*r),
+        ]
+    });
     presentation_nodes.push(UxPresentationNode {
         ux_node_id: ux_node_id.to_string(),
         bounds,
@@ -1826,7 +1836,7 @@ fn push_node_pane_entries(
         backend_path: match state.render_mode {
             TileRenderMode::CompositedTexture => "viewer.composited",
             TileRenderMode::NativeOverlay => "viewer.native_overlay",
-            TileRenderMode::EmbeddedEgui => "viewer.embedded_egui",
+            TileRenderMode::EmbeddedHost => "viewer.embedded_host",
             TileRenderMode::Placeholder => "viewer.placeholder",
         },
         diagnostics_counter: u64::from(focused),
@@ -1844,7 +1854,7 @@ fn push_container_nodes(
     kind: super::ux_tree_source::ContainerKind,
     children: &[super::ux_tree_source::UxPaneHandle],
     label_override: Option<&str>,
-    node_rects: &HashMap<NodeKey, egui::Rect>,
+    node_rects: &HashMap<NodeKey, PortableRect>,
     node_attach_attempts: &HashMap<NodeKey, NodePaneAttachAttemptMetadata>,
     semantic_nodes: &mut Vec<UxSemanticNode>,
     presentation_nodes: &mut Vec<UxPresentationNode>,
@@ -1923,6 +1933,7 @@ fn push_container_nodes(
     }
 }
 
+#[cfg(feature = "egui-host")]
 pub(crate) fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
     match tile {
         Tile::Pane(TileKind::Pane(
@@ -2351,6 +2362,22 @@ pub(crate) struct CoverageReport {
     pub(crate) overlap_pair_count: usize,
 }
 
+fn rect_min_x(rect: PortableRect) -> f32 {
+    rect.origin.x
+}
+
+fn rect_min_y(rect: PortableRect) -> f32 {
+    rect.origin.y
+}
+
+fn rect_max_x(rect: PortableRect) -> f32 {
+    rect.origin.x + rect.size.width
+}
+
+fn rect_max_y(rect: PortableRect) -> f32 {
+    rect.origin.y + rect.size.height
+}
+
 /// Pure coverage analysis over a set of laid-out tile rects.
 ///
 /// A *gutter* is a gap of more than 1 px between two rects that share an
@@ -2359,11 +2386,11 @@ pub(crate) struct CoverageReport {
 ///
 /// An *overlap* is any pair of rects whose intersection has positive area.
 pub(crate) fn run_coverage_analysis(
-    rects: &std::collections::HashMap<crate::graph::NodeKey, egui::Rect>,
+    rects: &std::collections::HashMap<crate::graph::NodeKey, PortableRect>,
 ) -> CoverageReport {
     const GAP_THRESHOLD: f32 = 1.0;
 
-    let rects: Vec<egui::Rect> = rects.values().copied().collect();
+    let rects: Vec<PortableRect> = rects.values().copied().collect();
     let mut gutter_pair_count = 0usize;
     let mut overlap_pair_count = 0usize;
 
@@ -2373,8 +2400,8 @@ pub(crate) fn run_coverage_analysis(
             let b = rects[j];
 
             // Overlap: intersection has positive area.
-            let inter = a.intersect(b);
-            if inter.width() > 0.0 && inter.height() > 0.0 {
+            let inter = a.intersection(&b);
+            if inter.is_some_and(|inter| inter.size.width > 0.0 && inter.size.height > 0.0) {
                 overlap_pair_count += 1;
                 continue;
             }
@@ -2384,27 +2411,27 @@ pub(crate) fn run_coverage_analysis(
             //
             // Horizontal neighbours: x-projections overlap or are adjacent,
             // one rect's right is close to the other's left.
-            let x_gap = if a.max.x <= b.min.x {
-                b.min.x - a.max.x
-            } else if b.max.x <= a.min.x {
-                a.min.x - b.max.x
+            let x_gap = if rect_max_x(a) <= rect_min_x(b) {
+                rect_min_x(b) - rect_max_x(a)
+            } else if rect_max_x(b) <= rect_min_x(a) {
+                rect_min_x(a) - rect_max_x(b)
             } else {
                 0.0
             };
-            let y_gap = if a.max.y <= b.min.y {
-                b.min.y - a.max.y
-            } else if b.max.y <= a.min.y {
-                a.min.y - b.max.y
+            let y_gap = if rect_max_y(a) <= rect_min_y(b) {
+                rect_min_y(b) - rect_max_y(a)
+            } else if rect_max_y(b) <= rect_min_y(a) {
+                rect_min_y(a) - rect_max_y(b)
             } else {
                 0.0
             };
 
             // Only consider pairs that are neighbours along exactly one axis
             // (the other axis has overlapping or touching projections).
-            let x_proj_overlap =
-                a.min.x < b.max.x + GAP_THRESHOLD && b.min.x < a.max.x + GAP_THRESHOLD;
-            let y_proj_overlap =
-                a.min.y < b.max.y + GAP_THRESHOLD && b.min.y < a.max.y + GAP_THRESHOLD;
+            let x_proj_overlap = rect_min_x(a) < rect_max_x(b) + GAP_THRESHOLD
+                && rect_min_x(b) < rect_max_x(a) + GAP_THRESHOLD;
+            let y_proj_overlap = rect_min_y(a) < rect_max_y(b) + GAP_THRESHOLD
+                && rect_min_y(b) < rect_max_y(a) + GAP_THRESHOLD;
 
             if x_gap > GAP_THRESHOLD && y_proj_overlap {
                 gutter_pair_count += 1;
@@ -2517,7 +2544,7 @@ fn set_force_build_failure_for_tests(enabled: bool) {
     FORCE_UX_TREE_BUILD_FAILURE.with(|flag| flag.set(enabled));
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "servo-engine"))]
 mod tests {
     use super::*;
     use crate::app::{

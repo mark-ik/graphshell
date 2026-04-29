@@ -6,6 +6,4 @@
 //! `crate::shell::desktop::ui::gui_frame_inbox` so iced-host builds
 //! can reach it without gating on `servo-engine`.
 
-pub(crate) use crate::shell::desktop::ui::gui_frame_inbox::{
-    GuiFrameInbox, spawn_gui_frame_inbox,
-};
+pub(crate) use crate::shell::desktop::ui::gui_frame_inbox::{GuiFrameInbox, spawn_gui_frame_inbox};

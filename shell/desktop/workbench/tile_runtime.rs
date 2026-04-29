@@ -32,7 +32,7 @@ impl TileCoordinator {
         match capability.render_mode {
             ViewerRenderMode::CompositedTexture => TileRenderMode::CompositedTexture,
             ViewerRenderMode::NativeOverlay => TileRenderMode::NativeOverlay,
-            ViewerRenderMode::EmbeddedEgui => TileRenderMode::EmbeddedEgui,
+            ViewerRenderMode::EmbeddedHost => TileRenderMode::EmbeddedHost,
             ViewerRenderMode::Placeholder => TileRenderMode::Placeholder,
         }
     }
@@ -162,7 +162,7 @@ impl TileCoordinator {
                 }
             }
             TileRenderMode::NativeOverlay => "native-overlay",
-            TileRenderMode::EmbeddedEgui => "embedded-egui",
+            TileRenderMode::EmbeddedHost => "embedded-host",
             TileRenderMode::Placeholder => "placeholder",
         }
     }
@@ -842,7 +842,7 @@ mod tests {
     #[test]
     fn node_pane_using_composited_runtime_uses_registry_selection_for_file_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
-        // Use a .txt file: extension "txt" maps to viewer:plaintext (EmbeddedEgui),
+        // Use a .txt file: extension "txt" maps to viewer:plaintext (EmbeddedHost),
         // which is not composited. (PDF maps to viewer:webview via the Verso mod.)
         let node_key =
             app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(0.0, 0.0));
@@ -897,7 +897,7 @@ mod tests {
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
 
         let mut state = NodePaneState::for_node(node_key);
-        state.render_mode = TileRenderMode::EmbeddedEgui;
+        state.render_mode = TileRenderMode::EmbeddedHost;
         let tree = tree_with_node_pane(state);
 
         let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
@@ -988,7 +988,7 @@ mod tests {
         );
         assert_eq!(
             mode_for.get(&plaintext_node).copied(),
-            Some(TileRenderMode::EmbeddedEgui)
+            Some(TileRenderMode::EmbeddedHost)
         );
     }
 
@@ -1081,8 +1081,8 @@ mod tests {
             "native-overlay"
         );
         assert_eq!(
-            TileCoordinator::render_path_hint_for_mode(TileRenderMode::EmbeddedEgui, false, false),
-            "embedded-egui"
+            TileCoordinator::render_path_hint_for_mode(TileRenderMode::EmbeddedHost, false, false),
+            "embedded-host"
         );
         assert_eq!(
             TileCoordinator::render_path_hint_for_mode(TileRenderMode::Placeholder, false, false),

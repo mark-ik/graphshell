@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use log::warn;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 use std::panic;
 use std::{env, fs};
 
@@ -15,17 +15,17 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
 };
 
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 use crate::panic_hook;
 // 2026-04-25 servo-into-verso S2b: prefs, the Servo embedder host,
 // and Servo argument parsing are all gated behind servo-engine.
 // Without that feature the iced-host branch below is the only
 // available launch path.
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 use crate::prefs::{ArgumentParsingResult, parse_command_line_arguments};
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 use crate::shell::desktop::host::app::App;
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 use crate::shell::desktop::host::event_loop::AppEventLoop;
 
 pub fn main() {
@@ -52,22 +52,22 @@ pub fn main() {
     }
 
     // 2026-04-25 servo-into-verso S2b: everything below is the
-    // Servo+egui-host launch path. Without servo-engine we have
-    // already returned via the iced-host branch above; if neither
-    // feature is on, the binary exits cleanly with a hint.
-    #[cfg(not(feature = "servo-engine"))]
+    // Servo+egui-host launch path. Without both features we have
+    // already returned via the iced-host branch above; if no launch
+    // host is available, the binary exits cleanly with a hint.
+    #[cfg(not(all(feature = "servo-engine", feature = "egui-host")))]
     {
         log::warn!(
-            "graphshell built without `servo-engine`; launch with `--iced` (requires `iced-host` feature) for the iced launch path."
+            "graphshell built without the legacy Servo+egui host; launch with `--iced` (requires `iced-host` feature) for the iced launch path."
         );
         return;
     }
 
-    #[cfg(feature = "servo-engine")]
+    #[cfg(all(feature = "servo-engine", feature = "egui-host"))]
     run_servo_launch_path();
 }
 
-#[cfg(feature = "servo-engine")]
+#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
 fn run_servo_launch_path() {
     // Initialize Verse mod (P2P sync capabilities) off the main thread to avoid
     // COM apartment conflicts with winit's OleInitialize path on Windows.

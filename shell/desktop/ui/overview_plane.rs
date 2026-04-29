@@ -892,7 +892,7 @@ fn viewer_render_mode_label(render_mode: TileRenderMode) -> &'static str {
     match render_mode {
         TileRenderMode::CompositedTexture => "composited texture",
         TileRenderMode::NativeOverlay => "native overlay",
-        TileRenderMode::EmbeddedEgui => "embedded egui",
+        TileRenderMode::EmbeddedHost => "embedded host",
         TileRenderMode::Placeholder => "placeholder",
     }
 }
@@ -2564,7 +2564,7 @@ mod tests {
                     effective_viewer_id: Some("viewer:webview".to_string()),
                     viewer_override: None,
                     viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
-                    render_mode: TileRenderMode::EmbeddedEgui,
+                    render_mode: TileRenderMode::EmbeddedHost,
                     runtime_blocked: false,
                     runtime_crashed: false,
                     fallback_reason: None,
@@ -2634,7 +2634,7 @@ mod tests {
                     effective_viewer_id: Some("viewer:webview".to_string()),
                     viewer_override: None,
                     viewer_switch_reason: ViewerSwitchReason::PolicyPinned,
-                    render_mode: TileRenderMode::EmbeddedEgui,
+                    render_mode: TileRenderMode::EmbeddedHost,
                     runtime_blocked: false,
                     runtime_crashed: false,
                     fallback_reason: None,

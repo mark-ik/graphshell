@@ -39,6 +39,9 @@ use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::ui::gui_state::RuntimeFocusInspector;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    egui_rect_from_portable, portable_rect_from_egui,
+};
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -843,7 +846,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                     == crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture
                 {
                     crate::shell::desktop::workbench::tile_compositor::estimated_composited_tile_content_bytes(
-                        *rect,
+                        egui_rect_from_portable(*rect),
                         ctx.pixels_per_point(),
                     )
                 } else {
@@ -854,7 +857,7 @@ pub(crate) fn run_tile_render_pass_in_ui(
                     node_key: *node_key,
                     render_mode,
                     estimated_content_bytes,
-                    rect: *rect,
+                    rect: egui_rect_from_portable(*rect),
                     mapped_webview,
                     has_context,
                     paint_callback_registered,
@@ -869,16 +872,21 @@ pub(crate) fn run_tile_render_pass_in_ui(
             .as_ref()
             .map(|geometry| {
                 (
-                    geometry.content_rect,
+                    egui_rect_from_portable(geometry.content_rect),
                     geometry.visible_region_set_or_content(),
-                    geometry.occluding_host_rects.clone(),
+                    geometry
+                        .occluding_host_rects
+                        .iter()
+                        .copied()
+                        .map(egui_rect_from_portable)
+                        .collect(),
                 )
             })
             .unwrap_or_else(|| {
                 let content_rect = ctx.content_rect();
                 (
                     content_rect,
-                    VisibleNavigationRegionSet::singleton(content_rect),
+                    VisibleNavigationRegionSet::singleton(portable_rect_from_egui(content_rect)),
                     Vec::new(),
                 )
             });
@@ -972,8 +980,9 @@ fn floating_overlay_rect_for_visible_regions(
         .as_slice()
         .iter()
         .copied()
-        .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0)
+        .filter(|rect| rect.size.width > 0.0 && rect.size.height > 0.0)
         .map(|region| {
+            let region = egui_rect_from_portable(region);
             let padded_region = region.shrink2(egui::vec2(
                 FLOATING_OVERLAY_REGION_MARGIN,
                 FLOATING_OVERLAY_REGION_MARGIN,
@@ -1036,7 +1045,9 @@ fn render_floating_pane_overlays(
         .workbench_navigation_geometry
         .as_ref()
         .map(|geometry| geometry.visible_region_set_or_content())
-        .unwrap_or_else(|| VisibleNavigationRegionSet::singleton(ctx.content_rect()));
+        .unwrap_or_else(|| {
+            VisibleNavigationRegionSet::singleton(portable_rect_from_egui(ctx.content_rect()))
+        });
     let rect = floating_overlay_rect_for_visible_regions(
         &visible_regions,
         floating_state.viewer_id_override.is_some(),
@@ -1165,7 +1176,7 @@ fn draw_diagnostics_hover_overlay_for_mode(
                 stroke,
             );
         }
-        crate::shell::desktop::workbench::pane_model::TileRenderMode::EmbeddedEgui
+        crate::shell::desktop::workbench::pane_model::TileRenderMode::EmbeddedHost
         | crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder => {
             egui::Area::new(egui::Id::new((
                 "graphshell_diag_hover_overlay_area",
@@ -1452,9 +1463,18 @@ mod tests {
     fn floating_overlay_rect_prefers_largest_fitting_visible_region() {
         let rect = floating_overlay_rect_for_visible_regions(
             &VisibleNavigationRegionSet::from_rects(vec![
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 40.0)),
-                egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(320.0, 260.0)),
-                egui::Rect::from_min_max(egui::pos2(0.0, 260.0), egui::pos2(400.0, 300.0)),
+                portable_rect_from_egui(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0),
+                    egui::pos2(400.0, 40.0),
+                )),
+                portable_rect_from_egui(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 40.0),
+                    egui::pos2(320.0, 260.0),
+                )),
+                portable_rect_from_egui(egui::Rect::from_min_max(
+                    egui::pos2(0.0, 260.0),
+                    egui::pos2(400.0, 300.0),
+                )),
             ]),
             false,
         )
@@ -1469,9 +1489,8 @@ mod tests {
     #[test]
     fn floating_overlay_rect_clamps_to_small_visible_region() {
         let rect = floating_overlay_rect_for_visible_regions(
-            &VisibleNavigationRegionSet::from_rects(vec![egui::Rect::from_min_max(
-                egui::pos2(10.0, 10.0),
-                egui::pos2(180.0, 120.0),
+            &VisibleNavigationRegionSet::from_rects(vec![portable_rect_from_egui(
+                egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(180.0, 120.0)),
             )]),
             true,
         )

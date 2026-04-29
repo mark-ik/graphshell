@@ -19,8 +19,6 @@ use graph_tree::{
 
 use crate::graph::{NodeKey, NodeLifecycle};
 
-use super::graph_tree_sync::to_graph_tree_lifecycle;
-
 /// Attach a node to the GraphTree as a traversal child of `source`.
 ///
 /// Corresponds to `tile_view_ops::open_or_focus_node_pane` and variants.
@@ -128,6 +126,14 @@ pub(crate) fn set_lifecycle(
         node_key,
         to_graph_tree_lifecycle(lifecycle),
     ))
+}
+
+fn to_graph_tree_lifecycle(lc: NodeLifecycle) -> Lifecycle {
+    match lc {
+        NodeLifecycle::Active => Lifecycle::Active,
+        NodeLifecycle::Warm => Lifecycle::Warm,
+        NodeLifecycle::Cold | NodeLifecycle::Tombstone => Lifecycle::Cold,
+    }
 }
 
 /// Reparent a node under a new parent.

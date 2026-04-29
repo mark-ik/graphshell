@@ -24,6 +24,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_LAYOUT_CONSTRAINT_DRIFT,
 };
 use crate::shell::desktop::ui::toolbar::toolbar_ui::CommandBarFocusTarget;
+use crate::shell::desktop::workbench::compositor_adapter::portable_rect_from_egui;
 use crate::shell::desktop::workbench::pane_model::{
     NodePaneState, PaneId, PanePresentationMode, SplitDirection, TileRenderMode, ToolPaneState,
     ViewerId, ViewerSwitchReason,
@@ -183,8 +184,11 @@ fn update_workbench_navigation_geometry(
         .workspace
         .graph_runtime
         .workbench_navigation_geometry = Some(WorkbenchNavigationGeometry::from_content_rect(
-        content_rect,
-        occluding_host_rects,
+        portable_rect_from_egui(content_rect),
+        occluding_host_rects
+            .into_iter()
+            .map(portable_rect_from_egui)
+            .collect(),
     ));
 }
 
@@ -1959,7 +1963,7 @@ fn offscreen_visible_graph_view_for_node(
         .graph_view_canvas_rects
         .get(&view_id)?;
     let position = graph_app.domain_graph().node_projected_position(node_key)?;
-    (!canvas_rect.contains(position.to_pos2())).then_some(view_id)
+    (!canvas_rect.contains(position)).then_some(view_id)
 }
 
 fn navigator_member_sort_key(app: &GraphBrowserApp, key: NodeKey) -> (String, usize) {
@@ -7757,7 +7761,10 @@ mod tests {
         );
         app.workspace.graph_runtime.graph_view_canvas_rects.insert(
             graph_view,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            portable_rect_from_egui(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 100.0),
+            )),
         );
 
         let mut tiles = Tiles::default();
@@ -7792,7 +7799,10 @@ mod tests {
         );
         app.workspace.graph_runtime.graph_view_canvas_rects.insert(
             graph_view,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            portable_rect_from_egui(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 100.0),
+            )),
         );
 
         let mut tiles = Tiles::default();
@@ -7865,7 +7875,10 @@ mod tests {
         );
         app.workspace.graph_runtime.graph_view_canvas_rects.insert(
             graph_view,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+            portable_rect_from_egui(egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(100.0, 100.0),
+            )),
         );
 
         let mut tiles = Tiles::default();

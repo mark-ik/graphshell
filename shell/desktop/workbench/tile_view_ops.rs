@@ -15,7 +15,6 @@ use crate::registries::domain::layout::workbench_surface::FocusCycle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure;
-use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::workbench::pane_model::{
     GraphPaneRef, NodePaneState, PaneId, PanePresentationMode, PaneViewState,
@@ -24,6 +23,7 @@ use crate::shell::desktop::workbench::pane_model::{
 use crate::shell::desktop::workbench::pane_model::{ToolPaneRef, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
+use graphshell_runtime::WebviewCreationBackpressureState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TileOpenMode {

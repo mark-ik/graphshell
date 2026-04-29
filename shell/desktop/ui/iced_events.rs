@@ -20,7 +20,7 @@
 use iced::keyboard::{self, key::Named};
 use iced::mouse::{self, ScrollDelta};
 
-use crate::shell::desktop::workbench::ux_replay::{HostEvent, ModifiersState, PointerButton};
+use graphshell_core::host_event::{HostEvent, ModifiersState, PointerButton};
 
 /// Translate a single `iced::Event` into a `HostEvent`, returning `None`
 /// for events with no host-neutral equivalent (`Window::RedrawRequested`,

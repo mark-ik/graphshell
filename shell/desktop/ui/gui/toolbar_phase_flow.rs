@@ -28,7 +28,6 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use graphshell_runtime::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;
@@ -40,6 +39,7 @@ use crate::shell::desktop::ui::omnibar_state::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{TileOpenMode, ToggleTileViewArgs};
+use graphshell_runtime::WebviewCreationBackpressureState;
 
 pub(crate) fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
     match mode {

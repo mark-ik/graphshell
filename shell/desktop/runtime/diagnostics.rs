@@ -29,7 +29,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
     CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
-    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
     CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
@@ -120,6 +120,7 @@ fn composited_content_budget_bytes_per_frame() -> usize {
 
 #[path = "diagnostics/export.rs"]
 mod export;
+#[cfg(feature = "egui-host")]
 #[path = "diagnostics/pane_ui.rs"]
 mod pane_ui;
 
@@ -308,7 +309,7 @@ pub(crate) struct CompositorTileSample {
     pub(crate) node_key: NodeKey,
     pub(crate) render_mode: TileRenderMode,
     pub(crate) estimated_content_bytes: usize,
-    pub(crate) rect: egui::Rect,
+    pub(crate) rect: HostRect,
     pub(crate) mapped_webview: bool,
     pub(crate) has_context: bool,
     pub(crate) paint_callback_registered: bool,
@@ -320,18 +321,53 @@ pub(crate) struct CompositorFrameSample {
     pub(crate) sequence: u64,
     pub(crate) active_tile_count: usize,
     pub(crate) focused_node_present: bool,
-    pub(crate) content_rect: egui::Rect,
+    pub(crate) content_rect: HostRect,
     pub(crate) visible_regions: VisibleNavigationRegionSet,
-    pub(crate) occluding_host_rects: Vec<egui::Rect>,
+    pub(crate) occluding_host_rects: Vec<HostRect>,
     pub(crate) hierarchy: Vec<HierarchySample>,
     pub(crate) tiles: Vec<CompositorTileSample>,
 }
 
-fn rect_json(rect: egui::Rect) -> Value {
+#[cfg(feature = "egui-host")]
+type HostRect = egui::Rect;
+#[cfg(not(feature = "egui-host"))]
+type HostRect = graphshell_core::geometry::PortableRect;
+
+#[cfg(feature = "egui-host")]
+fn rect_json(rect: HostRect) -> Value {
     json!({
         "min": {"x": rect.min.x, "y": rect.min.y},
         "max": {"x": rect.max.x, "y": rect.max.y},
     })
+}
+
+#[cfg(not(feature = "egui-host"))]
+fn rect_json(rect: HostRect) -> Value {
+    json!({
+        "min": {"x": rect.origin.x, "y": rect.origin.y},
+        "max": {
+            "x": rect.origin.x + rect.size.width,
+            "y": rect.origin.y + rect.size.height,
+        },
+    })
+}
+
+#[cfg(feature = "egui-host")]
+fn egui_rect_from_portable(rect: graphshell_core::geometry::PortableRect) -> egui::Rect {
+    egui::Rect::from_min_size(
+        egui::pos2(rect.origin.x, rect.origin.y),
+        egui::vec2(rect.size.width, rect.size.height),
+    )
+}
+
+#[cfg(feature = "egui-host")]
+fn host_rect_from_portable(rect: graphshell_core::geometry::PortableRect) -> HostRect {
+    egui_rect_from_portable(rect)
+}
+
+#[cfg(not(feature = "egui-host"))]
+fn host_rect_from_portable(rect: graphshell_core::geometry::PortableRect) -> HostRect {
+    rect
 }
 
 #[derive(Clone, Debug)]
@@ -683,7 +719,7 @@ fn analyze_render_mode_health(
         .unwrap_or(0);
     let embedded = graph
         .message_counts
-        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI)
+        .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST)
         .copied()
         .unwrap_or(0);
     let placeholder_mode = graph
@@ -1063,8 +1099,8 @@ const CHANNELS_COMPOSITOR_OVERLAY_MODE: [(&str, &str); 4] = [
         CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     ),
     (
-        "EmbeddedEgui",
-        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+        "EmbeddedHost",
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST,
     ),
     ("Placeholder", CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER),
 ];
@@ -1466,8 +1502,8 @@ impl DiagnosticsState {
                         self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY),
                     ),
                     (
-                        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
-                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI),
+                        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST,
+                        self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_HOST),
                     ),
                     (
                         CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
@@ -1861,6 +1897,7 @@ impl DiagnosticsState {
         })
     }
 
+    #[cfg(feature = "egui-host")]
     fn render_test_harness_scaffold(&mut self, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new("Test Harness")
             .default_open(false)
@@ -2343,7 +2380,7 @@ impl DiagnosticsState {
                 let render_mode_label = match tile.render_mode {
                     TileRenderMode::CompositedTexture => "composited_texture",
                     TileRenderMode::NativeOverlay => "native_overlay",
-                    TileRenderMode::EmbeddedEgui => "embedded_egui",
+                    TileRenderMode::EmbeddedHost => "embedded_host",
                     TileRenderMode::Placeholder => "placeholder",
                 };
                 *render_mode_counts.entry(render_mode_label).or_insert(0) += 1;
@@ -2416,6 +2453,7 @@ impl DiagnosticsState {
         })
     }
 
+    #[cfg(feature = "egui-host")]
     fn render_compositor_overlay_buckets(&self, ui: &mut egui::Ui) {
         ui.label("Compositor overlay buckets");
 
@@ -2954,10 +2992,7 @@ impl DiagnosticsState {
                             "node_key": format!("{:?}", tile.node_key),
                             "render_mode": format!("{:?}", tile.render_mode),
                             "estimated_content_bytes": tile.estimated_content_bytes,
-                            "rect": {
-                                "min": {"x": tile.rect.min.x, "y": tile.rect.min.y},
-                                "max": {"x": tile.rect.max.x, "y": tile.rect.max.y},
-                            },
+                            "rect": rect_json(tile.rect),
                             "mapped_webview": tile.mapped_webview,
                             "has_context": tile.has_context,
                             "paint_callback_registered": tile.paint_callback_registered,
@@ -2981,7 +3016,7 @@ impl DiagnosticsState {
                     "active_tile_count": frame.active_tile_count,
                     "focused_node_present": frame.focused_node_present,
                     "content_rect": rect_json(frame.content_rect),
-                    "visible_rects": frame.visible_regions.as_slice().iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
+                    "visible_rects": frame.visible_regions.as_slice().iter().map(|rect| rect_json(host_rect_from_portable(*rect))).collect::<Vec<_>>(),
                     "occluding_host_rects": frame.occluding_host_rects.iter().map(|rect| rect_json(*rect)).collect::<Vec<_>>(),
                     "hierarchy": hierarchy,
                     "tiles": tiles,
@@ -3394,7 +3429,7 @@ impl DiagnosticsState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "egui-host", feature = "servo-engine"))]
 mod tests {
     use super::*;
 

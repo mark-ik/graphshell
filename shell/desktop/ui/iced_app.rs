@@ -39,7 +39,7 @@ use crate::shell::desktop::ui::iced_graph_canvas::{
     GraphCanvasProgram, from_graph_app as graph_canvas_from_app,
 };
 use crate::shell::desktop::ui::iced_host::IcedHost;
-use crate::shell::desktop::workbench::ux_replay::HostEvent;
+use graphshell_core::host_event::HostEvent;
 use graphshell_runtime::{FrameHostInput, FrameViewModel, ToastSeverity};
 
 /// App-level state held across iced frames.
