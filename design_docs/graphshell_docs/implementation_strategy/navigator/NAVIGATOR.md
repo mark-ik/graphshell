@@ -118,6 +118,21 @@ a graph intent or workbench intent and trusts the relevant authority to execute
 it. The Navigator does not directly mutate graph state or workbench arrangement
 state.
 
+**Uphill rule**: any change initiated from a Navigator projection — host row,
+graphlet view, swatch canvas instance, specialty layout — goes uphill to the
+relevant authority and is presumed ephemeral until that authority promotes it.
+Authority routing by intent kind:
+
+- node identity, edges, relations, durable graph mutation → **Graph**
+- frame composition, frame switching, frame snapshot persistence → **Shell**
+- tile tree mutation, pane lifecycle, split geometry → **Workbench**
+- node lifecycle state, scheduling, warm/cold transitions → **runtime lifecycle**
+- traversal events, recency aggregation → **SUBSYSTEM_HISTORY**
+
+Projection-local hover, scaffold selection, viewport, expansion, and filter
+state stay projection-local. Identity, structure, arrangement, and durable
+state never do.
+
 ---
 
 ## 5. The Five-Domain Model
@@ -242,22 +257,35 @@ to a subset or fall back to a single implicit primary target.
 
 ---
 
-## 8. Section Model (Canonical)
+## 8. Presentation Bucket Model (Canonical)
 
-Each Navigator section has a single projection source. Sections do not share
-truth — a node may appear in multiple sections, but each appearance is
-independently derived from its section's source.
+The Navigator composes three canonical **Presentation Buckets**. Specific named
+projections (recency, frametree, ego graphlet, frontier, relation family,
+import event stream, etc.) are recipes that land in one of the three buckets.
+Bucket membership is always derived; the Navigator never stores it as its own
+truth.
 
-| Section | Projection source | Entry condition | Exit condition |
-|---------|------------------|-----------------|----------------|
-| **Recent** | Graph recency index | Node becomes cold / leaves active tile context | Node is promoted into active tile context |
-| **Frames** | Workbench arrangement state | Node is a member of at least one named frame | All frame memberships removed |
-| **Graph** | Graph node set (filtered) | Node exists in graph | Node deleted |
-| **Relations** | Graph relation families | Relation family has visible members | No visible members |
-| **Import Records** | Import record index | Import record exists | Record deleted or suppressed |
+| Bucket | What it provides | Projection sources | Example recipes |
+|--------|------------------|--------------------|-----------------|
+| **Tree Spine** | Orientation. Scannable hierarchy with active-node location, expand/collapse, badges, cross-edge indicators. | Graph (containment, traversal, lens-driven), Shell (frametree), Navigator (graphlet sections) | containment tree, traversal spine, frametree, graphlet sections, cycle/bridge/frontier badges |
+| **Swatches** | Shape analysis. Compact navigator-scoped canvas instances applying graph capacities (filter, layout, scene representation, simulation) to scoped projections of graph truth. | Graph (truth), Graph Cartography (aggregates), Navigator (recipe selection) | ego graphlet, corridor, frontier, bridge, semantic cluster, workbench correspondence, domain cluster, active session map, graph overview |
+| **Activity Log** | Temporal analysis. Distinguishes active / recently-active-now-inactive / warmed / cold-but-relevant nodes; surfaces events. | SUBSYSTEM_HISTORY, runtime lifecycle, Graph (mutation events), Shell (import events) | recency lane, lifecycle transitions, navigation transitions, graph mutation log, import event stream, memory branch changes |
 
-Section membership is always derived. The Navigator never stores section
-membership as its own truth.
+The bucket names describe the *presentation shape*. The five legacy section
+names (Recent, Frames, Graph, Relations, Import Records) were a flat catalog
+that conflated shape with source — they map cleanly into buckets:
+
+- *Recent* → Activity Log (recency lane)
+- *Frames* → Tree Spine (frametree recipe; Shell-owned composition surfaced in
+  the spine)
+- *Graph* → Swatches (overview/all-nodes recipe) and/or Tree Spine (containment
+  lens recipe), per host configuration
+- *Relations* → Swatches (relation-family graphlet recipes)
+- *Import Records* → Activity Log (import event stream)
+
+A Navigator host may render one, two, or all three buckets depending on its
+form factor, scope, and available space. Bucket presence is layout policy; the
+bucket model itself is canonical.
 
 ---
 
@@ -295,9 +323,10 @@ not merely breadcrumb UI.
 |---------------------|-----------|-----|
 | Node identity, tags, relations | Graph domain | Read from `domain_graph()` |
 | Node recency / lifecycle state | Runtime lifecycle | Read from `graph_runtime` state |
-| Frame membership | Workbench session state | Read from `WorkbenchSessionState::node_workspace_membership` |
+| Frame composition / frametree | Shell domain | Read from Shell-owned frame state; Workbench provides per-graph tile trees within each composed frame |
+| Frame membership of nodes | Graph (`ArrangementRelation`) | Read graph-backed frame-member edges; rendered into the Tree Spine bucket as the frametree recipe |
 | Active tile contents | Workbench session state | Read from tile tree at projection time |
-| Import records | Import record index | Read from domain state |
+| Import / activity events | SUBSYSTEM_HISTORY + Shell import event stream | Read at projection time; surfaced into the Activity Log bucket |
 
 The Navigator reads these at projection time. It does not cache copies of
 graph or workbench state independently — stale projection is diagnosed, not
@@ -317,9 +346,12 @@ The Navigator projection rebuilds or updates when:
 - A node is added to or removed from the graph
 - A node's title, tags, or relations change
 - A node's lifecycle state changes (active / warm / cold)
-- Frame membership changes for any node
+- Frame composition changes (Shell adds/removes/reorders a workbench in the
+  frame, switches the active frame, or persists a frame snapshot)
+- Frame membership of any node changes (`ArrangementRelation` edge added or
+  removed)
 - The tile tree changes (pane open, close, move, split)
-- An import record is added, deleted, or suppressed
+- An import or activity event is emitted into the Activity Log stream
 - The user applies a local filter or search query
 
 Refresh is routed through the shared signal path (`phase3_publish_workbench_projection_refresh_requested`), not through ad hoc observers.

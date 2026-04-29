@@ -89,6 +89,15 @@ The Shell domain owns:
 - **Top-level mounting/composition** — the app-level placement and exposure of
   graph surfaces, Navigator hosts, Workbench surfaces, and Shell-owned control
   or status surfaces
+- **Frame composition** — the working-context arrangement that composes one or
+  more Workbenches (each `GraphId`-bound) into a single Frame, plus frame
+  switching, frame snapshot persistence, and the frametree projection that the
+  Navigator surfaces in its Tree Spine bucket. The trivial case is one Frame
+  containing one Workbench; richer frames may contain multiple Workbenches.
+  Workbench owns the per-graph tile tree inside each frame slot; Shell owns
+  composition and switching. See
+  [`../workbench/WORKBENCH.md §2`](../workbench/WORKBENCH.md) and
+  [`../../TERMINOLOGY.md`](../../TERMINOLOGY.md) Frame entry.
 - **Aspect exposure** — the UI surfaces through which aspects (render, control,
   command, input) present their configurable state to the user
 - **Subsystem control surfaces** — settings pages, history manager, diagnostics
@@ -119,8 +128,10 @@ The Shell explicitly does not own:
 - **Graph-view slot layout truth** — creating, naming, positioning, archiving,
   and restoring graph-view slots in the graph layout manager; owned by Graph
   even when exposed through a Shell overview surface
-- **Arrangement and activation** — tile tree, frame layout, pane lifecycle,
-  routing; owned by Workbench
+- **Tile-tree arrangement and activation** — tile tree, split geometry, pane
+  lifecycle, routing within one workbench; owned by Workbench. (Note: Shell
+  *does* own Frame composition — which workbenches form the active frame and
+  how frames switch — see §3.)
 - **Content rendering** — viewer selection, render mode, content display; owned
   by Viewer
 - **Aspect internals** — the Shell exposes aspect configuration to the user; it
@@ -141,10 +152,10 @@ These five domains form the coherent application model:
 
 | Domain | Is | Owns | Does Not Own |
 |--------|----|------|--------------|
-| **Shell** | Host + app-level control | command dispatch, top-level composition, settings surfaces, subsystem control, app-scope chrome | graph truth, arrangement, projection rules, content rendering |
+| **Shell** | Host + app-level control | command dispatch, top-level composition, **frame composition / switching / persistence**, settings surfaces, subsystem control, app-scope chrome | graph truth, tile-tree arrangement, projection rules, content rendering |
 | **Graph** | Truth + analysis + management | node identity, relations, topology, graph-space interaction, algorithmic analysis | where or how nodes are arranged in the workbench |
-| **Navigator** | Projection + navigation | graphlet derivation, projection rules, section model, interaction contract, scoped search, relationship display | node identity, arrangement structure, system settings |
-| **Workbench** | Arrangement + activation | tile tree, frame layout, pane lifecycle, routing, split geometry | what a node is or what its graph relations mean |
+| **Navigator** | Projection + navigation | graphlet derivation, projection rules, presentation buckets, interaction contract, scoped search, relationship display | node identity, arrangement structure, frame composition, system settings |
+| **Workbench** | Arrangement + activation | tile tree, pane lifecycle, routing, split geometry — within one workbench | frame composition, frame switching, what a node is |
 | **Viewer** | Realization | backend selection, fallback policy, render strategy, content-specific interaction | graph truth, arrangement, command/control routing |
 
 A node is one durable object. All five domains agree on what that object is.

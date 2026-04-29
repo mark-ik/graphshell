@@ -30,6 +30,62 @@ Projection is the cross-cutting pattern for deriving a representation in one dom
 * **Projection spec** (mechanism) — a config struct parameterizing one pipeline instance. Declares scope strategy, shape mode, annotation stack, cost class, layout inheritance.
 * **ProjectionLens** (mechanism) — a Rust enum in the `graph-tree` crate that parameterizes the Shape stage for tree-family projections. Variants select which edge family drives parent-child (Traversal, Arrangement, Containment, Recency, etc.). Not a separate projection pattern — a concrete Shape-stage implementation for tree-shaped outputs. Non-tree shapes (graphlet-as-graph, time-axis, summary/minimap) require their own Shape-stage mechanisms.
 
+### Projection Vocabulary (Recipe / Instance / Bucket)
+
+This vocabulary tightens loose usage of "swatch," "minimap," "tree," and "log"
+across navigator and shell docs. It is host-agnostic and does not depend on
+which UI framework realizes the surfaces.
+
+* **Graph authority** — the canonical truth domain for nodes, edges, identity,
+  and durable structure. Owned by the Graph domain. Nothing else owns graph
+  truth; projections derive from it.
+* **Graph capacity** — any analysis or transformation that the graph layer can
+  perform: graphlet derivation, relation filtering, layout selection, scene
+  representation choice, hit testing, highlighting, focus, simulation, semantic
+  projection, memory/activity overlay. Capacities apply equally to the main
+  graph canvas and to scoped instances elsewhere.
+* **Projection recipe** — a configured composition of: a graph analysis
+  transform (scope/filter/derivation), a scene representation, a layout, and a
+  render profile. A recipe is the durable description; a run of it is ephemeral.
+  See `2026-04-03_layout_variant_follow_on_plan.md` Conceptual Model for the
+  algorithm/scene/backend/render-profile split.
+* **Canvas instance** — a renderable graph surface produced by running a
+  projection recipe. The main graph canvas is one canvas instance among many;
+  swatches are scoped canvas instances. All canvas instances use the same graph
+  capacities, scaled to their render profile.
+* **Navigator swatch** — a compact, navigator-scoped canvas instance. Not a
+  thumbnail and not a separate mini-graph; a live or cached projection of graph
+  truth through a particular recipe. Swatch state (hover, scaffold selection,
+  viewport) is projection-local; mutation goes uphill via intents.
+* **Tree spine** — a scannable orientation projection. Provides traversal
+  hierarchy, frametree, graphlet sections, lens-driven containment views, and
+  affordances for active-node location, expansion, badges, and cross-edge
+  indicators. The tree spine is a presentation bucket, not the Navigator's
+  whole identity.
+* **Activity log** — a temporal projection covering active nodes, recently
+  active (now-inactive) nodes, warmed/cold-but-relevant nodes, opened/closed/
+  revealed/promoted events, graph mutations, navigation transitions, memory
+  branch changes, and import events. Subsumes what older docs called the
+  "Recent" and "Import Records" sections.
+* **Presentation bucket** — one of the three canonical Navigator presentation
+  shapes: **Tree Spine**, **Swatch**, **Activity Log**. The Navigator's job
+  composes these three buckets; specific named projections (containment,
+  recency, ego graphlet, frontier, frametree, etc.) are recipes that land in
+  one of the three buckets. See `navigator/NAVIGATOR.md §8`.
+* **Promotion** (projection sense) — turning an ephemeral projection result
+  into graph or shell or workbench truth via an explicit intent. A swatch may
+  produce a promotion intent ("save this graphlet," "apply this layout to the
+  main canvas," "persist this projection recipe"); the receiving authority
+  decides whether to commit. The pane-presentation sense of Promotion (Pane →
+  Tile) is a specific instance of this pattern at the workbench layer.
+* **Uphill rule** — any change initiated from a projection (host row, swatch,
+  graphlet view, specialty layout) routes uphill to the relevant authority
+  (graph, shell, workbench, runtime, history) and is presumed ephemeral until
+  that authority promotes it. Projection-local hover, scaffold selection,
+  viewport, expansion, and filter state remain projection-local; identity,
+  structure, arrangement, and durable state never do. See
+  `navigator/NAVIGATOR.md §4`.
+
 ## Tile Tree Architecture
 
 The layout system is built on `egui_tiles`, but the Tile Tree is a **Workbench** structure rather than the whole application substrate. Not every visible surface is a tile.
@@ -107,14 +163,14 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
 
 * **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
 * **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
-* **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It hosts the Tile Tree (`Tree<TileKind>`), tracks frame ordering, and drives frame switching/render. Graph-scoped Navigator hosts may name active graph/view targets one UI level above workbench hosting, while workbench-scoped Navigator hosts may project arrangement chrome and focused-pane status. Actionable viewer controls remain tile-local when a pane is presented as a tiled workbench citizen. The workbench is a contextual presentation layer, not the semantic owner of nodes, graphlets, or `GraphViewId`.
+* **Workbench**: A graph-bound arrangement container paired to one complete graph dataset (`GraphId`). It hosts a Tile Tree (`Tree<TileKind>`) and owns tile/pane lifecycle within that tree. The workbench is a contextual presentation layer, not the semantic owner of nodes, graphlets, or `GraphViewId`. A workbench is composed *into* a Frame by the Shell; the workbench does not own frame composition or frame switching. Graph-scoped Navigator hosts may name active graph/view targets one UI level above workbench hosting; workbench-scoped Navigator hosts may project arrangement chrome and focused-pane status. Actionable viewer controls remain tile-local when a pane is presented as a tiled workbench citizen.
 * **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
-* **Frame**: A persisted branch/subtree of the Workbench Tile Tree that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for top-level working contexts within one Workbench.
-* **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
-    * `FrameLayout` — the `Tree<PersistedPaneTile>` shape
+* **Frame**: A Shell-owned working context that composes one or more Workbenches into a single arrangement and preserves their state as a unit. The trivial case is one Frame containing one Workbench; richer frames may contain multiple Workbenches (different `GraphId`s, side-by-side or split). Frame is the canonical runtime/UI term for top-level working contexts. Ownership: Shell composes/switches Frames; Workbench provides the per-graph tile tree inside a Frame; Graph backs frame membership through `ArrangementRelation` edges; Navigator projects the frametree as part of its Tree Spine bucket. Frames **project as frames** across graph, navigator, and workbench presentations.
+* **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Frame's composed Workbench layouts plus their content manifests. Serialized as `PersistedFrame`, which contains:
+    * `FrameLayout` — the `Tree<PersistedPaneTile>` shape for each composed workbench
     * `FrameManifest` — the pane-to-content mapping and member node UUIDs
     * `FrameMetadata` — timestamps for creation, update, last activation
-    Frame Snapshot is the canonical save/restore/storage term; Frame remains the primary runtime/UI container term.
+    Frame Snapshot is the canonical save/restore/storage term; Frame remains the primary runtime/UI container term. Save/restore is a Shell responsibility because Frame composition is Shell-owned.
 
 ### Pane Types
 
@@ -471,5 +527,7 @@ These terms have canonical meaning in graphshell and must be used precisely in c
 *   *DID / Decentralized Identifier* (Verse): Not used. Verse identity is an Ed25519 `NodeId` stored in the OS keychain. The `NodeId` is the DID equivalent — it is self-sovereign, portable, and derives both iroh and libp2p peer handles from a single keypair. Formal DID method integration is deferred.
 *   *MagneticZone*: Legacy alias for the frame affinity backdrop on the canvas. Replaced by the `ArrangementRelation` / `frame-member` model. A frame node's attractive force is governed by `FamilyPhysicsPolicy.arrangement_weight`, not a separate zone primitive. Multiple frame memberships are allowed (a node can carry `frame-member` edges to multiple frames). The visual backdrop rendering is an implementation detail of the canvas, not a separate data concept. See `canvas/2026-03-14_graph_relation_families.md §2.4`.
 *   *FileTree*: Legacy pane mode name. Redistributed: the All-nodes projection maps to **Navigator** (all-nodes section), saved view collections map to **ArrangementRelation** saved frames, and filesystem hierarchy maps to **ContainmentRelation** / `filesystem` sub-kind. The `FileTree` UI remains operational until Navigator sections are validated.
+*   *Recent section / Frames section / Graph section / Relations section / Import Records section* (Navigator): Replaced by the three **Presentation Buckets** — **Tree Spine** (frametree, containment lenses, traversal hierarchy), **Swatches** (graph and relation projections as scoped canvas instances), **Activity Log** (recency, lifecycle events, import events). The five-section list was a flat catalog; the bucket model names the presentation shape. Specific named projections still exist as recipes that land in one of the three buckets. See `navigator/NAVIGATOR.md §8`.
+*   *Workbench-owned Frame*: Frame ownership moved to **Shell**. Frames compose one or more Workbenches into a working context; the Workbench owns its tile tree but not Frame composition or Frame switching. The legacy spec text "a persisted branch/subtree of the Workbench Tile Tree" was workbench-internal phrasing; Frame is now top-level Shell-owned and may scope a single workbench (the trivial case) or multiple workbenches. See `shell/SHELL.md §3` and `workbench/WORKBENCH.md §2`.
 
 <!-- markdownlint-enable MD030 MD007 -->
