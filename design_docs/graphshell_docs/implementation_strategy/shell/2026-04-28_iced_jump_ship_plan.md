@@ -4,11 +4,11 @@
 
 # Iced Jump-Ship Plan (2026-04-28)
 
-**Status**: Active — supersedes the
+**Status**: Paused — deferred in favor of GPUI research. Initially supersedes the
 [2026-04-28 egui_tiles retirement plan](2026-04-28_egui_tiles_retirement_plan.md)
 and re-frames the host-migration target in
 [2026-04-14 iced host migration plan](2026-04-14_iced_host_migration_execution_plan.md).
-**Lane**: Jump ship from egui to iced. Egui treated as broken, not
+**Lane**: Jump ship from egui to iced (paused). Egui treated as broken, not
 preserved. Iced built to a refined UX target, not to egui parity.
 
 **Related**:

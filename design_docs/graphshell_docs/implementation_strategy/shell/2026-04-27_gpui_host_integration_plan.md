@@ -6,6 +6,7 @@ for the long-run host choice. iced remains the active implementation target
 until the milestone gate below is met.
 
 Related research:
+[`2026-04-29_gpui_research_lanes.md`](2026-04-29_gpui_research_lanes.md) (Task checklist and lanes),
 [`../../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md`](../../research/2026-04-10_ui_framework_alternatives_and_graph_tree_discovery.md),
 [`../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md`](../../research/2026-04-24_iced_renderer_boot_and_isolation_model.md),
 [`../../technical_architecture/2026-04-20_graphshell_gpu_spec.md`](../../technical_architecture/2026-04-20_graphshell_gpu_spec.md).
