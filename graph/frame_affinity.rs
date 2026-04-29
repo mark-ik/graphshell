@@ -18,7 +18,8 @@
 
 use std::collections::HashMap;
 
-use egui::{Color32, Pos2, Vec2};
+use graph_canvas::packet::Color;
+use graphshell_core::geometry::PortablePoint;
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 
@@ -46,11 +47,11 @@ pub(crate) struct FrameAffinityRegion {
     /// Member nodes belonging to this frame.
     pub(crate) members: Vec<NodeKey>,
     /// Centroid of member positions in graph space.
-    pub(crate) centroid: Pos2,
+    pub(crate) centroid: PortablePoint,
     /// Force magnitude for this region (arrangement_weight × region-specific factor).
     pub(crate) strength: f32,
     /// Stable per-frame color derived from the anchor key index.
-    pub(crate) color: Color32,
+    pub(crate) color: Color,
 }
 
 /// Derive all `FrameAffinityRegion`s from `ArrangementRelation(FrameMember)` edges.
@@ -82,13 +83,9 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
         .filter(|(_, members)| members.len() >= MIN_FRAME_MEMBER_COUNT)
         .enumerate()
         .filter_map(|(idx, (anchor, members))| {
-            let positions: Vec<Pos2> = members
+            let positions: Vec<PortablePoint> = members
                 .iter()
-                .filter_map(|&m| {
-                    graph
-                        .node_projected_position(m)
-                        .map(|p| Pos2::new(p.x, p.y))
-                })
+                .filter_map(|&m| graph.node_projected_position(m))
                 .collect();
 
             if positions.is_empty() {
@@ -96,10 +93,11 @@ pub(crate) fn derive_frame_affinity_regions(graph: &Graph) -> Vec<FrameAffinityR
             }
 
             let centroid = {
-                let sum = positions
-                    .iter()
-                    .fold(Vec2::ZERO, |acc, &p| acc + p.to_vec2());
-                Pos2::new(
+                let sum = positions.iter().fold(
+                    graphshell_core::geometry::PortableVector::new(0.0, 0.0),
+                    |acc, &p| acc + p.to_vector(),
+                );
+                PortablePoint::new(
                     sum.x / positions.len() as f32,
                     sum.y / positions.len() as f32,
                 )
@@ -161,17 +159,17 @@ pub(crate) fn apply_frame_affinity_forces(
 ///
 /// Uses a small fixed palette — sufficient for the first slice.  Per-frame
 /// stable identity colors (keyed by `FrameId`) are future work.
-fn stable_frame_color(index: usize) -> Color32 {
+fn stable_frame_color(index: usize) -> Color {
     // Distinct, muted hues suitable for semi-transparent backdrops
-    const PALETTE: &[Color32] = &[
-        Color32::from_rgb(100, 150, 240), // muted blue
-        Color32::from_rgb(240, 140, 80),  // muted orange
-        Color32::from_rgb(100, 200, 130), // muted green
-        Color32::from_rgb(200, 100, 200), // muted purple
-        Color32::from_rgb(200, 190, 80),  // muted yellow
-        Color32::from_rgb(100, 200, 210), // muted teal
-        Color32::from_rgb(210, 100, 120), // muted red
-        Color32::from_rgb(180, 150, 100), // muted brown
+    const PALETTE: &[Color] = &[
+        Color::new(100.0 / 255.0, 150.0 / 255.0, 240.0 / 255.0, 1.0), // muted blue
+        Color::new(240.0 / 255.0, 140.0 / 255.0, 80.0 / 255.0, 1.0),  // muted orange
+        Color::new(100.0 / 255.0, 200.0 / 255.0, 130.0 / 255.0, 1.0), // muted green
+        Color::new(200.0 / 255.0, 100.0 / 255.0, 200.0 / 255.0, 1.0), // muted purple
+        Color::new(200.0 / 255.0, 190.0 / 255.0, 80.0 / 255.0, 1.0),  // muted yellow
+        Color::new(100.0 / 255.0, 200.0 / 255.0, 210.0 / 255.0, 1.0), // muted teal
+        Color::new(210.0 / 255.0, 100.0 / 255.0, 120.0 / 255.0, 1.0), // muted red
+        Color::new(180.0 / 255.0, 150.0 / 255.0, 100.0 / 255.0, 1.0), // muted brown
     ];
     PALETTE[index % PALETTE.len()]
 }

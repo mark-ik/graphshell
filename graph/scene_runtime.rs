@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::app::{GraphBrowserApp, GraphViewId, SceneMode};
 use crate::graph::NodeKey;
 use crate::graph::physics::apply_position_deltas;
-use crate::util::CoordBridge;
+use graphshell_core::geometry::{PortablePoint, PortableRect, PortableVector};
 use parry2d::math::Pose;
 use parry2d::query::intersection_test;
 use parry2d::shape::Ball;
@@ -67,13 +67,13 @@ pub(crate) struct SceneRegionDragState {
     pub(crate) view_id: GraphViewId,
     pub(crate) region_id: SceneRegionId,
     pub(crate) mode: SceneRegionDragMode,
-    pub(crate) last_pointer_canvas_pos: egui::Pos2,
+    pub(crate) last_pointer_canvas_pos: PortablePoint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SceneRegionShape {
-    Circle { center: egui::Pos2, radius: f32 },
-    Rect { rect: egui::Rect },
+    Circle { center: PortablePoint, radius: f32 },
+    Rect { rect: PortableRect },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,7 +94,7 @@ pub(crate) struct SceneRegionRuntime {
 }
 
 impl SceneRegionRuntime {
-    pub(crate) fn circle(center: egui::Pos2, radius: f32, effect: SceneRegionEffect) -> Self {
+    pub(crate) fn circle(center: PortablePoint, radius: f32, effect: SceneRegionEffect) -> Self {
         Self {
             id: SceneRegionId::new(),
             label: None,
@@ -104,7 +104,7 @@ impl SceneRegionRuntime {
         }
     }
 
-    pub(crate) fn rect(rect: egui::Rect, effect: SceneRegionEffect) -> Self {
+    pub(crate) fn rect(rect: PortableRect, effect: SceneRegionEffect) -> Self {
         Self {
             id: SceneRegionId::new(),
             label: None,
@@ -155,7 +155,7 @@ impl Default for SceneCollisionPolicy {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct GraphViewSceneRuntime {
     pub(crate) regions: Vec<SceneRegionRuntime>,
-    pub(crate) bounds_override: Option<egui::Rect>,
+    pub(crate) bounds_override: Option<PortableRect>,
 }
 
 pub(crate) fn apply_scene_runtime_pass(
@@ -233,11 +233,11 @@ fn apply_simulate_release_impulses(app: &mut GraphBrowserApp, view_id: GraphView
     };
 
     let frame_scale = (remaining_frames as f32 / 10.0).clamp(0.1, 1.0);
-    let deltas: HashMap<NodeKey, egui::Vec2> = impulses
+    let deltas: HashMap<NodeKey, PortableVector> = impulses
         .iter()
         .filter_map(|(key, impulse)| {
             let delta = *impulse * frame_scale * motion_profile.release_impulse_scale;
-            (delta.length_sq() > f32::EPSILON).then_some((*key, delta))
+            (delta.square_length() > f32::EPSILON).then_some((*key, delta))
         })
         .collect();
     apply_position_deltas(app, deltas);
@@ -269,7 +269,7 @@ fn apply_node_separation(app: &mut GraphBrowserApp, padding: f32) {
         return;
     }
 
-    let mut positions: HashMap<NodeKey, egui::Pos2> =
+    let mut positions: HashMap<NodeKey, PortablePoint> =
         nodes.iter().map(|node| (node.key, node.position)).collect();
     let radii: HashMap<NodeKey, f32> = nodes.iter().map(|node| (node.key, node.radius)).collect();
     let pinned: HashMap<NodeKey, bool> = nodes.iter().map(|node| (node.key, node.pinned)).collect();
@@ -301,7 +301,7 @@ fn apply_node_separation(app: &mut GraphBrowserApp, padding: f32) {
                 let normal = if distance > f32::EPSILON {
                     delta / distance
                 } else {
-                    egui::vec2(1.0, 0.0)
+                    PortableVector::new(1.0, 0.0)
                 };
                 let overlap = (min_distance - distance).max(0.0) + 0.5;
                 if overlap <= f32::EPSILON {
@@ -333,12 +333,12 @@ fn apply_node_separation(app: &mut GraphBrowserApp, padding: f32) {
         }
     }
 
-    let deltas: HashMap<NodeKey, egui::Vec2> = nodes
+    let deltas: HashMap<NodeKey, PortableVector> = nodes
         .iter()
         .filter_map(|node| {
             let next = positions.get(&node.key).copied()?;
             let delta = next - node.position;
-            (delta.length_sq() > f32::EPSILON).then_some((node.key, delta))
+            (delta.square_length() > f32::EPSILON).then_some((node.key, delta))
         })
         .collect();
     apply_position_deltas(app, deltas);
@@ -346,7 +346,7 @@ fn apply_node_separation(app: &mut GraphBrowserApp, padding: f32) {
 
 fn apply_viewport_containment(
     app: &mut GraphBrowserApp,
-    bounds: egui::Rect,
+    bounds: PortableRect,
     padding: f32,
     response_scale: f32,
 ) {
@@ -356,20 +356,20 @@ fn apply_viewport_containment(
             continue;
         }
         let inset = node.radius + padding;
-        if bounds.width() <= inset * 2.0 || bounds.height() <= inset * 2.0 {
+        if rect_width(bounds) <= inset * 2.0 || rect_height(bounds) <= inset * 2.0 {
             continue;
         }
 
-        let clamped = egui::Pos2::new(
+        let clamped = PortablePoint::new(
             node.position
                 .x
-                .clamp(bounds.left() + inset, bounds.right() - inset),
+                .clamp(rect_left(bounds) + inset, rect_right(bounds) - inset),
             node.position
                 .y
-                .clamp(bounds.top() + inset, bounds.bottom() - inset),
+                .clamp(rect_top(bounds) + inset, rect_bottom(bounds) - inset),
         );
         let delta = (clamped - node.position) * response_scale.max(0.0);
-        if delta.length_sq() > f32::EPSILON {
+        if delta.square_length() > f32::EPSILON {
             deltas.insert(node.key, delta);
         }
     }
@@ -388,12 +388,12 @@ fn apply_region_effects(
         return;
     }
 
-    let mut deltas: HashMap<NodeKey, egui::Vec2> = HashMap::new();
+    let mut deltas: HashMap<NodeKey, PortableVector> = HashMap::new();
     for node in nodes {
         if node.pinned {
             continue;
         }
-        let mut delta = egui::Vec2::ZERO;
+        let mut delta = zero_vector();
         for region in regions {
             if !region.visible {
                 continue;
@@ -406,9 +406,9 @@ fn apply_region_effects(
             ) * effect_scale;
         }
         if delta.length() > MAX_REGION_DELTA_PER_PASS {
-            delta = delta.normalized() * MAX_REGION_DELTA_PER_PASS;
+            delta = delta.normalize() * MAX_REGION_DELTA_PER_PASS;
         }
-        if delta.length_sq() > f32::EPSILON {
+        if delta.square_length() > f32::EPSILON {
             deltas.insert(node.key, delta);
         }
     }
@@ -417,33 +417,33 @@ fn apply_region_effects(
 
 fn region_delta_for_node(
     region: &SceneRegionRuntime,
-    position: egui::Pos2,
+    position: PortablePoint,
     padded_radius: f32,
     containment_response_scale: f32,
-) -> egui::Vec2 {
+) -> PortableVector {
     match region.effect {
         SceneRegionEffect::Attractor { strength } => {
             if !shape_contains(region.shape, position) {
-                return egui::Vec2::ZERO;
+                return zero_vector();
             }
             let center = shape_center(region.shape);
             (center - position) * strength
         }
         SceneRegionEffect::Repulsor { strength } => {
             if !shape_contains(region.shape, position) {
-                return egui::Vec2::ZERO;
+                return zero_vector();
             }
             let center = shape_center(region.shape);
             let away = position - center;
-            if away.length_sq() <= f32::EPSILON {
-                egui::vec2(strength.max(1.0), 0.0)
+            if away.square_length() <= f32::EPSILON {
+                PortableVector::new(strength.max(1.0), 0.0)
             } else {
-                away.normalized() * strength
+                away.normalize() * strength
             }
         }
         SceneRegionEffect::Dampener { factor } => {
             if !shape_contains(region.shape, position) {
-                return egui::Vec2::ZERO;
+                return zero_vector();
             }
             let center = shape_center(region.shape);
             (center - position) * -(factor.abs() * 0.1)
@@ -456,73 +456,73 @@ fn region_delta_for_node(
 
 fn wall_pushout_delta(
     shape: SceneRegionShape,
-    position: egui::Pos2,
+    position: PortablePoint,
     padded_radius: f32,
-) -> egui::Vec2 {
+) -> PortableVector {
     match shape {
         SceneRegionShape::Circle { center, radius } => {
             let delta = position - center;
             let distance = delta.length();
             let min_distance = radius + padded_radius;
             if distance >= min_distance {
-                return egui::Vec2::ZERO;
+                return zero_vector();
             }
             let normal = if distance > f32::EPSILON {
                 delta / distance
             } else {
-                egui::vec2(1.0, 0.0)
+                PortableVector::new(1.0, 0.0)
             };
             normal * (min_distance - distance)
         }
         SceneRegionShape::Rect { rect } => {
-            if !rect.expand(padded_radius).contains(position) {
-                return egui::Vec2::ZERO;
+            if !expanded_rect_contains(rect, padded_radius, position) {
+                return zero_vector();
             }
-            let left = position.x - rect.left();
-            let right = rect.right() - position.x;
-            let top = position.y - rect.top();
-            let bottom = rect.bottom() - position.y;
+            let left = position.x - rect_left(rect);
+            let right = rect_right(rect) - position.x;
+            let top = position.y - rect_top(rect);
+            let bottom = rect_bottom(rect) - position.y;
             let min_side = left.min(right).min(top).min(bottom);
             if (min_side - left).abs() <= f32::EPSILON {
-                egui::vec2(-(left + padded_radius), 0.0)
+                PortableVector::new(-(left + padded_radius), 0.0)
             } else if (min_side - right).abs() <= f32::EPSILON {
-                egui::vec2(right + padded_radius, 0.0)
+                PortableVector::new(right + padded_radius, 0.0)
             } else if (min_side - top).abs() <= f32::EPSILON {
-                egui::vec2(0.0, -(top + padded_radius))
+                PortableVector::new(0.0, -(top + padded_radius))
             } else {
-                egui::vec2(0.0, bottom + padded_radius)
+                PortableVector::new(0.0, bottom + padded_radius)
             }
         }
     }
 }
 
-fn shape_center(shape: SceneRegionShape) -> egui::Pos2 {
+fn shape_center(shape: SceneRegionShape) -> PortablePoint {
     match shape {
         SceneRegionShape::Circle { center, .. } => center,
-        SceneRegionShape::Rect { rect } => rect.center(),
+        SceneRegionShape::Rect { rect } => rect_center(rect),
     }
 }
 
-pub(crate) fn shape_contains(shape: SceneRegionShape, position: egui::Pos2) -> bool {
+pub(crate) fn shape_contains(shape: SceneRegionShape, position: PortablePoint) -> bool {
     match shape {
         SceneRegionShape::Circle { center, radius } => (position - center).length() <= radius,
         SceneRegionShape::Rect { rect } => rect.contains(position),
     }
 }
 
-pub(crate) fn translate_region(region: &mut SceneRegionRuntime, delta: egui::Vec2) {
+pub(crate) fn translate_region(region: &mut SceneRegionRuntime, delta: PortableVector) {
     region.shape = translate_shape(region.shape, delta);
 }
 
 pub(crate) fn resize_region_to_pointer(
     region: &mut SceneRegionRuntime,
     handle: SceneRegionResizeHandle,
-    pointer_canvas_pos: egui::Pos2,
+    pointer_canvas_pos: PortablePoint,
 ) {
     region.shape = resize_shape_to_pointer(region.shape, handle, pointer_canvas_pos);
 }
 
-pub(crate) fn translate_shape(shape: SceneRegionShape, delta: egui::Vec2) -> SceneRegionShape {
+pub(crate) fn translate_shape(shape: SceneRegionShape, delta: PortableVector) -> SceneRegionShape {
     match shape {
         SceneRegionShape::Circle { center, radius } => SceneRegionShape::Circle {
             center: center + delta,
@@ -537,7 +537,7 @@ pub(crate) fn translate_shape(shape: SceneRegionShape, delta: egui::Vec2) -> Sce
 pub(crate) fn resize_shape_to_pointer(
     shape: SceneRegionShape,
     handle: SceneRegionResizeHandle,
-    pointer_canvas_pos: egui::Pos2,
+    pointer_canvas_pos: PortablePoint,
 ) -> SceneRegionShape {
     match (shape, handle) {
         (SceneRegionShape::Circle { center, .. }, SceneRegionResizeHandle::CircleRadius) => {
@@ -550,10 +550,10 @@ pub(crate) fn resize_shape_to_pointer(
         }
         (SceneRegionShape::Rect { rect }, handle) => {
             let (fixed, sign_x, sign_y) = match handle {
-                SceneRegionResizeHandle::RectTopLeft => (rect.right_bottom(), -1.0, -1.0),
-                SceneRegionResizeHandle::RectTopRight => (rect.left_bottom(), 1.0, -1.0),
-                SceneRegionResizeHandle::RectBottomLeft => (rect.right_top(), -1.0, 1.0),
-                SceneRegionResizeHandle::RectBottomRight => (rect.left_top(), 1.0, 1.0),
+                SceneRegionResizeHandle::RectTopLeft => (rect_right_bottom(rect), -1.0, -1.0),
+                SceneRegionResizeHandle::RectTopRight => (rect_left_bottom(rect), 1.0, -1.0),
+                SceneRegionResizeHandle::RectBottomLeft => (rect_right_top(rect), -1.0, 1.0),
+                SceneRegionResizeHandle::RectBottomRight => (rect_left_top(rect), 1.0, 1.0),
                 SceneRegionResizeHandle::CircleRadius => return SceneRegionShape::Rect { rect },
             };
             let mut moving = pointer_canvas_pos;
@@ -564,17 +564,89 @@ pub(crate) fn resize_shape_to_pointer(
                 moving.y = fixed.y + sign_y * MIN_SCENE_RECT_SIDE;
             }
             SceneRegionShape::Rect {
-                rect: egui::Rect::from_two_pos(fixed, moving),
+                rect: rect_from_two_points(fixed, moving),
             }
         }
         (shape, _) => shape,
     }
 }
 
+fn zero_vector() -> PortableVector {
+    PortableVector::new(0.0, 0.0)
+}
+
+fn rect_left(rect: PortableRect) -> f32 {
+    rect.origin.x
+}
+
+fn rect_top(rect: PortableRect) -> f32 {
+    rect.origin.y
+}
+
+fn rect_width(rect: PortableRect) -> f32 {
+    rect.size.width
+}
+
+fn rect_height(rect: PortableRect) -> f32 {
+    rect.size.height
+}
+
+fn rect_right(rect: PortableRect) -> f32 {
+    rect.origin.x + rect.size.width
+}
+
+fn rect_bottom(rect: PortableRect) -> f32 {
+    rect.origin.y + rect.size.height
+}
+
+fn rect_left_top(rect: PortableRect) -> PortablePoint {
+    PortablePoint::new(rect_left(rect), rect_top(rect))
+}
+
+fn rect_right_top(rect: PortableRect) -> PortablePoint {
+    PortablePoint::new(rect_right(rect), rect_top(rect))
+}
+
+fn rect_left_bottom(rect: PortableRect) -> PortablePoint {
+    PortablePoint::new(rect_left(rect), rect_bottom(rect))
+}
+
+fn rect_right_bottom(rect: PortableRect) -> PortablePoint {
+    PortablePoint::new(rect_right(rect), rect_bottom(rect))
+}
+
+fn rect_center(rect: PortableRect) -> PortablePoint {
+    PortablePoint::new(
+        rect_left(rect) + rect_width(rect) * 0.5,
+        rect_top(rect) + rect_height(rect) * 0.5,
+    )
+}
+
+fn rect_from_min_max(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> PortableRect {
+    PortableRect::new(
+        PortablePoint::new(min_x, min_y),
+        graphshell_core::geometry::PortableSize::new(
+            (max_x - min_x).max(0.0),
+            (max_y - min_y).max(0.0),
+        ),
+    )
+}
+
+fn rect_from_two_points(a: PortablePoint, b: PortablePoint) -> PortableRect {
+    rect_from_min_max(a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y))
+}
+
+fn expanded_rect_contains(rect: PortableRect, amount: f32, point: PortablePoint) -> bool {
+    point.x >= rect_left(rect) - amount
+        && point.x <= rect_right(rect) + amount
+        && point.y >= rect_top(rect) - amount
+        && point.y <= rect_bottom(rect) + amount
+}
+
 #[derive(Debug, Clone, Copy)]
 struct NodeSnapshot {
     key: NodeKey,
-    position: egui::Pos2,
+    position: PortablePoint,
     radius: f32,
     pinned: bool,
 }
@@ -583,7 +655,7 @@ fn movable_node_snapshots(app: &GraphBrowserApp) -> Vec<NodeSnapshot> {
     app.domain_graph()
         .nodes()
         .filter_map(|(key, node)| {
-            let position = app.domain_graph().node_projected_position(key)?.to_pos2();
+            let position = app.domain_graph().node_projected_position(key)?;
             Some(NodeSnapshot {
                 key,
                 position,
@@ -611,6 +683,10 @@ mod tests {
     use super::*;
     use crate::registries::atomic::lens::PhysicsProfile;
     use euclid::default::Point2D;
+
+    fn test_rect(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> PortableRect {
+        rect_from_min_max(min_x, min_y, max_x, max_y)
+    }
 
     #[test]
     fn node_separation_moves_overlapping_nodes_apart() {
@@ -665,10 +741,10 @@ mod tests {
         let view_id = GraphViewId::new();
         let node =
             app.add_node_and_sync("https://outside.example".into(), Point2D::new(200.0, 200.0));
-        app.workspace.graph_runtime.graph_view_canvas_rects.insert(
-            view_id,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
-        );
+        app.workspace
+            .graph_runtime
+            .graph_view_canvas_rects
+            .insert(view_id, test_rect(0.0, 0.0, 100.0, 100.0));
 
         apply_scene_runtime_pass(
             &mut app,
@@ -689,7 +765,7 @@ mod tests {
 
     #[test]
     fn lower_containment_response_leaves_more_drift_after_one_pass() {
-        let bounds = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let bounds = test_rect(0.0, 0.0, 100.0, 100.0);
 
         let mut loose_app = GraphBrowserApp::new_for_testing();
         let loose_view = GraphViewId::new();
@@ -754,7 +830,7 @@ mod tests {
             view_id,
             GraphViewSceneRuntime {
                 regions: vec![SceneRegionRuntime::rect(
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+                    test_rect(0.0, 0.0, 100.0, 100.0),
                     SceneRegionEffect::Attractor { strength: 0.2 },
                 )],
                 bounds_override: None,
@@ -777,7 +853,7 @@ mod tests {
             view_id,
             GraphViewSceneRuntime {
                 regions: vec![SceneRegionRuntime::rect(
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+                    test_rect(0.0, 0.0, 100.0, 100.0),
                     SceneRegionEffect::Repulsor { strength: 6.0 },
                 )],
                 bounds_override: None,
@@ -800,7 +876,7 @@ mod tests {
             view_id,
             GraphViewSceneRuntime {
                 regions: vec![SceneRegionRuntime::rect(
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+                    test_rect(0.0, 0.0, 100.0, 100.0),
                     SceneRegionEffect::Attractor { strength: 0.2 },
                 )],
                 bounds_override: None,
@@ -823,10 +899,8 @@ mod tests {
 
     #[test]
     fn wall_regions_respect_containment_response_scale() {
-        let wall = SceneRegionRuntime::rect(
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
-            SceneRegionEffect::Wall,
-        );
+        let wall =
+            SceneRegionRuntime::rect(test_rect(0.0, 0.0, 100.0, 100.0), SceneRegionEffect::Wall);
 
         let mut loose_app = GraphBrowserApp::new_for_testing();
         let loose_view = GraphViewId::new();
@@ -893,7 +967,10 @@ mod tests {
         app.workspace
             .graph_runtime
             .simulate_release_impulses
-            .insert(view_id, HashMap::from([(node, egui::vec2(10.0, 0.0))]));
+            .insert(
+                view_id,
+                HashMap::from([(node, PortableVector::new(10.0, 0.0))]),
+            );
 
         apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
 
@@ -930,7 +1007,7 @@ mod tests {
             .simulate_release_impulses
             .insert(
                 float_view,
-                HashMap::from([(float_node, egui::vec2(10.0, 0.0))]),
+                HashMap::from([(float_node, PortableVector::new(10.0, 0.0))]),
             );
         apply_scene_runtime_pass(&mut float_app, float_view, SceneCollisionPolicy::default());
         let float_after = float_app
@@ -955,7 +1032,7 @@ mod tests {
             .simulate_release_impulses
             .insert(
                 packed_view,
-                HashMap::from([(packed_node, egui::vec2(10.0, 0.0))]),
+                HashMap::from([(packed_node, PortableVector::new(10.0, 0.0))]),
             );
         apply_scene_runtime_pass(
             &mut packed_app,
@@ -979,7 +1056,10 @@ mod tests {
         app.workspace
             .graph_runtime
             .simulate_release_impulses
-            .insert(view_id, HashMap::from([(node, egui::vec2(10.0, 0.0))]));
+            .insert(
+                view_id,
+                HashMap::from([(node, PortableVector::new(10.0, 0.0))]),
+            );
 
         apply_scene_runtime_pass(&mut app, view_id, SceneCollisionPolicy::default());
 
@@ -1003,7 +1083,7 @@ mod tests {
             source_view,
             GraphViewSceneRuntime {
                 regions: vec![SceneRegionRuntime::rect(
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0)),
+                    test_rect(0.0, 0.0, 100.0, 100.0),
                     SceneRegionEffect::Attractor { strength: 0.2 },
                 )],
                 bounds_override: None,
@@ -1020,15 +1100,15 @@ mod tests {
     fn translate_shape_moves_circle_center_without_changing_radius() {
         let translated = translate_shape(
             SceneRegionShape::Circle {
-                center: egui::pos2(10.0, 20.0),
+                center: PortablePoint::new(10.0, 20.0),
                 radius: 40.0,
             },
-            egui::vec2(5.0, -3.0),
+            PortableVector::new(5.0, -3.0),
         );
         assert_eq!(
             translated,
             SceneRegionShape::Circle {
-                center: egui::pos2(15.0, 17.0),
+                center: PortablePoint::new(15.0, 17.0),
                 radius: 40.0,
             }
         );
@@ -1038,14 +1118,14 @@ mod tests {
     fn translate_shape_moves_rect_bounds() {
         let translated = translate_shape(
             SceneRegionShape::Rect {
-                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 20.0)),
+                rect: test_rect(0.0, 0.0, 10.0, 20.0),
             },
-            egui::vec2(3.0, 4.0),
+            PortableVector::new(3.0, 4.0),
         );
         assert_eq!(
             translated,
             SceneRegionShape::Rect {
-                rect: egui::Rect::from_min_max(egui::pos2(3.0, 4.0), egui::pos2(13.0, 24.0)),
+                rect: test_rect(3.0, 4.0, 13.0, 24.0),
             }
         );
     }
@@ -1054,16 +1134,16 @@ mod tests {
     fn resize_shape_updates_circle_radius_from_pointer_distance() {
         let resized = resize_shape_to_pointer(
             SceneRegionShape::Circle {
-                center: egui::pos2(10.0, 10.0),
+                center: PortablePoint::new(10.0, 10.0),
                 radius: 30.0,
             },
             SceneRegionResizeHandle::CircleRadius,
-            egui::pos2(70.0, 10.0),
+            PortablePoint::new(70.0, 10.0),
         );
         assert_eq!(
             resized,
             SceneRegionShape::Circle {
-                center: egui::pos2(10.0, 10.0),
+                center: PortablePoint::new(10.0, 10.0),
                 radius: 60.0,
             }
         );
@@ -1073,15 +1153,15 @@ mod tests {
     fn resize_shape_updates_rect_from_dragged_corner() {
         let resized = resize_shape_to_pointer(
             SceneRegionShape::Rect {
-                rect: egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(100.0, 120.0)),
+                rect: test_rect(10.0, 20.0, 100.0, 120.0),
             },
             SceneRegionResizeHandle::RectTopLeft,
-            egui::pos2(0.0, 10.0),
+            PortablePoint::new(0.0, 10.0),
         );
         assert_eq!(
             resized,
             SceneRegionShape::Rect {
-                rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 120.0)),
+                rect: test_rect(0.0, 10.0, 100.0, 120.0),
             }
         );
     }

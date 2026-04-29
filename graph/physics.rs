@@ -135,14 +135,7 @@ fn semantic_similarity_map(
 }
 
 fn apply_canvas_deltas(app: &mut GraphBrowserApp, deltas: HashMap<NodeKey, Vector2D<f32>>) {
-    if deltas.is_empty() {
-        return;
-    }
-    let egui_deltas: HashMap<NodeKey, egui::Vec2> = deltas
-        .into_iter()
-        .map(|(key, d)| (key, egui::Vec2::new(d.x, d.y)))
-        .collect();
-    apply_position_deltas(app, egui_deltas);
+    apply_position_deltas(app, deltas);
 }
 
 fn pinned_set(app: &GraphBrowserApp) -> std::collections::HashSet<NodeKey> {
@@ -298,7 +291,7 @@ pub(crate) fn apply_graph_physics_extensions(
 
 pub(crate) fn apply_position_deltas(
     app: &mut GraphBrowserApp,
-    position_deltas: HashMap<NodeKey, egui::Vec2>,
+    position_deltas: HashMap<NodeKey, Vector2D<f32>>,
 ) {
     if position_deltas.is_empty() {
         return;
@@ -309,8 +302,7 @@ pub(crate) fn apply_position_deltas(
             && !node.is_pinned
             && let Some(position) = app.domain_graph().node_projected_position(*key)
         {
-            let next_pos =
-                euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
+            let next_pos = Point2D::new(position.x + delta.x, position.y + delta.y);
             let _ = app
                 .domain_graph_mut()
                 .set_node_projected_position(*key, next_pos);

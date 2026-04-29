@@ -7820,6 +7820,7 @@ fn workbench_pane_selection_update_modes_track_primary_pane() {
     assert_eq!(app.workbench_tile_selection().primary_pane_id, Some(pane_a));
 }
 
+#[cfg(feature = "egui-host")]
 #[test]
 fn prune_workbench_pane_selection_discards_stale_pane_ids() {
     let mut app = GraphBrowserApp::new_for_testing();

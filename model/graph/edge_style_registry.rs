@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use egui::Color32;
+use crate::shell::desktop::runtime::registries::theme::Color32;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -462,9 +462,7 @@ impl EdgeStyleRegistry {
             width: (family_token.width + kind_token.width_delta).max(0.6),
             pattern: kind_token.pattern_override.unwrap_or(family_token.pattern),
             opacity: match key {
-                EdgeStyleKey::AgentDerived => {
-                    egui::lerp(0.55..=0.15, decay_progress.clamp(0.0, 1.0))
-                }
+                EdgeStyleKey::AgentDerived => lerp(0.55, 0.15, decay_progress.clamp(0.0, 1.0)),
                 _ => {
                     (family_token.opacity * kind_token.opacity_multiplier.max(0.0)).clamp(0.0, 1.0)
                 }
@@ -568,6 +566,10 @@ pub(crate) fn validate_theme_edge_tokens(
 fn edge_family_luminance(token: ThemeEdgeFamilyToken) -> f32 {
     let [r, g, b, _] = token.color.to_array();
     0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b)
+}
+
+fn lerp(start: f32, end: f32, t: f32) -> f32 {
+    start + (end - start) * t
 }
 
 fn monochrome_value(key: EdgeStyleKey) -> u8 {
