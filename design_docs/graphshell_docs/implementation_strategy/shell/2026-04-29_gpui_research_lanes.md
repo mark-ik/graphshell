@@ -87,8 +87,13 @@ Create a tiny throwaway crate or example, probably something like:
 - one root shell view;
 - one host-owned model;
 - one command/action;
-- one custom canvas element;
-- one fake Navigator/content rectangle;
+- one custom canvas element (the "main graph canvas" stand-in);
+- **N small graph-canvas swatch instances** (target N=8–16) sharing the same
+  custom-element implementation as the main canvas, each with independent
+  focus, hover, selection scaffold, and viewport state — Navigator hosts
+  must be able to embed many of these without each becoming a special case;
+- one fake Navigator/content rectangle hosting the swatches with a
+  virtualized list or grid;
 - one simulated external texture placeholder;
 - one command palette or palette-like interaction.
 
@@ -112,10 +117,19 @@ Create a tiny throwaway crate or example, probably something like:
 - clarity of command routing;
 - focus handling;
 - async/cancellation ergonomics;
-- whether `graphshell-runtime`-style host-neutral contracts stay clean.
+- whether `graphshell-runtime`-style host-neutral contracts stay clean;
+- **multi-canvas hosting**: cost of running N swatch instances (CPU,
+  invalidation, redraw scope), whether focus and pointer events route
+  cleanly per-instance, whether per-swatch generation-based caching is
+  ergonomic, and whether virtualization (rendering only visible swatches)
+  is straightforward — this is the Navigator-as-graph-analysis-surface
+  test, not just a "can it draw a canvas" test.
 
 **Deliverable:**
-- a yes/no recommendation: “use `gpui-tea` for Stage A” or “go raw GPUI”.
+- a yes/no recommendation: "use `gpui-tea` for Stage A" or "go raw GPUI";
+- a separate pass/fail on multi-canvas hosting — if either GPUI line
+  cannot host N independent graph-canvas instances cleanly, that is a
+  blocker for the Navigator host model regardless of the Tea-vs-raw call.
 
 ---
 

@@ -42,6 +42,38 @@ distinct from the runtime-loaded guest layout work tracked in
 
 ---
 
+## Conceptual Model: Four Tiers
+
+Layout work in this lane separates four distinct concerns. Conflating them is
+how unrelated capabilities get bundled into one umbrella variant, and how
+"force-directed vs Rapier" gets miscast as a single-axis comparison.
+
+| Tier | Question answered | Examples |
+|------|-------------------|----------|
+| **Layout algorithm** | How are node positions computed or updated? | FR, Barnes-Hut, radial BFS, phyllotaxis spiral, Kanban column packing, timeline axis projection |
+| **Scene representation** | What entities and constraints exist before layout runs? | plain node-edge, axial (timeline / Kanban / UDC-depth), rigid-body + joint + collider (Rapier), containment / domain hierarchy, workbench frame-affinity |
+| **Simulation backend** | What advances the world over time, if anything? | none (analytic one-shot), Graphshell post-physics helpers, `rapier2d` world step, future persistent simulation |
+| **Render profile** | How is the resulting scene displayed? | main graph canvas, Navigator swatch instance, overview/atlas card, debug overlay |
+
+Force-directed is the default member of the algorithm tier with a trivial
+scene representation and no persistent simulation backend. Rapier is richer
+not because it computes positions differently, but because it brings a
+physical scene representation (bodies, joints, colliders, masses) and a
+persistent simulation backend (world stepping, momentum across frames). The
+admission bar in Feature Target 4 evaluates each tier independently: a
+candidate that only adds a new algorithm should not inherit a
+scene-representation budget, and a candidate that needs a new scene
+representation should be designed against the shared state carrier in
+`2026-04-03_layout_backend_state_ownership_plan.md` rather than each variant
+inventing its own.
+
+The render-profile tier matters for Navigator swatches: the same
+algorithm + scene + backend triple may render at full fidelity on the main
+canvas and at a compact, virtualized fidelity inside a Navigator swatch
+without becoming a separate "layout variant."
+
+---
+
 ## Non-Goals
 
 - replacing the upstream `egui_graphs` trait contract in this lane
