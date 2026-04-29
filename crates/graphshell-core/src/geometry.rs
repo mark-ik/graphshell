@@ -40,6 +40,10 @@ pub type PortablePoint = euclid::default::Point2D<f32>;
 /// represents a viewport or pane extent in host-viewport coordinates.
 pub type PortableSize = euclid::default::Size2D<f32>;
 
+/// Portable 2-D vector, `f32`-valued. Typically represents a layout or
+/// physics delta in graph/canvas coordinates.
+pub type PortableVector = euclid::default::Vector2D<f32>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,10 +62,7 @@ mod tests {
 
     #[test]
     fn rect_contains_point_inside_bounds() {
-        let r = PortableRect::new(
-            PortablePoint::new(0.0, 0.0),
-            PortableSize::new(100.0, 50.0),
-        );
+        let r = PortableRect::new(PortablePoint::new(0.0, 0.0), PortableSize::new(100.0, 50.0));
         assert!(r.contains(PortablePoint::new(50.0, 25.0)));
         assert!(!r.contains(PortablePoint::new(-1.0, 25.0)));
         assert!(!r.contains(PortablePoint::new(50.0, 51.0)));

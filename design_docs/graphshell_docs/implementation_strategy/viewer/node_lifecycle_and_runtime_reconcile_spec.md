@@ -119,7 +119,7 @@ Consistency invariants:
 
 - active node pane must not reference a tombstoned node,
 - reconcile must distinguish pane-rest collapse from node-lifecycle mutation based on graph citizenship,
-- lifecycle transition completion must leave pane state in a representable mode (`CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, `Placeholder`),
+- lifecycle transition completion must leave pane state in a representable mode (`CompositedTexture`, `NativeOverlay`, `EmbeddedHost`, `Placeholder`),
 - reconcile failures must set explicit blocked/degraded state, never silent no-op.
 
 Opening-mode / lifecycle invariant:

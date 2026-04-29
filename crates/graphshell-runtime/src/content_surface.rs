@@ -19,10 +19,10 @@
 /// What the compositor displays for a given node, parameterized over the
 /// host's texture-token type.
 ///
-/// - `ImportedWgpu(token)` — the GL framebuffer was imported into a host texture
-///   identified by `token`.
+/// - `ImportedWgpu(token)` — the content engine produced or imported a
+///   wgpu-compatible host texture identified by `token`.
 /// - `CallbackFallback` — a paint callback is registered for this pass (the
-///   named GL compat path).
+///   named legacy callback/GL-compat path).
 /// - `Placeholder` — no usable surface yet (loading, runtime not ready, or
 ///   lifecycle Cold).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

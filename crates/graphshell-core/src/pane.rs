@@ -10,7 +10,7 @@
 //!
 //! [`TileRenderMode`] classifies how a pane's viewer produces pixels
 //! — a composited offscreen texture (Servo), an OS-native overlay
-//! window (Wry), direct egui rendering, or a placeholder when the
+//! window (Wry), direct host rendering, or a placeholder when the
 //! viewer is unresolved. The runtime uses this to drive compositor
 //! routing decisions; hosts read it when selecting a surface backend.
 //!
@@ -78,19 +78,18 @@ impl std::fmt::Display for PaneId {
 ///   blit into the layout slot (Servo's standard path).
 /// - `NativeOverlay` → position an OS-native subwindow at the pane's
 ///   rect (Wry's path on platforms that prefer native viewports).
-/// - `EmbeddedEgui` → draw directly in the egui layer (used for
-///   fallback/placeholder viewers that don't need a separate surface).
+/// - `EmbeddedHost` → draw directly in the active host UI layer (used
+///   for fallback/placeholder viewers that don't need a separate surface).
 /// - `Placeholder` → nothing to render yet; the pane is reserved.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum TileRenderMode {
     /// Viewer renders to a Graphshell-owned composited texture (e.g. Servo).
     CompositedTexture,
     /// Viewer uses an OS-native overlay window (e.g. Wry).
     NativeOverlay,
-    /// Viewer renders directly into egui UI.
-    EmbeddedEgui,
+    /// Viewer renders directly into the active host UI.
+    #[serde(alias = "EmbeddedEgui")]
+    EmbeddedHost,
     /// Viewer is unavailable or unresolved for this pane.
     #[default]
     Placeholder,
@@ -154,10 +153,7 @@ mod tests {
     #[test]
     fn pane_id_display_uses_pane_prefix() {
         let pid = PaneId::from_uuid(uuid::uuid!("00000000-0000-0000-0000-000000000001"));
-        assert_eq!(
-            pid.to_string(),
-            "pane:00000000-0000-0000-0000-000000000001"
-        );
+        assert_eq!(pid.to_string(), "pane:00000000-0000-0000-0000-000000000001");
     }
 
     #[test]
@@ -202,7 +198,7 @@ mod tests {
         for (variant, expected) in [
             (TileRenderMode::CompositedTexture, "\"CompositedTexture\""),
             (TileRenderMode::NativeOverlay, "\"NativeOverlay\""),
-            (TileRenderMode::EmbeddedEgui, "\"EmbeddedEgui\""),
+            (TileRenderMode::EmbeddedHost, "\"EmbeddedHost\""),
             (TileRenderMode::Placeholder, "\"Placeholder\""),
         ] {
             let json = serde_json::to_string(&variant).unwrap();
@@ -210,5 +206,8 @@ mod tests {
             let back: TileRenderMode = serde_json::from_str(&json).unwrap();
             assert_eq!(back, variant);
         }
+
+        let legacy: TileRenderMode = serde_json::from_str("\"EmbeddedEgui\"").unwrap();
+        assert_eq!(legacy, TileRenderMode::EmbeddedHost);
     }
 }

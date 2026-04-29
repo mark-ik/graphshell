@@ -113,7 +113,7 @@ trait Viewer {
 
 ### 3.1 render_embedded
 
-Called every frame when the tile is in the viewport and the `TileRenderMode` is `EmbeddedEgui`.
+Called every frame when the tile is in the viewport and the `TileRenderMode` is `EmbeddedHost`.
 
 - Must not perform blocking I/O.
 - Must complete within the per-frame render budget (see `performance_contract_spec.md`).
@@ -123,7 +123,7 @@ Called every frame when the tile is in the viewport and the `TileRenderMode` is 
 
 Called after the Content Pass to synchronize any native overlay position/size with the tile rect. Only meaningful for `NativeOverlay` viewers.
 
-- For `EmbeddedEgui` and `CompositedTexture` viewers, this is a no-op.
+- For `EmbeddedHost` and `CompositedTexture` viewers, this is a no-op.
 - Must not emit `GraphSemanticEvent` — overlay sync is a pure positional operation.
 
 ### 3.3 is_overlay_mode
@@ -200,7 +200,7 @@ Rationale for extension-before-magic order: extension lookup is synchronous and 
 
 ## 6. Non-Web Viewer Types
 
-The following viewer backends are defined for non-HTTP content. Each is an `EmbeddedEgui` viewer unless noted.
+The following viewer backends are defined for non-HTTP content. Each is an `EmbeddedHost` viewer unless noted.
 
 | Viewer | MIME types handled | Feature flag | Notes |
 |--------|--------------------|--------------|-------|
@@ -213,7 +213,7 @@ The following viewer backends are defined for non-HTTP content. Each is an `Embe
 | `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in the clip-address family defined by the clipping spec; canonical clip namespace pending resolution |
 | `FallbackViewer` | anything unmatched | n/a | Placeholder surface; shows address, detected MIME, and "No viewer available" message |
 
-**Invariant**: All non-web viewers use `TileRenderMode::EmbeddedEgui`. No non-web viewer may use `NativeOverlay` or `CompositedTexture`.
+**Invariant**: All non-web viewers use `TileRenderMode::EmbeddedHost`. No non-web viewer may use `NativeOverlay` or `CompositedTexture`.
 
 ### 6.1 PlaintextViewer
 
@@ -342,10 +342,10 @@ The `graphshell-core` extraction plan (`2026-03-08_graphshell_core_extraction_pl
 | `AddressKind` enum | **Core** — graph data field | Dispatch hint must be cross-platform |
 | `address_kind: AddressKind` field | **Core** | Same as above |
 | `viewer_override: Option<ViewerId>` | **Core** | User preference stored in WAL; must survive sync |
-| `Viewer` trait | **Host only** — references `egui::Ui`, `AppPreferences` | egui is a desktop dep; WASM builds have no viewer runtime |
+| `Viewer` trait | **Host only** — references host UI types and `AppPreferences` | concrete host UI frameworks are desktop deps; WASM builds have no viewer runtime |
 | `ViewerRegistry` | **Host only** | Registry manages live viewer instances; desktop-only |
 | `FilePermissionGuard` | **Host only** | Filesystem access is a host capability |
-| `PlaintextViewer`, `ImageViewer`, etc. | **Host only** | egui widget code; desktop-only |
+| `PlaintextViewer`, `ImageViewer`, etc. | **Host only** | shell-host widget code; desktop-only |
 | `TextEditorViewer` / `editor-core` | `editor-core` = **WASM-clean**; surface module = **Host only** | See text editor plan §3 |
 
 The `Viewer` trait and all viewer implementations stay in the host crate. Only the node data fields (`mime_hint`, `address_kind`, `viewer_override`) migrate to core.

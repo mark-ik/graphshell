@@ -73,7 +73,7 @@ Graphshell currently reasons about these render modes:
 
 1. **CompositedTexture**
 2. **NativeOverlay**
-3. **EmbeddedEgui**
+3. **EmbeddedHost**
 4. **Placeholder**
 
 ### 2.2 Baseline viewer classes
@@ -154,7 +154,7 @@ Choose the correct viewer identity for the current content or internal route.
 
 Present the chosen viewer in a way that matches the active render mode.
 
-**Core rules**: `CompositedTexture` tiles may render overlays over content. `NativeOverlay` tiles move Graphshell affordances into host chrome or gutters when direct overlay is constrained. `EmbeddedEgui` tiles use normal embedded affordance paths. `Placeholder` tiles are explicit non-content surfaces, not silent failures.
+**Core rules**: `CompositedTexture` tiles may render overlays over content. `NativeOverlay` tiles move Graphshell affordances into host chrome or gutters when direct overlay is constrained. `EmbeddedHost` tiles use the active shell host's normal embedded affordance paths. `Placeholder` tiles are explicit non-content surfaces, not silent failures.
 
 **Overlay affordance policy by render mode**:
 
@@ -162,7 +162,7 @@ Present the chosen viewer in a way that matches the active render mode.
 |---|---|---|
 | `CompositedTexture` | Rect-stroke overlay rendered after content pass | Full overlay ring allowed over composited content |
 | `NativeOverlay` | Chrome-only markers rendered in host chrome/border/gutter regions | Do not draw full-rect overlay inside native content region |
-| `EmbeddedEgui` | Standard embedded rect-stroke overlay path | Uses normal embedded paint path |
+| `EmbeddedHost` | Standard embedded rect-stroke overlay path | Uses the active host's normal embedded paint path |
 | `Placeholder` | Standard embedded rect-stroke overlay path | Placeholder remains explicit, non-silent state |
 
 **Owner**: Graphshell compositor and viewer policy. Backend renderers implement the path chosen by policy.

@@ -91,9 +91,9 @@ impl ViewerSurfaceId {
 
 /// Pixel-space viewport descriptor used by [`HostSurfacePort`] content
 /// callbacks. Moved here from `shell::desktop::render_backend` so the
-/// trait signature is host-neutral. Coordinates follow the OpenGL
-/// convention (`from_bottom_px`) for compatibility with the existing
-/// glow-backed Servo path; iced consumers can ignore or convert.
+/// trait signature is host-neutral. The vertical origin is encoded as
+/// `from_bottom_px` because the legacy callback path still uses bottom-origin
+/// viewport math; hosts with top-origin painting can ignore or convert.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BackendViewportInPixels {
     pub left_px: i32,
