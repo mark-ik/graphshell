@@ -4,28 +4,76 @@
 
 # Iced Jump-Ship Plan (2026-04-28)
 
-**Status**: Paused — deferred in favor of GPUI research. Initially supersedes the
+**Status**: **Active (resumed 2026-04-29)**. GPUI research closed; learnings
+fold back into this plan via the §0 reconciliation note. Supersedes the
 [2026-04-28 egui_tiles retirement plan](2026-04-28_egui_tiles_retirement_plan.md)
 and re-frames the host-migration target in
 [2026-04-14 iced host migration plan](2026-04-14_iced_host_migration_execution_plan.md).
-**Lane**: Jump ship from egui to iced (paused). Egui treated as broken, not
+**Lane**: Jump ship from egui to iced. Egui treated as broken, not
 preserved. Iced built to a refined UX target, not to egui parity.
 
 **Related**:
 
-- [SHELL.md](SHELL.md) — five-domain model authority boundaries
+- [SHELL.md](SHELL.md) — five-domain model authority boundaries; **Frame
+  composition is Shell-owned** (added 2026-04-29 refactor)
 - [../../TERMINOLOGY.md](../../TERMINOLOGY.md) — Projection Rule,
-  Address-as-Identity, Pane/Tile/Frame spatial model, Active/Inactive
-  presentation state, Remove from graphlet, Tombstone
+  Address-as-Identity, **Frame (Shell-owned working context composing 1..N
+  Workbenches)**, **Presentation Buckets** (Tree Spine / Swatches / Activity
+  Log), **Projection Vocabulary** (recipe / canvas instance / swatch / uphill
+  rule), Active/Inactive presentation state, Remove from graphlet, Tombstone
 - [../navigator/NAVIGATOR.md](../navigator/NAVIGATOR.md) — Navigator
-  domain (projection + navigation)
+  domain; §4 Uphill rule, §8 Presentation Bucket Model
 - [../workbench/WORKBENCH.md](../workbench/WORKBENCH.md) — Workbench
-  domain (arrangement + activation)
+  domain (per-graph tile-tree authority; composed into a Frame by Shell)
 - [../graph/GRAPH.md](../graph/GRAPH.md) — Graph domain (truth)
+- [../graph/2026-04-03_layout_variant_follow_on_plan.md](../graph/2026-04-03_layout_variant_follow_on_plan.md) — four-tier conceptual model (algorithm / scene representation / simulation backend / render profile)
+- [2026-04-29_gpui_research_lanes.md](2026-04-29_gpui_research_lanes.md) — GPUI research closure (host-neutral criteria distilled here)
 - [../../technical_architecture/2026-04-22_portable_shell_state_in_graphshell_core.md](../../technical_architecture/2026-04-22_portable_shell_state_in_graphshell_core.md)
 - [shell_composition_model_spec.md](shell_composition_model_spec.md)
 - [shell_overview_surface_spec.md](shell_overview_surface_spec.md)
 - [PROJECT_DESCRIPTION.md](../../../PROJECT_DESCRIPTION.md)
+
+---
+
+## 0. Reconciliation note (2026-04-29) — terminology refactor and host-neutral necessities
+
+The GPUI research lane closed with two outputs that fold back into this plan:
+
+1. **Canonical TERMINOLOGY.md refactor** that landed on main on 2026-04-29:
+   - **Frame** moves to Shell ownership and is redefined as a Shell-owned
+     working context composing 1..N Workbenches. The trivial case (one Frame
+     containing one Workbench) is what we have today.
+   - **Section model** (Recent / Frames / Graph / Relations / Import Records)
+     collapses to three **Presentation Buckets**: **Tree Spine**, **Swatches**,
+     **Activity Log**.
+   - New canonical vocabulary: **graph authority**, **graph capacity**,
+     **projection recipe**, **canvas instance**, **navigator swatch**,
+     **presentation bucket**, **uphill rule**.
+   - **Layout four-tier model**: algorithm / scene representation / simulation
+     backend / render profile, surfaced in
+     [`../graph/2026-04-03_layout_variant_follow_on_plan.md`](../graph/2026-04-03_layout_variant_follow_on_plan.md).
+2. **Host-neutral necessities** distilled from the GPUI exploration that this
+   iced host must satisfy regardless of framework. See §3.5 below for the list.
+
+**Vocabulary reconciliation with §4.5 (this plan):** §4.5's "FrameTree / Frame
+(split container) / Pane (spatial leaf)" naming was written before the
+canonical Frame redefinition landed. This plan adopts the reconciled spelling:
+
+| §4.5 original term | Reconciled term (canonical) | Meaning |
+|---|---|---|
+| FrameTree | **Frame** | Shell-owned working context for one OS window. One OS window = one Frame. May compose 1..N Workbenches. |
+| Frame (H/V split container) | **Split** | Internal node in a Frame's split tree. Carries axis (H/V) and proportions. |
+| Pane | **Pane** | Leaf in a Frame's split tree. Carries `GraphletId` and pane type. (Unchanged.) |
+
+Where this plan still says "FrameTree" or refers to "Frames" as split
+containers, read it as "Frame's split tree" and "Splits" respectively. The
+direct §4.5 update lives below; downstream references throughout §6/§10/§12
+implicitly retarget. A follow-up sweep can rename inline if it pays off.
+
+The Pane redefinition (spatial leaf, no graph-citizenship implication),
+Promotion/Demotion retirement, and Active/Inactive state from §4.4 stand
+as-is — they don't conflict with the canonical refactor and remain pending
+TERMINOLOGY.md updates (S2 checklist).
 
 ---
 
@@ -222,6 +270,57 @@ an explicit exception in this document explaining why it must remain
 larger. No exception should be granted for a file that mixes multiple
 domain authorities.
 
+### 3.2.1 Host-neutral necessities (distilled from GPUI research closure, 2026-04-29)
+
+Anything in this list is a property the iced host must satisfy regardless of
+which framework is in play. They are the same criteria that gated the GPUI
+spike; they apply equally to iced and to any future Stage-G or Stage-H host.
+Copy them into a future host-evaluation matrix.
+
+1. **Multiple lightweight canvas instances.** The host must be able to render
+   one main graph canvas plus N small navigator swatches (target N=8–16) using
+   the same `CanvasBackend<NodeKey>` implementation. Swatches are not
+   thumbnails; they are scoped canvas instances applying the same graph
+   capacities (filter, layout, scene representation, hit test, highlight) at a
+   compact render profile. See TERMINOLOGY.md "Navigator swatch" and §4.8
+   below.
+2. **Custom drawing with hit testing.** Per-canvas-instance pointer events,
+   hover, scaffold selection, viewport gestures, label rendering, badge
+   rendering, edge bundling. Iced's `canvas::Program<Message>` is the
+   natural home; widget-local `Program::State` per instance keeps each
+   canvas independent.
+3. **Virtualized lists for many projection items.** Navigator hosts may
+   contain many graphlet rows, recency entries, frametree branches; render
+   only the visible subset. iced's `lazy` + `scrollable` is the natural fit.
+4. **Generation-based caching and invalidation per canvas instance.** Each
+   swatch redraws only on generation bumps for graph mutation, layout
+   recipe change, viewport change, theme change. The host must let us avoid
+   invalidating the whole app on a single swatch's hover.
+5. **Per-instance focus and action routing.** Each canvas instance, each
+   tile pane, each Navigator row must carry independent focus that routes
+   keyboard, command palette dispatch, and accessibility actions
+   correctly. Iced widget focus + `widget::Operation` carry this.
+6. **Async / background projection work with cancellation.** Some projection
+   recipes (semantic clustering, Rapier settle, embedding projection,
+   path/corridor analysis) run on background tasks; results apply by
+   generation; stale results are dropped. iced's `Subscription` +
+   `Command::perform` cover this; `Task` for long-running cancellable work.
+7. **Popovers and expanded previews.** Hover-enlarged swatch previews, swatch
+   context menus, command palette overlay. iced's `Modal` + `Stack` widgets
+   suffice for chrome overlays; custom widgets only when needed.
+8. **Authority-side intent emission.** The host emits `HostIntent`s upward;
+   it never owns graph, frame, workbench, or runtime authority. The uphill
+   rule (TERMINOLOGY.md, NAVIGATOR.md §4) is the routing contract. See §4.9
+   below for the iced-side mapping.
+9. **Eventual shared GPU / external texture.** For Servo content surfaces:
+   wgpu external image API per `iced-rs/iced#183`. Tracked in §11 G5/G6.
+10. **No host lock-in.** Domain authority does not leak into widget state; if
+    a host bring-up requires changing domain types, that's a domain-side
+    failure of host neutrality, not a host adaptation. Re-asserts §5.
+
+These criteria are how this plan judges whether the iced bring-up actually
+delivers a usable Navigator surface, not just a usable workbench surface.
+
 ### 3.3 2026-04-28 pruning receipt — iced host compiles without egui
 
 The first portable-type cut landed:
@@ -404,24 +503,41 @@ replaced by the more precise pair: Remove from graphlet
 confirmation required). TERMINOLOGY.md must be updated to reflect
 this — see the S2 correction pass.
 
-### 4.5 Shell-owned FrameTree, Panes, and the canvas base layer (revised 2026-04-29)
+### 4.5 Shell-owned Frame, Splits, Panes, and the canvas base layer (revised 2026-04-29 with vocabulary reconciliation)
 
-**The Shell host owns the FrameTree.** A prior architecture mixed
-graph and workbench concerns in a way that gave the Workbench too
-much authority over graph structure. The Shell host (iced) owns and
-renders the FrameTree — the spatial composition of the OS window.
-Workbench-domain concerns express through it, but the FrameTree is
-Shell-side infrastructure, not a graph-owned structure.
+**The Shell host owns the Frame.** The Shell host (iced) owns and
+renders the **Frame** — the working context for one OS window. The
+Frame composes one or more Workbenches (each `GraphId`-bound) and
+holds the spatial split structure that lays out their tile trees and
+canvas instances. The Frame is Shell-side infrastructure;
+Workbench-domain concerns express through it as per-graph tile-tree
+contents inside Pane leaves.
 
-**Structure: Window → FrameTree → Frames → Panes**
+(Vocabulary note per §0: an earlier draft of this section used
+"FrameTree" for the OS window's spatial composition and "Frame" for
+the H/V split container. The canonical TERMINOLOGY.md refactor
+landed 2026-04-29 with **Frame = Shell-owned working context** and
+elevates **Split** as the H/V container term. This section uses the
+reconciled spelling.)
 
-An OS window is a FrameTree. The FrameTree is a nestable tree of
-H/V splits. Its internal nodes are **Frames** (split containers);
-its leaves are **Panes**. Each Pane has a `GraphletId` and a type.
+**Structure: Window → Frame → Splits → Panes**
 
-Frames carry a split axis (H or V) and proportions. They are
-adjustable (drag to resize) and nestable to arbitrary depth.
-Closing a split collapses the Frame; the remaining sibling expands.
+An OS window is one Frame. A Frame contains a nestable tree of
+H/V splits. The split tree's internal nodes are **Splits** (H/V
+containers); its leaves are **Panes**. Each Pane carries a
+`GraphletId` and a type, and belongs to whichever Workbench owns
+that graphlet's `GraphId`.
+
+Splits carry an axis (H or V) and proportions. They are adjustable
+(drag to resize) and nestable to arbitrary depth. Closing a split
+collapses the Split; the remaining sibling expands.
+
+A Frame composing 1 Workbench is the trivial case (today's behavior).
+A Frame composing 2+ Workbenches has Panes scoped to different
+`GraphId`s side by side — for cross-graph work, comparison views, or
+multi-workspace flows. Frame snapshot persistence (Shell-owned per
+TERMINOLOGY.md Frame Snapshot) saves and restores composition + split
+geometry + per-Pane `GraphletId`+pane-type as one unit.
 
 **Two pane types**
 
@@ -476,21 +592,127 @@ graph is "your tabs as a map you can arrange, save, and share,
 instead of a strip at the top of the window." This is the framing
 we keep when reshaping browser amenities:
 
-| Amenity | Chrome/Firefox shape | Graph-paradigm shape |
-|---|---|---|
-| **History** | Linear time-ordered list; back/forward | Two graph-native systems: (1) **edge history** — traversal/origin edges written on navigation events, projected by Navigator as a time-ordered view; (2) **graph memory** — a per-node memory tree with graph affordances (`graph-memory` crate), with potential enrichment into node-memory and edge-memory as distinct concepts. History view is a Navigator projection; no separate history service lives in `graphshell-runtime`. |
-| **Bookmarks** | Folder-organized URL list | Tagged graphlets. A "bookmark" is a graphlet tagged as such, with node references that can recreate nodes across graphs. Folder hierarchy maps to nested graphlets. Importing browser bookmarks = a graph population command: create nodes from URL list, organize into a tagged graphlet. Importing browser history is a related path requiring parsing-level semantic autotagging. No separate bookmark-import service; the import path is a one-shot graph write. |
-| **Find-in-page** | Within current document | Graph-scoped find: search-in-pane (current viewer's content) and search-in-graph (across nodes). Both Shell-owned commands per [SHELL.md §6](SHELL.md) |
-| **Downloads** | Modal list | A subsystem pane (`TileKind::Tool`) addressable as `verso://tool/downloads`. Each download is a graph node; the user can organize it into a graphlet or tombstone it when done. |
-| **Devtools** | Browser-internal panel | A single tool pane with sections: a graphshell-level UX overview and inspector (backed by `ux-probes`/`ux-bridge`), plus any subsystem-specific diagnostic sections. Each subsystem may also expose its own tool pane. No separate devtools-family of panes. Servo's devtools remain reachable via the Servo subsystem tool pane. |
-| **Sessions / restore** | Reopen-last-tabs | The graph IS the session. There is no separate session restore — opening the app shows the graph, and tile state (active/inactive per node) is recoverable from graph + last-known graphlet projection |
-| **Profiles** | Multiple browser users | Multiple graphs, each with its own `GraphId`. Per-graph settings already exist per [SHELL.md §3](SHELL.md) |
-| **Multi-window** | Multiple OS windows showing pages | Each OS window is a FrameTree. Multiple windows are a convenience (multi-monitor, pop-out) — not required for multi-graphlet work, which multiple Panes in one FrameTree handle. |
+| Amenity | Chrome/Firefox shape | Graph-paradigm shape | Presentation Bucket |
+|---|---|---|---|
+| **History** | Linear time-ordered list; back/forward | Two graph-native systems: (1) **edge history** — traversal/origin edges written on navigation events, projected by Navigator as a time-ordered view; (2) **graph memory** — a per-node memory tree with graph affordances (`graph-memory` crate), with potential enrichment into node-memory and edge-memory as distinct concepts. History view is a Navigator projection; no separate history service lives in `graphshell-runtime`. | **Activity Log** (recency lane + traversal events) |
+| **Bookmarks** | Folder-organized URL list | Tagged graphlets. A "bookmark" is a graphlet tagged as such, with node references that can recreate nodes across graphs. Folder hierarchy maps to nested graphlets. Importing browser bookmarks = a graph population command: create nodes from URL list, organize into a tagged graphlet. Importing browser history is a related path requiring parsing-level semantic autotagging. No separate bookmark-import service; the import path is a one-shot graph write. | **Tree Spine** (graphlet sections) + **Swatches** (saved graphlet previews) |
+| **Find-in-page** | Within current document | Graph-scoped find: search-in-pane (current viewer's content) and search-in-graph (across nodes). Both Shell-owned commands per [SHELL.md §6](SHELL.md) | n/a (modal command surface) |
+| **Downloads** | Modal list | A subsystem pane (`TileKind::Tool`) addressable as `verso://tool/downloads`. Each download is a graph node; the user can organize it into a graphlet or tombstone it when done. | **Activity Log** (download events) + tool pane for in-progress chrome |
+| **Devtools** | Browser-internal panel | A single tool pane with sections: a graphshell-level UX overview and inspector (backed by `ux-probes`/`ux-bridge`), plus any subsystem-specific diagnostic sections. Each subsystem may also expose its own tool pane. No separate devtools-family of panes. Servo's devtools remain reachable via the Servo subsystem tool pane. | tool pane (not a Navigator bucket) |
+| **Sessions / restore** | Reopen-last-tabs | The graph IS the session. There is no separate session restore — opening the app shows the graph, and tile state (active/inactive per node) is recoverable from graph + last-known graphlet projection | **Tree Spine** (frametree restore) |
+| **Profiles** | Multiple browser users | Multiple graphs, each with its own `GraphId`. Per-graph settings already exist per [SHELL.md §3](SHELL.md) | n/a (Shell-owned chrome) |
+| **Multi-window** | Multiple OS windows showing pages | Each OS window is one **Frame** (Shell-owned working context). Multiple windows are a convenience (multi-monitor, pop-out) — not required for multi-graphlet work, which multiple Panes in one Frame handle. | n/a (host-level composition) |
+| **Frametree** | Implicit (linear tab strip) | The Frame's split tree projected as a Navigator orientation surface — visible composition of Workbenches, Splits, and Panes; switching active Pane, restoring saved frame snapshots. | **Tree Spine** (frametree recipe) |
+
+Presentation Bucket assignments per
+[NAVIGATOR.md §8](../navigator/NAVIGATOR.md). The bucket column says
+*where in the Navigator* the amenity surfaces; it does not constrain
+the chrome (modal command surfaces, tool panes, in-pane chrome stay
+where they are).
 
 None of these are net-new design decisions; all of them are present
 in some form in the canonical docs. The plan's job is to actually
 build them as portable services in `graphshell-runtime`, not to
 keep them as stubs.
+
+### 4.7 Navigator surface — Presentation Buckets
+
+Per [NAVIGATOR.md §8](../navigator/NAVIGATOR.md), the Navigator
+composes three canonical Presentation Buckets. The iced Navigator
+sidebar (and any toolbar host) is built around these three buckets,
+not around the legacy five-section list.
+
+| Bucket | iced surface |
+|---|---|
+| **Tree Spine** | `lazy` + `scrollable` over a derived tree shape (frametree, containment lens, traversal hierarchy, graphlet sections); rows emit `HostIntent`s via Messages. Activation toggle for a graphlet's nodes lives here. |
+| **Swatches** | Virtualized grid/list of compact `canvas::Program<Message>` instances, one per recipe (ego graphlet, corridor, frontier, etc.). Each instance has its own `Program::State` for hover/scaffold/viewport. Generation-based caching per swatch; render only visible swatches. See §4.8. |
+| **Activity Log** | `lazy` + `scrollable` over a time-ordered event stream (recency lane, traversal events, download events, lifecycle transitions, import events). Subscriptions on event streams from `graphshell-runtime` and SUBSYSTEM_HISTORY. |
+
+A given Navigator host renders one, two, or three buckets depending
+on form factor, scope, and space (per
+[NAVIGATOR.md §11](../navigator/NAVIGATOR.md)). A toolbar host might
+render only an Activity Log strip; a sidebar host with width might
+render all three; a compact host might render Tree Spine alone. This
+is layout policy, not bucket-model variance.
+
+The Navigator side of S5 (graphlet projection plumbing) materializes
+all three buckets. The Active/Inactive toggle UI from §4.4 lives in
+the Tree Spine bucket; the canvas-instance render path from §4.8
+serves both the Swatches bucket and canvas Panes.
+
+### 4.8 Canvas instances and swatches (multi-canvas)
+
+A **canvas instance** is a renderable graph surface produced by
+running a projection recipe (per TERMINOLOGY.md). The main graph
+canvas in a Pane and a small Navigator swatch are *both* canvas
+instances; they differ in render profile, not in code path. The
+iced host implements this via a single `CanvasBackend<NodeKey>`
+(promoted from the existing `iced_graph_canvas.rs`) consuming a
+`ProjectedScene` and used by:
+
+- canvas Panes in §4.5 (full-fidelity profile);
+- Navigator swatches in §4.7 (compact profile);
+- expanded swatch hover previews (intermediate profile);
+- the canvas base layer (full-fidelity profile, no Pane chrome).
+
+**Layout four-tier model.** When a canvas instance picks a layout,
+the four-tier conceptual model from
+[`../graph/2026-04-03_layout_variant_follow_on_plan.md`](../graph/2026-04-03_layout_variant_follow_on_plan.md)
+applies orthogonally:
+
+| Tier | Choice (per recipe) |
+|---|---|
+| Layout algorithm | force-directed, Barnes-Hut, radial, phyllotaxis, timeline, Kanban, Rapier… |
+| Scene representation | plain node-edge, axial, rigid-body+joint, containment, frame-affinity… |
+| Simulation backend | none / Graphshell post-physics / `rapier2d` / future persistent |
+| Render profile | main-canvas, canvas-pane, swatch, expanded-swatch, atlas |
+
+A swatch that wants Rapier physics applies the same
+algorithm-plus-scene-plus-backend triple as a main canvas; only the
+render profile differs. A swatch that wants a static analytic layout
+(Radial / Phyllotaxis) costs nothing per frame.
+
+**Multi-canvas hosting requirements** (see §3.2.1 host-neutral
+necessities): N=8–16 instances live; per-instance focus and pointer
+event routing; per-instance generation-based caching; virtualized
+rendering of off-screen swatches; async projection work with
+cancellation per recipe. The iced story (`canvas::Program`,
+`Program::State`, `lazy`, `Subscription`) covers all of this
+idiomatically; §12 captures the iced-side mapping.
+
+**Camera / hover / drag state** lives in `Program::State` per
+instance, not in `Application`. This is the §5 "no iced-shaped egui"
+rule applied to swatches as well as the main canvas. A swatch hover
+must not re-render the whole app.
+
+### 4.9 Uphill rule — intent routing in iced
+
+Per [NAVIGATOR.md §4](../navigator/NAVIGATOR.md), every change
+initiated from a Navigator projection (row, swatch, graphlet view,
+specialty layout) routes uphill to the relevant authority and is
+ephemeral until promoted. The iced host implements this as
+`HostIntent` emission keyed by intent kind; the iced widget never
+mutates domain state directly.
+
+| Intent kind | Authority | iced source |
+|---|---|---|
+| Node identity, edge mutation, graphlet save | **Graph** | Tile pane click, swatch promote action, Tree Spine row context menu → `GraphIntent` |
+| Frame composition, frame switch, frame snapshot persist | **Shell** | Frame switcher widget, frametree row, command palette → `ShellIntent` |
+| Tile-tree mutation, pane lifecycle, split geometry | **Workbench** | Pane drag/resize, Pane open/close, Split add/remove → `WorkbenchIntent` |
+| Node lifecycle (Active/Inactive, warm/cold) | **runtime lifecycle** | Active/Inactive toggle in Tree Spine, close-tile via Pane chrome → `LifecycleIntent` |
+| Traversal events, recency aggregation | **SUBSYSTEM_HISTORY** | Pane navigation, link follow, Pane focus → `HistoryEvent` |
+
+Projection-local state — hover, scaffold selection, viewport,
+expansion, filter — stays in widget-local state (`Program::State`,
+text-input state, scroll position) and never becomes a `HostIntent`.
+This is the test for whether a piece of state belongs in the iced
+host or in `graphshell-runtime`: if it survives a window close, it's
+runtime; if it dies with the widget, it's widget-local.
+
+The sanctioned-writes contract (§5) is the enforcement mechanism;
+each authority validates intents before applying them. The iced host
+adds intent-emission entries to the allowlist; it does not bypass the
+lane.
 
 ---
 
@@ -587,22 +809,35 @@ Checklist:
   (deactivate), Remove from graphlet (organizational), Tombstone
   (destructive). §4.4 is the canonical update.
 - [ ] **TERMINOLOGY.md correction pass** (prerequisite for all
-  S2 slice work):
-  - Remove GraphletView as a named concept
-  - Redefine Pane as a spatial concept (leaf in a Shell-owned
-    FrameTree), not a graph-citizenship concept
-  - Replace Frame definition with H/V split container (FrameTree
-    internal node; Shell-owned)
-  - Remove Promotion and Demotion as lifecycle terms entirely
-  - Add Active/Inactive as the two presentation states for tiles
-    in a graphlet (per-graphlet, Navigator-controlled)
-  - Add "Remove from graphlet" as the non-destructive
+  S2 slice work). Partially landed on 2026-04-29 (canonical Frame
+  refactor commit `b036ce31`); the remainder is iced-plan-specific
+  and still pending:
+  - [x] Frame moves to Shell ownership; redefined as Shell-owned
+    working context composing 1..N Workbenches (canonical refactor)
+  - [x] Workbench scoped to per-graph tile-tree authority; not a
+    singleton/global container (canonical refactor)
+  - [x] Presentation Bucket Model (Tree Spine / Swatches / Activity
+    Log) replaces the legacy 5-section list (canonical refactor)
+  - [x] Uphill rule named and documented in NAVIGATOR.md §4
+    (canonical refactor)
+  - [x] Projection vocabulary added (recipe / canvas instance /
+    swatch / presentation bucket) (canonical refactor)
+  - [ ] Add **Split** as the H/V container term (this plan's §4.5
+    reconciled term; canonical TERMINOLOGY.md does not yet name it)
+  - [ ] Redefine **Pane** as a spatial concept (leaf in a Frame's
+    split tree), not a graph-citizenship concept. Retire the
+    Pane/Tile non-citizen-vs-citizen distinction
+  - [ ] Remove **Promotion** and **Demotion** as lifecycle terms
+    entirely (note: TERMINOLOGY.md gained a *projection-sense*
+    Promotion in the canonical refactor; the *pane-citizenship-sense*
+    Promotion still needs to retire)
+  - [ ] Add **Active/Inactive** as the two presentation states for
+    tiles in a graphlet (per-graphlet, Navigator-controlled)
+  - [ ] Add **Remove from graphlet** as the non-destructive
     organizational graph edit
-  - Confirm Tombstone as a separate, confirmation-gated,
-    destructive operation
-  - Update Workbench: domain authority expresses through the
-    Shell-owned FrameTree; remove any singleton/global-container
-    framing
+  - [ ] Confirm **Tombstone** as a separate, confirmation-gated,
+    destructive operation (already in TERMINOLOGY.md; just confirm)
+  - [ ] Remove **GraphletView** as a named concept
 - [ ] Define the iced-side composition skeleton (the slot model
   for the iced equivalent of
   [shell_composition_model_spec.md](shell_composition_model_spec.md);
@@ -968,12 +1203,16 @@ Resolutions are summarised here; the canonical updates are in
 slice work begins (noted per question below).
 
 1. **Workbench/graphlet binding.** ✅ **Confirmed and further
-   revised (2026-04-29)**: GraphletView is retired. An OS window
-   is a FrameTree (Shell-owned). FrameTree leaves are Panes; each
-   Pane carries a `GraphletId`. Multiple Panes in one window
-   handle multiple simultaneous graphlets without requiring
-   multiple OS windows. See §4.5. TERMINOLOGY.md: remove
-   GraphletView; update Workbench to reflect Shell-owned FrameTree.
+   revised (2026-04-29; reconciled with canonical refactor same day)**:
+   GraphletView is retired. An OS window is one **Frame** (Shell-owned
+   working context per canonical TERMINOLOGY.md). The Frame contains a
+   nestable split tree; leaves are **Panes**; each Pane carries a
+   `GraphletId`. Multiple Panes in one Frame handle multiple
+   simultaneous graphlets without requiring multiple OS windows. A
+   Frame may compose 1..N Workbenches; the trivial case is one
+   Workbench per Frame. See §4.5. TERMINOLOGY.md: remove
+   GraphletView; the Workbench/Frame ownership split landed in the
+   2026-04-29 canonical refactor.
 
 2. **Tile lifecycle.** ✅ **Confirmed and revised (2026-04-29)**:
    every tile is a graph node — no ephemeral non-citizen surface
@@ -985,20 +1224,27 @@ slice work begins (noted per question below).
    TERMINOLOGY.md: remove Promotion and Demotion; add Remove from
    graphlet and Active/Inactive; redefine Pane as spatial.
 
-3. **Frame ↔ Workbench composition.** ✅ **Confirmed**: Frames are
-   nestable H/V split containers — the spatial composition
-   mechanism for workbenches. A Frame is not a saved layout preset
-   or a pane type; it is a split node in the FrameTree. The frame
-   arrangement is reflected in the graph as a bounded region. See
-   §4.5. TERMINOLOGY.md: replace the prior Frame definition with
-   this spatial meaning.
+3. **Frame ↔ Workbench composition.** ✅ **Confirmed and reconciled
+   (2026-04-29)**: per canonical TERMINOLOGY.md, a **Frame** is a
+   Shell-owned working context that composes 1..N Workbenches into
+   a single arrangement (one OS window = one Frame). The H/V split
+   container that earlier drafts of this plan called "Frame" is now
+   spelled **Split**. Splits are internal nodes in the Frame's split
+   tree; Panes are the leaves. Frame composition (which workbenches
+   participate, frame switching, frame snapshot persistence) is
+   Shell authority. The frame's membership of nodes is graph-backed
+   via `ArrangementRelation` edges (graph layer; unchanged). See §4.5
+   for the reconciled vocabulary and §0 for the rename mapping.
 
 4. **Multi-window scope.** ✅ **Confirmed and revised
-   (2026-04-29)**: each OS window is a FrameTree. Multiple windows
-   are a convenience (multi-monitor, pop-out) — not required for
-   multi-graphlet work, which multiple Panes in one FrameTree
-   handle. Coordination of windows to the same graph is TBD and
-   not blocking S3/S4. See §4.5.
+   (2026-04-29; vocabulary reconciled)**: each OS window is one
+   **Frame** (Shell-owned working context). Multiple windows are a
+   convenience (multi-monitor, pop-out) — not required for
+   multi-graphlet work, which multiple Panes in one Frame handle.
+   Multiple Frames may share a `GraphId` (same Workbench composed
+   into different working contexts) or hold different `GraphId`s.
+   Coordination of Frames sharing a `GraphId` is TBD and not
+   blocking S3/S4. See §4.5.
 
 5. **History reshape.** ✅ **Confirmed**: two graph-native history
    systems. (1) Edge history: traversal/origin edges written on
@@ -1144,24 +1390,27 @@ holds the parallel gpui-side detail.
 
 | Taxonomy subsystem | Idiomatic iced shape |
 |---|---|
-| §3.6 FrameTree (Window → splits → Panes) | `pane_grid::State<Pane>` *is* the FrameTree authority; `pane_grid` widget renders it; resize and drag are built in |
+| §3.6 Frame (Window → Splits → Panes) — canonical Frame | `pane_grid::State<Pane>` *is* the Frame's split-tree authority; `pane_grid` widget renders it; resize and drag are built in |
 | §3.6 Tab bar over active tiles | `iced_aw::Tabs` inside each tile pane |
 | §3.6 Omnibar | `text_input` + `Subscription` for focus/results; Navigator-projected breadcrumb in a `row!`; per-pane drafts via existing `OmnibarSearchSession` |
 | §3.6 Command palette | `Modal` overlay + filtered list driven by Messages routed through `ActionRegistry` |
 | §3.6 Context palette | `iced_aw::ContextMenu` triggered by mouse-right Message |
 | §3.6 Radial palette | Custom `canvas::Program` overlay (radial geometry isn't a built-in widget) |
 | §3.6 Toasts | `Stack` widget + custom toast Element + `Subscription` for timeout |
-| §3.1 Graph canvas (Vello) | `canvas::Program` for hit-testing; camera/hover/drag state in `Program::State` (**not** Application); Vello scene rendered via `shader` widget |
+| §3.1 Graph canvas (Vello) — main canvas instance | `canvas::Program` for hit-testing; camera/hover/drag state in `Program::State` (**not** Application); Vello scene rendered via `shader` widget |
+| §4.7 / §4.8 Navigator swatches — N=8–16 canvas instances | Same `canvas::Program` impl as the main canvas, parameterized by render profile; each instance has its own `Program::State` for hover / scaffold / viewport; rendered inside a virtualized `lazy` + `scrollable`; generation-based caching keyed on (graph generation, recipe id, viewport size, theme); async projection work via `Subscription` + `Command::perform` with cancellation by recipe id |
 | §3.1 `WebViewSurface<NodeKey>` | Custom widget consuming `iced_webview` Servo feature, or direct `shader` widget over Servo's wgpu external image API per [iced-rs/iced#183](https://github.com/iced-rs/iced/pull/183); texture lifecycle in widget state |
 | §3.1 Wry viewer | `iced-wry-viewer` already exists in the Cargo tree; consume directly |
 | §3.7 Six-track focus (G1) | LocalWidget = iced per-widget focus via `widget::focus()` `Operation`; the other five tracks live in `graphshell-runtime`; iced widgets read runtime focus state in `view` |
 | §3.7 IME (G8) | `text_input` IME (iced 0.14); Servo IME forwarded through `WebViewSurface` |
 | §3.7 AccessKit (G9) | `iced_accessibility` integration |
-| §3.5 Navigator sidebar | `scrollable` + lazy `column!` of items derived from `FrameViewModel`; activation toggle dispatches HostIntent |
-| §3.5 History view | `lazy` + `scrollable` for virtualization |
+| §4.7 Navigator Tree Spine bucket | `scrollable` + lazy `column!` of items derived from `FrameViewModel`; activation toggle dispatches `HostIntent`s per §4.9 routing |
+| §4.7 Navigator Swatches bucket | Virtualized grid of canvas instances (see Navigator swatches row above) |
+| §4.7 Navigator Activity Log bucket | `lazy` + `scrollable` over an event stream `Subscription` from `graphshell-runtime` + SUBSYSTEM_HISTORY |
+| §3.5 History view (legacy row) | Subsumed by Activity Log bucket — same `lazy` + `scrollable` shape |
 | §3.8 Diagnostics Inspector | Same shape — `lazy` + `scrollable` over the channel ring buffer |
 | §3.6 Settings panes | `column!` of forms; route through `verso://settings/<section>` Messages |
-| §4.5 Canvas base layer | Application root `view` returns either `pane_grid` or graph canvas widget when FrameTree is empty |
+| §4.5 Canvas base layer | Application root `view` returns either `pane_grid` or main-canvas-instance widget when the Frame's split tree is empty |
 | §3.6 Theming | `iced::Theme` extension with palette derived from `settings_persistence` |
 | §3.13 Async work | `Command::perform` for one-shots, `Subscription` for streams, `cosmic-time` for animations |
 
@@ -1180,26 +1429,38 @@ winit input, async results. All 24 `todo(m5)` markers in
 
 This is where the S3 done condition lands.
 
-#### Stage B — `pane_grid` for FrameTree (overlaps S5)
+#### Stage B — `pane_grid` for the Frame's split tree (overlaps S5)
 
-`pane_grid::State<Pane>` is the FrameTree authority — not a
-side-structure, not a hand-rolled split tree. H/V splits are
+`pane_grid::State<Pane>` is the Frame's split-tree authority — not a
+side-structure, not a hand-rolled split tree. H/V Splits are
 `pane_grid` splits; resize is built-in. Each Pane renders as a tile
-pane (active tiles in a graphlet) or canvas pane (graph canvas).
+pane (active tiles in a graphlet) or canvas pane (canvas instance,
+full-fidelity render profile).
 
 Buys: native split rendering and resize without writing a layout
 engine; pane focus integrates with iced's built-in focus model.
 
-#### Stage C — Canvas Program with local state (overlaps S4)
+#### Stage C — Canvas Program with local state, applied to all canvas instances (overlaps S4)
 
-The graph canvas uses a `canvas::Program<Message>`. Camera (pan/zoom),
-hover state, drag interaction state live in `Program::State`, not in
-`Application`. Vello renders through the `shader` widget; canvas
-Program handles overlay drawing + input.
+A canvas instance — the main canvas, a canvas Pane, a Navigator
+swatch, an expanded swatch preview — uses one `canvas::Program<Message>`
+implementation, parameterized by render profile. Camera (pan/zoom),
+hover state, drag interaction state, scaffold selection live in each
+instance's `Program::State`, not in `Application`. Vello renders
+through the `shader` widget; canvas Program handles overlay drawing
+and input.
 
 This is the §5 anti-pattern correction made concrete: don't thread
 camera state through Messages each frame. The egui scaffold's
 camera-in-app-state is the failure mode being avoided.
+
+For the Swatches bucket specifically (per §4.7 / §4.8): N=8–16
+canvas instances live simultaneously; each carries its own
+`Program::State`; off-screen swatches virtualize via `lazy`;
+generation-based caching keys on (graph generation, recipe id,
+viewport size, theme) so a swatch redraws only when its inputs
+change. Hover on one swatch must not invalidate the rest of the
+sidebar — that test is the Stage C done condition for swatches.
 
 #### Stage D — `WebViewSurface` as custom widget
 
@@ -1269,6 +1530,14 @@ toward putting camera/hover/drag state at the top and threading deltas
 through messages each frame. Iced's `canvas::Program::State` is the
 right home; that is the Stage C correction. The §5 rule names it; the
 stage makes it concrete.
+
+This risk **multiplies for swatches**: with N=8–16 canvas instances
+in the Navigator's Swatches bucket, hoisting per-instance camera /
+hover / scaffold state into `Application` produces an O(N) state
+explosion at the top, all of which dirties the entire `view` tree on
+every frame. Each swatch must own its `Program::State` independently;
+the swatch's recipe id and current viewport are the only things that
+ever travel through Messages.
 
 A second risk is **polling `runtime` for state instead of subscribing**
 to its events. Per-frame polling works in iced because `view` runs
