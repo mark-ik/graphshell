@@ -912,9 +912,18 @@ Checklist:
   command palette, and the omnibar coherence guarantee restated. Reuses
   the landed seams (`NavigatorContextProjection`, `BreadcrumbPath`,
   `CommandBarFocusTarget`, `HostRequestMailbox`) — does not redefine.
-- [ ] Specify command palette behavior in iced terms (the
-  `command_palette_state` portable state already exists; this is
-  rendering only)
+- [x] **Specify command palette behavior in iced terms** — landed
+  2026-04-29 as
+  [`iced_command_palette_spec.md`](iced_command_palette_spec.md).
+  Covers Search Palette Mode (Modal + text_input + two-tier renderer)
+  and Context Palette Mode (`iced_aw::ContextMenu` reusing the same
+  two-tier renderer); Radial Palette Mode stubbed and deferred to
+  the input-rework lane. Reuses canonical UX from
+  `aspect_command/command_surface_interaction_spec.md` (two-tier
+  contract, three modes, ActionRegistry source, verb-target wording).
+  Adds: iced widget choices, Message contract, focus dance with
+  omnibar, destructive-action ConfirmDialog gate, disabled-reason
+  rendering, AccessKit role mapping, provenance trace integration.
 - [ ] Specify each browser amenity per §4.6: which surface, what
   data, what intent flow, what `verso://` address (where applicable).
   For History: confirm what constitutes a "visit" event for the
