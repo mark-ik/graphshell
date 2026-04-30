@@ -228,7 +228,11 @@ Short-term landing rule:
 
 The jump-ship path should not replace egui-shaped god objects with
 portable god files. On 2026-04-28, the current portable-crate
-inventory had these Rust files over the 600 LOC threshold:
+inventory had these Rust files over the 600 LOC threshold (the
+threshold dropped to **500 LOC** per the
+[2026-04-30 renderer-and-host-refactor plan §6](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md);
+the table below remains the canonical >600 LOC inventory, plus
+500-600 LOC files now also need decomposition):
 
 | File | Lines | Decomposition target |
 |---|---:|---|
@@ -253,7 +257,7 @@ inventory had these Rust files over the 600 LOC threshold:
 
 Decomposition rules:
 
-- Do not introduce new files over 600 LOC in portable crates.
+- Do not introduce new files over **500 LOC** in portable crates (lowered from 600 by the [2026-04-30 renderer-and-host-refactor plan](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md)).
 - When a slice touches an oversized file, either decompose the touched
   responsibility first or extract it in the same change.
 - Preserve public crate APIs during the first split by re-exporting from
@@ -265,7 +269,7 @@ Decomposition rules:
   `graphlet`, `lifecycle`, and `projection` are better module names
   than `helpers` or `utils`.
 
-Done condition: every portable-crate Rust file is under 600 LOC, or has
+Done condition: every portable-crate Rust file is under **500 LOC** (lowered from 600 per the [2026-04-30 renderer-and-host-refactor plan](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md)), or has
 an explicit exception in this document explaining why it must remain
 larger. No exception should be granted for a file that mixes multiple
 domain authorities.
