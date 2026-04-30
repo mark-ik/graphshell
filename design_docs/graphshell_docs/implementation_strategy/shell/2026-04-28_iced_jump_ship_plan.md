@@ -921,7 +921,7 @@ Checklist:
   [`iced_command_palette_spec.md`](iced_command_palette_spec.md).
   **Revised same day** to the simplified two-surface model: Command
   Palette (`Modal` + `text_input` + flat ranked list, Zed/VSCode-shaped)
-  and Context Menu (`iced_aw::ContextMenu` with flat list). Search /
+  and Context Menu (`gs::ContextMenu` with flat list, hand-rolled in `graphshell-iced-widgets`). Search /
   Context palette mode distinction, two-tier rendering, and Radial
   Palette Mode are retired; the canonical
   [`aspect_command/command_surface_interaction_spec.md`](../aspect_command/command_surface_interaction_spec.md)
@@ -1467,7 +1467,7 @@ The defining iced idioms:
 | `iced::Theme` | Theming system; `libcosmic` extends |
 | `text_input` (iced 0.14) | IME-aware text entry |
 | `iced_accessibility` | AccessKit bridge |
-| `iced_aw` widgets | Tabs, ContextMenu, Sidebar, Modal |
+| ~~`iced_aw` widgets~~ → hand-rolled `graphshell-iced-widgets` | Tabs, ContextMenu, Modal hand-rolled in-tree per the 2026-04-30 decision (no alpha-dep). ~200-400 LOC total. Sidebar uses `iced::widget::Container` directly. |
 | `iced_webview` | Web content embedding (Servo / Blitz / litehtml / CEF feature flags) |
 | `libcosmic` widgets | List/grid views, drag-drop, theme extensions |
 
@@ -1482,10 +1482,10 @@ holds the parallel gpui-side detail.
 | Taxonomy subsystem | Idiomatic iced shape |
 |---|---|
 | §3.6 Frame (Window → Splits → Panes) — canonical Frame | `pane_grid::State<Pane>` *is* the Frame's split-tree authority; `pane_grid` widget renders it; resize and drag are built in |
-| §3.6 Tab bar over active tiles | `iced_aw::Tabs` inside each tile pane |
+| §3.6 Tab bar over active tiles | `gs::Tabs` (hand-rolled `graphshell-iced-widgets`) inside each tile pane |
 | §3.6 Omnibar | `text_input` + `Subscription` for focus/results; Navigator-projected breadcrumb in a `row!`; per-pane drafts via existing `OmnibarSearchSession` |
 | §3.6 Command palette | `Modal` overlay + filtered list driven by Messages routed through `ActionRegistry` |
-| §3.6 Context palette | `iced_aw::ContextMenu` triggered by mouse-right Message |
+| §3.6 Context palette | `gs::ContextMenu` (hand-rolled) triggered by mouse-right Message |
 | ~~§3.6 Radial palette~~ | **Retired** as a canonical surface (2026-04-29 simplification). Reintroduction deferred to the input-subsystem rework; if it lands, custom `canvas::Program` overlay sourcing the same `ActionRegistry` (radial geometry isn't a built-in widget). See [`aspect_command/command_surface_interaction_spec.md` §5](../aspect_command/command_surface_interaction_spec.md). |
 | §3.6 Toasts | `Stack` widget + custom toast Element + `Subscription` for timeout |
 | §3.1 Graph canvas (Vello) — main canvas instance | `canvas::Program` for hit-testing; camera/hover/drag state in `Program::State` (**not** Application); Vello scene rendered via `shader` widget |
@@ -1641,8 +1641,8 @@ top of it is doubly redundant).
 
 A third risk is **manual tabs replicating egui_tiles**. The
 `egui_tiles::Tree<TileKind>` model is what we're escaping; do not
-reimplement its tab semantics on top of iced. Use `iced_aw::Tabs`
-inside tile panes and let the FrameTree (`pane_grid`) handle
+reimplement its tab semantics on top of iced. Use the hand-rolled
+`gs::Tabs` widget inside tile panes and let the FrameTree (`pane_grid`) handle
 splits — the two abstractions are orthogonal in iced, while
 egui_tiles conflated them.
 

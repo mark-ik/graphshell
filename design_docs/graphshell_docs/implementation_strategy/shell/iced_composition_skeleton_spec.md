@@ -436,16 +436,20 @@ tab's content renders in the Pane body.
 fn tile_pane_content(pane: &Pane, view_model: &FrameViewModel) -> Element<Message> {
     let tiles = view_model.active_tiles_for(pane.graphlet_id);
     column![
-        iced_aw::Tabs::new(...)
-            .push(...)  // one tab per active tile
+        gs::Tabs::new()
+            .push_iter(tiles.iter().map(|t| gs::Tab::new(t.title())))
             .on_select(|idx| Message::ActivateTab { pane_id: pane.pane_id, idx }),
         active_tile_body(tiles, view_model.focused_tile),
     ].into()
 }
 ```
 
-- **Tab bar**: `iced_aw::Tabs` widget. One tab per Active tile in the
-  graphlet (per TERMINOLOGY.md Tile Presentation States).
+- **Tab bar**: `gs::Tabs` — a hand-rolled Graphshell widget in
+  `crates/graphshell-iced-widgets/` (per the 2026-04-30 decision to
+  drop the `iced_aw` dependency; we own the four widgets we actually
+  use rather than depending on an alpha-stage external crate). One tab
+  per Active tile in the graphlet (per TERMINOLOGY.md Tile
+  Presentation States).
 - **Tab content**: viewer pane (`WebViewSurface`, middlenet viewer, wry
   viewer, tool pane, etc.) per the `TileRenderMode` carried in the tile.
 - **Active/Inactive toggle**: not rendered here — this is the Navigator's
@@ -708,7 +712,7 @@ fn swatch_card(recipe: &SwatchRecipe) -> Element<Message> {
   `Message::SwatchHoverEnter { recipe_id }` which Shell uses to render an
   expanded swatch as a popover (`Modal` + `Stack`) at higher fidelity
   (`RenderProfile::ExpandedSwatch`).
-- **Swatch actions**: right-click opens a context menu (`iced_aw::ContextMenu`)
+- **Swatch actions**: right-click opens a context menu (`gs::ContextMenu`)
   with Promote / Pin / Open-as-Pane / Save-Recipe actions. These dispatch
   uphill intents per the iced jump-ship plan §4.9.
 
@@ -817,7 +821,7 @@ to take graph-search responsibility off the omnibar.
 
 ### 7.3 Context Menu
 
-`iced_aw::ContextMenu` triggered on right-click anywhere a target is
+`gs::ContextMenu` triggered on right-click anywhere a target is
 identifiable. Targets and their available actions:
 
 | Target | Available actions (representative) |
@@ -864,7 +868,7 @@ contribution is to make sure no widget owns domain state directly.
 | `pane_grid::State<Pane>` (in `Frame`) | Frame split-tree topology; Shell-owned; mutated via Shell intents |
 | `canvas::Program::State` (per canvas instance) | Camera, hover, scaffold, viewport; widget-local |
 | `text_input` state (in CommandBar / palette) | Draft text; widget-local; submitted via Shell intents |
-| `iced_aw::Tabs` state (in tile Panes) | Active-tab index; widget-local; selection routes via Shell |
+| `gs::Tabs` state (in tile Panes) | Active-tab index; widget-local; selection routes via Shell |
 | `Application::State` | View-model snapshot from `runtime.tick()`; not authoritative graph/workbench/shell state |
 | `graphshell-runtime` / `graphshell-core` | All authoritative state |
 
@@ -908,9 +912,10 @@ In addition to the iced jump-ship plan §5 anti-patterns:
   recipe results, history events) and let `view` consume the resulting
   view-model.
 - **Don't replicate `egui_tiles::Tabs` semantics by hand.** Use
-  `iced_aw::Tabs` inside tile Panes. Tab grouping is orthogonal to split
-  layout; egui_tiles conflated them. Re-conflating in iced is the
-  failure mode.
+  the hand-rolled `gs::Tabs` widget inside tile Panes (no `iced_aw`
+  dependency per the 2026-04-30 decision). Tab grouping is orthogonal
+  to split layout; egui_tiles conflated them. Re-conflating in iced
+  is the failure mode.
 - **Don't manage per-widget focus from `Application`.** Use
   `widget::focus()` / `widget::Operation` to move focus declaratively.
   Cross-surface focus coordination (the six-track focus model from the

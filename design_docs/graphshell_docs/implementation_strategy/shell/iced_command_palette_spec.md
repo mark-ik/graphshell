@@ -36,8 +36,18 @@ Two surfaces handle command discovery and dispatch:
 
 | Surface | Trigger | Shape | Source |
 |---|---|---|---|
-| **Command Palette** | `Ctrl+Shift+P` (canonical, Zed/VSCode-shaped), `F2` (alternate), CommandBar trigger button, programmatic | `Modal` overlay with `text_input` filter + flat ranked list of currently-available commands | `ActionRegistry::rank_for_query(query, view_model)` |
-| **Context Menu** | Right-click on an interactable target | `iced_aw::ContextMenu` with a flat list of commands available on that target | `ActionRegistry::available_for(target, view_model)` |
+| **Command Palette** | `Ctrl+Shift+P` (canonical, Zed/VSCode-shaped), `F2` (alternate), CommandBar trigger button, programmatic | `gs::Modal` overlay with `text_input` filter + flat ranked list of currently-available commands | `ActionRegistry::rank_for_query(query, view_model)` |
+| **Context Menu** | Right-click on an interactable target | `gs::ContextMenu` with a flat list of commands available on that target | `ActionRegistry::available_for(target, view_model)` |
+
+**Widget-source note** (added 2026-04-30): `gs::Modal`, `gs::ContextMenu`,
+`gs::Tabs`, and any other `gs::*` widget references in this spec are
+hand-rolled Graphshell widgets in `crates/graphshell-iced-widgets/`. Per
+the 2026-04-30 decision to drop the `iced_aw` dependency, we own the
+small set of widgets we actually use (Tabs / ContextMenu / Modal) rather
+than depending on the alpha-stage external crate. The widgets are
+ordinary `iced::widget::Widget<Message, Theme>` impls — no special trait
+or framework. Approximate scope: ~200-400 LOC total across the four
+widgets.
 
 Both surfaces:
 
@@ -111,7 +121,7 @@ Origin is recorded for diagnostics provenance per
 ```rust
 fn command_palette_overlay(state: &State) -> Option<Element<'_, Message, GraphshellTheme>> {
     state.command_palette.is_open.then(|| {
-        modal(
+        gs::modal(
             container(
                 column![
                     text_input(
@@ -410,7 +420,7 @@ fn target_with_context_menu<'a>(
     target_id: ContextualTarget,
     available: &'a [RankedAction],
 ) -> Element<'a, Message, GraphshellTheme> {
-    iced_aw::ContextMenu::new(target_widget, move || {
+    gs::ContextMenu::new(target_widget, move || {
         column(
             available.iter().map(|action| {
                 context_menu_item(action)
@@ -468,7 +478,7 @@ Message::ContextMenuActionSelected { target, action_id } => {
 ```
 
 The context menu dismisses on action selection, click outside, or
-Escape — `iced_aw::ContextMenu` handles dismissal automatically.
+Escape — `gs::ContextMenu` handles dismissal automatically.
 
 ### 3.5 Mode Switch (Context → Command Palette)
 
@@ -515,7 +525,7 @@ etc.) carry a confirmation step. Iced realization:
 ```rust
 fn confirm_dialog(state: &State) -> Option<Element<Message>> {
     state.command_palette.pending_confirmation.as_ref().map(|p| {
-        modal(
+        gs::modal(
             container(column![
                 text(p.action_name.clone()).size(18),
                 text(p.target_description.clone()),
@@ -666,7 +676,7 @@ that landed this version of the iced spec.
 
 The iced command surfaces are **two**: a Command Palette
 (`Modal` + `text_input` + flat ranked list, Zed/VSCode-shaped) and a
-Context Menu (`iced_aw::ContextMenu` with a flat list). Both source
+Context Menu (`gs::ContextMenu` with a flat list). Both source
 actions from `ActionRegistry`; both dispatch one `HostIntent::Action`
 per selection through the uphill rule. Search-as-filter is the palette's
 discovery mechanism, not a separate mode. Two-tier rendering, Search /
