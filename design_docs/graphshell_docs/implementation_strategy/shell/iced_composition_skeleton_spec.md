@@ -931,9 +931,10 @@ Items this spec leaves to subsequent S2 deliverables:
   / omnibar / command palette / context palette / frame switcher /
   settings panes / tool panes / WebViewSurface / drag-to-split drop
   zone.
-- **Frametree visualization in Tree Spine**: how the frametree recipe
-  renders inside the Tree Spine bucket — collapsible Workbench groups,
-  Pane indicators, active-Pane highlight.
+- ~~**Frametree visualization in Tree Spine**~~ — landed 2026-04-29 in
+  [`iced_browser_amenities_spec.md` §10](iced_browser_amenities_spec.md):
+  collapsible Frame entries, composed Workbenches and their Panes
+  nested, active Pane highlight, intent flow for cross-Frame focus.
 - **Frame composition UI**: how a user adds or removes a Workbench from a
   Frame (drag from a "switch workbench" picker? from a Frame-chrome menu?
   from the Activity Log?). Deferred per §3.3.

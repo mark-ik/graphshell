@@ -924,13 +924,20 @@ Checklist:
   Adds: iced widget choices, Message contract, focus dance with
   omnibar, destructive-action ConfirmDialog gate, disabled-reason
   rendering, AccessKit role mapping, provenance trace integration.
-- [ ] Specify each browser amenity per §4.6: which surface, what
-  data, what intent flow, what `verso://` address (where applicable).
-  For History: confirm what constitutes a "visit" event for the
-  edge-history writer (every tile open, explicit navigation only,
-  or deduplicated by recency). For Bookmarks: confirm graphlet-tag
-  schema and whether cross-graph node references need a stable
-  identifier beyond `NodeKey`.
+- [x] **Specify each browser amenity per §4.6** — landed 2026-04-29 as
+  [`iced_browser_amenities_spec.md`](iced_browser_amenities_spec.md).
+  Covers all eight amenities (History, Bookmarks, Find, Downloads,
+  Devtools, Sessions/restore, Profiles, Multi-window) plus the
+  Frametree implicit ninth. Each section answers: Presentation
+  Bucket, surface (iced widget / slot), data source (which authority
+  owns truth), intent flow (uphill route), and `verso://` address
+  (where applicable). Also closes the composition-skeleton-spec §10
+  open item "Frametree visualization in Tree Spine" via §10 of the
+  amenities spec. History "what constitutes a visit" answered (§2.1):
+  Active-state-transition triggers + 5-second dedupe window. Bookmarks
+  graphlet-tag schema answered (§3.1): `#bookmark` + `#bookmark-folder`
+  for nesting; cross-graph references via canonical address +
+  `GraphId` (§3.2).
 - [x] **Specify the graph coherence guarantee per surface** (per §10
   Q8): one sentence per surface stating what graph invariant it
   preserves and how the UI makes it visible. Landed 2026-04-29 as
