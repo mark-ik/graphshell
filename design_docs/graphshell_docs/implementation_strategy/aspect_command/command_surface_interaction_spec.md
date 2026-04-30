@@ -67,42 +67,69 @@ This spec covers command invocation surfaces, not graph or workbench semantics t
 
 ## 2. Canonical Surface Model
 
-### 2.1 First-class command-entry model
+### 2.1 First-class command-entry model (revised 2026-04-29)
 
 Graphshell has three first-class command-entry families:
 
 1. **Keyboard Commands**
    - direct keybinding path for known actions
-2. **Command Palette (canonical shell)**
-   - one command surface with multiple presentation modes:
-     - **Search Palette Mode** (search-first list with scope dropdown)
-     - **Context Palette Mode** (right-click contextual, list-first)
-     - **Radial Palette Mode** (right-click contextual, radial-first)
+2. **Command surfaces** — **two**:
+   - **Command Palette** (Modal overlay; flat ranked list; fuzzy-search input is the discovery mechanism; Zed/VSCode-shaped)
+   - **Context Menu** (right-click on an interactable target; flat list of available actions for that target)
 3. **Omnibar-Initiated Commands**
    - command execution from the search/navigation field
 
-Context Palette Mode and Radial Palette Mode are not separate semantic systems; they are mode presentations over the same palette authority.
+Both command surfaces source actions from the same `ActionRegistry`; both
+dispatch via the same `ActionId` execution path. They differ only in
+trigger and rendering.
+
+**Retired (2026-04-29 simplification):**
+
+- **Search Palette Mode + Context Palette Mode distinction** — collapsed
+  into the single Command Palette. Search is the palette's input
+  affordance, not a separate mode. Right-click is the Context Menu, not
+  a contextual mode of the palette.
+- **Two-tier (Tier 1 categories + Tier 2 options) rendering** — replaced
+  by flat ranked lists in both surfaces. Categories appear only as
+  inline badges on rows for breadth visibility, never as a separate
+  selector tier. See §3.3.
+- **Cross-mode equivalence rule** (Tier 1 strip = Tier 1 ring) — moot;
+  there is no Tier 1.
+- **Radial Palette Mode** — deferred indefinitely. Was originally
+  gamepad-oriented; if gamepad input lands later as part of the
+  input-subsystem rework, a radial surface can be reintroduced as a
+  third command-dispatch route with its own design pass. The geometry
+  research in [`radial_menu_geometry_and_overflow_spec.md`](radial_menu_geometry_and_overflow_spec.md)
+  is preserved as a future reference. See §5 Planned Extensions.
 
 ### 2.2 Retired and non-canonical surfaces
 
-- The term `Context Menu` is retired as a first-class Graphshell concept.
-- This does **not** retire the anchored contextual list surface itself. The
-  small right-click contextual surface remains first-class; only the ambiguous
-  browser-style label `Context Menu` is retired in favor of `Context Palette`.
-- Servo's native webview context menu may still exist as an embedder surface, but it is not a Graphshell command authority.
+- Servo's native webview context menu may still exist as an embedder
+  surface, but it is not a Graphshell command authority.
+- The earlier retirement of "Context Menu" as a Graphshell concept (in
+  favor of "Context Palette") is itself reversed by the 2026-04-29
+  simplification: **Context Menu** is the canonical name again, since
+  it is no longer a "mode" of the palette but a separate surface with
+  its own trigger and rendering.
 
-### 2.2A Naming note
+### 2.2A Naming note (revised 2026-04-29)
 
 To avoid ambiguity in implementation and UI copy:
 
-- **Command Palette** = the search-first, global list surface (for example `F2`).
-- **Context Palette** = the list-based contextual mode of that same command authority.
-- **Radial Menu** = the radial contextual mode over the same command authority.
-- **Context Menu** = only the legacy/browser-native menu term, not a canonical Graphshell command surface.
+- **Command Palette** = the Modal flat-list surface invoked by `Ctrl+P`,
+  `F2`, or the CommandBar trigger button. Fuzzy-search is its
+  discovery mechanism.
+- **Context Menu** = the right-click contextual flat-list surface
+  scoped to the right-click target.
+- **Radial Menu** = deferred (see §5).
+- "Context Palette" is **retired as a name** — it is now just the
+  Context Menu.
+- "Search Palette Mode" / "Context Palette Mode" / "Radial Palette
+  Mode" are all retired names; do not reintroduce them in new code or
+  docs.
 
-`Interaction Menu` should not be used as the primary canonical name for the list-based command
-surface because it blurs the distinction between the search-first command palette and the
-contextual list/radial presentations.
+`Interaction Menu` should not be used as a canonical name; it blurs
+distinctions that this revision tightens.
 
 ### 2.3 Ownership model
 
@@ -141,37 +168,41 @@ The command system must make these user expectations reliable:
 - command applicability is determined from the full resolved selection set, not
   by inventing a hidden primary target.
 
-### 3.3 Two-tier command palette contract
+### 3.3 Flat-list command surface contract (revised 2026-04-29)
 
-All contextual palette modes (Context Palette + Radial Palette) use the same two-tier structure:
+Both command surfaces (Command Palette + Context Menu) render a **flat
+ranked list of available actions**. There is no Tier 1 / Tier 2
+selector tier; categories appear only as inline badges on rows for
+breadth visibility.
 
-1. **Tier 1 — Category selector**
-   - category-level action grouping by UX-relevant context
-   - user-editable ordering
-   - pinned categories supported
-2. **Tier 2 — Command options for selected category**
-   - actions in the selected category
-   - user-editable ordering
+Common contract:
 
-Cross-mode equivalence rule:
+- Action data sourced from `ActionRegistry`.
+- Disabled actions render with explicit reasons (per §4.1); never
+  hidden silently.
+- Verb-target wording per §3.4.
+- Selection-set availability gating per §4.1.
+- Dispatch via single `ActionId` execution path.
+- Pinned actions and recency ordering supported (palette only;
+  context menu is small and contextual, no pinning).
 
-- Context Palette Tier 1 horizontal category strip is semantically equivalent to Radial Palette Tier 1 ring.
-- Context Palette Tier 2 vertical command list is semantically equivalent to Radial Palette Tier 2 option ring.
-- Changing category pin/order in one mode updates the same underlying palette profile used by the other mode.
-- Category ordering in all palette modes is context-aware: summon target context determines the first category (for example node summon => Node first), then recent-category recency may promote subsequent categories.
+Surface-specific differences:
 
-Invocation and dismissal contract:
+| | **Command Palette** | **Context Menu** |
+|---|---|---|
+| Trigger | `Ctrl+P` / `F2` / trigger button / programmatic | Right-click on interactable target |
+| Rendering | `Modal` overlay with `text_input` filter + scrollable flat list | Anchored `ContextMenu` flat list |
+| Scope | global (default) or scoped via context-fallback origin | scoped to right-click target |
+| Filter | fuzzy search; empty-query shows pinned + recent + canonical default | no filter; flat available list for the target |
+| Mode-switch | "Search commands…" footer entry in Context Menu opens the Palette pre-scoped to the target | none (Palette doesn't switch back) |
+| Resize | Modal max-width + max-height; not user-resizable (Stage F polish question) | Not resizable; sized to content |
+| Dismiss | Escape, click outside, action selected | Escape, click outside, action selected |
 
-- Right-click on a graph node summons contextual shell (Context Palette Mode / Radial Palette Mode).
-- Right-click on other interactable graph/workbench surfaces summons the same
-  contextual shell scoped to that surface.
-- The shell may open directly in Search Palette Mode, Context Palette Mode, or Radial Palette Mode per user preference/profile.
-- When Search Palette Mode is opened from right-click contextual invocation, it
-  is an explicit search-first fallback or user-preference choice and must show a
-  search bar with a scope dropdown (for example: current target, active pane,
-  active graph, or workbench).
-- Clicking outside current palette context dismisses the shell without command mutation.
-- Palette surfaces are resizable in situ.
+Right-click on any interactable target (graph node, edge, tile,
+Pane chrome, Frame border, Navigator row, swatch, base layer) opens
+the Context Menu scoped to that target. Right-click never opens the
+Command Palette directly; the Context Menu's "Search commands…"
+fallback is the keyboard-driven escape into the full action set.
 
 ### 3.4 Verb-target wording policy (`#299`)
 
@@ -220,71 +251,58 @@ Canonical wording rules:
 **Fallback / degraded behavior**: - If a command cannot execute, Graphshell must provide a blocked-state reason.
 - Silent command no-op behavior is forbidden.
 
-### 4.2 Command Palette (Search + Context Palette Mode)
+### 4.2 Command Palette (revised 2026-04-29)
 
-**What this domain is for**: - Provide the canonical searchable list of actions.
+**What this domain is for**: - Provide the canonical searchable list of actions in a single Modal surface.
 
-**Core controls**: - `Ctrl+K` or equivalent opens Search Palette Mode.
-- `F2` (default shortcut) toggles the same Search Palette Mode shell.
-- Contextual invocation opens the same palette component in Context Palette Mode.
-- Arrow keys move focus.
-- Enter confirms.
+**Core controls**: - `Ctrl+P` (canonical, Zed/VSCode-shaped) opens the palette.
+- `F2` (alternate) toggles the same palette.
+- The CommandBar trigger button opens the palette.
+- Arrow keys move focus within the result list.
+- Enter dispatches the focused action.
 - Escape dismisses and must not trigger unrelated global mode toggles on the same press.
 
-**Who owns it**: - Graphshell command system owns the action set and ranking rules.
+**Who owns it**: - Graphshell command system owns the action set, availability rules, and ranking.
 - The palette UI owns rendering, focus movement within the list, and search text capture.
 
-**State transitions**: - Opening the palette enters a command-browse state.
-- Choosing an action dispatches the selected `ActionId` against the current context.
+**State transitions**: - Opening the palette enters a command-browse state with the input focused.
+- Empty query shows pinned + recently-used + canonical-default available actions.
+- Non-empty query shows fuzzy-match ranked results.
+- Choosing an action dispatches the selected `ActionId` against the current selection set.
 - Dismissing the palette returns focus to the prior region.
 
-**Visual feedback**: - Group actions by `ActionCategory`.
-- Disabled actions remain visible and explain why they are unavailable.
-- Search Palette Mode shows search input plus scope dropdown; Context Palette Mode shows target-scoped results.
-- Search Palette Mode and Context Palette Mode must share the same context-aware category ordering policy.
-- Context Palette Mode Tier 1 is a horizontally scrollable category strip.
-- Tier 1 categories can be pinned and reordered by user customization.
-- Context Palette Mode Tier 2 is a vertically scrollable command list for the selected Tier 1 category.
+**Visual feedback**: - Render a flat ranked list (no category tier).
+- Each row shows: action label (verb-target wording), optional secondary text, optional inline category badge, optional right-aligned keybinding.
+- Disabled actions remain visible with reduced opacity and explicit disabled-reason text in the footer when focused.
+- Empty result set shows an explicit empty state ("No commands match…").
 
-**Fallback / degraded behavior**: - If no actions are available, show an explicit empty state.
-- If contextual resolution fails, Graphshell may fall back to Search Palette Mode, but that fallback must be explicit.
+**Fallback / degraded behavior**: - If no actions are available in the current scope, show an explicit empty state.
+- If a Context Menu's "Search commands…" fallback opens the palette, scope is preset to the right-click target.
 
-### 4.3 Radial Palette Mode
+### 4.3 Context Menu (revised 2026-04-29)
 
-**What this domain is for**: - Provide the radial presentation mode of the canonical command palette for low-travel contextual selection.
+**What this domain is for**: - Provide a right-click-anchored flat list of actions available on the right-click target.
 
-**Core controls**: - Radial Palette Mode is summonable from right-click contextual invocation.
-- It supports gesture and non-gesture operation:
-   - non-gesture: click/hover/select,
-   - gesture: directional drag/flick.
-- Tier 1 (category ring) and Tier 2 (command ring for selected category) follow §3.3.
-- D-pad or stick targets a sector.
-- Confirm executes.
-- Cancel or click-away dismisses.
+**Core controls**: - Right-click on any interactable target opens the Context Menu scoped to that target.
+- Arrow keys move focus.
+- Enter dispatches.
+- Escape dismisses.
 
-**Who owns it**: - Graphshell command system owns category/command assignment, ordering, pinning, and paging.
-- The radial UI owns ring rendering, radial label behavior, hover growth, and directional focus presentation.
+**Who owns it**: - Graphshell command system owns target-scoped action availability.
+- The Context Menu UI owns rendering and dismissal.
 
-**State transitions**: - Opening Radial Palette Mode draws a hub-circle outline at pointer origin.
-- Tier 1 category buttons appear on the periphery rail.
-- Selecting a Tier 1 category activates Tier 2 option ring for that category.
-- Confirming a Tier 2 option dispatches action and dismisses the palette shell.
+**State transitions**: - Opening the Context Menu enters a command-browse state focused on the menu.
+- Choosing an action dispatches the `ActionId` against the right-click target's selection set.
+- "Search commands…" footer entry opens the Command Palette with `PaletteOrigin::ContextFallback`, preserving the right-click target as scope.
+- Dismissing the menu returns focus to the prior region.
 
-**Visual feedback**: - Active sector highlight must be obvious.
-- Tier 1/Tier 2 circular buttons sit on periphery rails and are user-repositionable along each rail.
-- Default button size is compact; hovered buttons expand up to half the hub-circle radius for clickability.
-- Non-hovered buttons return to compact size.
-- Label behavior:
-   - each label is a bounded text field radiating away from center and aligned to its button,
-   - labels are hidden while not hovered,
-   - on hover, labels appear and reveal overflow via gentle radial-direction scrolling,
-   - on Tier 1 selection, Tier 1 radial labels collapse and selected category title is shown in the hub.
-- Tier 2 option labels follow the same bounded radial text-field rule.
-- Empty sector positions should not render placeholder arcs.
+**Visual feedback**: - Render a flat list of actions; no category tier.
+- Each row shows: action label (verb-target wording), optional right-aligned keybinding.
+- Disabled actions render with reduced opacity and explicit reason on hover/focus.
+- Footer separator + "Search commands…" entry as the keyboard escape into the full action set.
 
-**Fallback / degraded behavior**: - If more than 8 actions are available, overflow must page predictably.
-- If no valid actions exist, Radial Palette Mode must not open silently into an empty shell.
-- If radial layout cannot satisfy non-overlap constraints at current diameters, degrade to Context Palette Mode with explicit notice.
+**Fallback / degraded behavior**: - If no actions are available for the right-click target, show only the "Search commands…" footer.
+- If a destructive action is selected, route through `ConfirmDialog` per the host spec; do not dispatch silently.
 
 ### 4.4 Keyboard Commands
 
@@ -318,7 +336,7 @@ Canonical wording rules:
 **State transitions**: - Query mode determines whether the user is navigating, searching, or invoking a command.
 - Executing an omnibar command dispatches the same `ActionId` that other command surfaces would invoke.
 
-**Canonical parity contract (normative)**: - Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Search Palette Mode, Context Palette Mode, and Radial Palette Mode.
+**Canonical parity contract (normative)**: - Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Command Palette, and Context Menu surfaces.
 - Target scope resolution for omnibar-invoked `ActionId`s must use the same `ActionContext` authority path as other command surfaces.
 - Disabled command rows in omnibar must remain visible with the same precondition explanation text used by other command surfaces; silent suppression is forbidden.
 - If omnibar cannot resolve command target scope deterministically, it must degrade to explicit blocked-state feedback (or clarification UI), not implicit retargeting.
@@ -352,10 +370,10 @@ Canonical wording rules:
 ## 5. Planned Extensions
 
 - richer command ranking by recency and context relevance,
-- configurable radial pages and sector presets,
 - action previews before execution for high-impact commands,
 - command aliases and user-defined shortcuts,
-- per-domain Command settings pages: palette mode default (search/context/radial), radial layout presets, command aliases, pinned category order — exposed via the **Keybindings** and **General** settings categories in `aspect_control/settings_and_control_surfaces_spec.md §4.2`.
+- per-domain Command settings pages: pinned-action order, command aliases, keybinding customization — exposed via the **Keybindings** and **General** settings categories in `aspect_control/settings_and_control_surfaces_spec.md §4.2`,
+- **Radial Menu reintroduction** — deferred from canonical surfaces in the 2026-04-29 simplification; if gamepad input lands as part of the input-subsystem rework, a third command-dispatch surface (radial geometry per [`radial_menu_geometry_and_overflow_spec.md`](radial_menu_geometry_and_overflow_spec.md)) can be reintroduced with its own design pass. Reintroduction would source the same `ActionRegistry` action set; only the rendering and gesture model differ.
 
 ---
 
@@ -368,15 +386,16 @@ Canonical wording rules:
 
 ---
 
-## 7. Acceptance Criteria
+## 7. Acceptance Criteria (revised 2026-04-29)
 
-1. Command meaning is unified across keyboard, command palette modes, and omnibar surfaces.
-2. Context Palette and Radial Palette are mode presentations over one canonical command palette authority.
-3. Tier 1 category semantics and Tier 2 option semantics are equivalent across Context Palette and Radial Palette modes.
-4. The radial palette is directional, readable, and context-driven rather than hardcoded.
-5. Contextual palette shell is resizable in situ and dismisses on click-away context change.
-6. Disabled actions remain visible and explain why they are unavailable.
-7. Dismissal and focus return are deterministic.
-8. Blocked command execution is explicit and diagnosable.
-9. Omnibar command rows execute the same `ActionId` semantics and target-scope resolution as keyboard/palette/radial surfaces.
+1. Command meaning is unified across keyboard, Command Palette, Context Menu, and omnibar surfaces.
+2. Command Palette and Context Menu are two separate surfaces sourcing actions from the same `ActionRegistry`; both render flat ranked lists.
+3. The Command Palette's fuzzy-search input is the discovery mechanism; there is no separate Search Mode.
+4. Right-click on any interactable target opens the Context Menu scoped to that target; the "Search commands…" footer entry is the keyboard escape into the full action set.
+5. Disabled actions remain visible and explain why they are unavailable on both surfaces.
+6. Dismissal and focus return are deterministic on both surfaces.
+7. Blocked command execution is explicit and diagnosable.
+8. Destructive actions route through `ConfirmDialog` on both surfaces; dispatch never happens silently.
+9. Omnibar command rows execute the same `ActionId` semantics and target-scope resolution as keyboard / Command Palette / Context Menu surfaces.
 10. Omnibar and search fields do not capture keyboard commands by default; focus is explicit and visibly identifiable.
+11. Radial Menu, two-tier rendering, and Search/Context palette mode distinction do not appear in canonical surfaces (they are retired per §2.1 / §3.3). Reintroduction requires an explicit design pass per §5.

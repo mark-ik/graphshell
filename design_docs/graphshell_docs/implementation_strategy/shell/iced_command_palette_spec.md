@@ -4,262 +4,277 @@
 
 # Iced Command Palette Spec
 
-**Date**: 2026-04-29
+**Date**: 2026-04-29 (revised)
 **Status**: Canonical / Active — third concrete S2 deliverable for the iced jump-ship plan
-**Scope**: The iced-side rendering and event routing for the canonical
-command palette modes defined in
-[`../aspect_command/command_surface_interaction_spec.md`](../aspect_command/command_surface_interaction_spec.md).
-Covers Search Palette Mode and Context Palette Mode in full; Radial Palette
-Mode is stubbed (deferred to the input-rework lane). Reuses the canonical
-two-tier palette contract, selection-set availability rules, verb-target
-wording, and `ActionRegistry` source — does not redefine.
+**Scope**: The two iced-side command-dispatch surfaces — **Command Palette**
+(Modal overlay with fuzzy-search filter over a contextual command list,
+Zed/VSCode-shaped) and **Context Menu** (right-click on any interactable
+target, flat list of available commands). Both source actions from the same
+`ActionRegistry` and route dispatch through `HostIntent::Action` with the
+uphill rule. The previous draft of this spec mandated a two-tier
+category/option contract across three modes (Search / Context / Radial);
+that model is **retired** per the 2026-04-29 simplification — see §1.1.
 
-**Code-sample mode**: **Illustrative signatures** (per the
-[spec-code-samples feedback memory](../../../../.claude/projects/c--Users-mark--Code/memory/feedback_spec_code_samples_illustrative_vs_implementation_ready.md)).
-Concrete S3/S4 code lives in the implementation, not this spec.
+**Code-sample mode**: **Illustrative signatures**. Concrete S3/S4 code lives
+in the implementation, not this spec.
 
 **Related**:
 
-- [`../aspect_command/command_surface_interaction_spec.md`](../aspect_command/command_surface_interaction_spec.md) — **canonical** palette UX, two-tier contract, three modes, ActionRegistry source, verb-target wording, accessibility, acceptance criteria
+- [`../aspect_command/command_surface_interaction_spec.md`](../aspect_command/command_surface_interaction_spec.md) — canonical command-surface contract (revised 2026-04-29 to drop two-tier + Radial)
 - [`../aspect_command/ASPECT_COMMAND.md`](../aspect_command/ASPECT_COMMAND.md) — Command aspect authority
-- [`../aspect_command/radial_menu_geometry_and_overflow_spec.md`](../aspect_command/radial_menu_geometry_and_overflow_spec.md) — radial geometry policy
 - [`iced_composition_skeleton_spec.md`](iced_composition_skeleton_spec.md) — Application skeleton (§1.5), CommandBar slot (§7.2), context palette (§7.3), uphill rule routing (§8)
-- [`iced_omnibar_spec.md`](iced_omnibar_spec.md) — sibling spec; shares `CommandBarFocusTarget` and focus-dance contract
-- [`shell_composition_model_spec.md` §5](shell_composition_model_spec.md) — `CommandBarFocusTarget`, host-thread contract
-- [`2026-04-28_iced_jump_ship_plan.md` §4.10](2026-04-28_iced_jump_ship_plan.md) — coherence guarantees for command palette and context palette
-- [`../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — provenance / AT validation contract
+- [`iced_omnibar_spec.md`](iced_omnibar_spec.md) — sibling spec; shares focus-dance contract
+- [`2026-04-28_iced_jump_ship_plan.md` §4.10](2026-04-28_iced_jump_ship_plan.md) — coherence guarantees for command palette and context menu
+- [SHELL.md §6](SHELL.md) — Shell ↔ Navigator chrome relationship
+- [`../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md) — provenance / AT validation
 
 ---
 
 ## 1. Intent and Boundary
 
-The canonical palette UX is fully specified in
-[command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md).
-This spec covers the iced-side rendering and Message routing only:
+Two surfaces handle command discovery and dispatch:
 
-- which iced widgets render each canonical mode
-- the Message contract for invocation, navigation, dispatch, dismiss
-- focus dance with the omnibar and the prior-focused surface
-- how `ActionRegistry` projects into iced view-model state per frame
-- where two-tier vs single-list rendering diverges in the iced widget tree
-- coherence guarantee restated for the iced implementation
-
-This spec does **not** redefine: action meaning, action availability rules,
-two-tier semantics, category ordering policy, verb-target wording, or
-acceptance criteria. Those live in the canonical aspect_command spec.
-
-A change to canonical palette UX lives in the aspect_command spec; this
-spec re-renders the change. A change to iced widget choice or Message
-shape lives here.
-
----
-
-## 2. Three Modes — iced Realization
-
-Per [command_surface_interaction_spec.md §3.1](../aspect_command/command_surface_interaction_spec.md):
-
-| Mode | Canonical UX | iced realization | Status |
+| Surface | Trigger | Shape | Source |
 |---|---|---|---|
-| **Search Palette Mode** | Searchable list + scope dropdown | `Modal` overlay with `text_input` + scrollable two-tier rendering | Specified here |
-| **Context Palette Mode** | Right-click contextual shell with two-tier category/option | `iced_aw::ContextMenu` triggered on right-click, two-tier renderer inside | Specified here |
-| **Radial Palette Mode** | Positional radial-menu invocation (gamepad / touch / long-press) | Custom `canvas::Program` overlay rendering radial geometry | **Deferred** (see §10) |
+| **Command Palette** | `Ctrl+P` (canonical), CommandBar trigger button, programmatic | `Modal` overlay with `text_input` filter + flat ranked list of currently-available commands | `ActionRegistry::rank_for_query(query, view_model)` |
+| **Context Menu** | Right-click on an interactable target | `iced_aw::ContextMenu` with a flat list of commands available on that target | `ActionRegistry::available_for(target, view_model)` |
 
-Search and Context Palette Modes are the iced bring-up targets; both are
-common-case mouse/keyboard surfaces. Radial Palette Mode is deferred
-until the input subsystem rework lands per the iced jump-ship plan §11 G2
-and the existing radial_menu_geometry_and_overflow_spec.md.
+Both surfaces:
+
+- read action data exclusively from `ActionRegistry` (atomic registry per
+  TERMINOLOGY.md §Registry Architecture);
+- dispatch via a single `HostIntent::Action` per selection;
+- gate by selection-set availability per
+  [command_surface_interaction_spec.md §4.1](../aspect_command/command_surface_interaction_spec.md);
+- show disabled actions with explicit reasons;
+- gate destructive actions through `ConfirmDialog` (per §5);
+- route uphill per the iced jump-ship plan §4.9.
+
+### 1.1 What this spec retires (2026-04-29 simplification)
+
+The previous draft mandated a two-tier category/option model across three
+modes (Search Palette / Context Palette / Radial Palette) with cross-mode
+equivalence rules from
+[command_surface_interaction_spec.md §3.3](../aspect_command/command_surface_interaction_spec.md).
+That model is retired:
+
+- **Two-tier rendering** (Tier 1 horizontal category strip + Tier 2
+  vertical option list) → **flat ranked list** in both Command Palette
+  and Context Menu. The search filter is the discovery mechanism;
+  category browsing is dropped.
+- **Search Palette Mode + Context Palette Mode distinction** → folded
+  into a single Command Palette; "search" is the palette's input
+  affordance, not a separate mode.
+- **Radial Palette Mode** → retired indefinitely. Was originally gamepad-
+  oriented per [iced jump-ship plan §11 G2](2026-04-28_iced_jump_ship_plan.md);
+  if gamepad input lands later as part of the input-subsystem rework, a
+  radial surface can be reintroduced as a third command-dispatch route
+  with its own design pass. The geometry research in
+  [`../aspect_command/radial_menu_geometry_and_overflow_spec.md`](../aspect_command/radial_menu_geometry_and_overflow_spec.md)
+  is preserved for that future work.
+- **Cross-mode equivalence rule** (Tier 1 strip = Tier 1 ring) → moot;
+  there is no Tier 1.
+
+This is a real change to the canonical aspect_command spec; the canonical
+spec was updated in the same 2026-04-29 commit. See its §3 and §4 for the
+revised canonical interaction model.
 
 ---
 
-## 3. Search Palette Mode
+## 2. Command Palette
 
-### 3.1 Invocation
+### 2.1 Invocation
 
-Trigger sources:
+Trigger sources, all converging on `Message::PaletteOpen { origin }`:
 
-- **`Ctrl+K`** (canonical) — global keyboard shortcut, captured by
-  the iced application's keyboard subscription
-- **`F2`** (canonical alternate) — same shortcut
-- **CommandBar trigger button** click — emits `Message::PaletteOpen`
-- **Context Palette → Search fallback** — when contextual resolution
-  fails or user explicitly switches modes; emits `Message::PaletteOpen`
-  with `PaletteOrigin::ContextFallback`
-- **Programmatic** — actions or commands that open the palette as
-  part of their effect (rare; emits the same `Message::PaletteOpen`)
+- **`Ctrl+P`** — global keyboard shortcut, captured by the iced
+  application's keyboard subscription. Canonical (Zed/VSCode-shaped).
+- **`F2`** — alternate shortcut for parity with prior canonical
+  binding (see [command_surface_interaction_spec.md §4.2](../aspect_command/command_surface_interaction_spec.md)).
+- **CommandBar trigger button click** — emits `Message::PaletteOpen`
+  with `PaletteOrigin::TriggerButton`.
+- **Context Menu → Search fallback** — a "Search commands…" footer
+  entry in any Context Menu opens the palette pre-scoped to that
+  target. Origin is `PaletteOrigin::ContextFallback`.
+- **Programmatic** — actions that open the palette as part of their
+  effect (rare).
 
-All paths converge on `Message::PaletteOpen { origin }`. Origin is
-recorded for diagnostics provenance per
+Origin is recorded for diagnostics provenance per
 [`subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md).
 
-### 3.2 Widget Tree
+### 2.2 Widget Tree
 
 ```rust
-fn search_palette_overlay(state: &State) -> Option<Element<'_, Message, GraphshellTheme>> {
+fn command_palette_overlay(state: &State) -> Option<Element<'_, Message, GraphshellTheme>> {
     state.command_palette.is_open.then(|| {
         modal(
             container(
                 column![
-                    palette_header(state),                   // "Commands" + scope dropdown
                     text_input(
                         &state.command_palette.query,
                         Message::PaletteQuery,
                     )
                     .on_submit(Message::PaletteSubmitFocused)
-                    .id(text_input::Id::new("command_palette_input")),
+                    .id(text_input::Id::new("command_palette_input"))
+                    .placeholder("Type a command or search…"),
 
                     horizontal_rule(),
 
-                    two_tier_action_view(
-                        &state.command_palette.tier1,
-                        &state.command_palette.tier2,
-                        state.command_palette.tier_focus,
+                    palette_results_list(
+                        &state.command_palette.ranked_actions,
+                        state.command_palette.focused_index,
                     ),
 
-                    palette_footer(state),                   // disabled-action explanation, hint text
+                    palette_footer(state),  // disabled-reason explanation, hint text
                 ]
                 .spacing(8)
                 .padding(12)
             )
             .style(palette_container_style)
-            .max_width(560)
+            .max_width(640)
+            .max_height(480)
         )
-        .on_blur(Message::PaletteClose)
+        .on_blur(Message::PaletteCloseAndRestoreFocus)
         .into()
     })
 }
-```
 
-### 3.3 Two-Tier Rendering
-
-Per [command_surface_interaction_spec.md §3.3](../aspect_command/command_surface_interaction_spec.md),
-all contextual palette modes (and Search Palette Mode in its
-contextual-results state) use two tiers.
-
-- **Tier 1** — horizontally scrollable category strip with pinned
-  categories and user-editable order. Iced realization:
-  `scrollable` containing a `row!` of category chip buttons.
-- **Tier 2** — vertically scrollable command list for the selected
-  Tier 1 category. Iced realization: `scrollable` containing a
-  `column!` of action rows.
-
-```rust
-fn two_tier_action_view<'a>(
-    tier1: &'a [PaletteCategory],
-    tier2: &'a [PaletteAction],
-    tier_focus: TierFocus,
+fn palette_results_list<'a>(
+    ranked: &'a [RankedAction],
+    focused: Option<usize>,
 ) -> Element<'a, Message, GraphshellTheme> {
-    column![
-        // Tier 1
-        scrollable(
-            row(tier1.iter().enumerate().map(|(i, cat)| {
-                category_chip(cat, tier_focus.is_tier1(i))
-                    .on_press(Message::PaletteCategorySelected(cat.id))
-            }))
-            .spacing(4)
-        )
-        .direction(scrollable::Direction::Horizontal(...)),
-
-        // Tier 2
-        scrollable(
-            column(tier2.iter().enumerate().map(|(i, action)| {
-                action_row(action, tier_focus.is_tier2(i))
-                    .on_press(Message::PaletteActionSelected(action.id))
-            }))
-            .spacing(2)
-        ),
-    ]
+    scrollable(
+        column(ranked.iter().enumerate().map(|(i, action)| {
+            action_row(action, focused == Some(i))
+                .on_press(Message::PaletteActionSelected(action.id))
+        }))
+        .spacing(2)
+    )
     .into()
 }
 ```
 
-### 3.4 Single-List Rendering (search-result mode)
-
-When a non-empty query is active in Search Palette Mode, the two-tier
-view collapses to a flat ranked list:
-
-- Tier 1 strip hides (or shows category chips as filter affordances
-  with a "any" sentinel selected by default).
-- Tier 2 becomes the ranked search-result list, showing matched
-  actions across categories.
-- Action rows show the source category as a small badge so the user
-  can see breadth/grouping.
-
-Mode switch is determined by `state.command_palette.query.is_empty()`.
-The transition is render-only; underlying state shape doesn't change.
-
-### 3.5 State Shape
+### 2.3 State Shape
 
 ```rust
+// Illustrative.
 pub struct CommandPaletteState {
     pub is_open: bool,
-    pub mode: PaletteMode,                 // Search | Context (Radial out of scope)
-    pub origin: PaletteOrigin,             // diagnostics provenance
-    pub query: String,                     // empty when in two-tier; non-empty when in single-list
-    pub scope: PaletteScope,               // CurrentTarget | ActivePane | ActiveGraph | Workbench
-    pub tier1: Vec<PaletteCategory>,       // current categories
-    pub tier2: Vec<PaletteAction>,         // current actions for selected category, or ranked results
-    pub tier_focus: TierFocus,             // keyboard focus position
-    pub selected_category: Option<CategoryId>,
-    pub focus_at_open: Option<FocusedSurface>,  // for Esc/dismiss restore
+    pub origin: PaletteOrigin,
+    pub query: String,                       // empty = "all available, default order"
+    pub scope: PaletteScope,                 // CurrentTarget | ActivePane | ActiveGraph | Workbench
+    pub ranked_actions: Vec<RankedAction>,
+    pub focused_index: Option<usize>,        // keyboard-focused row
+    pub focus_at_open: Option<FocusedSurface>,  // for dismiss restore
+    pub pending_confirmation: Option<PendingConfirmation>,  // see §5
+    pub current_request: Option<RankRequestId>,
 }
 
-pub enum PaletteMode {
-    Search,
-    Context { target: ContextualTarget },  // see §4
-    // Radial — deferred
+pub struct RankedAction {
+    pub id: ActionId,
+    pub label: String,                       // verb-target wording, canonical
+    pub description: Option<String>,         // secondary text
+    pub category_badge: Option<String>,      // inline category indicator (small)
+    pub keybinding: Option<String>,          // right-aligned shortcut display
+    pub is_available: bool,
+    pub disabled_reason: Option<String>,
 }
 
 pub enum PaletteOrigin {
     KeyboardShortcut,
     TriggerButton,
-    ContextFallback,
+    ContextFallback { target: ContextualTarget },
     ProgrammaticByAction(ActionId),
-    RightClickOn(ContextualTarget),
-}
-
-pub enum TierFocus {
-    Tier1(usize),
-    Tier2(usize),
-    Input,
 }
 ```
 
-### 3.6 Message Contract
+### 2.4 Filtering and Ranking
+
+Empty query: `ranked_actions` shows all actions available in the current
+context, ordered by:
+
+1. Pinned actions (user-customizable, persisted in `WorkbenchProfile`)
+2. Recently used actions (per `ActionRegistry`'s recency tracking)
+3. Default canonical order from `ActionRegistry`
+
+Non-empty query: `ranked_actions` is the result of fuzzy-match scoring
+against `(label, description, category)` tokens. Ranking algorithm is
+runtime-side (not iced-side); the palette consumes
+`ActionRegistryViewModel::rank_for_query(query, scope, view_model)`
+asynchronously.
+
+```rust
+pub trait ActionRegistryViewModel {
+    /// Default available action list (no query). Pinned-first, recency,
+    /// then canonical order. Sync — fast enough to compute per frame.
+    fn available_for_scope(&self, scope: PaletteScope) -> Vec<RankedAction>;
+
+    /// Fuzzy-match ranked list for a query. Async — may compute on a
+    /// background task for large action sets.
+    fn rank_for_query(
+        &self,
+        query: String,
+        scope: PaletteScope,
+    ) -> impl Future<Output = (RankRequestId, Vec<RankedAction>)>;
+
+    /// Selection-set availability gate.
+    fn is_available(&self, action_id: ActionId, target: &SelectionSet) -> bool;
+    fn disabled_reason(&self, action_id: ActionId, target: &SelectionSet) -> Option<String>;
+}
+```
+
+### 2.5 Action Rows
+
+Each row in the palette shows:
+
+- **Action label** (verb-target wording per
+  [command_surface_interaction_spec.md §3.4](../aspect_command/command_surface_interaction_spec.md)) —
+  the canonical text from `ActionRegistry`, never reformatted.
+- **Optional secondary text** — short description, ≤ 80 chars.
+- **Optional category badge** — small inline chip showing source
+  category for breadth visibility (e.g., "Graph", "Workbench",
+  "View"). Category is informational only; rows are never grouped by
+  it.
+- **Right-aligned keybinding** — current shortcut for the action, if
+  any.
+- **Disabled state** — disabled rows render with reduced opacity and
+  no `on_press` binding; `disabled_reason` shows in the footer when
+  the disabled row is focused.
+
+### 2.6 Message Contract
 
 ```rust
 pub enum Message {
-    // ... global from §1.5 of composition skeleton spec ...
-
     // Open / close
     PaletteOpen { origin: PaletteOrigin },
     PaletteClose,
     PaletteCloseAndRestoreFocus,
 
     // Input
-    PaletteQuery(String),                  // text_input on_input
-    PaletteScopeChanged(PaletteScope),
+    PaletteQuery(String),                    // text_input on_input
 
     // Navigation
-    PaletteCategorySelected(CategoryId),   // Tier 1 click
-    PaletteActionSelected(ActionId),       // Tier 2 click / row press
-    PaletteKeyArrowDown,
-    PaletteKeyArrowUp,
-    PaletteKeyArrowRight,                  // Tier 1 → Tier 2 (or category next)
-    PaletteKeyArrowLeft,                   // Tier 2 → Tier 1 (or category prev)
-    PaletteKeyTab,                         // input → Tier 1 → Tier 2 cycle
-    PaletteKeyEscape,                      // dismiss; restore focus
+    PaletteFocusNext,                        // ArrowDown / Tab
+    PaletteFocusPrev,                        // ArrowUp / Shift+Tab
+    PaletteFocusedRowChanged(usize),         // mouse hover updates focus
 
     // Submit
-    PaletteSubmitFocused,                  // Enter on focused row
-    PaletteSubmitDispatched { action_id: ActionId, target: SelectionSet },
+    PaletteSubmitFocused,                    // Enter on focused row
+    PaletteActionSelected(ActionId),         // click on a row
 
-    // Lifecycle / async
-    PaletteCategoryActionsLoaded { category: CategoryId, actions: Vec<PaletteAction> },
-    PaletteSearchResultsReady { generation: u64, results: Vec<PaletteAction> },
+    // Async
+    PaletteRankResultsReady {
+        request_id: RankRequestId,
+        results: Vec<RankedAction>,
+    },
+
+    // Confirmation (destructive actions, see §5)
+    PaletteConfirmDispatch,
+    PaletteConfirmCancel,
 }
 ```
 
-### 3.7 Update Routing
+### 2.7 Update Routing
 
 Sketches of the load-bearing arms:
 
@@ -269,10 +284,8 @@ fn update(&mut self, msg: Message) -> Task<Message> {
         Message::PaletteOpen { origin } => {
             self.command_palette = CommandPaletteState::open_for(
                 origin,
-                /* focus_at_open */ self.view_model.focus_target.focused_surface.clone(),
-                /* canonical defaults: */
-                PaletteMode::Search,
-                self.runtime.actions().tier1_for_scope(PaletteScope::default()),
+                self.view_model.focus_target.focused_surface.clone(),
+                self.runtime.actions().available_for_scope(PaletteScope::default()),
             );
             return widget::focus(text_input::Id::new("command_palette_input"));
         }
@@ -280,41 +293,54 @@ fn update(&mut self, msg: Message) -> Task<Message> {
         Message::PaletteQuery(query) => {
             self.command_palette.query = query.clone();
             if query.is_empty() {
-                // Restore two-tier view from the selected category
-                self.command_palette.tier2 = self.runtime.actions()
-                    .tier2_for(self.command_palette.selected_category, &self.view_model);
+                // Restore default available list
+                self.command_palette.ranked_actions =
+                    self.runtime.actions().available_for_scope(self.command_palette.scope);
+                self.command_palette.focused_index = None;
                 Task::none()
             } else {
-                // Spawn ranked search; result returns via PaletteSearchResultsReady
-                self.command_palette.tier_focus = TierFocus::Tier2(0);
-                let gen = self.command_palette.next_generation();
+                // Spawn fuzzy rank; result returns via PaletteRankResultsReady
+                let req = self.runtime.actions().next_rank_request_id();
+                self.command_palette.current_request = Some(req);
                 Task::perform(
-                    self.runtime.actions().rank_for_query(query, &self.view_model),
-                    move |results| Message::PaletteSearchResultsReady { generation: gen, results }
+                    self.runtime.actions().rank_for_query(query, self.command_palette.scope),
+                    move |(rid, results)| Message::PaletteRankResultsReady {
+                        request_id: rid,
+                        results,
+                    },
                 )
             }
         }
 
+        Message::PaletteRankResultsReady { request_id, results } => {
+            // Drop stale results
+            if Some(request_id) != self.command_palette.current_request {
+                return Task::none();
+            }
+            self.command_palette.ranked_actions = results;
+            self.command_palette.focused_index = (!results.is_empty()).then_some(0);
+            Task::none()
+        }
+
         Message::PaletteActionSelected(action_id) => {
-            // Resolve the selection-set per command_surface_interaction_spec.md §4.1
             let target = self.view_model.current_selection_set();
-            // Availability gate: action must apply to every object in the set
             if !self.runtime.actions().is_available(action_id, &target) {
-                // Show disabled-state explanation; do not dispatch
                 self.command_palette.show_disabled_explanation_for(action_id);
                 return Task::none();
             }
-            // Dispatch via the canonical ActionRegistry::execute path
+            // Destructive actions go through ConfirmDialog (§5)
+            if self.runtime.actions().requires_confirmation_dialog(action_id, &target) {
+                self.command_palette.pending_confirmation = Some(
+                    PendingConfirmation::for_action(action_id, target)
+                );
+                return Task::none();
+            }
+            // Otherwise dispatch immediately
             self.runtime.emit(HostIntent::Action(ActionInvocation {
                 action_id,
                 target,
                 origin: ActionOrigin::CommandPalette(self.command_palette.origin),
             }));
-            // Close palette and restore focus per §3.8
-            return Task::done(Message::PaletteCloseAndRestoreFocus);
-        }
-
-        Message::PaletteKeyEscape => {
             return Task::done(Message::PaletteCloseAndRestoreFocus);
         }
 
@@ -329,83 +355,37 @@ fn update(&mut self, msg: Message) -> Task<Message> {
 }
 ```
 
-### 3.8 Focus Dance with the Omnibar
+### 2.8 Focus Dance with the Omnibar
 
 Per [`iced_omnibar_spec.md` §9](iced_omnibar_spec.md):
 
-- The palette opens as a Modal overlay; pointer/keyboard input goes
+- The palette opens as a `Modal` overlay; pointer/keyboard input goes
   to the palette, the omnibar's `view` continues running beneath but
   is not focused.
 - `command_palette.focus_at_open` is recorded at `PaletteOpen` time.
 - On dismiss (Escape, click outside, action selected), focus returns
   to `focus_at_open` via `widget::focus()` `Operation`.
-- If `focus_at_open` was the omnibar in Input mode, the omnibar
-  stays in Input mode under the palette and re-receives focus on
-  dismiss.
-- A palette action that targets the omnibar (e.g., "Focus omnibar")
-  emits `Message::OmnibarFocus` after `PaletteCloseAndRestoreFocus`,
-  overriding the restore.
 
 The omnibar and the palette never simultaneously hold input focus.
 
-### 3.9 ActionRegistry Consumption
+### 2.9 ActionRegistry Consumption
 
-The palette never owns action data — it's always projected from the
-canonical `ActionRegistry` (atomic registry, see TERMINOLOGY.md §Registry
-Architecture).
+Every palette-rendered list is a derivation from
+`ActionRegistryViewModel` against the current frame's view-model. The
+palette never owns action data. No palette state aliases action truth.
 
-Per-frame projection contract:
-
-```rust
-// What the runtime exposes via FrameViewModel
-pub trait ActionRegistryViewModel {
-    fn tier1_for_scope(&self, scope: PaletteScope) -> Vec<PaletteCategory>;
-    fn tier2_for(
-        &self,
-        category: Option<CategoryId>,
-        view_model: &FrameViewModel,
-    ) -> Vec<PaletteAction>;
-    fn rank_for_query(
-        &self,
-        query: String,
-        view_model: &FrameViewModel,
-    ) -> impl Future<Output = Vec<PaletteAction>>;
-    fn is_available(&self, action_id: ActionId, target: &SelectionSet) -> bool;
-    fn disabled_reason(&self, action_id: ActionId, target: &SelectionSet) -> Option<DisabledReason>;
-}
-```
-
-Every palette-rendered list is a derivation from this trait against the
-current frame's view-model. No palette state aliases action truth.
-
-### 3.10 Disabled Actions
-
-Per [command_surface_interaction_spec.md §4.1](../aspect_command/command_surface_interaction_spec.md):
-
-> Silent fallback to a hidden primary target is forbidden.
-> Silent command no-op behavior is forbidden.
-
-Iced realization:
-
-- Disabled actions render with reduced opacity and no `on_press`
-  binding, so click does nothing.
-- Hovering or focusing a disabled action shows the
-  `DisabledReason` (e.g., "Selection contains an Edge; edges cannot
-  be opened in a Pane") in the palette footer or as a tooltip.
-- Submitting a disabled action via Enter is intercepted in
-  `update`; it shows the explanation but does not dispatch.
-
-This guarantees the user sees why every visible action is unavailable;
-they never have to guess.
+The `ActionRegistry` itself is canonical (atomic registry, see
+TERMINOLOGY.md §Registry Architecture). The palette is a renderer
+over its projected views.
 
 ---
 
-## 4. Context Palette Mode
+## 3. Context Menu
 
-### 4.1 Invocation
+### 3.1 Invocation
 
-Right-click on any interactable target opens Context Palette Mode scoped
-to that target. Per the
+Right-click on any interactable target opens a context menu scoped to
+that target. Per the
 [composition skeleton spec §7.3](iced_composition_skeleton_spec.md), the
 target catalog is:
 
@@ -416,79 +396,142 @@ target catalog is:
 - Swatch (Navigator Swatches bucket or expanded preview)
 - Empty FrameSplitTree (canvas base layer)
 
-Iced realization: `iced_aw::ContextMenu` mounted on the target widget,
-triggered by right-click event. The `ContextMenu` builder takes a
-closure that returns the menu element; we pass the same two-tier renderer
-as Search Palette Mode.
+### 3.2 Widget Tree
 
 ```rust
-fn tile_pane_with_context_menu<'a>(...) -> Element<'a, Message, GraphshellTheme> {
-    iced_aw::ContextMenu::new(
-        tile_pane_body(...),
-        || context_palette_menu(target_id),
-    )
+fn target_with_context_menu<'a>(
+    target_widget: Element<'a, Message, GraphshellTheme>,
+    target_id: ContextualTarget,
+    available: &'a [RankedAction],
+) -> Element<'a, Message, GraphshellTheme> {
+    iced_aw::ContextMenu::new(target_widget, move || {
+        column(
+            available.iter().map(|action| {
+                context_menu_item(action)
+                    .on_press(Message::ContextMenuActionSelected {
+                        target: target_id.clone(),
+                        action_id: action.id,
+                    })
+            })
+            .chain(std::iter::once(
+                context_menu_separator()
+            ))
+            .chain(std::iter::once(
+                context_menu_search_fallback()
+                    .on_press(Message::PaletteOpen {
+                        origin: PaletteOrigin::ContextFallback { target: target_id.clone() }
+                    })
+            ))
+        ).into()
+    })
     .into()
-}
-
-fn context_palette_menu(target: ContextualTarget) -> Element<'_, Message, GraphshellTheme> {
-    // Reuse the two-tier renderer; tier1/tier2 are populated by
-    // ActionRegistry::tier1_for_target(target).
-    two_tier_action_view(...)
 }
 ```
 
-### 4.2 Mode-Specific Behavior
+The context menu is a **flat list** of available actions, plus a
+"Search commands…" footer entry that opens the Command Palette
+pre-scoped to the target. No category tier; the context already implies
+the relevant category.
 
-Differences from Search Palette Mode:
+### 3.3 Action Source
 
-- **No search input**. The context palette starts directly in the
-  two-tier view scoped to the target.
-- **Origin** is `RightClickOn(ContextualTarget)`.
-- **Anchored to the right-click position** (per
-  `iced_aw::ContextMenu` placement).
-- **Dismiss-on-blur**: clicking outside the menu dismisses it.
-- **Search fallback**: a "Search…" entry at the bottom of Tier 1
-  switches to Search Palette Mode with the same target as scope, per
-  [command_surface_interaction_spec.md §3.3](../aspect_command/command_surface_interaction_spec.md).
+`ActionRegistry::available_for(target, view_model)` returns the flat
+list of actions that validly apply to the right-click target. Standard
+selection-set availability rules
+(per [command_surface_interaction_spec.md §4.1](../aspect_command/command_surface_interaction_spec.md))
+apply.
 
-The Message contract is the same as Search Palette Mode (Open / Close /
-KeyArrows / ActionSelected / SubmitFocused). Only `PaletteQuery` and the
-single-list rendering path don't apply to Context Palette Mode (until
-the user switches to Search via the fallback).
+### 3.4 Dispatch
 
-### 4.3 Mode Switch (Context → Search)
+Same uphill route as the Command Palette:
 
-When the user picks "Search…" from a context palette:
+```rust
+Message::ContextMenuActionSelected { target, action_id } => {
+    let selection = SelectionSet::from(target);
+    if self.runtime.actions().requires_confirmation_dialog(action_id, &selection) {
+        self.pending_confirmation = Some(PendingConfirmation::for_action(action_id, selection));
+        return Task::none();
+    }
+    self.runtime.emit(HostIntent::Action(ActionInvocation {
+        action_id,
+        target: selection,
+        origin: ActionOrigin::ContextMenu(target.kind()),
+    }));
+    Task::none()
+}
+```
 
-1. `Message::PaletteOpen { origin: ContextFallback }` fires.
-2. The Context Palette Mode dismisses (via `iced_aw::ContextMenu`'s
-   blur handling).
-3. Search Palette Mode opens centered (Modal), scope preset to the
-   right-click target.
-4. Focus moves to the search input.
-5. The contextual target's available actions appear as the initial
-   ranked list.
+The context menu dismisses on action selection, click outside, or
+Escape — `iced_aw::ContextMenu` handles dismissal automatically.
 
-Reverse switch (Search → Context) is not supported in this spec —
-once Search Palette Mode is open, the user dismisses it explicitly to
-return to a contextual flow.
+### 3.5 Mode Switch (Context → Command Palette)
+
+The "Search commands…" footer entry in any context menu emits
+`Message::PaletteOpen { origin: ContextFallback { target } }`. The
+palette opens with `scope = PaletteScope::CurrentTarget` and the same
+`SelectionSet` derived from the right-click target. This gives the
+user keyboard-driven escape into the full command set when the
+context-menu list isn't enough.
+
+Reverse switch (Palette → Context Menu) is not supported — once the
+palette is open, the user dismisses it explicitly to return to a
+context-menu flow.
 
 ---
 
-## 5. Verb-Target Wording (canonical pass-through)
+## 4. Verb-Target Wording (canonical pass-through)
 
 Per [command_surface_interaction_spec.md §3.4](../aspect_command/command_surface_interaction_spec.md):
 
 > Command labels must follow explicit `Verb + Target (+ Destination/Scope when needed)` grammar.
 
-iced rendering passes the canonical label through verbatim. The palette
-never re-formats action labels, never abbreviates `Delete Selected
-Node(s)` to `Delete`, never substitutes `Close` for graph-content
-deletion. Label content is `ActionRegistry`'s responsibility; the
-palette is a renderer.
+iced rendering passes the canonical label through verbatim. Both the
+palette and the context menu render `RankedAction.label` unchanged.
 
 If a future iced styling pass adds inline icons or color cues, those
 sit alongside the canonical label, not as substitutes.
+
+---
+
+## 5. Destructive Action Confirmation
+
+Destructive actions (Tombstone, Remove edge, Discard frame snapshot,
+etc.) carry a confirmation step. Iced realization:
+
+- Action's `requires_confirmation_dialog` flag (from `ActionRegistry`)
+  gates a `ConfirmDialog` modal that intercepts the dispatch path.
+- The dialog shows: action name, target description (which nodes /
+  edges / frames), and "Confirm" / "Cancel" buttons.
+- Confirm dispatches the `HostIntent` and closes both palette/menu and
+  dialog; Cancel closes the dialog and restores palette/menu focus.
+- Keyboard: Enter confirms, Escape cancels.
+
+```rust
+fn confirm_dialog(state: &State) -> Option<Element<Message>> {
+    state.command_palette.pending_confirmation.as_ref().map(|p| {
+        modal(
+            container(column![
+                text(p.action_name.clone()).size(18),
+                text(p.target_description.clone()),
+                vertical_space(),
+                row![
+                    button("Cancel").on_press(Message::PaletteConfirmCancel),
+                    horizontal_space(),
+                    button("Confirm").on_press(Message::PaletteConfirmDispatch),
+                ]
+            ])
+        ).into()
+    })
+}
+```
+
+The same `pending_confirmation` field handles both palette-initiated
+and context-menu-initiated destructive actions; only one
+`ConfirmDialog` is ever active at a time.
+
+Single-step destructive actions (e.g., explicit Tombstone-with-acknowledgment)
+skip the confirmation dialog if `ActionRegistry::requires_confirmation_dialog`
+returns false; `is_destructive` is a description, not the gate.
 
 ---
 
@@ -500,179 +543,137 @@ Per [iced jump-ship plan §4.10](2026-04-28_iced_jump_ship_plan.md):
 > the action only takes effect once the receiving authority confirms via
 > `IntentApplied`. Confirmation appears in the Activity Log; unconfirmed
 > actions never silently apply.
-
-This spec preserves the guarantee:
-
-- `PaletteActionSelected` arms always emit one `HostIntent::Action(...)`
-  via `runtime.emit`; the palette never mutates graph / workbench /
-  shell state directly.
-- The palette closes after dispatch but does not "show success"; the
-  Activity Log is the canonical confirmation surface.
-- A failed action surfaces via toast (per the iced jump-ship plan §12.2
-  toast path) and a row in the Activity Log; the palette does not
-  silently swallow failures.
-- Disabled actions never dispatch (§3.10); the disabled-reason text is
-  shown instead.
-
+>
 > **Context palette**: Right-click never mutates graph truth on its own.
 > Each action in the menu emits an explicit intent; destructive actions
-> (Tombstone, Remove edge) carry confirmation; non-destructive actions
-> take effect immediately and appear in the Activity Log.
+> carry confirmation; non-destructive actions take effect immediately
+> and appear in the Activity Log.
 
-The Context Palette Mode shares the Search Palette Mode's dispatch
-path, so the same guarantee applies. Destructive action confirmation
-is implemented via a `ConfirmDialog` widget overlaid before dispatch
-(per §7).
+This spec preserves both:
 
----
-
-## 7. Destructive Action Confirmation
-
-Destructive actions (Tombstone, Remove edge, Discard frame snapshot,
-etc.) carry a confirmation step. Iced realization:
-
-- The action's `is_destructive` flag (from `ActionRegistry`) gates a
-  `ConfirmDialog` modal that intercepts `PaletteActionSelected`.
-- The dialog shows: action name, target description (which nodes /
-  edges / frames), and "Confirm" / "Cancel" buttons.
-- Confirm dispatches the `HostIntent` and closes both palette and
-  dialog; Cancel closes the dialog and restores palette focus.
-- Keyboard: Enter confirms, Escape cancels.
-
-```rust
-fn confirm_dialog(state: &State) -> Option<Element<Message>> {
-    state.command_palette.pending_confirmation.as_ref().map(|p| {
-        modal(
-            container(column![
-                text(p.action_name.clone()),
-                text(p.target_description.clone()),
-                row![
-                    button("Cancel").on_press(Message::PaletteConfirmCancel),
-                    button("Confirm").on_press(Message::PaletteConfirmDispatch),
-                ]
-            ])
-        ).into()
-    })
-}
-```
-
-Single-step destructive actions (e.g., Tombstone with explicit
-acknowledgment) skip the confirmation dialog if the action's
-canonical definition marks them as such; `is_destructive` is
-necessary but `requires_confirmation_dialog` is the gate.
+- `PaletteActionSelected` and `ContextMenuActionSelected` arms always
+  emit one `HostIntent::Action(...)`; neither surface mutates graph /
+  workbench / shell state directly.
+- After dispatch, the palette/menu closes — neither shows "success";
+  the Activity Log is the canonical confirmation surface.
+- Failed actions surface via toast (per the iced jump-ship plan §12.2)
+  and a row in the Activity Log; surfaces do not silently swallow
+  failures.
+- Disabled actions never dispatch (§2.5); the disabled-reason text is
+  shown instead.
+- Destructive actions route through `ConfirmDialog` (§5).
 
 ---
 
-## 8. Accessibility
+## 7. Accessibility
 
 Per [command_surface_interaction_spec.md §4.6](../aspect_command/command_surface_interaction_spec.md):
 
-- **Keyboard equivalents** for every palette mode (Tab cycles input →
-  Tier1 → Tier2; arrow keys navigate within tier; Enter confirms;
-  Escape dismisses).
-- **AccessKit roles**: Modal palette is a `dialog`; text_input is a
-  `searchbox`; Tier 1 chips are a `tablist` of `tab` roles; Tier 2 is a
-  `listbox` of `option` roles. Context palette is a `menu` of
-  `menuitem` roles.
-- **Live region** on the Tier 2 list announces selection changes
-  during keyboard navigation.
-- **Focus appearance** meets WCAG 2.2 AA SC 2.4.11 via iced::Theme.
+- **Keyboard equivalents** for both surfaces (Tab / Arrow keys
+  navigate; Enter dispatches; Escape dismisses).
+- **AccessKit roles**:
+  - Command Palette Modal → `dialog`
+  - Palette `text_input` → `searchbox`
+  - Palette result list → `listbox`, rows → `option`
+  - Context Menu → `menu`, items → `menuitem`
+- **Live region** on the palette result list announces selection
+  changes during keyboard navigation.
+- **Focus appearance** meets WCAG 2.2 AA SC 2.4.11 via `iced::Theme`.
 - **Target size** for action rows ≥ 32×32 dp (SC 2.5.8).
 - **Disabled-reason** text reaches AT users via a `description`
   attribute on the disabled row (not just a tooltip).
 
 These targets land at Stage E (per the iced jump-ship plan §12.3) and
-gate via the `UxProbeSet` AT-validation contract per
-[`subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md).
+gate via the `UxProbeSet` AT-validation contract.
 
 ---
 
-## 9. Provenance and Diagnostics
+## 8. Provenance and Diagnostics
 
-The palette participates in the command-surface provenance contract
+Both surfaces participate in the command-surface provenance contract
 per [command_surface_observability_and_at_plan.md](../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md):
 
-- Each `Message::PaletteOpen` records origin, scope, and timing.
-- Each `Message::PaletteActionSelected` (and the resulting
-  `HostIntent::Action` dispatch) emits a `command-surface.palette`
-  trace event with the action ID, target selection, origin, and
-  resolution result (resolved / blocked / fallback / no-target).
+- `Message::PaletteOpen` → `command-surface.palette` `opened` event
+  with origin / scope / focused-target snapshot.
+- `Message::PaletteActionSelected` (or `ContextMenuActionSelected`)
+  → `command-surface.palette` (or `.context-menu`) `dispatched` event
+  with action ID, target selection, origin, and resolution result
+  (`resolved` / `blocked` / `fallback` / `no-target`).
 - Disabled-action attempts emit a `blocked` receipt with the
-  `DisabledReason`.
+  `disabled_reason`.
 - Palette dismiss emits a `dismissed` receipt; if the focus restore
   failed (stale return target), an explicit `fallback` receipt
   records what happened.
 
-Provenance is the iced surface's obligation; the trace shape is owned
-by `subsystem_ux_semantics`. The palette uses the existing landed
-trace path; it does not invent a parallel diagnostic channel.
+The trace shape is owned by `subsystem_ux_semantics`; the palette and
+context menu use the existing landed trace path.
 
 ---
 
-## 10. Radial Palette Mode (Deferred Stub)
+## 9. Retired Surfaces (memory only)
 
-Per the iced jump-ship plan §11 G2 and the existing
-[`radial_menu_geometry_and_overflow_spec.md`](../aspect_command/radial_menu_geometry_and_overflow_spec.md),
-Radial Palette Mode is deferred until the input subsystem rework lands.
-The deferred shape:
+The following models from prior drafts are retired and should not be
+re-added without an explicit design pass:
 
-- iced realization: custom `canvas::Program` overlay rendering radial
-  geometry. Hit testing handled by the Program.
-- Same two-tier contract as Context Palette Mode (per
-  [command_surface_interaction_spec.md §3.3](../aspect_command/command_surface_interaction_spec.md)
-  cross-mode equivalence rule): Tier 1 ring = category strip, Tier 2
-  ring = option list.
-- Invocation: gamepad button hold, touch long-press, mouse press-and-hold.
-- Dispatch path: same `Message::PaletteActionSelected` as the other
-  modes.
+- **Search Palette Mode + Context Palette Mode distinction**: collapsed
+  into a single Command Palette. The "search input" *is* the palette's
+  affordance; there is no Context Palette Mode separately invoked.
+- **Two-tier (Tier 1 categories + Tier 2 options)**: replaced by flat
+  ranked list. Categories appear only as inline badges on action rows
+  for breadth visibility; rows are not grouped by category.
+- **Cross-mode equivalence rule** (Tier 1 strip = Tier 1 ring):
+  retired alongside Tier 1.
+- **Radial Palette Mode**: deferred indefinitely. Was originally
+  gamepad-oriented per [iced jump-ship plan §11 G2](2026-04-28_iced_jump_ship_plan.md).
+  If gamepad input lands later, radial can be reintroduced as a third
+  surface; the geometry research in
+  [`../aspect_command/radial_menu_geometry_and_overflow_spec.md`](../aspect_command/radial_menu_geometry_and_overflow_spec.md)
+  is preserved for that future pass.
 
-Until the input rework, Radial Palette Mode is not buildable; the
-command-action set still works through Search and Context Palette
-Modes for keyboard / mouse users.
+These were specified in the canonical
+[command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md)
+prior to 2026-04-29; the canonical spec was revised in the same commit
+that landed this version of the iced spec.
 
 ---
 
-## 11. Open Items
+## 10. Open Items
 
-- **Inline command syntax** (e.g., `>action-name args`): not yet
-  specified for either Search Palette Mode or the omnibar. Tracked in
-  iced_omnibar_spec.md §12.
-- **Action ranking algorithm**: out of scope for this spec; lives in
-  the canonical aspect_command material. The iced palette consumes
-  whatever ranking the runtime exposes.
-- **Palette state persistence across sessions** (recently-used
-  actions, pinned categories): runtime / settings concern, not iced
-  rendering. The palette reads pinned/order state from `WorkbenchProfile`
-  via the runtime view-model.
+- **Pinned actions UI**: pinning surface (probably right-click on an
+  action row in the palette → "Pin to top"). Not specified here.
+- **Inline command syntax** (e.g., `>action-name args`): potential
+  affordance for power users in the palette. Tracked in
+  `iced_omnibar_spec.md` §12.
+- **Action ranking algorithm**: out of scope; lives in `ActionRegistry`
+  via runtime view-model.
+- **Action history / recently-used persistence**: runtime / settings
+  concern, not iced rendering. Read from `WorkbenchProfile`.
 - **Keyboard shortcut customization**: routed through settings; the
   palette displays the current keybinding next to each action via
   `ActionRegistry`'s shortcut metadata.
-- **Tier 1 horizontal scroll vs wrap**: design polish question.
-  Spec uses scroll per
-  [command_surface_interaction_spec.md §4.2](../aspect_command/command_surface_interaction_spec.md);
-  if a wider screen makes wrap preferable, the palette can switch
-  rendering mode based on available width.
-- **Style parity with omnibar dropdown completions**: visual unification
-  question for Stage F polish; not skeleton concern.
+- **Visual polish**: row styling, category-badge colors, modal
+  enter/exit animation. Stage F polish, not skeleton concern.
 
 ---
 
-## 12. Bottom Line
+## 11. Bottom Line
 
-The iced command palette is one `Modal` overlay (Search Palette Mode)
-plus `iced_aw::ContextMenu` instances (Context Palette Mode), both
-rendering the canonical two-tier action view sourced from
-`ActionRegistry`. State lives in `CommandPaletteState`; mutations route
-through Messages; action dispatch emits `HostIntent::Action` once and
-closes the palette without waiting for confirmation, which arrives via
-Activity Log. Disabled actions render with explicit reasons. Destructive
-actions carry `ConfirmDialog` modal gates. AccessKit roles and keyboard
-equivalents land at Stage E. Radial Palette Mode is deferred. The
-canonical UX (two-tier model, three modes, ActionRegistry source,
-verb-target wording, acceptance criteria) lives in
-[command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md);
-this spec is the iced renderer.
+The iced command surfaces are **two**: a Command Palette
+(`Modal` + `text_input` + flat ranked list, Zed/VSCode-shaped) and a
+Context Menu (`iced_aw::ContextMenu` with a flat list). Both source
+actions from `ActionRegistry`; both dispatch one `HostIntent::Action`
+per selection through the uphill rule. Search-as-filter is the palette's
+discovery mechanism, not a separate mode. Two-tier rendering, Search /
+Context mode distinction, and Radial Palette Mode are retired per the
+2026-04-29 simplification. AccessKit roles and keyboard equivalents
+land at Stage E. Destructive actions go through `ConfirmDialog`.
 
-This closes the third concrete S2 sub-deliverable. Together with the
-composition skeleton, omnibar, and coherence guarantees, the iced
-command-surface story is fully anchored for S4 implementation.
+The canonical UX (action source, verb-target wording, accessibility
+targets, acceptance criteria) lives in
+[command_surface_interaction_spec.md](../aspect_command/command_surface_interaction_spec.md)
+(also revised 2026-04-29); this spec is the iced renderer.
+
+This closes the third concrete S2 sub-deliverable in its simplified
+form. Together with the composition skeleton, omnibar, browser
+amenities, and coherence guarantees, the iced command-surface story
+is anchored for S4 implementation.

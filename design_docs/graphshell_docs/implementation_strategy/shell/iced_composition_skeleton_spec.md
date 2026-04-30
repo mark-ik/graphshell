@@ -836,16 +836,21 @@ identifiable. Targets and their available actions:
 Each action emits a `HostIntent` per the uphill-rule routing in the iced
 jump-ship plan §4.9.
 
-### 7.4 Radial Palette
+### 7.4 Radial Menu (retired from canonical surfaces)
 
-A custom `canvas::Program` overlay for positional radial-menu invocation
-(typically gamepad / touch / long-press). Radial geometry is not a
-built-in iced widget; the program draws sectors and routes hits to actions
-via the same `ActionRegistry` as the command and context palettes.
+Per the 2026-04-29 simplification, the Radial Menu is **retired from
+canonical command surfaces**. The two canonical surfaces (Command
+Palette and Context Menu, §7.2 / §7.3) cover keyboard + mouse-and-touch
+dispatch; the Radial Menu was originally gamepad-oriented and is
+deferred indefinitely pending the input-subsystem rework.
 
-The radial palette is deferred until the gamepad / input rework lands
-(per the iced jump-ship plan, gamepad bindings retired pending Graphshell-native
-input design). Spec stub only at this point.
+If gamepad input lands later, a radial surface can be reintroduced as a
+third command-dispatch route via a custom `canvas::Program` overlay
+sourcing the same `ActionRegistry`. The geometry research lives in
+[`../aspect_command/radial_menu_geometry_and_overflow_spec.md`](../aspect_command/radial_menu_geometry_and_overflow_spec.md)
+and remains a future reference. See
+[`../aspect_command/command_surface_interaction_spec.md` §5](../aspect_command/command_surface_interaction_spec.md)
+for the canonical reintroduction note.
 
 ---
 

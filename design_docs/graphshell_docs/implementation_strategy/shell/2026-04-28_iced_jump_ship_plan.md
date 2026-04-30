@@ -915,15 +915,18 @@ Checklist:
 - [x] **Specify command palette behavior in iced terms** — landed
   2026-04-29 as
   [`iced_command_palette_spec.md`](iced_command_palette_spec.md).
-  Covers Search Palette Mode (Modal + text_input + two-tier renderer)
-  and Context Palette Mode (`iced_aw::ContextMenu` reusing the same
-  two-tier renderer); Radial Palette Mode stubbed and deferred to
-  the input-rework lane. Reuses canonical UX from
-  `aspect_command/command_surface_interaction_spec.md` (two-tier
-  contract, three modes, ActionRegistry source, verb-target wording).
-  Adds: iced widget choices, Message contract, focus dance with
-  omnibar, destructive-action ConfirmDialog gate, disabled-reason
-  rendering, AccessKit role mapping, provenance trace integration.
+  **Revised same day** to the simplified two-surface model: Command
+  Palette (`Modal` + `text_input` + flat ranked list, Zed/VSCode-shaped)
+  and Context Menu (`iced_aw::ContextMenu` with flat list). Search /
+  Context palette mode distinction, two-tier rendering, and Radial
+  Palette Mode are retired; the canonical
+  [`aspect_command/command_surface_interaction_spec.md`](../aspect_command/command_surface_interaction_spec.md)
+  was revised in the same commit to match. Reintroduction of a Radial
+  surface is deferred to the input-subsystem rework. Reuses canonical
+  ActionRegistry source and verb-target wording. Adds: iced widget
+  choices, Message contract, focus dance with omnibar, destructive-
+  action ConfirmDialog gate, disabled-reason rendering, AccessKit role
+  mapping, provenance trace integration.
 - [x] **Specify each browser amenity per §4.6** — landed 2026-04-29 as
   [`iced_browser_amenities_spec.md`](iced_browser_amenities_spec.md).
   Covers all eight amenities (History, Bookmarks, Find, Downloads,
@@ -1386,7 +1389,7 @@ Items the plan explicitly addresses are excluded here; see §4 and
 | # | Gap | Domain | Taxonomy |
 |---|---|---|---|
 | **G1** | **Six-track focus model reconciliation.** The existing six-track `RuntimeFocusAuthorityState` (SemanticRegion / PaneActivation / GraphView / LocalWidget / EmbeddedContent / ReturnCapture) has no direct mapping in iced's widget-focus model. Must be reconciled before the composition skeleton, Navigator sidebar, or command surfaces can be specified. | Input / Shell | §3.7, §4.5 |
-| **G2** | **All three command surfaces.** S2 specifies command palette only. Context palette (right-click, context-dependent) and Radial palette (positional radial menu) need iced designs. Context palette shape depends on the right-click target — tile, canvas node, Frame border, Navigator item, or canvas base layer — each with a different action surface. | Shell | §3.6 |
+| **G2** | ~~**All three command surfaces.**~~ — **resolved 2026-04-29** by the simplified two-surface model. Canonical surfaces are now Command Palette (Zed/VSCode-shaped flat list) and Context Menu (right-click flat list). Both specified in [`iced_command_palette_spec.md`](iced_command_palette_spec.md). Per-target Context Menu action sets are per [composition skeleton spec §7.3](iced_composition_skeleton_spec.md). Radial Menu retired from canonical surfaces; reintroduction deferred to the input-subsystem rework per [`aspect_command/command_surface_interaction_spec.md` §5](../aspect_command/command_surface_interaction_spec.md). | Shell | §3.6 |
 | **G3** | **Navigator breadcrumb shape.** The omnibar spec says "Navigator-owned breadcrumb projection" but what does the breadcrumb represent in the new model? The focused tile's URL? The graphlet name? The path from root graph to current graphlet? Different data, different visual shape. Must be resolved before the omnibar is specifiable. | Navigator / Shell | §3.5, §3.6 |
 | **G4** | **Omnibar scope.** The old `OmnibarSearchSession` used per-pane drafts. With multiple Panes visible simultaneously, is the omnibar per-pane (tracks focused pane) or global (one bar, always reflects the focused pane)? Both are defensible; S2 must pick one. | Shell / Navigator | §3.5, §3.6 |
 
@@ -1479,7 +1482,7 @@ holds the parallel gpui-side detail.
 | §3.6 Omnibar | `text_input` + `Subscription` for focus/results; Navigator-projected breadcrumb in a `row!`; per-pane drafts via existing `OmnibarSearchSession` |
 | §3.6 Command palette | `Modal` overlay + filtered list driven by Messages routed through `ActionRegistry` |
 | §3.6 Context palette | `iced_aw::ContextMenu` triggered by mouse-right Message |
-| §3.6 Radial palette | Custom `canvas::Program` overlay (radial geometry isn't a built-in widget) |
+| ~~§3.6 Radial palette~~ | **Retired** as a canonical surface (2026-04-29 simplification). Reintroduction deferred to the input-subsystem rework; if it lands, custom `canvas::Program` overlay sourcing the same `ActionRegistry` (radial geometry isn't a built-in widget). See [`aspect_command/command_surface_interaction_spec.md` §5](../aspect_command/command_surface_interaction_spec.md). |
 | §3.6 Toasts | `Stack` widget + custom toast Element + `Subscription` for timeout |
 | §3.1 Graph canvas (Vello) — main canvas instance | `canvas::Program` for hit-testing; camera/hover/drag state in `Program::State` (**not** Application); Vello scene rendered via `shader` widget |
 | §4.7 / §4.8 Navigator swatches — N=8–16 canvas instances | Same `canvas::Program` impl as the main canvas, parameterized by render profile; each instance has its own `Program::State` for hover / scaffold / viewport; rendered inside a virtualized `lazy` + `scrollable`; generation-based caching keyed on (graph generation, recipe id, viewport size, theme); async projection work via `Subscription` + `Command::perform` with cancellation by recipe id |
