@@ -925,9 +925,12 @@ Items this spec leaves to subsequent S2 deliverables:
 - **Browser amenities per surface** (per S2 checklist): each amenity from
   the iced jump-ship plan §4.6 needs its own specification — what surface,
   what data, what intent flow, what `verso://` address.
-- **Graph coherence guarantee per surface** (per S2 checklist): one
-  sentence per surface stating what graph invariant it preserves and how
-  the UI makes it visible.
+- ~~**Graph coherence guarantee per surface**~~ — landed 2026-04-29 in
+  the iced jump-ship plan §4.10. Twelve surface guarantees covering
+  tile pane / canvas pane / canvas base layer / three Navigator buckets
+  / omnibar / command palette / context palette / frame switcher /
+  settings panes / tool panes / WebViewSurface / drag-to-split drop
+  zone.
 - **Frametree visualization in Tree Spine**: how the frametree recipe
   renders inside the Tree Spine bucket — collapsible Workbench groups,
   Pane indicators, active-Pane highlight.

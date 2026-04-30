@@ -714,6 +714,44 @@ each authority validates intents before applying them. The iced host
 adds intent-emission entries to the allowlist; it does not bypass the
 lane.
 
+### 4.10 Graph coherence guarantees per surface
+
+Per [§10 Q8](#10-open-questions): coherence — *graph + workbench feel
+like one continuous experience; no surface forces the user to forget
+the graph to accomplish a task* — is the primary fidelity bar for the
+iced bring-up. Polish and accessibility/keyboard parity layer on top.
+
+Each Shell-rendered surface carries a **graph coherence guarantee**: a
+one-sentence statement of what graph invariant the surface preserves
+and how the UI makes that visible. The guarantee is the contract the
+user can rely on while interacting with the surface — what changes (or
+doesn't change) in graph truth as a result of their input. A surface
+that violates its guarantee is a bug, not a UX preference.
+
+| Surface | Graph coherence guarantee |
+|---|---|
+| **Tile pane** (active tiles in a Pane) | Closing a tab here deactivates the node (Active → Inactive presentation state); graph truth and graphlet membership are unchanged. The Navigator Tree Spine continues to show the now-Inactive node so the user can re-activate without losing context. |
+| **Canvas pane** (graph canvas inside a Pane) | Pan / zoom / hover / scaffold-selection here never mutate graph truth. Mutations (create/delete node, create/delete edge, change tag, update position) emit explicit `GraphIntent`s through the uphill rule (§4.9) and surface in the Activity Log. |
+| **Canvas base layer** (default home when Frame is empty) | The base layer is always live for the current `GraphId`; opening a Pane covers it without freezing it; closing the last Pane reveals the same canvas continuing where it left off. The full graph is always reachable from this surface. |
+| **Navigator Tree Spine bucket** | Activate / Deactivate toggles flip per-graphlet presentation state only; graph truth is unchanged. Remove-from-graphlet (a separate context-menu action) is the only Navigator action that mutates graphlet membership; Tombstone is the only one that mutates node existence and always carries a confirmation step (per TERMINOLOGY.md Tile and Graphlet Operations). |
+| **Navigator Swatches bucket** | Each swatch is a live projection of graph truth through one recipe; hovering, panning, and scaffolding inside a swatch are projection-local and never change graph truth. Promote / Save Recipe / Pin / Open-as-Pane actions emit explicit intents to Graph or Shell authority and surface in the Activity Log. |
+| **Navigator Activity Log bucket** | The Activity Log is read-only. Clicking an entry reveals the referenced node / Pane / graphlet without re-emitting the original action. The log itself records every graph-truth mutation and every Shell intent so the user can audit what changed and when. |
+| **Omnibar** (CommandBar input region) | Typing in the omnibar never mutates graph truth. Submission emits an explicit intent (open node, search, navigate). The Navigator-projected breadcrumb always reflects current graph truth, never an in-progress draft. |
+| **Command palette** | Selecting an action emits a single `HostIntent`; the action only takes effect once the receiving authority confirms via `IntentApplied`. Confirmation appears in the Activity Log. Unconfirmed actions never silently apply, and a failed action shows an explicit toast or palette-local error. |
+| **Context palette** (right-click menu) | Right-click never mutates graph truth on its own. Each action in the menu emits an explicit intent; destructive actions (Tombstone, Remove edge) carry confirmation; non-destructive actions (Activate, Open as Pane, Pin, Inspect) take effect immediately and appear in the Activity Log. |
+| **Frame switcher / frametree visualization** | Switching Frames preserves all graph truth and graphlet membership; only Pane composition and per-graphlet presentation state may differ between Frames. Frame snapshot persistence is a Shell-owned write and surfaces in the Activity Log as a frame-save event. |
+| **Settings panes** (`verso://settings/<section>`) | Settings changes never mutate graph truth. Per-graph settings are scoped to a `GraphId`; cross-graph settings are scoped to the user / profile. Theme changes apply across all surfaces atomically without re-fetching graph state. |
+| **Tool panes** (Downloads, History Manager, Diagnostics Inspector) | Tool panes are observers, not authorities. They surface state from their owning subsystems (downloads via Shell + storage, traversal log via SUBSYSTEM_HISTORY, diagnostics via the channel registry) and emit intents to those subsystems' authorities. They never bypass the uphill rule, never bypass the sanctioned-writes contract, and never silently mutate graph truth. |
+| **`WebViewSurface<NodeKey>`** (web content viewer inside a tile) | In-page interaction (link clicks, scroll, JS-driven navigation) emits `Traversal` events through SUBSYSTEM_HISTORY; the corresponding edge assertions are graph-side writes that surface in the Activity Log. The viewer never directly creates or removes graph nodes; node creation routes through Shell intent. |
+| **Drag-to-split drop zone** (transient overlay during Pane drag) | The drop-zone indicator is purely visual; releasing the drag emits a `WorkbenchIntent` for the split operation, which surfaces as a workbench-mutation event in the Activity Log. Cancelling a drag (Esc, drop outside) emits no intent and changes nothing. |
+
+These guarantees are the receipts S4 work targets: each surface
+implementation is checked against its guarantee through the
+`UxProbeSet` / WebDriver bridge (per §11 G17) and through manual
+exploration. The guarantees are stable; surface chrome and styling can
+evolve without changing them. If a future change to a surface conflicts
+with its guarantee, the guarantee wins or the change is rejected.
+
 ---
 
 ## 5. Anti-patterns to avoid
@@ -878,10 +916,15 @@ Checklist:
   or deduplicated by recency). For Bookmarks: confirm graphlet-tag
   schema and whether cross-graph node references need a stable
   identifier beyond `NodeKey`.
-- [ ] Specify the graph coherence guarantee per surface (per §10
+- [x] **Specify the graph coherence guarantee per surface** (per §10
   Q8): one sentence per surface stating what graph invariant it
-  preserves and how the UI makes it visible. Draw from best-in-
-  class browser UX examples reshaped for the graph paradigm.
+  preserves and how the UI makes it visible. Landed 2026-04-29 as
+  [§4.10](#410-graph-coherence-guarantees-per-surface) — twelve
+  surfaces (tile pane, canvas pane, canvas base layer, three
+  Navigator buckets, omnibar, command/context palette, frame
+  switcher, settings panes, tool panes, WebViewSurface, drag-to-split
+  drop zone). Each guarantee is the contract S4 implementation
+  receipts target via `UxProbeSet` / WebDriver bridge.
 
 §10 Q1–Q8 are all confirmed; the specific questions no longer
 block slice work. The TERMINOLOGY.md correction pass is the
