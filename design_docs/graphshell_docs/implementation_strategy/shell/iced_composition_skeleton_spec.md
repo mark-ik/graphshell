@@ -47,6 +47,201 @@ and is not migrated to this skeleton.
 
 ---
 
+## 1.5 Application Skeleton (the Elm Triad)
+
+iced is The Elm Architecture: one `Application`, one `update`, one pure `view`,
+plus `Subscription`s that fold async / time / winit input into the same
+Message stream. The composition skeleton sits inside that triad. Every other
+section in this spec assumes this shape and adds widget detail.
+
+```rust
+pub struct GraphshellApp {
+    /// View-model snapshot rebuilt each tick from runtime.tick().
+    /// This is NOT authoritative state — it's a frame-stable read of
+    /// graphshell-runtime / graphshell-core.
+    view_model: FrameViewModel,
+
+    /// Per-Frame split-tree authority. Mutated only via Shell intents.
+    frame: Frame,                          // contains pane_grid::State<Pane>
+
+    /// Per-canvas-instance state. Keyed by stable instance id (Pane id for
+    /// canvas Panes, recipe id for swatches, sentinel for main canvas /
+    /// base layer). Each value is one canvas::Program::State.
+    canvas_states: HashMap<CanvasInstanceId, GraphCanvasState>,
+
+    /// CommandBar omnibar session (input draft, mode, completion mailbox).
+    omnibar: OmnibarSession,
+
+    /// Command palette modal state (open, query, filter).
+    command_palette: CommandPaletteState,
+
+    /// Per-Navigator-host UI state (scroll position, expansion, focus).
+    navigator_hosts: HashMap<NavigatorHostId, NavigatorHostUi>,
+
+    /// Theme + style tokens.
+    theme: GraphshellTheme,
+}
+
+pub enum Message {
+    /// Subscription tick: 60Hz frame loop. Calls runtime.tick(),
+    /// folds the result into view_model.
+    Tick(Instant),
+
+    /// Subscription: graphshell-runtime emitted an event we care about.
+    /// (See §9 anti-patterns: subscribe, do not poll.)
+    RuntimeEvent(RuntimeEvent),
+
+    /// Subscription: async recipe result for a swatch / canvas instance.
+    RecipeResult { recipe_id: RecipeId, generation: u64, payload: RecipePayload },
+
+    /// pane_grid drag/resize/clicked events.
+    PaneGrid(pane_grid::DragEvent),
+    PaneGridResize(pane_grid::ResizeEvent),
+    PaneFocused(pane_grid::Pane),
+
+    /// Tile pane tab interactions.
+    ActivateTab { pane_id: PaneId, tile_id: TileId },
+    CloseTile { tile_id: TileId },              // Active → Inactive
+
+    /// Navigator interactions.
+    ToggleTilePresentationState { node_key: NodeKey, graphlet_id: GraphletId },
+    NavigatorRowClicked { host_id: NavigatorHostId, row_id: RowId },
+    SwatchHoverEnter { recipe_id: RecipeId },
+    SwatchHoverExit { recipe_id: RecipeId },
+    SwatchContextAction { recipe_id: RecipeId, action: SwatchAction },
+
+    /// CommandBar / palette.
+    OmnibarInput(String),
+    OmnibarSubmit,
+    PaletteOpen,
+    PaletteQuery(String),
+    PaletteSelect(ActionId),
+    PaletteClose,
+
+    /// Authority responses (graphshell-runtime confirmed an intent).
+    IntentApplied { intent_id: IntentId, result: IntentResult },
+
+    /// Window / lifecycle.
+    WindowResized(Size),
+    WindowClosed,
+}
+
+impl Application for GraphshellApp {
+    type Message = Message;
+    type Theme  = GraphshellTheme;
+    type Flags  = GraphshellRuntime;        // injected at startup
+
+    fn update(&mut self, msg: Message) -> Task<Message> {
+        match msg {
+            Message::Tick(_) => {
+                // Single mutation point: drain runtime, fold into view_model.
+                self.view_model = self.runtime.tick();
+                Task::none()
+            }
+            Message::RuntimeEvent(e) => self.apply_runtime_event(e),
+            Message::PaneGrid(drag) => self.handle_pane_drag(drag),
+            Message::ToggleTilePresentationState { node_key, graphlet_id } => {
+                // Emit HostIntent uphill per the iced jump-ship plan §4.9.
+                self.runtime.emit(HostIntent::Lifecycle(
+                    LifecycleIntent::ToggleTilePresentationState { node_key, graphlet_id }
+                ));
+                Task::none()
+            }
+            // ... one arm per Message variant; each routes uphill or
+            // mutates widget-local state. Never both.
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message, GraphshellTheme> {
+        column![
+            command_bar(self),
+            optional(self.has_host_top(),    || navigator_host_top(self)),
+            row![
+                optional(self.has_host_left(),  || navigator_host_left(self)),
+                frame_split_tree_or_base_layer(self),  // always present
+                optional(self.has_host_right(), || navigator_host_right(self)),
+            ].height(Length::Fill),
+            optional(self.has_host_bottom(), || navigator_host_bottom(self)),
+            status_bar(self),
+        ].into()
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        Subscription::batch([
+            // Stage A done condition: 60Hz tick is a Subscription, not
+            // a per-frame poll inside view.
+            time::every(Duration::from_millis(16)).map(Message::Tick),
+
+            // Subscribe to runtime events; do not poll. (§9 anti-pattern.)
+            runtime_event_stream(&self.runtime).map(Message::RuntimeEvent),
+
+            // Per-recipe async result streams.
+            recipe_result_stream(&self.runtime).map(|(id, gen, payload)| {
+                Message::RecipeResult { recipe_id: id, generation: gen, payload }
+            }),
+
+            // Window events folded into Message stream.
+            iced::window::events().map(window_event_to_message),
+        ])
+    }
+
+    fn theme(&self) -> GraphshellTheme {
+        self.theme.clone()
+    }
+}
+```
+
+This is the Stage A done condition (per the iced jump-ship plan §12.3).
+Every section below is detail for one slot or one widget within this
+shape. If a section appears to require state outside this triad, that
+is a bug in the section.
+
+### 1.5.1 Stage mapping (per [iced jump-ship plan §12.3](2026-04-28_iced_jump_ship_plan.md))
+
+| Section | Idiomatic stage |
+|---|---|
+| §1.5 Application skeleton (this section) | **Stage A** — Application + Subscription closure |
+| §2 Top-level composition | **Stage A** — view-tree shape |
+| §3 Frame split tree | **Stage B** — `pane_grid::State<Pane>` as authority |
+| §4 Pane types (tile / canvas) | **Stage B / C** — pane_grid plus per-Pane canvas Program |
+| §5 Canvas instances | **Stage C** — canvas::Program with local state, multiplied for swatches |
+| §6 Navigator buckets | **Stage A + C** — view-tree shape + swatch canvas instances |
+| §7 CommandBar / palettes | **Stage A + E** — view-tree shape + IME via `text_input` |
+| §8 Authority routing | **Stage A** — Message → HostIntent dispatch |
+| §10 Open items | spans Stages B/C/D/E/F |
+
+Stage D (`WebViewSurface` widget) and Stage F (Theme + style consolidation)
+do not have dedicated sections in this skeleton spec — they have their
+own deeper specs. WebViewSurface is tracked in
+[`2026-04-24_iced_content_surface_scoping.md`](2026-04-24_iced_content_surface_scoping.md)
+and the iced jump-ship plan §11 G5/G6. Theme consolidation lands as a
+post-S4 sweep, not a skeleton concern.
+
+### 1.5.2 Theme and animation hooks
+
+The skeleton declares two host-level hooks that downstream Stage E/F
+work consumes:
+
+- **`GraphshellTheme`** is the `Application::Theme` — an `iced::Theme`
+  extension carrying Graphshell's palette tokens, surface tokens, and
+  density tokens. Each widget reads tokens from `theme()` rather than
+  hardcoding. Per-widget inline styles are valid for one-off
+  affordances; anything reused across two or more widgets goes into
+  the Theme. `libcosmic` extension compatibility is considered when
+  COSMIC DE first-class support becomes a target.
+- **Animations** use [`cosmic-time`](https://crates.io/crates/cosmic-time)
+  (or its iced 0.14 successor) for keyframe-driven widget animation —
+  drop-zone indicator pulses, swatch hover transitions, modal
+  enter/exit, omnibar mode transitions. Per-frame interpolation lives
+  in `Application::update` driven by the same Tick Subscription that
+  drives the runtime tick. Animation state stays widget-local where
+  possible (per §9 anti-pattern: don't hoist).
+
+These two hooks are surface-level wiring, not full Stage F / E
+specifications — those are downstream sub-deliverables (per §10).
+
+---
+
 ## 2. Top-Level Composition
 
 The iced root `Application::view` returns one element tree per frame. The
@@ -321,9 +516,10 @@ changes the render path:
 ## 5. Canvas Instances (One Code Path, Many Render Profiles)
 
 All graph-canvas surfaces in iced share one `GraphCanvasProgram`
-implementation. They differ in **render profile**, not in code path. Per
-the iced jump-ship plan §4.8 and TERMINOLOGY.md (Projection Vocabulary §
-canvas instance), the surfaces are:
+implementation of `iced::widget::canvas::Program<Message, Theme>`. They
+differ in **render profile**, not in code path. Per the iced jump-ship
+plan §4.8 and TERMINOLOGY.md (Projection Vocabulary § canvas instance),
+the surfaces are:
 
 | Surface | Render profile | Hosting |
 |---|---|---|
@@ -333,22 +529,75 @@ canvas instance), the surfaces are:
 | Navigator swatch | `RenderProfile::Swatch` | Navigator Swatches bucket (§6.2) |
 | Expanded swatch preview | `RenderProfile::ExpandedSwatch` | Hover popover from a swatch |
 
+`canvas::Program` is a trait you implement on a struct; `State` is an
+associated type. The skeleton shape:
+
+```rust
+pub struct GraphCanvasProgram {
+    pub instance_id: CanvasInstanceId,
+    pub recipe_id: RecipeId,
+    pub render_profile: RenderProfile,
+}
+
+pub struct GraphCanvasState {
+    pub camera: Camera,                   // pan + zoom
+    pub hover: Option<HoverTarget>,       // node/edge under cursor
+    pub scaffold: Option<ScaffoldSelection>,
+    pub viewport_pixels: Rect,
+    pub cached_scene: Option<CachedScene>,
+    pub cache_key: CacheKey,              // see §5.1
+}
+
+impl canvas::Program<Message, GraphshellTheme> for GraphCanvasProgram {
+    type State = GraphCanvasState;
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: canvas::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> (canvas::event::Status, Option<Message>) {
+        // Pointer / wheel / keyboard events mutate widget-local state;
+        // when an event implies an authority change (e.g. clicking a
+        // node), emit a Message that update() routes uphill.
+        // ...
+    }
+
+    fn draw(
+        &self,
+        state: &Self::State,
+        renderer: &Renderer,
+        theme: &GraphshellTheme,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        // Build canvas::Geometry from state.cached_scene; rebuild
+        // the cache only when state.cache_key changes.
+        // For Vello-backed paths, drive the shader widget separately.
+        // ...
+    }
+
+    fn mouse_interaction(...) -> mouse::Interaction { ... }
+}
+```
+
 The render profile parameterizes:
 
 - per-frame draw budget (LOD threshold, off-screen culling aggressiveness)
 - label rendering density
-- viewer-pass alivenesss for embedded content (Active vs Cold)
+- viewer-pass aliveness for embedded content (Active vs Cold)
 - gesture set (full canvas gestures vs swatch-limited subset)
 
-The `Program::State` per instance carries:
+`Program::State` per instance carries the per-canvas state (camera,
+hover, scaffold, viewport, cached scene, cache key). Per the iced
+jump-ship plan §12.6: state never lifts into `Application`. Hover on one
+swatch must not invalidate other swatches.
 
-- camera (pan, zoom)
-- hover state (which node / edge under cursor)
-- scaffold selection (transient pre-commit selection rectangle)
-- viewport (pixel rect)
-
-Per the iced jump-ship plan §12.6: per-instance state never lifts into
-`Application`. Hover on one swatch must not invalidate other swatches.
+Vello / `wgpu` rendering: the heavy graph-scene render runs through a
+`shader` widget alongside (or behind) the canvas Program; the canvas
+Program owns hit testing, hover affordances, and overlay drawing. The
+two widgets share an instance id so their state stays paired.
 
 ### 5.1 Generation-based caching
 
@@ -648,6 +897,22 @@ In addition to the iced jump-ship plan §5 anti-patterns:
 - **Don't render the canvas base layer as an empty Pane.** The base
   layer is the empty-Frame fallback path; it's a different code branch in
   the composition tree, not a degenerate Pane.
+- **Subscribe to runtime events; don't poll inside `view`.** Per the iced
+  jump-ship plan §12.6, `view` runs every frame, but the runtime's event
+  stream should drive `update` only on real changes. Per-frame polling on
+  top of the 60Hz tick Subscription is doubly redundant. Use one
+  Subscription per event source (graph mutations, lifecycle transitions,
+  recipe results, history events) and let `view` consume the resulting
+  view-model.
+- **Don't replicate `egui_tiles::Tabs` semantics by hand.** Use
+  `iced_aw::Tabs` inside tile Panes. Tab grouping is orthogonal to split
+  layout; egui_tiles conflated them. Re-conflating in iced is the
+  failure mode.
+- **Don't manage per-widget focus from `Application`.** Use
+  `widget::focus()` / `widget::Operation` to move focus declaratively.
+  Cross-surface focus coordination (the six-track focus model from the
+  iced jump-ship plan §11 G1) lives in `graphshell-runtime`; widgets read
+  it from `FrameViewModel` and apply via Operations.
 
 ---
 
@@ -686,17 +951,24 @@ These are S2 sub-deliverables, not blockers for this skeleton spec.
 
 ## 11. Bottom Line
 
-The iced composition skeleton is one root `Application` returning a
-column-of-rows tree, with `pane_grid::State<Pane>` as the Frame's
-split-tree authority and one `GraphCanvasProgram` implementation shared
-across main canvas, canvas Panes, swatches, and the canvas base layer.
-Splits are created by drag, never by buttons. Three Navigator
-Presentation Buckets render through `lazy` + `scrollable` for tree spine
-and activity log, plus a virtualized grid of canvas instances for
-swatches. Per-instance widget state stays widget-local; everything
-authoritative lives in `graphshell-runtime`.
+The iced composition skeleton is the Elm triad — one `Application`,
+one `update`, one `view`, plus `Subscription`s for tick / runtime
+events / async results — instantiated for Graphshell. The Application
+holds a `Frame` (whose `pane_grid::State<Pane>` is the split-tree
+authority) and a per-canvas-instance state map. The `view` returns a
+column-of-rows tree composing the seven slots. One
+`GraphCanvasProgram` implementing `canvas::Program` is shared across
+main canvas, canvas Panes, swatches, and the canvas base layer,
+parameterized by render profile. Splits are created by drag, never by
+buttons. Three Navigator Presentation Buckets render through `lazy` +
+`scrollable` for tree spine and activity log, plus a virtualized grid
+of canvas instances for swatches. Per-instance widget state stays
+widget-local; runtime events flow through Subscriptions, not polling;
+everything authoritative lives in `graphshell-runtime`.
 
-This skeleton is the slot-and-authority anchor for S3 (host runtime
+This skeleton is the Stage A done condition (per the iced jump-ship
+plan §12.3) plus the Stage B / C anchors for downstream surface work.
+It is the slot-and-authority anchor for S3 (host runtime
 closure) and S4 (per-surface bring-up). It is small enough to implement
 incrementally and complete enough to evaluate the iced host against the
 host-neutral necessities in the iced jump-ship plan §3.2.1.
