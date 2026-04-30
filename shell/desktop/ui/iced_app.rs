@@ -11,18 +11,17 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 9 / Stage A+E)**: Slices 3-8 wired the host UI
-//! layer end-to-end (Frame split tree, Navigator hosts, TileTabs,
-//! Modal, ContextMenu, Command Palette, Node Finder, right-click).
-//! Slice 9 swaps the Command Palette's placeholder action list for
-//! the canonical `graphshell_core::actions::all_action_ids()`
-//! registry: every `ActionId` becomes one `RankedAction` with its
-//! `label()` and `category()` populated. Selection toasts now embed
-//! the stable `ActionId::key()` (`namespace:name`) so the dispatch
-//! path is observable. Availability / fuzzy ranking still need an
-//! `ActionRegistryViewModel` in `graphshell-runtime`, and the Node
-//! Finder still uses placeholder data (no node-recency aggregate
-//! exists yet). `HostIntent::Action` plumbing is the next slice.
+//! **Scope (Slice 10 / Stage A+E)**: Slices 3-9 wired the host UI
+//! layer end-to-end and seeded the Command Palette from the canonical
+//! `ActionId` registry. Slice 10 adds `HostIntent::Action { action_id }`
+//! to `graphshell-core` and routes palette selection through it: the
+//! iced host pushes the intent onto `pending_host_intents`, ticks the
+//! runtime, and the runtime's `apply_host_intents` records the
+//! dispatch on `last_dispatched_action` / `dispatched_action_count`.
+//! Per-action runtime handlers (the ~2000-LOC dispatch table in
+//! `runtime/registries/action.rs`) are wired one-by-one in subsequent
+//! slices; the routing path is closed and tests observe the dispatch
+//! land in the runtime.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -974,26 +973,39 @@ impl IcedApp {
                 Task::none()
             }
             Message::PaletteActionSelected(idx) => {
-                // Slice 9: read the visible-list slot and resolve to a
-                // canonical ActionId. The toast surfaces both the
-                // human-facing label and the stable `namespace:name`
-                // key so the dispatch path is observable even before
-                // HostIntent::Action lands. Disabled / out-of-range
-                // selections are no-ops.
+                // Slice 10: resolve the visible-list slot to a canonical
+                // ActionId and push HostIntent::Action onto the runtime's
+                // pending-intents queue. The runtime's
+                // `apply_host_intents` records the dispatch in
+                // `last_dispatched_action` / `dispatched_action_count`
+                // and tick-drives any per-action handlers that have
+                // landed. The toast continues to surface the resolved
+                // label + namespace:name key so the dispatch path is
+                // user-visible. Disabled / out-of-range selections are
+                // no-ops.
                 let visible = visible_palette_actions(&self.command_palette);
                 let acked = visible
                     .get(idx)
                     .filter(|a| a.is_available)
-                    .map(|a| (a.label.clone(), a.action_id.key()));
-                if let Some((label, key)) = acked {
+                    .map(|a| (a.label.clone(), a.action_id));
+                if let Some((label, action_id)) = acked {
+                    let key = action_id.key();
+                    self.host.pending_host_intents.push(
+                        graphshell_core::shell_state::host_intent::HostIntent::Action {
+                            action_id,
+                        },
+                    );
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
-                        message: format!("action: {label} [{key}] (stub)"),
+                        message: format!("action: {label} [{key}]"),
                         duration: None,
                     });
                     self.command_palette.is_open = false;
                     self.command_palette.query.clear();
                     self.command_palette.focused_index = None;
+                    // Drive a tick so the runtime drains the intent
+                    // immediately and observers see the dispatch.
+                    self.tick_with_events(Vec::new());
                 }
                 Task::none()
             }
@@ -2543,6 +2555,63 @@ mod tests {
     }
 
     // --- Modal data + nav tests (Slice 7) ---
+
+    #[test]
+    fn palette_action_select_dispatches_host_intent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        let visible = visible_palette_actions(&app.command_palette);
+        let row0_id = visible[0].action_id;
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "no dispatch yet"
+        );
+        assert!(app.host.runtime.last_dispatched_action.is_none());
+
+        let _ = app.update(Message::PaletteActionSelected(0));
+
+        // The intent landed on pending_host_intents AND was drained
+        // by the inline tick that PaletteActionSelected triggers.
+        assert!(
+            app.host.pending_host_intents.is_empty(),
+            "intent queue drained by post-select tick",
+        );
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 1,
+            "runtime observed exactly one HostIntent::Action",
+        );
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(row0_id),
+            "runtime recorded the resolved ActionId",
+        );
+    }
+
+    #[test]
+    fn palette_disabled_action_does_not_dispatch() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        // Synthesize a disabled row at index 0.
+        app.command_palette.all_actions[0].is_available = false;
+        app.command_palette.all_actions[0].disabled_reason = Some("test".into());
+
+        let _ = app.update(Message::PaletteActionSelected(0));
+
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "disabled selection must not dispatch",
+        );
+        assert!(app.host.runtime.last_dispatched_action.is_none());
+        assert!(app.host.pending_host_intents.is_empty());
+    }
 
     #[test]
     fn palette_action_select_toast_carries_canonical_key() {

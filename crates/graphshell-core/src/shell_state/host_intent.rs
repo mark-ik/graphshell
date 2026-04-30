@@ -30,6 +30,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::actions::ActionId;
 use crate::geometry::PortablePoint;
 
 /// Portable intent a host can push into `FrameHostInput.host_intents`
@@ -53,6 +54,19 @@ pub enum HostIntent {
         url: String,
         position: PortablePoint,
     },
+    /// User picked a registered action from a command surface
+    /// (Command Palette, Context Menu, future radial / hotkey path).
+    /// The runtime resolves the `ActionId` against its dispatch table
+    /// during the next tick.
+    ///
+    /// Hosts must only push this when the action's `is_available`
+    /// predicate is satisfied; the runtime treats unknown / disabled
+    /// dispatches as logged no-ops rather than panicking, so missing
+    /// runtime handlers degrade gracefully while the dispatch table
+    /// is being filled in incrementally.
+    Action {
+        action_id: ActionId,
+    },
 }
 
 #[cfg(test)]
@@ -64,6 +78,16 @@ mod tests {
         let intent = HostIntent::CreateNodeAtUrl {
             url: "https://example.com/".to_string(),
             position: PortablePoint::new(0.0, 0.0),
+        };
+        let json = serde_json::to_string(&intent).expect("serialize");
+        let back: HostIntent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(intent, back);
+    }
+
+    #[test]
+    fn action_serde_roundtrip() {
+        let intent = HostIntent::Action {
+            action_id: ActionId::WorkbenchOpenSettingsPane,
         };
         let json = serde_json::to_string(&intent).expect("serialize");
         let back: HostIntent = serde_json::from_str(&json).expect("deserialize");

@@ -382,6 +382,17 @@ pub(crate) struct GraphshellRuntime {
     /// data through its own widget set.
     #[cfg(feature = "diagnostics")]
     pub(crate) diagnostics_state: crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+
+    /// Most recently dispatched `ActionId` from `HostIntent::Action`,
+    /// updated in `apply_host_intents`. Slice 10 wires the routing
+    /// path; per-action runtime handlers land incrementally and read
+    /// this field for diagnostics until each gets its own dispatch
+    /// arm. `None` until the first action is dispatched.
+    pub(crate) last_dispatched_action: Option<graphshell_core::actions::ActionId>,
+    /// Monotonic count of `HostIntent::Action`s observed by
+    /// `apply_host_intents` since runtime start. Saturating; used by
+    /// tests + diagnostics to confirm the routing path closed.
+    pub(crate) dispatched_action_count: u64,
 }
 
 impl GraphshellRuntime {
@@ -444,6 +455,18 @@ impl GraphshellRuntime {
                     // physics re-heat behavior for free.
                     let pos = euclid::default::Point2D::new(position.x, position.y);
                     let _ = self.graph_app.add_node_and_sync(url.clone(), pos);
+                }
+                HostIntent::Action { action_id } => {
+                    // Slice 10: record the dispatch so tests and
+                    // diagnostics can observe that the routing path
+                    // closed. Per-action runtime handlers (the ~2000-LOC
+                    // dispatch table in `runtime/registries/action.rs`)
+                    // are wired one-by-one in subsequent slices; until
+                    // then this is a logged no-op rather than a panic
+                    // on unknown ActionId.
+                    self.last_dispatched_action = Some(*action_id);
+                    self.dispatched_action_count =
+                        self.dispatched_action_count.saturating_add(1);
                 }
             }
         }
@@ -847,6 +870,8 @@ impl GraphshellRuntime {
                 crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
             #[cfg(feature = "diagnostics")]
             diagnostics_state: crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new(),
+            last_dispatched_action: None,
+            dispatched_action_count: 0,
         }
     }
 

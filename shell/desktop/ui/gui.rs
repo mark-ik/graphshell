@@ -475,6 +475,8 @@ impl EguiHost {
                 crate::shell::desktop::ui::command_surface_telemetry::CommandSurfaceTelemetry::new(),
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
+            last_dispatched_action: None,
+            dispatched_action_count: 0,
         };
 
         let mut gui = Self {
