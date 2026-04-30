@@ -11,18 +11,18 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 8 / Stage A+E)**: Slices 3-4 wired the Frame split
-//! tree, Navigator host structural layout, and the `gs::TileTabs`
-//! widget; Slice 5 added real `gs::Modal` and `gs::ContextMenu`
-//! widgets; Slices 6-7 wired the Command Palette / Node Finder
-//! modals with real result rows + arrow-key nav; Slice 8 wires the
-//! `gs::ContextMenu` widget into right-click on tile panes, canvas
-//! panes, and the canvas base layer. Each target carries a
-//! placeholder entry set that the runtime swaps for
-//! `ActionRegistry::available_for(target, ...)` once that surface
-//! lands. Click-outside / Escape dismiss; selecting an enabled entry
-//! toasts the resolved label (downstream slice routes via the
-//! uphill rule).
+//! **Scope (Slice 9 / Stage A+E)**: Slices 3-8 wired the host UI
+//! layer end-to-end (Frame split tree, Navigator hosts, TileTabs,
+//! Modal, ContextMenu, Command Palette, Node Finder, right-click).
+//! Slice 9 swaps the Command Palette's placeholder action list for
+//! the canonical `graphshell_core::actions::all_action_ids()`
+//! registry: every `ActionId` becomes one `RankedAction` with its
+//! `label()` and `category()` populated. Selection toasts now embed
+//! the stable `ActionId::key()` (`namespace:name`) so the dispatch
+//! path is observable. Availability / fuzzy ranking still need an
+//! `ActionRegistryViewModel` in `graphshell-runtime`, and the Node
+//! Finder still uses placeholder data (no node-recency aggregate
+//! exists yet). `HostIntent::Action` plumbing is the next slice.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -242,18 +242,22 @@ pub(crate) enum PaletteOrigin {
 /// One ranked action in the Command Palette. Host-side mirror of
 /// [`iced_command_palette_spec.md` §2.3](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md)'s
-/// `RankedAction`. Slice 7 sources placeholder data so the row layout
-/// is exercised; the runtime view-model takes over once `ActionRegistry`
-/// is ported to `graphshell-runtime`.
+/// `RankedAction`.
+///
+/// Slice 9: `action_id` carries the canonical `graphshell_core::actions::ActionId`,
+/// `label` comes from `ActionId::label()`, and the master list comes
+/// from `all_action_ids()`. Availability / disabled-reason / fuzzy
+/// ranking are still placeholders pending an `ActionRegistryViewModel`
+/// in `graphshell-runtime`.
 #[derive(Debug, Clone)]
 pub(crate) struct RankedAction {
-    /// Stable handle for selection routing. Slice 7: placeholder index;
-    /// downstream slice will carry a real `ActionId`.
-    pub(crate) action_id: u32,
+    /// Canonical action identity from `graphshell_core::actions`.
+    pub(crate) action_id: graphshell_core::actions::ActionId,
     /// Verb-target label (e.g. "Open Settings"), per the canonical
     /// command-surface wording rules.
     pub(crate) label: String,
-    /// Optional secondary description rendered dimmer beneath the label.
+    /// Optional secondary description rendered dimmer beneath the
+    /// label. Slice 9 derives this from the action's category badge.
     pub(crate) description: Option<String>,
     /// Right-aligned shortcut hint (e.g. "Ctrl+,").
     pub(crate) keybinding: Option<String>,
@@ -289,56 +293,35 @@ impl Default for CommandPaletteState {
             origin: PaletteOrigin::KeyboardShortcut,
             query: String::new(),
             focused_index: None,
-            all_actions: placeholder_actions(),
+            all_actions: registry_actions(),
         }
     }
 }
 
-/// Slice 7 placeholder list. Replaced by runtime view-model output
-/// once `ActionRegistry` lives in `graphshell-runtime`.
-fn placeholder_actions() -> Vec<RankedAction> {
-    vec![
-        RankedAction {
-            action_id: 1,
-            label: "Open Settings".into(),
-            description: Some("Configure Graphshell preferences".into()),
-            keybinding: Some("Ctrl+,".into()),
-            is_available: true,
-            disabled_reason: None,
-        },
-        RankedAction {
-            action_id: 2,
-            label: "Toggle Navigator Left".into(),
-            description: Some("Show or hide the left Navigator host".into()),
+/// Build the palette's master action list from the canonical
+/// `graphshell_core::actions::all_action_ids()` registry. Each entry
+/// uses `ActionId::label()` as the row label and the category's label
+/// as a description badge.
+///
+/// Availability is conservatively `true` for every action — the real
+/// `is_available` predicate (selection-set awareness, capability
+/// gating per [`command_surface_interaction_spec.md` §4.1](../../../design_docs/graphshell_docs/implementation_strategy/aspect_command/command_surface_interaction_spec.md))
+/// requires an `ActionRegistryViewModel` from `graphshell-runtime`.
+/// That swap doesn't change this function's caller — it just passes
+/// the predicate result here instead of the literal `true`.
+fn registry_actions() -> Vec<RankedAction> {
+    graphshell_core::actions::all_action_ids()
+        .iter()
+        .copied()
+        .map(|id| RankedAction {
+            action_id: id,
+            label: id.label().to_string(),
+            description: Some(id.category().label().to_string()),
             keybinding: None,
             is_available: true,
             disabled_reason: None,
-        },
-        RankedAction {
-            action_id: 3,
-            label: "Close Current Pane".into(),
-            description: None,
-            keybinding: Some("Ctrl+W".into()),
-            is_available: true,
-            disabled_reason: None,
-        },
-        RankedAction {
-            action_id: 4,
-            label: "Reload Graph".into(),
-            description: Some("Re-derive Navigator projections".into()),
-            keybinding: None,
-            is_available: true,
-            disabled_reason: None,
-        },
-        RankedAction {
-            action_id: 5,
-            label: "Tombstone Node".into(),
-            description: Some("Mark the focused node as deleted".into()),
-            keybinding: None,
-            is_available: false,
-            disabled_reason: Some("No node currently focused".into()),
-        },
-    ]
+        })
+        .collect()
 }
 
 /// Filter the palette's master list by query. Empty query → all rows.
@@ -991,25 +974,27 @@ impl IcedApp {
                 Task::none()
             }
             Message::PaletteActionSelected(idx) => {
-                // Slice 7: read the visible-list slot, look up the
-                // master RankedAction, and stub-ack via toast. The
-                // downstream slice will swap this for HostIntent::Action.
+                // Slice 9: read the visible-list slot and resolve to a
+                // canonical ActionId. The toast surfaces both the
+                // human-facing label and the stable `namespace:name`
+                // key so the dispatch path is observable even before
+                // HostIntent::Action lands. Disabled / out-of-range
+                // selections are no-ops.
                 let visible = visible_palette_actions(&self.command_palette);
-                let acked_label = visible
+                let acked = visible
                     .get(idx)
                     .filter(|a| a.is_available)
-                    .map(|a| a.label.clone());
-                if let Some(label) = acked_label {
+                    .map(|a| (a.label.clone(), a.action_id.key()));
+                if let Some((label, key)) = acked {
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
-                        message: format!("action: {label} (stub)"),
+                        message: format!("action: {label} [{key}] (stub)"),
                         duration: None,
                     });
                     self.command_palette.is_open = false;
                     self.command_palette.query.clear();
                     self.command_palette.focused_index = None;
                 }
-                // Disabled or out-of-range: do nothing.
                 Task::none()
             }
             Message::PaletteFocusDown => {
@@ -2514,15 +2499,16 @@ mod tests {
         });
         assert_eq!(app.host.toast_queue.len(), 0);
 
-        // Slice 7: row 0 of placeholder list is "Open Settings" — the
-        // toast carries the resolved label so this is also a smoke-test
-        // for the visible-list lookup path.
+        // Slice 9: row 0 is whatever the canonical registry's first
+        // action is — capture its label so the assertion stays stable
+        // as the registry evolves.
+        let expected_label = app.command_palette.all_actions[0].label.clone();
         let _ = app.update(Message::PaletteActionSelected(0));
 
         assert!(!app.command_palette.is_open);
         assert_eq!(app.host.toast_queue.len(), 1);
         assert!(
-            app.host.toast_queue[0].message.contains("Open Settings"),
+            app.host.toast_queue[0].message.contains(&expected_label),
             "expected resolved label in toast, got: {}",
             app.host.toast_queue[0].message,
         );
@@ -2559,20 +2545,51 @@ mod tests {
     // --- Modal data + nav tests (Slice 7) ---
 
     #[test]
-    fn palette_starts_with_placeholder_actions() {
+    fn palette_action_select_toast_carries_canonical_key() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        let visible = visible_palette_actions(&app.command_palette);
+        let row0_id = visible[0].action_id;
+        let expected_key = row0_id.key();
+
+        let _ = app.update(Message::PaletteActionSelected(0));
+
+        assert_eq!(app.host.toast_queue.len(), 1);
+        let msg = &app.host.toast_queue[0].message;
+        assert!(
+            msg.contains(expected_key),
+            "toast should embed canonical ActionId::key() ({expected_key}); got: {msg}",
+        );
+    }
+
+    #[test]
+    fn palette_seeded_from_action_registry() {
         let runtime = GraphshellRuntime::for_testing();
         let app = IcedApp::with_runtime(runtime);
 
-        assert!(
-            app.command_palette.all_actions.len() >= 4,
-            "default palette should carry placeholder action list",
+        // Every ActionId in the canonical registry becomes one RankedAction.
+        let registry_count = graphshell_core::actions::all_action_ids().len();
+        assert_eq!(
+            app.command_palette.all_actions.len(),
+            registry_count,
+            "palette mirrors graphshell_core::actions::all_action_ids()",
         );
         assert!(
             app.command_palette
                 .all_actions
                 .iter()
-                .any(|a| a.label == "Open Settings"),
-            "expected canonical placeholder action",
+                .any(|a| a.label == "Open Settings Pane"),
+            "expected canonical ActionId::label(); got labels: {:?}",
+            app.command_palette
+                .all_actions
+                .iter()
+                .map(|a| a.label.as_str())
+                .take(5)
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -2665,14 +2682,15 @@ mod tests {
             origin: PaletteOrigin::KeyboardShortcut,
         });
 
-        // Find the index of the disabled placeholder ("Tombstone Node").
-        let visible = visible_palette_actions(&app.command_palette);
-        let disabled_idx = visible
-            .iter()
-            .position(|a| !a.is_available)
-            .expect("placeholder list contains one disabled row");
+        // Slice 9: every registry action seeds with `is_available =
+        // true`. Synthesize a disabled row to exercise the no-op path
+        // — runtime swap will drive availability via
+        // ActionRegistryViewModel.
+        app.command_palette.all_actions[0].is_available = false;
+        app.command_palette.all_actions[0].disabled_reason =
+            Some("synthetic disabled state".into());
 
-        let _ = app.update(Message::PaletteActionSelected(disabled_idx));
+        let _ = app.update(Message::PaletteActionSelected(0));
 
         assert!(
             app.command_palette.is_open,
