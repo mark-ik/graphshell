@@ -232,7 +232,7 @@ through iced's standard theme propagation.
 Hand-rolled `gs::*` widgets read tokens through the active Theme:
 
 ```rust
-impl iced::widget::Widget<Message, GraphshellTheme, Renderer> for gs::Tabs {
+impl iced::widget::Widget<Message, GraphshellTheme, Renderer> for gs::TileTabs {
     fn draw(&self, ..., theme: &GraphshellTheme, ...) {
         let bg = theme.colors.surface_raised;
         let active = theme.colors.accent;

@@ -1471,7 +1471,7 @@ The defining iced idioms:
 | `iced::Theme` | Theming system; `libcosmic` extends |
 | `text_input` (iced 0.14) | IME-aware text entry |
 | `iced_accessibility` | AccessKit bridge |
-| ~~`iced_aw` widgets~~ → hand-rolled `graphshell-iced-widgets` | Tabs, ContextMenu, Modal hand-rolled in-tree per the 2026-04-30 decision (no alpha-dep). ~200-400 LOC total. Sidebar uses `iced::widget::Container` directly. |
+| ~~`iced_aw` widgets~~ → hand-rolled `graphshell-iced-widgets` | TileTabs, ContextMenu, Modal hand-rolled in-tree per the 2026-04-30 decision (no alpha-dep). ~200-400 LOC total. Sidebar uses `iced::widget::Container` directly. |
 | `iced_webview` | Web content embedding (Servo / Blitz / litehtml / CEF feature flags) |
 | `libcosmic` widgets | List/grid views, drag-drop, theme extensions |
 
@@ -1486,7 +1486,7 @@ holds the parallel gpui-side detail.
 | Taxonomy subsystem | Idiomatic iced shape |
 |---|---|
 | §3.6 Frame (Window → Splits → Panes) — canonical Frame | `pane_grid::State<Pane>` *is* the Frame's split-tree authority; `pane_grid` widget renders it; resize and drag are built in |
-| §3.6 Tab bar over active tiles | `gs::Tabs` (hand-rolled `graphshell-iced-widgets`) inside each tile pane |
+| §3.6 Tile-tab bar over active tiles | `gs::TileTabs` (hand-rolled `graphshell-iced-widgets`) inside each tile pane — entries are `gs::TileTab`, the *tile's tab* / handle, not the tile itself |
 | §3.6 Omnibar | `text_input` + `Subscription` for focus/results; Navigator-projected breadcrumb in a `row!`; per-pane drafts via existing `OmnibarSearchSession` |
 | §3.6 Command palette | `Modal` overlay + filtered list driven by Messages routed through `ActionRegistry` |
 | §3.6 Context palette | `gs::ContextMenu` (hand-rolled) triggered by mouse-right Message |
@@ -1646,9 +1646,10 @@ top of it is doubly redundant).
 A third risk is **manual tabs replicating egui_tiles**. The
 `egui_tiles::Tree<TileKind>` model is what we're escaping; do not
 reimplement its tab semantics on top of iced. Use the hand-rolled
-`gs::Tabs` widget inside tile panes and let the FrameTree (`pane_grid`) handle
-splits — the two abstractions are orthogonal in iced, while
-egui_tiles conflated them.
+`gs::TileTabs` widget inside tile panes and let the FrameTree
+(`pane_grid`) handle splits — the two abstractions are orthogonal in
+iced, while egui_tiles conflated them. (Naming: `TileTabs` because
+each entry is the *tile's tab* / handle, not the tile itself.)
 
 ---
 

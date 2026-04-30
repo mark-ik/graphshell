@@ -40,14 +40,18 @@ Two surfaces handle command discovery and dispatch:
 | **Context Menu** | Right-click on an interactable target | `gs::ContextMenu` with a flat list of commands available on that target | `ActionRegistry::available_for(target, view_model)` |
 
 **Widget-source note** (added 2026-04-30): `gs::Modal`, `gs::ContextMenu`,
-`gs::Tabs`, and any other `gs::*` widget references in this spec are
-hand-rolled Graphshell widgets in `crates/graphshell-iced-widgets/`. Per
-the 2026-04-30 decision to drop the `iced_aw` dependency, we own the
-small set of widgets we actually use (Tabs / ContextMenu / Modal) rather
-than depending on the alpha-stage external crate. The widgets are
-ordinary `iced::widget::Widget<Message, Theme>` impls — no special trait
-or framework. Approximate scope: ~200-400 LOC total across the four
-widgets.
+`gs::TileTabs` / `gs::TileTab`, and any other `gs::*` widget references
+in this spec are hand-rolled Graphshell widgets in
+`crates/graphshell-iced-widgets/`. Per the 2026-04-30 decision to drop
+the `iced_aw` dependency, we own the small set of widgets we actually
+use (TileTabs / ContextMenu / Modal) rather than depending on the
+alpha-stage external crate. The widgets are ordinary
+`iced::widget::Widget<Message, Theme>` impls — no special trait or
+framework. Approximate scope: ~200-400 LOC total across the four
+widgets. Naming note: `TileTabs` — not bare `Tabs` — because each
+entry is the *tile's tab* (a handle), not the tile itself; using
+`Tabs` would re-introduce the egui_tiles-shaped conflation between
+"the page" and "the handle that selects it".
 
 Both surfaces:
 

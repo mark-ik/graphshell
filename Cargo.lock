@@ -1037,6 +1037,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e2c71c44e5bbc64de4ecfac946e05f9bba5cc296ea7bab4d3eda242a3ffa73c"
 
 [[package]]
+name = "build-parallel"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8e3ff9db740167616e528c509b3618046fc05d337f8f3182d300f4aa977d2bb"
+dependencies = [
+ "crossbeam-utils",
+ "jobserver",
+ "num_cpus",
+]
+
+[[package]]
 name = "built"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4023,6 +4034,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glslopt"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9c406272113953698f579ad93ec5e909eae0b5f84f6839238b185081d0df04d"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "glutin_wgl_sys"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4143,6 +4163,7 @@ dependencies = [
  "graph-tree",
  "graphshell-comms",
  "graphshell-core",
+ "graphshell-iced-widgets",
  "graphshell-runtime",
  "headers",
  "hitrace",
@@ -4263,6 +4284,13 @@ dependencies = [
  "time",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "graphshell-iced-widgets"
+version = "0.0.1"
+dependencies = [
+ "iced",
 ]
 
 [[package]]
@@ -4935,6 +4963,7 @@ dependencies = [
  "iced_core",
  "log",
  "rustc-hash 2.1.2",
+ "tokio",
  "wasm-bindgen-futures",
  "wasmtimer",
 ]
@@ -8503,6 +8532,8 @@ dependencies = [
 [[package]]
 name = "peek-poke"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef60922033e31835f6cf98b9b81b58368037b71d2a81928985cd9d0b3b3171fb"
 dependencies = [
  "euclid",
  "peek-poke-derive",
@@ -8511,6 +8542,8 @@ dependencies = [
 [[package]]
 name = "peek-poke-derive"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "271f78bae1e699b58c180a384a2e8d78ccbb60b853e15db92339725f3a2764d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9977,15 +10010,14 @@ dependencies = [
 
 [[package]]
 name = "ron"
-version = "0.12.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4147b952f3f819eca0e99527022f7d6a8d05f111aeb0a62960c74eb283bec8fc"
+checksum = "beceb6f7bf81c73e73aeef6dd1356d9a1b2b4909e1f0fc3e59b034f9572d7b7f"
 dependencies = [
+ "base64 0.22.1",
  "bitflags 2.11.1",
- "once_cell",
  "serde",
  "serde_derive",
- "typeid",
  "unicode-ident",
 ]
 
@@ -13747,12 +13779,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 
 [[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
-
-[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15130,21 +15156,25 @@ dependencies = [
 [[package]]
 name = "webrender"
 version = "0.68.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a591c25221a9f8ac2ad7754659b283d912cee6c8424f0fa3777aabed3be91c16"
 dependencies = [
  "allocator-api2",
  "bincode",
  "bitflags 2.11.1",
+ "build-parallel",
  "byteorder",
  "derive_more",
  "etagere",
  "euclid",
+ "gleam",
+ "glslopt",
  "lazy_static",
  "log",
  "malloc_size_of_derive",
  "num-traits",
  "peek-poke",
  "plane-split",
- "pollster",
  "rayon",
  "ron",
  "rustc-hash 2.1.2",
@@ -15154,7 +15184,7 @@ dependencies = [
  "topological-sort",
  "tracy-rs",
  "webrender_api",
- "wgpu",
+ "webrender_build",
  "wr_glyph_rasterizer",
  "wr_malloc_size_of",
  "zeitstempel",
@@ -15163,6 +15193,8 @@ dependencies = [
 [[package]]
 name = "webrender_api"
 version = "0.68.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb206f613b4635881065a2ff4670e656edc904af0b8729c51ce1196679fd1b6d"
 dependencies = [
  "app_units",
  "bitflags 2.11.1",
@@ -15176,6 +15208,16 @@ dependencies = [
  "serde_derive",
  "wr_malloc_size_of",
  "zeitstempel",
+]
+
+[[package]]
+name = "webrender_build"
+version = "0.68.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e6165a81201892371061250bd6f08ede9ed7279842fedc4033f48582a789068"
+dependencies = [
+ "bitflags 2.11.1",
+ "lazy_static",
 ]
 
 [[package]]
@@ -16377,6 +16419,8 @@ dependencies = [
 [[package]]
 name = "wr_glyph_rasterizer"
 version = "0.68.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef4fcffa889d25131fc7c6ec8a558aa7c78d6030eaa17e31695c172adcc4eb0b"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics",
@@ -16401,6 +16445,8 @@ dependencies = [
 [[package]]
 name = "wr_malloc_size_of"
 version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "482308b684f11723b200a32808094bb460b5ac4840903ccbcb78ad92a6354a1f"
 dependencies = [
  "app_units",
  "euclid",
@@ -16780,9 +16826,9 @@ dependencies = [
 
 [[package]]
 name = "zeitstempel"
-version = "0.2.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f523a0d9326c4f3242ad3a9d306baa7fe4572fd532cc891cabecfb714c786c1e"
+checksum = "94652f036694517fa67509942c3b60a51a19e1cd9cfd0f456eeb830ae8798d3d"
 dependencies = [
  "cfg-if",
  "libc",

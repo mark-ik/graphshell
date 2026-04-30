@@ -25,6 +25,7 @@ members = [
     "crates/iced-middlenet-viewer",
     "crates/iced-graph-canvas-viewer",
     "crates/iced-wry-viewer",
+    "crates/graphshell-iced-widgets",
     "crates/verso",
     "crates/verso-host",
 ]
@@ -93,6 +94,7 @@ iced-host = [
     "dep:iced-middlenet-viewer",
     "dep:iced-graph-canvas-viewer",
     "dep:iced-wry-viewer",
+    "dep:graphshell-iced-widgets",
     "wry",
 ]
 
@@ -113,7 +115,11 @@ inventory = "0.3"
 infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 # Iced is the sole supported host backend in graphshell main.
-iced = { path = "vendor/iced", optional = true, features = ["canvas"] }
+# `tokio` feature enables `iced::time::every` (the runtime-tick
+# Subscription used by the iced host's frame loop). graphshell already
+# depends on tokio at the workspace level, so this is a consistent
+# choice over `smol`.
+iced = { path = "vendor/iced", optional = true, features = ["canvas", "tokio"] }
 # Iced middlenet viewer lives in its own crate so it can be developed,
 # tested, and demoed without pulling in the heavy Servo/webrender deps
 # of the main graphshell crate. The graphshell-side host adapter
@@ -130,6 +136,11 @@ iced-graph-canvas-viewer = { path = "crates/iced-graph-canvas-viewer", optional 
 # extracted via `iced::window::run`. Depends on `verso/wry-engine`
 # (Phase A2 — verso owns the wry impl).
 iced-wry-viewer = { path = "crates/iced-wry-viewer", optional = true }
+# Hand-rolled iced widgets (TileTabs, Modal, ContextMenu) per the
+# 2026-04-30 decision to drop the `iced_aw` dependency. Slice 1
+# scaffolding of the iced jump-ship plan: signature-only widget
+# shells; Widget impls land in S4 sub-slices.
+graphshell-iced-widgets = { path = "crates/graphshell-iced-widgets", optional = true }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
@@ -244,9 +255,20 @@ wat = "1"
 
 [patch.crates-io]
 gpu-allocator = { path = "../servo-wgpu/support/patches/gpu-allocator" }
-webrender = { path = "../webrender-wgpu/webrender" }
-webrender_api = { path = "../webrender-wgpu/webrender_api" }
-wr_malloc_size_of = { path = "../webrender-wgpu/wr_malloc_size_of" }
+# Webrender patches gated off (2026-04-30) — the iced-only build path
+# does not pull `webrender` transitively, and the sibling
+# `../webrender-wgpu/` tree no longer exposes a `webrender/` directory
+# (Netrender rename in flight per the project_naming_state notes;
+# `netrender/` is the new name in that tree). The Servo build path
+# (`--features servo-engine`) is independently blocked on the
+# wgpu/webrender API mismatch documented in the iced jump-ship plan
+# §3.4, so re-enabling these patches gains nothing today. Re-enable
+# (and update the `webrender → netrender` path) once the Servo path
+# is unblocked. Alternative: pull down the prior SPIR-V pipeline
+# branch of webrender-wgpu and point at that directory.
+# webrender = { path = "../webrender-wgpu/webrender" }
+# webrender_api = { path = "../webrender-wgpu/webrender_api" }
+# wr_malloc_size_of = { path = "../webrender-wgpu/wr_malloc_size_of" }
 
 # Servo-wgpu's Cargo.toml has this same patch, but `[patch]` sections
 # only take effect from the root manifest. Graphshell is the root when

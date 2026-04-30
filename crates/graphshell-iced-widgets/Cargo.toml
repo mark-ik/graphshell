@@ -1,0 +1,12 @@
+[package]
+name = "graphshell-iced-widgets"
+version = "0.0.1"
+authors = ["@mark-ik"]
+license = "MPL-2.0"
+edition = "2024"
+publish = false
+rust-version = "1.92.0"
+description = "Hand-rolled iced widgets for the Graphshell host (TileTabs, Modal, ContextMenu). Replaces iced_aw per the 2026-04-30 decision; no alpha-stage external widget deps."
+
+[dependencies]
+iced = { path = "../../vendor/iced", features = ["canvas"] }
