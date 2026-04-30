@@ -21,7 +21,8 @@ lives in S3/S4 code, not this spec.
 
 - [`2026-04-28_iced_jump_ship_plan.md` §4.6](2026-04-28_iced_jump_ship_plan.md) — canonical reshape table with Presentation Bucket assignments
 - [`iced_composition_skeleton_spec.md`](iced_composition_skeleton_spec.md) — slot model, three Navigator buckets, canvas instances
-- [`iced_omnibar_spec.md`](iced_omnibar_spec.md) — find-in-graph entry point
+- [`iced_omnibar_spec.md`](iced_omnibar_spec.md) — URL-entry surface (revised 2026-04-29; no longer the find-in-graph entry point)
+- [`iced_node_finder_spec.md`](iced_node_finder_spec.md) — Ctrl+P fuzzy graph-node search (added 2026-04-29; this is now the find-in-graph surface)
 - [`iced_command_palette_spec.md`](iced_command_palette_spec.md) — find-in-page / find-in-graph as palette-routable actions
 - [`../navigator/NAVIGATOR.md` §8](../navigator/NAVIGATOR.md) — Presentation Bucket Model
 - [`../subsystem_history/SUBSYSTEM_HISTORY.md`](../subsystem_history/SUBSYSTEM_HISTORY.md) — traversal / history authority
@@ -182,9 +183,9 @@ content) and search-in-graph (across nodes). Both Shell-owned commands.*
 | Question | Answer |
 |---|---|
 | **Presentation Bucket** | n/a — modal command surface, not a Navigator bucket |
-| **Surface** | Both find modes invoke through Shell commands. Find-in-pane: `Ctrl+F` opens an inline find toolbar in the focused tile pane (or canvas pane). Find-in-graph: `Ctrl+G` opens the omnibar in Input mode pre-filled with a graph-scope search prefix; results render in the omnibar completion list and in a dedicated search-result Activity Log filter. |
-| **Data source** | Find-in-pane: the focused pane's viewer (Servo, middlenet, wry, tool pane) owns the find API; the Shell command dispatches to the viewer. Find-in-graph: the canonical graph index (in `graphshell-runtime`); searches over node title / tag / address / content snapshot per the runtime's index strategy. |
-| **Intent flow** | Find-in-pane: `ViewerIntent::FindInPage { pane_id, query }` routes to the focused pane's viewer. Find-in-graph: `GraphQueryIntent::Find { query, scope }` routes to the runtime; results return via Subscription and populate omnibar completions. |
+| **Surface** | Find-in-pane: `Ctrl+F` opens an inline find toolbar in the focused tile pane (or canvas pane). Find-in-graph: `Ctrl+P` opens the Node Finder Modal (per the 2026-04-29 omnibar-split simplification — was previously an omnibar prefix mode, now its own surface). |
+| **Data source** | Find-in-pane: the focused pane's viewer (Servo, middlenet, wry, tool pane) owns the find API; the Shell command dispatches to the viewer. Find-in-graph: the canonical graph index (in `graphshell-runtime`) via `NodeFinderViewModel::rank_for_query`; searches over node title / tag / address / content snapshot. |
+| **Intent flow** | Find-in-pane: `ViewerIntent::FindInPage { pane_id, query }` routes to the focused pane's viewer. Find-in-graph (Node Finder): activation on a selected result emits `WorkbenchIntent::OpenNode { node_key, destination }`. Search results return via the Node Finder's Subscription with request-id supersession (per `iced_node_finder_spec.md`). |
 | **`verso://` address** | None — find is a transient command surface, not a tool pane. The find toolbar is a per-Pane affordance with no addressable identity. |
 
 ### 4.1 Find-in-page toolbar shape
@@ -206,26 +207,48 @@ fn find_in_page_toolbar(pane: &Pane, find_state: &FindInPageState) -> Element<Me
 Mounted inside the tile pane's chrome (above the viewer body). Routes
 all matching/highlighting via `ViewerIntent::FindInPage` to the focused
 pane's viewer, which performs the actual search and exposes match count
-+ active match index back via Subscription.
+plus active match index back via Subscription.
 
-### 4.2 Find-in-graph entry
+### 4.2 Find-in-graph entry — Node Finder (revised 2026-04-29)
 
-Per [`iced_omnibar_spec.md` §6](iced_omnibar_spec.md), the omnibar
-already handles search submission via `OmnibarSubmit`. Find-in-graph
-distinguishes itself by:
+Per the omnibar-split simplification, find-in-graph is the **Node
+Finder**'s responsibility, not the omnibar's. See
+[`iced_node_finder_spec.md`](iced_node_finder_spec.md) for the full
+specification.
 
-- A leading prefix character (e.g., `?` or canonical "graph search"
-  keybinding) that the omnibar parses as a graph-scope search rather
-  than a navigation/open intent.
-- Results appear in the omnibar completion list with a "Graph search"
-  badge; selecting a result navigates to the matching node (Activate
-  in the appropriate Pane).
-- A "Show all results" footer entry opens a `verso://tool/search`
-  tool pane with the full result set as a sortable / filterable
-  Activity-Log-style list.
+- **Trigger**: `Ctrl+P` (canonical, Zed/VSCode-shaped) opens the Node
+  Finder Modal. There is no omnibar prefix syntax for graph search;
+  the omnibar is URL-entry only.
+- **Surface**: Modal overlay with `text_input` + flat ranked list of
+  graph nodes. Results match across (title, tag, address, content
+  snapshot).
+- **Result rows**: each row shows node title, address, node-type
+  badge, match-source badge (Title / Tag / URL / Content), optional
+  content-match snippet.
+- **Activation**: Enter on focused row emits a single
+  `WorkbenchIntent::OpenNode { node_key, destination }` per the
+  user's `WorkbenchProfile` rule (active Pane / new Pane / replace
+  focused Pane).
+- **Empty query**: shows recently-active nodes (recency-ranked).
+- **Footer fallback**: "Open as URL…" routes the typed text to the
+  omnibar in Input mode for the user who wanted URL-entry after all.
+- **No tool-pane required for "show all results"** — the Node Finder
+  Modal *is* the result surface; persistent saved searches are a
+  Stage F enhancement (graphlet save) covered in §4.2 open items.
 
-Find-in-graph is one of the operations the omnibar supports; it is not
-a separate widget tree.
+Earlier draft of this row had find-in-graph as an omnibar-prefix
+behavior; the omnibar-split simplification moved it to the Node Finder.
+
+### 4.2.1 Find-in-graph open items
+
+- **Saved searches as graphlets**: persisting a Node Finder query +
+  its result set as a graphlet (with `#search-result` tag) for
+  later re-execution; runtime/settings concern.
+- **Per-source filter chips** in the Node Finder: filter results by
+  Title / Tag / URL / Content match source.
+- **Cross-graph search**: searching nodes across multiple `GraphId`s
+  in the active profile catalog. Deferred per the multi-window /
+  multi-profile boundaries (§9 / §8).
 
 ---
 
@@ -483,7 +506,7 @@ Each amenity carries a coherence guarantee per [iced jump-ship plan §4.10](2026
 | History | Activity Log bucket | Read-only; clicking reveals without re-emitting; log records every mutation |
 | Bookmarks | Tree Spine + Swatches | Bookmarks are graphlet tags; bookmarking emits `GraphIntent::TagGraphlet`; never bypasses the uphill rule |
 | Find-in-page | n/a (modal) | Searches are read-only viewer operations; never mutate graph |
-| Find-in-graph | Omnibar (per omnibar guarantee) | Search is a read-only query; submission emits a navigation intent |
+| Find-in-graph | Node Finder (per Node Finder guarantee) | Search is a read-only query; activation emits one `WorkbenchIntent::OpenNode` per selection; never mutates graph truth |
 | Downloads | Tool panes guarantee | Tool pane is observer-only; downloads materialize as graph nodes via standard `GraphReducerIntent` path |
 | Devtools | Tool panes guarantee | Read-only; section actions emit subsystem-specific intents |
 | Sessions / restore | Tree Spine (frametree) | Frame Snapshots are derived restore-points; graph is long-term truth |

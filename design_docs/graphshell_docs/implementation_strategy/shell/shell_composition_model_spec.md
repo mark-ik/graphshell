@@ -348,44 +348,50 @@ This keeps the omnibar aligned with the broader Shell-as-host rule:
 Shell owns the widget, focus, and visible state; background runtime work only
 feeds it through explicit host-owned seams.
 
-### 5.4 CommandBar target resolution
+### 5.4 CommandBar target resolution — RETIRED 2026-04-29
 
-The `CommandBar` may submit actions whose target depends on the currently
-focused surface. That target resolution is not inferred ad hoc from whichever
-subsystem most recently rendered; it is a first-class per-frame input to Shell.
+**`CommandBarFocusTarget` is retired** as a Shell-owned carrier under the
+2026-04-29 simplification (the omnibar-split decision). The carrier
+existed because the multi-role omnibar could submit address opens, graph
+searches, *and* commands, each needing a different target context. With
+that role split:
 
-One concrete shape is:
+- **Omnibar** is now URL/address entry only. Submission opens-or-activates
+  a node by canonical address; routing of the resulting Pane is governed
+  by a user-configurable rule (active Pane / new Pane / replace focused
+  Pane), not by a focus target. See
+  [`iced_omnibar_spec.md`](iced_omnibar_spec.md).
+- **Command Palette** dispatches via `ActionRegistry::execute(action_id, selection_set)`
+  where the selection set comes from `view_model.current_selection_set()`
+  directly. No focus-target carrier needed. See
+  [`iced_command_palette_spec.md`](iced_command_palette_spec.md).
+- **Node Finder** (new surface, `Ctrl+P`) is a global graph-node fuzzy
+  search; activation routes per the same omnibar rule. See
+  [`iced_node_finder_spec.md`](iced_node_finder_spec.md).
+- **Context Menu** (right-click) is already target-scoped by
+  construction — the right-click target *is* the selection set.
 
-```rust
-pub struct CommandBarFocusTarget {
-    pub focused_surface: FocusedSurface,
-   pub focused_node: Option<NodeKey>,
-}
+Each surface stores its own `focus_at_open` widget-id token for
+post-dismiss focus restore via `widget::focus()` `Operation`. There is
+no Shell-level cross-surface focus carrier; iced widget focus + the
+selection set together cover what `CommandBarFocusTarget` was solving.
 
-pub enum FocusedSurface {
-    GraphPrimary(GraphViewId),
-    WorkbenchTile { tile_id: TileId, pane_id: PaneId },
-    NavigatorHost { host_id: NavigatorHostId },
-}
-```
+Egui-era code that reads `CommandBarFocusTarget` (per the
+[`2026-04-03_shell_command_bar_execution_plan.md`](2026-04-03_shell_command_bar_execution_plan.md)
+landed work) remains in place under the `egui-host` feature gate; it
+will retire alongside the egui host in S6 of the iced jump-ship plan.
+No new code should consume the carrier.
 
-The required precedence rule is:
+Original rationale (kept as historical memory):
 
-1. keyboard focus owner wins
-2. otherwise, last pointer-interacted surface wins
-3. otherwise, no focused command target is exposed in `CommandBar`
+> The `CommandBar` may submit actions whose target depends on the
+> currently focused surface. That target resolution is not inferred
+> ad hoc; it is a first-class per-frame input to Shell.
 
-This rule is Shell-owned and evaluated once per frame before rendering the
-`CommandBar`. The bar itself no longer hosts viewer chrome directly; this
-target carrier exists so omnibar submission, command entry, and other
-Shell-owned routing can resolve the correct graph/workbench target without
-depending on render order.
-rather than re-deriving focus inside toolbar code.
-
-Current-state note: `CommandBarFocusTarget` is now the landed baseline carrier.
-The remaining closure work is its provenance/evidence model: diagnostics
-receipts, UxTree trace projection, and focus-return / AT validation are tracked
-in `../subsystem_ux_semantics/2026-04-05_command_surface_observability_and_at_plan.md`.
+The simplification supersedes this — the iced model resolves
+target-vs-surface coupling at a different boundary (the action's own
+selection-set requirement, plus the omnibar's no-target-just-address
+rule), removing the need for a Shell-level focus carrier.
 
 ### 5.5 Controls previously in `graph_bar` — prototype redistribution
 

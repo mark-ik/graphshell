@@ -69,11 +69,18 @@ pub struct GraphshellApp {
     /// base layer). Each value is one canvas::Program::State.
     canvas_states: HashMap<CanvasInstanceId, GraphCanvasState>,
 
-    /// CommandBar omnibar session (input draft, mode, completion mailbox).
+    /// Omnibar session (URL entry + breadcrumb display only per the
+    /// 2026-04-29 omnibar-split simplification). See iced_omnibar_spec.md.
     omnibar: OmnibarSession,
 
-    /// Command palette modal state (open, query, filter).
+    /// Command palette modal state (open, query, filter, focus_token).
+    /// See iced_command_palette_spec.md.
     command_palette: CommandPaletteState,
+
+    /// Node finder modal state (open, query, results, focus_token).
+    /// New surface added 2026-04-29 by the omnibar-split simplification.
+    /// See iced_node_finder_spec.md.
+    node_finder: NodeFinderState,
 
     /// Per-Navigator-host UI state (scroll position, expansion, focus).
     navigator_hosts: HashMap<NavigatorHostId, NavigatorHostUi>,
@@ -110,13 +117,24 @@ pub enum Message {
     SwatchHoverExit { recipe_id: RecipeId },
     SwatchContextAction { recipe_id: RecipeId, action: SwatchAction },
 
-    /// CommandBar / palette.
+    /// Omnibar (URL entry + breadcrumb only).
+    OmnibarFocus,
     OmnibarInput(String),
     OmnibarSubmit,
-    PaletteOpen,
+    OmnibarRouteToNodeFinder(String),       // non-URL query → node finder
+
+    /// Command palette (Ctrl+Shift+P, action dispatch).
+    PaletteOpen { origin: PaletteOrigin },
     PaletteQuery(String),
-    PaletteSelect(ActionId),
-    PaletteClose,
+    PaletteActionSelected(ActionId),
+    PaletteCloseAndRestoreFocus,
+
+    /// Node finder (Ctrl+P, fuzzy graph-node search).
+    NodeFinderOpen { origin: NodeFinderOrigin },
+    NodeFinderOpenWithQuery(String),
+    NodeFinderQuery(String),
+    NodeFinderResultSelected(NodeKey),
+    NodeFinderCloseAndRestoreFocus,
 
     /// Authority responses (graphshell-runtime confirmed an intent).
     IntentApplied { intent_id: IntentId, result: IntentResult },
@@ -363,50 +381,18 @@ pub enum PaneType {
 }
 ```
 
-### 3.1 Splits via drag, not buttons (canonical)
+### 3.1 Drag, resize, close — pane_grid defaults
 
-**Splits are created implicitly by dragging, not explicitly by buttons or
-menu commands.** This is a hard constraint, distinct from the egui-era
-"Split horizontal" / "Split vertical" toolbar actions.
+Pane drag, split-resize, and close are all standard `pane_grid` behavior;
+no additional spec material is needed beyond noting one anti-pattern
+(see §9): **don't add explicit "Split horizontal" / "Split vertical"
+toolbar buttons** — splits emerge from drag-to-rearrange, not from
+configuration UI. (The drop-edge-derives-axis behavior, drop-zone
+indicator, and tab-join-on-center-drop are all `pane_grid` defaults
+or near-defaults; visual polish is Stage F, not skeleton.)
 
-Interaction model:
+### 3.2 Close behavior
 
-1. The user grabs a tile tab (from a tile Pane's tab bar) or grabs a Pane
-   chrome handle (drag origin: `pane_grid::DragEvent::Picked`).
-2. As the drag moves over the `pane_grid`, iced renders a **drop-zone
-   indicator** showing where a drop would land:
-   - drop on the **top edge** of a target Pane → new Pane appears above
-     (vertical split, dragged Pane on top)
-   - drop on the **bottom edge** → new Pane below (vertical split)
-   - drop on the **left edge** → new Pane to the left (horizontal split)
-   - drop on the **right edge** → new Pane to the right (horizontal split)
-   - drop on the **center** → join the target Pane's tab bar (no new
-     split, dragged tile becomes a tab in the target Pane)
-3. On release (`pane_grid::DragEvent::Dropped`), the Frame's `split_state`
-   mutates to insert the new Split + Pane in the indicated position.
-
-The split axis (Horizontal vs Vertical) is **derived from the drop edge**;
-the user never chooses an axis explicitly. This matches the Zed / VSCode
-drag-to-split pattern.
-
-Reasoning: explicit Split buttons treat split creation as a top-level UI
-action that interrupts flow. Drag-to-split treats it as a continuation of
-the natural "I want this thing over here" gesture. The Frame's split
-structure becomes an artifact of how the user arranges Panes, not a
-configuration mode.
-
-Implementation seam: `pane_grid::State::split` exists in iced; the Pane
-drag-and-drop handler (`Application::update` on `pane_grid::DragEvent`)
-calls it with the derived axis. No additional iced primitive is required.
-
-Out of scope for this spec: the visual styling of the drop-zone indicator
-(Pane outline pulse, edge-highlight color, animation curve). Those are
-design polish, not composition skeleton.
-
-### 3.2 Resize and close
-
-- **Resize**: `pane_grid` resize handles are built-in; drag a Split's
-  handle to adjust child Shares. No further work required.
 - **Close Pane**: removing a Pane from `split_state` collapses its parent
   Split if one child remains; the surviving sibling expands. iced handles
   this when `pane_grid::State::close` is called.
@@ -761,10 +747,8 @@ The CommandBar is a `Container` wrapping a horizontal row:
 fn command_bar(state: &State) -> Element<Message> {
     container(
         row![
-            navigator_breadcrumb(state.navigator_context),  // Navigator-projected, read-only
-            text_input(state.omnibar_session.draft.as_str(), Message::OmnibarInput)
-                .on_submit(Message::OmnibarSubmit),
-            command_palette_trigger_button(),
+            navigator_breadcrumb(state.navigator_context),  // Navigator-projected, read-only (Display mode)
+            // ... or text_input in Input mode; mode chosen by view dispatch ...
             settings_access_button(),
             sync_status_indicator(),
         ].spacing(8)
@@ -777,25 +761,21 @@ fn command_bar(state: &State) -> Element<Message> {
 Authority per [shell_composition_model_spec.md §5](shell_composition_model_spec.md):
 
 - **Shell** owns the `text_input` widget, focus, mode (Display/Input), and
-  command dispatch.
+  URL-address dispatch. Per the 2026-04-29 omnibar-split simplification,
+  the omnibar **does not** dispatch commands or graph searches —
+  commands go through the Command Palette (§7.2), graph searches go
+  through the Node Finder (new §7.2A).
 - **Navigator** contributes the breadcrumb / scope-badge / graphlet-label
   via `NavigatorContextProjection` (read-only).
 - The seam is the struct, not who renders what.
 
-iced specifics:
-
-- `text_input` (iced 0.14) is IME-aware; CJK/Arabic input works without
-  additional glue.
-- Focus moves via `widget::focus()` `Operation`s (not via a separate
-  focus model). Per-widget focus lives in iced; cross-surface focus
-  coordination lives in `graphshell-runtime` (per iced jump-ship plan G1
-  / Stage A).
-- Background completion fetch uses a `Subscription` over a
-  Shell-supervised mailbox (per [shell_composition_model_spec.md §5.3](shell_composition_model_spec.md)).
+Full specification: [`iced_omnibar_spec.md`](iced_omnibar_spec.md).
 
 ### 7.2 Command Palette
 
-A `Modal` overlay triggered by `Ctrl+P` or the CommandBar trigger button:
+A `Modal` overlay triggered by `Ctrl+Shift+P` (Zed/VSCode-shaped), `F2`,
+or the CommandBar trigger button. Full specification:
+[`iced_command_palette_spec.md`](iced_command_palette_spec.md).
 
 ```rust
 fn command_palette_overlay(state: &State) -> Option<Element<Message>> {
@@ -804,7 +784,8 @@ fn command_palette_overlay(state: &State) -> Option<Element<Message>> {
             column![
                 text_input(state.command_palette.query.as_str(), Message::PaletteQuery),
                 scrollable(
-                    column(state.command_palette.filtered_actions().map(|a| action_row(a)))
+                    column(state.command_palette.ranked_actions.iter()
+                        .map(|a| action_row(a)))
                 ),
             ]
         ).into()
@@ -812,14 +793,31 @@ fn command_palette_overlay(state: &State) -> Option<Element<Message>> {
 }
 ```
 
-- **Action source**: `ActionRegistry` (atomic registry, per TERMINOLOGY.md);
-  Shell dispatches selected actions via `HostIntent`.
-- **Filtering**: in-Shell substring + score filter; no background work.
+- **Action source**: `ActionRegistry` (atomic registry, per TERMINOLOGY.md).
+- **Filtering**: fuzzy-match runtime ranking via
+  `ActionRegistryViewModel::rank_for_query`; results return via
+  Subscription with request-id supersession.
+- **Dispatch**: `Message::PaletteActionSelected(ActionId)` emits one
+  `HostIntent::Action`; closes on dispatch.
 - **Closing**: Escape, click outside, or action selection.
+- **Focus restore**: `command_palette.focus_token` (saved iced widget
+  id at open time); no shared `CommandBarFocusTarget`.
 
-### 7.3 Context Palette
+### 7.2A Node Finder
 
-`iced_aw::ContextMenu` triggered on mouse-right anywhere a target is
+A `Modal` overlay triggered by `Ctrl+P` (Zed/VSCode-shaped). Fuzzy
+graph-node search by title / tag / address / content snapshot.
+Activation emits `WorkbenchIntent::OpenNode { node_key, destination }`
+where `destination` follows the user's `WorkbenchProfile` rule (active
+Pane / new Pane / replace focused Pane). Full specification:
+[`iced_node_finder_spec.md`](iced_node_finder_spec.md).
+
+The Node Finder was added 2026-04-29 by the omnibar-split simplification
+to take graph-search responsibility off the omnibar.
+
+### 7.3 Context Menu
+
+`iced_aw::ContextMenu` triggered on right-click anywhere a target is
 identifiable. Targets and their available actions:
 
 | Target | Available actions (representative) |
@@ -885,10 +883,10 @@ In addition to the iced jump-ship plan §5 anti-patterns:
 
 - **Don't hand-roll a split tree.** Use `pane_grid::State<Pane>`. A
   side-structure that mirrors the split tree means two sources of truth.
-- **Don't add explicit Split-direction buttons.** The split direction is
-  derived from the drop edge per §3.1. A "Split horizontal" button would
-  rebuild the egui-era model in iced shape — exactly the failure mode
-  this spec rejects.
+- **Don't add explicit Split-direction buttons.** Splits emerge from
+  drag-to-rearrange (`pane_grid` default behavior — drop edge derives
+  axis); they aren't a configuration UI. A "Split horizontal" toolbar
+  button would rebuild the egui-era model in iced shape.
 - **Don't render swatches as static images.** Swatches are live canvas
   instances; static thumbnails are a downgrade.
 - **Don't share `Program::State` between canvas instances.** Each
@@ -918,6 +916,17 @@ In addition to the iced jump-ship plan §5 anti-patterns:
   Cross-surface focus coordination (the six-track focus model from the
   iced jump-ship plan §11 G1) lives in `graphshell-runtime`; widgets read
   it from `FrameViewModel` and apply via Operations.
+- **Don't reintroduce `CommandBarFocusTarget` or any Shell-level
+  command-focus carrier.** Retired 2026-04-29 per the omnibar-split
+  simplification ([shell_composition_model_spec.md §5.4](shell_composition_model_spec.md)).
+  Each surface (omnibar, palette, node finder, context menu) stores
+  its own `focus_token` for dismiss-restore; the surfaces don't share
+  a focus carrier.
+- **Don't reintroduce a multi-role omnibar.** The omnibar handles
+  URL entry and breadcrumb display only. Commands route through the
+  Command Palette; graph search routes through the Node Finder.
+  Re-bundling them re-creates the conflated egui-era surface this
+  simplification removed.
 
 ---
 
@@ -925,8 +934,12 @@ In addition to the iced jump-ship plan §5 anti-patterns:
 
 Items this spec leaves to subsequent S2 deliverables:
 
-- **Omnibar shape detail** (per S2 checklist): exact widget composition,
-  completion list shape, mode-transition animation.
+- ~~**Omnibar shape detail**~~ — landed 2026-04-29 in
+  [`iced_omnibar_spec.md`](iced_omnibar_spec.md) (URL entry +
+  breadcrumb only) and
+  [`iced_node_finder_spec.md`](iced_node_finder_spec.md) (Ctrl+P
+  fuzzy graph-node search Modal); the multi-role omnibar role split
+  came out of the same 2026-04-29 omnibar-split simplification.
 - **Browser amenities per surface** (per S2 checklist): each amenity from
   the iced jump-ship plan §4.6 needs its own specification — what surface,
   what data, what intent flow, what `verso://` address.

@@ -323,34 +323,61 @@ Canonical wording rules:
 **Fallback / degraded behavior**: - If a command is unavailable in the current context, the user must receive an explicit explanation.
 - Hidden suppression is forbidden.
 
-### 4.5 Omnibar-Initiated Commands and Contextual Invocation
+### 4.5 Omnibar (URL entry + breadcrumb display) — revised 2026-04-29
 
-**What this domain is for**: - Allow command execution from search/navigation and target-scoped entry points.
+**What this domain is for**: - Provide URL/address entry and Navigator-projected breadcrumb display in a single chrome surface. Per the 2026-04-29 simplification, the omnibar is **not** a command-entry surface; commands go through the Command Palette (§4.2). Graph search by title/tag is **not** an omnibar role; it goes through the **Node Finder** (a separate Modal surface, `Ctrl+P` canonical). The omnibar's submission semantics are URL/address-shaped only.
 
-**Core controls**: - The omnibar may invoke commands as well as navigation and search.
-- Contextual invocation from a node, pane, edge, or canvas must use the same action system as Search Palette Mode.
+**Core controls**: - `Ctrl+L` (canonical) focuses the omnibar in Input mode for URL entry.
+- Submission (Enter) opens-or-activates a node by canonical address; if the typed text doesn't resolve as an address, omnibar parsing routes the entry to either the Node Finder (for title/tag-shaped queries) or to a default-search behavior per user preference.
+- The omnibar exposes URL completions sourced from history-by-URL and bookmark-URLs providers.
 
-**Who owns it**: - Graphshell search and command authorities jointly own query parsing and action dispatch.
-- The omnibar UI owns text capture and result presentation.
+**Who owns it**: - The omnibar UI is Shell-owned; URL completions are sourced from history and bookmark providers under `ControlPanel` supervision.
+- The Navigator owns the breadcrumb projection (read-only at this seam) per [SHELL.md §6](../shell/SHELL.md).
 
-**State transitions**: - Query mode determines whether the user is navigating, searching, or invoking a command.
-- Executing an omnibar command dispatches the same `ActionId` that other command surfaces would invoke.
+**State transitions**: - Display mode shows the breadcrumb (current focused-node address path from Navigator).
+- Input mode shows a `text_input` with URL-shaped completion list.
+- Submission resolves the entered text via address parsing → opens-or-activates the resulting node, or routes the user to the Node Finder if the entry is non-URL-shaped.
+- Dismissing input returns the omnibar to Display mode without mutation.
 
-**Canonical parity contract (normative)**: - Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Command Palette, and Context Menu surfaces.
-- Target scope resolution for omnibar-invoked `ActionId`s must use the same `ActionContext` authority path as other command surfaces.
-- Disabled command rows in omnibar must remain visible with the same precondition explanation text used by other command surfaces; silent suppression is forbidden.
-- If omnibar cannot resolve command target scope deterministically, it must degrade to explicit blocked-state feedback (or clarification UI), not implicit retargeting.
+**Canonical parity contract (normative)**: - The omnibar **does not** invoke commands. Command invocation is the Command Palette's responsibility (§4.2). If an action exists for "open node by URL," that action is dispatched through the Palette; the omnibar does not have a parallel command-row path.
+- Address resolution is deterministic: a URL/address in the typed text always wins over a fuzzy-match interpretation. Ambiguous text routes to the Node Finder, not silently retargeted.
+- The omnibar **does not** have its own `ActionId` semantic surface; it has one submission verb ("open by address").
 
-**Visual feedback**: - Result rows must clearly distinguish navigation targets from commands.
-- Contextual invocations must clearly indicate the current target scope.
+**Visual feedback**: - Display mode shows the breadcrumb token chain (Navigator-projected).
+- Input mode shows the text-input cursor + completion list.
+- URL completions render with source badges (history / bookmark).
+- Failed address resolution (404, invalid URL, unreachable) surfaces via toast plus an Activity Log entry.
 
-**Focus ownership and identification (normative)**: - Omnibar/search text fields must expose explicit focus ownership state even when caret rendering is unavailable (for example: focus ring, field highlight, focus badge, or equivalent deterministic indicator).
-- Focus must be applied to omnibar/search fields only through explicit user selection actions (pointer selection, `Ctrl+L`/platform equivalent, or explicit command intent).
-- On app/frame open, command-surface open, and context-menu summon paths, focus must not default to omnibar.
+**Focus ownership and identification (normative)**: - Omnibar text field must expose explicit focus ownership state even when caret rendering is unavailable (focus ring, field highlight, focus badge, or equivalent deterministic indicator).
+- Focus must be applied to the omnibar only through explicit user selection actions (pointer selection, `Ctrl+L`/platform equivalent, or explicit `OmnibarFocus` command intent).
+- On app/frame open, command-surface open, and Context Menu summon paths, focus must not default to omnibar.
 - Keyboard command handling must remain owned by the currently focused semantic region unless omnibar focus has been explicitly requested.
 
-**Fallback / degraded behavior**: - Ambiguous queries must resolve predictably or ask for clarification through UI, not silent guesswork.
-- If no command matches, the user must remain in a recoverable browse state.
+**Fallback / degraded behavior**: - Ambiguous queries route to the Node Finder; the user is not silently retargeted.
+- If a typed URL does not resolve, the user remains in Input mode with an explicit error state (recoverable, no mutation).
+
+### 4.5A Node Finder — added 2026-04-29
+
+**What this domain is for**: - Provide a fuzzy graph-node search surface for "open this node by title / tag / address / content" intents, separate from the omnibar (which is URL-shaped) and the Command Palette (which is action-shaped).
+
+**Core controls**: - `Ctrl+P` (canonical, Zed/VSCode-shaped) opens a Modal surface with a text input and a fuzzy-ranked list of graph nodes.
+- Enter activates the focused node; arrow keys navigate; Escape dismisses.
+- Activation routes the selected node to its destination Pane per a user-configurable rule (active Pane / new Pane / replace focused Pane).
+
+**Who owns it**: - The Node Finder UI is Shell-owned; ranking is owned by `graphshell-runtime`'s graph index.
+- The result list is a derivation over current graph truth; no node-finder state aliases graph state.
+
+**State transitions**: - Opening enters a graph-search-browse state with the input focused.
+- Empty query shows recently-active nodes ranked by recency.
+- Non-empty query shows fuzzy-match results across (title, tag, address, content snapshot).
+- Activation dispatches a `WorkbenchIntent::OpenNode { node_key, destination }`.
+- Dismissal restores focus to the prior region.
+
+**Visual feedback**: - Each result row shows: node title (or address if no title), node-type badge (Web / File / Tool / Internal), match-source badge (Title / Tag / URL / Content), optional content-match snippet.
+- Empty result set shows explicit empty state.
+
+**Fallback / degraded behavior**: - If the graph index is unavailable, show explicit "Index unavailable" empty state; do not silently fall back to URL-only matching.
+- A "Open as URL…" footer entry opens the omnibar with the typed text pre-filled, when the user wants to interpret their query as a URL after all.
 
 ### 4.6 Accessibility, Diagnostics, and Surface Boundaries
 

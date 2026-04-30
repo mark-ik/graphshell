@@ -736,14 +736,14 @@ that violates its guarantee is a bug, not a UX preference.
 | **Navigator Tree Spine bucket** | Activate / Deactivate toggles flip per-graphlet presentation state only; graph truth is unchanged. Remove-from-graphlet (a separate context-menu action) is the only Navigator action that mutates graphlet membership; Tombstone is the only one that mutates node existence and always carries a confirmation step (per TERMINOLOGY.md Tile and Graphlet Operations). |
 | **Navigator Swatches bucket** | Each swatch is a live projection of graph truth through one recipe; hovering, panning, and scaffolding inside a swatch are projection-local and never change graph truth. Promote / Save Recipe / Pin / Open-as-Pane actions emit explicit intents to Graph or Shell authority and surface in the Activity Log. |
 | **Navigator Activity Log bucket** | The Activity Log is read-only. Clicking an entry reveals the referenced node / Pane / graphlet without re-emitting the original action. The log itself records every graph-truth mutation and every Shell intent so the user can audit what changed and when. |
-| **Omnibar** (CommandBar input region) | Typing in the omnibar never mutates graph truth. Submission emits an explicit intent (open node, search, navigate). The Navigator-projected breadcrumb always reflects current graph truth, never an in-progress draft. |
+| **Omnibar** (URL entry + breadcrumb display) | Typing in the omnibar never mutates graph truth. Submission emits exactly one `HostIntent::OpenAddress` for URL-shaped input, or routes non-URL queries to the Node Finder. The Navigator-projected breadcrumb always reflects current graph truth, never an in-progress draft. (Per the 2026-04-29 omnibar-split simplification, the omnibar does not invoke commands or search graph nodes — those are the Command Palette's and Node Finder's surfaces.) |
+| **Node Finder** (Ctrl+P Modal) | Searching never mutates graph truth. Activation emits a single `WorkbenchIntent::OpenNode` per selection; node creation / deletion are not in scope. Results reflect current graph truth via the runtime's index; stale results are dropped on request-id supersession. Footer fallbacks ("Open as URL…", "Search the web for…") route to the omnibar or web-search engine without bypassing the uphill rule. |
 | **Command palette** | Selecting an action emits a single `HostIntent`; the action only takes effect once the receiving authority confirms via `IntentApplied`. Confirmation appears in the Activity Log. Unconfirmed actions never silently apply, and a failed action shows an explicit toast or palette-local error. |
 | **Context palette** (right-click menu) | Right-click never mutates graph truth on its own. Each action in the menu emits an explicit intent; destructive actions (Tombstone, Remove edge) carry confirmation; non-destructive actions (Activate, Open as Pane, Pin, Inspect) take effect immediately and appear in the Activity Log. |
 | **Frame switcher / frametree visualization** | Switching Frames preserves all graph truth and graphlet membership; only Pane composition and per-graphlet presentation state may differ between Frames. Frame snapshot persistence is a Shell-owned write and surfaces in the Activity Log as a frame-save event. |
 | **Settings panes** (`verso://settings/<section>`) | Settings changes never mutate graph truth. Per-graph settings are scoped to a `GraphId`; cross-graph settings are scoped to the user / profile. Theme changes apply across all surfaces atomically without re-fetching graph state. |
 | **Tool panes** (Downloads, History Manager, Diagnostics Inspector) | Tool panes are observers, not authorities. They surface state from their owning subsystems (downloads via Shell + storage, traversal log via SUBSYSTEM_HISTORY, diagnostics via the channel registry) and emit intents to those subsystems' authorities. They never bypass the uphill rule, never bypass the sanctioned-writes contract, and never silently mutate graph truth. |
 | **`WebViewSurface<NodeKey>`** (web content viewer inside a tile) | In-page interaction (link clicks, scroll, JS-driven navigation) emits `Traversal` events through SUBSYSTEM_HISTORY; the corresponding edge assertions are graph-side writes that surface in the Activity Log. The viewer never directly creates or removes graph nodes; node creation routes through Shell intent. |
-| **Drag-to-split drop zone** (transient overlay during Pane drag) | The drop-zone indicator is purely visual; releasing the drag emits a `WorkbenchIntent` for the split operation, which surfaces as a workbench-mutation event in the Activity Log. Cancelling a drag (Esc, drop outside) emits no intent and changes nothing. |
 
 These guarantees are the receipts S4 work targets: each surface
 implementation is checked against its guarantee through the
@@ -898,20 +898,24 @@ Checklist:
   shared across main canvas / canvas Panes / swatches / base layer;
   three Navigator Presentation Bucket surfaces; Active/Inactive
   toggle UI in the Tree Spine bucket.
-  **Canonical interaction constraint** added in this spec:
-  **splits are created implicitly by drag, not by buttons** — drop
-  edge derives the split axis (Zed / VSCode pattern). No "Split
-  horizontal" / "Split vertical" toolbar actions, ever. See
-  [`iced_composition_skeleton_spec.md` §3.1](iced_composition_skeleton_spec.md).
+  Drag-to-rearrange (and the "splits emerge from drag, not from
+  toolbar buttons" anti-pattern) is `pane_grid` default behavior;
+  the spec just notes the anti-pattern in §9 rather than elevating
+  it to a canonical interaction constraint. (Earlier drafts had a
+  dedicated §3.1 spec for drag-to-split; demoted 2026-04-29 to one
+  anti-pattern bullet.)
 - [x] **Specify the omnibar shape for iced** — landed 2026-04-29 as
-  [`iced_omnibar_spec.md`](iced_omnibar_spec.md). Covers three modes
-  (Display / Input / Fullscreen), widget tree, `OmnibarSession` state
-  shape, Message contract, update routing including
-  `CommandBarFocusTarget`-scoped submission, provider-mailbox
-  Subscription, IME and AccessKit (Stage E), focus dance with the
-  command palette, and the omnibar coherence guarantee restated. Reuses
-  the landed seams (`NavigatorContextProjection`, `BreadcrumbPath`,
-  `CommandBarFocusTarget`, `HostRequestMailbox`) — does not redefine.
+  [`iced_omnibar_spec.md`](iced_omnibar_spec.md). **Revised same day**
+  to the omnibar-split simplification: omnibar is **URL entry +
+  breadcrumb display only** (no command entry, no graph search, no
+  multi-role mode switching). Two modes (Display / Input;
+  Fullscreen retired). Submission emits one `OpenAddress` for
+  URL-shaped input or routes non-URL queries to the Node Finder
+  (new sibling spec [`iced_node_finder_spec.md`](iced_node_finder_spec.md),
+  Ctrl+P fuzzy graph-node search). `CommandBarFocusTarget` retired
+  ([shell_composition_model_spec.md §5.4](shell_composition_model_spec.md));
+  each surface stores its own `focus_token`. Reuses
+  `NavigatorContextProjection`, `BreadcrumbPath`, `HostRequestMailbox`.
 - [x] **Specify command palette behavior in iced terms** — landed
   2026-04-29 as
   [`iced_command_palette_spec.md`](iced_command_palette_spec.md).
@@ -1390,8 +1394,8 @@ Items the plan explicitly addresses are excluded here; see §4 and
 |---|---|---|---|
 | **G1** | **Six-track focus model reconciliation.** The existing six-track `RuntimeFocusAuthorityState` (SemanticRegion / PaneActivation / GraphView / LocalWidget / EmbeddedContent / ReturnCapture) has no direct mapping in iced's widget-focus model. Must be reconciled before the composition skeleton, Navigator sidebar, or command surfaces can be specified. | Input / Shell | §3.7, §4.5 |
 | **G2** | ~~**All three command surfaces.**~~ — **resolved 2026-04-29** by the simplified two-surface model. Canonical surfaces are now Command Palette (Zed/VSCode-shaped flat list) and Context Menu (right-click flat list). Both specified in [`iced_command_palette_spec.md`](iced_command_palette_spec.md). Per-target Context Menu action sets are per [composition skeleton spec §7.3](iced_composition_skeleton_spec.md). Radial Menu retired from canonical surfaces; reintroduction deferred to the input-subsystem rework per [`aspect_command/command_surface_interaction_spec.md` §5](../aspect_command/command_surface_interaction_spec.md). | Shell | §3.6 |
-| **G3** | **Navigator breadcrumb shape.** The omnibar spec says "Navigator-owned breadcrumb projection" but what does the breadcrumb represent in the new model? The focused tile's URL? The graphlet name? The path from root graph to current graphlet? Different data, different visual shape. Must be resolved before the omnibar is specifiable. | Navigator / Shell | §3.5, §3.6 |
-| **G4** | **Omnibar scope.** The old `OmnibarSearchSession` used per-pane drafts. With multiple Panes visible simultaneously, is the omnibar per-pane (tracks focused pane) or global (one bar, always reflects the focused pane)? Both are defensible; S2 must pick one. | Shell / Navigator | §3.5, §3.6 |
+| **G3** | **Navigator breadcrumb shape.** The omnibar spec says "Navigator-owned breadcrumb projection" but what does the breadcrumb represent in the new model? The focused tile's URL? The graphlet name? The path from root graph to current graphlet? Different data, different visual shape. Must be resolved before the omnibar is specifiable. (Note: with the 2026-04-29 omnibar-split simplification, the breadcrumb is the omnibar's *only* Display-mode content; specifying its shape is now a higher-leverage decision since it doesn't compete with command-row or search-result rendering.) | Navigator / Shell | §3.5, §3.6 |
+| **G4** | ~~**Omnibar scope.**~~ — **resolved 2026-04-29** by the omnibar-split simplification. The omnibar is **global** (one bar, URL-shaped, breadcrumb reflects the focused-tile address). Multi-Pane work is handled by the per-Pane Tree Spine + Activity Log + Pane chrome rather than by a per-Pane omnibar. The Node Finder (Ctrl+P) is also global; its activation routes to the focused or selected destination Pane via the user's `WorkbenchProfile` rule. The egui-era per-pane `OmnibarSearchSession` retires alongside the egui host. | Shell / Navigator | §3.5, §3.6 |
 
 ### Tier 2 — Resolve before S3 (gates host runtime closure)
 

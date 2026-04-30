@@ -36,7 +36,7 @@ Two surfaces handle command discovery and dispatch:
 
 | Surface | Trigger | Shape | Source |
 |---|---|---|---|
-| **Command Palette** | `Ctrl+P` (canonical), CommandBar trigger button, programmatic | `Modal` overlay with `text_input` filter + flat ranked list of currently-available commands | `ActionRegistry::rank_for_query(query, view_model)` |
+| **Command Palette** | `Ctrl+Shift+P` (canonical, Zed/VSCode-shaped), `F2` (alternate), CommandBar trigger button, programmatic | `Modal` overlay with `text_input` filter + flat ranked list of currently-available commands | `ActionRegistry::rank_for_query(query, view_model)` |
 | **Context Menu** | Right-click on an interactable target | `iced_aw::ContextMenu` with a flat list of commands available on that target | `ActionRegistry::available_for(target, view_model)` |
 
 Both surfaces:
@@ -87,8 +87,12 @@ revised canonical interaction model.
 
 Trigger sources, all converging on `Message::PaletteOpen { origin }`:
 
-- **`Ctrl+P`** — global keyboard shortcut, captured by the iced
+- **`Ctrl+Shift+P`** — global keyboard shortcut, captured by the iced
   application's keyboard subscription. Canonical (Zed/VSCode-shaped).
+  (Note: `Ctrl+P` is reserved for the
+  [Node Finder](iced_node_finder_spec.md) per the 2026-04-29 omnibar-
+  split simplification, matching Zed's separation of file finder vs
+  command palette.)
 - **`F2`** — alternate shortcut for parity with prior canonical
   binding (see [command_surface_interaction_spec.md §4.2](../aspect_command/command_surface_interaction_spec.md)).
 - **CommandBar trigger button click** — emits `Message::PaletteOpen`
@@ -165,7 +169,7 @@ pub struct CommandPaletteState {
     pub scope: PaletteScope,                 // CurrentTarget | ActivePane | ActiveGraph | Workbench
     pub ranked_actions: Vec<RankedAction>,
     pub focused_index: Option<usize>,        // keyboard-focused row
-    pub focus_at_open: Option<FocusedSurface>,  // for dismiss restore
+    pub focus_token: Option<widget::Id>,  // saved iced widget focus id at open time
     pub pending_confirmation: Option<PendingConfirmation>,  // see §5
     pub current_request: Option<RankRequestId>,
 }
@@ -282,9 +286,11 @@ Sketches of the load-bearing arms:
 fn update(&mut self, msg: Message) -> Task<Message> {
     match msg {
         Message::PaletteOpen { origin } => {
+            // Per the 2026-04-29 omnibar-split simplification, the palette
+            // stores its own focus_token (no shared CommandBarFocusTarget).
             self.command_palette = CommandPaletteState::open_for(
                 origin,
-                self.view_model.focus_target.focused_surface.clone(),
+                self.current_focused_widget_id(),
                 self.runtime.actions().available_for_scope(PaletteScope::default()),
             );
             return widget::focus(text_input::Id::new("command_palette_input"));
@@ -345,7 +351,7 @@ fn update(&mut self, msg: Message) -> Task<Message> {
         }
 
         Message::PaletteCloseAndRestoreFocus => {
-            let restore_target = self.command_palette.focus_at_open.clone();
+            let restore_target = self.command_palette.focus_token.clone();
             self.command_palette.close();
             return restore_focus_to(restore_target);
         }
@@ -362,9 +368,9 @@ Per [`iced_omnibar_spec.md` §9](iced_omnibar_spec.md):
 - The palette opens as a `Modal` overlay; pointer/keyboard input goes
   to the palette, the omnibar's `view` continues running beneath but
   is not focused.
-- `command_palette.focus_at_open` is recorded at `PaletteOpen` time.
+- `command_palette.focus_token` is recorded at `PaletteOpen` time.
 - On dismiss (Escape, click outside, action selected), focus returns
-  to `focus_at_open` via `widget::focus()` `Operation`.
+  to `focus_token` via `widget::focus()` `Operation`.
 
 The omnibar and the palette never simultaneously hold input focus.
 
