@@ -11,14 +11,16 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 5 / Stage B+)**: Slice 3 wired the Frame split tree;
-//! Slice 4 added Navigator host structural layout and the real
-//! `gs::TileTabs` widget; Slice 5 completes the widget layer with the
-//! real `gs::Modal` and `gs::ContextMenu` widgets in
-//! `graphshell-iced-widgets`. Both are materialised via `From` impls
-//! over `stack` + `mouse_area` / `pin` + `opaque` — no raw `Widget`
-//! trait impl needed. The next slice (S4 / Navigator data plumbing)
-//! wires real graphlet projections into the tile pane and Navigator hosts.
+//! **Scope (Slice 6 / Stage A+E)**: Slices 3-4 wired the Frame split
+//! tree, Navigator host structural layout, and the `gs::TileTabs`
+//! widget; Slice 5 added real `gs::Modal` and `gs::ContextMenu`
+//! widgets in `graphshell-iced-widgets`; Slice 6 wires the Command
+//! Palette (`Ctrl+Shift+P`) and Node Finder (`Ctrl+P`) modals into
+//! `IcedApp` using `gs::Modal`. Both modals carry widget-local state
+//! (open flag, query, focused index) and stub-empty result lists —
+//! the `ActionRegistry` / `NodeFinderViewModel` data sources are
+//! wired in a downstream slice. Mutual exclusion (opening one closes
+//! the other) and Escape / click-outside dismissal are wired today.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -26,9 +28,9 @@ use std::time::Duration;
 use euclid::default::Vector2D;
 use graph_canvas::camera::CanvasCamera;
 use iced::time;
-use iced::widget::{button, canvas, column, container, pane_grid, row, scrollable, text, text_input};
+use iced::widget::{button, canvas, column, container, pane_grid, row, rule, scrollable, text, text_input};
 use iced::{Element, Length, Subscription, Task};
-use graphshell_iced_widgets::{TileTab, TileTabs};
+use graphshell_iced_widgets::{Modal, TileTab, TileTabs};
 
 /// Frame interval for the runtime tick `Subscription`. ~60 Hz. Per
 /// [`iced_composition_skeleton_spec.md` §1.5](
@@ -213,6 +215,93 @@ impl Default for NavigatorState {
 }
 
 // ---------------------------------------------------------------------------
+// Command Palette + Node Finder — Slice 5/6 (Modal-backed overlays)
+// ---------------------------------------------------------------------------
+
+/// Stable widget id for the command palette text input. Addressed by
+/// `iced::widget::operation::focus` on `PaletteOpen`.
+const PALETTE_INPUT_ID: &str = "graphshell:command_palette_input";
+
+/// Stable widget id for the node finder text input.
+const NODE_FINDER_INPUT_ID: &str = "graphshell:node_finder_input";
+
+/// Why the Command Palette was opened. Recorded for diagnostics
+/// provenance per
+/// [`iced_command_palette_spec.md` §2.1](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaletteOrigin {
+    KeyboardShortcut,
+    TriggerButton,
+    ContextFallback,
+    Programmatic,
+}
+
+/// Widget-local state for the Command Palette modal. Per
+/// [`iced_command_palette_spec.md` §2.3](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+///
+/// Slice 6 carries the open-state, query, and focused-row index. The
+/// `ranked_actions` list is empty until the `ActionRegistry` is wired
+/// in a downstream slice; the Modal renders a "no actions" footer when
+/// the list is empty rather than crashing.
+#[derive(Debug, Clone)]
+pub(crate) struct CommandPaletteState {
+    pub(crate) is_open: bool,
+    pub(crate) origin: PaletteOrigin,
+    pub(crate) query: String,
+    pub(crate) focused_index: Option<usize>,
+}
+
+impl Default for CommandPaletteState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            origin: PaletteOrigin::KeyboardShortcut,
+            query: String::new(),
+            focused_index: None,
+        }
+    }
+}
+
+/// Why the Node Finder was opened. Per
+/// [`iced_node_finder_spec.md` §5](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NodeFinderOrigin {
+    KeyboardShortcut,
+    OmnibarRoute(String),
+    TreeSpineRow,
+    Programmatic,
+}
+
+/// Widget-local state for the Node Finder modal. Per
+/// [`iced_node_finder_spec.md` §5](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+///
+/// Slice 6 carries the open-state and query. The `results` list is
+/// empty until the runtime exposes a `NodeFinderViewModel`; downstream
+/// slices wire fuzzy-match ranking against graph truth.
+#[derive(Debug, Clone)]
+pub(crate) struct NodeFinderState {
+    pub(crate) is_open: bool,
+    pub(crate) origin: NodeFinderOrigin,
+    pub(crate) query: String,
+    pub(crate) focused_index: Option<usize>,
+}
+
+impl Default for NodeFinderState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            origin: NodeFinderOrigin::KeyboardShortcut,
+            query: String::new(),
+            focused_index: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IcedApp
 // ---------------------------------------------------------------------------
 
@@ -250,6 +339,14 @@ pub(crate) struct IcedApp {
     /// Which Navigator host slots are currently visible. Drives the
     /// conditional slot layout in `view()` per spec §2.
     pub(crate) navigator: NavigatorState,
+    /// Command Palette modal state (Ctrl+Shift+P). Per
+    /// [`iced_command_palette_spec.md`](
+    /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+    pub(crate) command_palette: CommandPaletteState,
+    /// Node Finder modal state (Ctrl+P). Per
+    /// [`iced_node_finder_spec.md`](
+    /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+    pub(crate) node_finder: NodeFinderState,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -316,6 +413,38 @@ pub(crate) enum Message {
     /// Close the given Pane. If it was the last Pane in the Frame, the
     /// split tree becomes empty and the canvas base layer is shown.
     ClosePane(pane_grid::Pane),
+
+    // --- Command Palette messages — Slice 6 ---
+    // Per [`iced_command_palette_spec.md`](
+    // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+
+    /// Open the Command Palette modal with the given origin. Captures
+    /// keyboard focus on the palette text input.
+    PaletteOpen { origin: PaletteOrigin },
+    /// Query text edited in the palette text input.
+    PaletteQuery(String),
+    /// Close the palette and discard query/focus state. Click-outside
+    /// (via `Modal::on_blur`) and Escape both fire this.
+    PaletteCloseAndRestoreFocus,
+    /// User picked the entry at the given index in the ranked-action
+    /// list. Slice 6: stub-acks via toast; downstream slice routes the
+    /// selected `ActionId` to `HostIntent::Action`.
+    PaletteActionSelected(usize),
+
+    // --- Node Finder messages — Slice 6 ---
+    // Per [`iced_node_finder_spec.md`](
+    // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+
+    /// Open the Node Finder modal with the given origin. Captures
+    /// keyboard focus on the finder text input.
+    NodeFinderOpen { origin: NodeFinderOrigin },
+    /// Query text edited in the finder text input.
+    NodeFinderQuery(String),
+    /// Close the finder and discard query/focus state.
+    NodeFinderCloseAndRestoreFocus,
+    /// User picked the result at the given index. Slice 6: stub-acks
+    /// via toast; downstream slice routes to `WorkbenchIntent::OpenNode`.
+    NodeFinderResultSelected(usize),
 }
 
 impl IcedApp {
@@ -327,6 +456,8 @@ impl IcedApp {
             omnibar: OmnibarSession::default(),
             frame: FrameState::new(),
             navigator: NavigatorState::default(),
+            command_palette: CommandPaletteState::default(),
+            node_finder: NodeFinderState::default(),
         }
     }
 
@@ -362,13 +493,33 @@ impl IcedApp {
                 self.cache_host_input_state(&event);
 
                 // App-level hotkeys intercepted before runtime translation.
-                // Ctrl+L → OmnibarFocus; Escape (while omnibar is open) →
-                // OmnibarKeyEscape. Neither triggers a runtime tick.
+                // Order matters: more-specific modifier combos first so
+                // Ctrl+Shift+P doesn't fall through to Ctrl+P.
+                if is_command_palette_hotkey(&event) {
+                    return Task::done(Message::PaletteOpen {
+                        origin: PaletteOrigin::KeyboardShortcut,
+                    });
+                }
+                if is_node_finder_hotkey(&event) {
+                    return Task::done(Message::NodeFinderOpen {
+                        origin: NodeFinderOrigin::KeyboardShortcut,
+                    });
+                }
                 if is_omnibar_focus_hotkey(&event) {
                     return Task::done(Message::OmnibarFocus);
                 }
-                if self.omnibar.mode == OmnibarMode::Input && is_escape_key(&event) {
-                    return Task::done(Message::OmnibarKeyEscape);
+                // Escape closes whichever overlay is currently open.
+                // Order: palette → node_finder → omnibar.
+                if is_escape_key(&event) {
+                    if self.command_palette.is_open {
+                        return Task::done(Message::PaletteCloseAndRestoreFocus);
+                    }
+                    if self.node_finder.is_open {
+                        return Task::done(Message::NodeFinderCloseAndRestoreFocus);
+                    }
+                    if self.omnibar.mode == OmnibarMode::Input {
+                        return Task::done(Message::OmnibarKeyEscape);
+                    }
                 }
 
                 // Translate; drop events with no host-neutral equivalent.
@@ -456,13 +607,12 @@ impl IcedApp {
             Message::OmnibarRouteToNodeFinder(query) => {
                 self.omnibar.draft.clear();
                 self.omnibar.mode = OmnibarMode::Display;
-                // TODO(S4): open Node Finder modal pre-seeded with `query`.
-                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
-                    severity: ToastSeverity::Info,
-                    message: format!("node finder: {query}"),
-                    duration: None,
-                });
-                Task::none()
+                // Open the Node Finder pre-seeded with the routed query.
+                self.node_finder.is_open = true;
+                self.node_finder.origin = NodeFinderOrigin::OmnibarRoute(query.clone());
+                self.node_finder.query = query;
+                self.node_finder.focused_index = None;
+                iced::widget::operation::focus(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
             }
 
             // --- Frame split-tree handlers ---
@@ -504,6 +654,82 @@ impl IcedApp {
                         let _ = self.frame.split_state.close(pane);
                     }
                 }
+                Task::none()
+            }
+
+            // --- Command Palette handlers ---
+
+            Message::PaletteOpen { origin } => {
+                // Opening the palette closes the node finder (mutually
+                // exclusive overlays per the canonical specs).
+                self.node_finder.is_open = false;
+                self.command_palette.is_open = true;
+                self.command_palette.origin = origin;
+                self.command_palette.query.clear();
+                self.command_palette.focused_index = None;
+                iced::widget::operation::focus(iced::widget::Id::new(PALETTE_INPUT_ID))
+            }
+            Message::PaletteQuery(query) => {
+                self.command_palette.query = query;
+                // Slice 6 stub: real ranking happens once ActionRegistry
+                // is wired. For now, focus simply resets to None.
+                self.command_palette.focused_index = None;
+                Task::none()
+            }
+            Message::PaletteCloseAndRestoreFocus => {
+                self.command_palette.is_open = false;
+                self.command_palette.query.clear();
+                self.command_palette.focused_index = None;
+                Task::none()
+            }
+            Message::PaletteActionSelected(idx) => {
+                // Slice 6 stub: ack via toast. Downstream slice will look
+                // up the RankedAction at `idx` and emit HostIntent::Action.
+                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                    severity: ToastSeverity::Info,
+                    message: format!("palette action #{idx} (stub)"),
+                    duration: None,
+                });
+                self.command_palette.is_open = false;
+                self.command_palette.query.clear();
+                self.command_palette.focused_index = None;
+                Task::none()
+            }
+
+            // --- Node Finder handlers ---
+
+            Message::NodeFinderOpen { origin } => {
+                // Mutually exclusive with the command palette.
+                self.command_palette.is_open = false;
+                self.node_finder.is_open = true;
+                self.node_finder.origin = origin;
+                self.node_finder.query.clear();
+                self.node_finder.focused_index = None;
+                iced::widget::operation::focus(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
+            }
+            Message::NodeFinderQuery(query) => {
+                self.node_finder.query = query;
+                self.node_finder.focused_index = None;
+                Task::none()
+            }
+            Message::NodeFinderCloseAndRestoreFocus => {
+                self.node_finder.is_open = false;
+                self.node_finder.query.clear();
+                self.node_finder.focused_index = None;
+                Task::none()
+            }
+            Message::NodeFinderResultSelected(idx) => {
+                // Slice 6 stub: ack via toast. Downstream slice will
+                // look up the NodeKey at `idx` and emit
+                // WorkbenchIntent::OpenNode.
+                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                    severity: ToastSeverity::Info,
+                    message: format!("node finder result #{idx} (stub)"),
+                    duration: None,
+                });
+                self.node_finder.is_open = false;
+                self.node_finder.query.clear();
+                self.node_finder.focused_index = None;
                 Task::none()
             }
         }
@@ -592,11 +818,32 @@ impl IcedApp {
         }
         body_children.push(toast_stack.into());
 
-        container(column(body_children).spacing(0))
+        let body: Element<'_, Message> = container(column(body_children).spacing(0))
             .padding(0)
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
+            .into();
+
+        // Layer modal overlays on top of the body. Both modals are
+        // mutually exclusive at the state level (opening one closes the
+        // other in `update`), but the view tolerates both flags being
+        // set — last-pushed wins visually.
+        let mut layered: Vec<Element<'_, Message>> = vec![body];
+        if self.command_palette.is_open {
+            layered.push(render_command_palette(self));
+        }
+        if self.node_finder.is_open {
+            layered.push(render_node_finder(self));
+        }
+
+        if layered.len() == 1 {
+            layered.into_iter().next().unwrap()
+        } else {
+            iced::widget::stack(layered)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        }
     }
 }
 
@@ -825,6 +1072,112 @@ fn render_command_bar(app: &IcedApp) -> Element<'_, Message> {
         .into()
 }
 
+/// Render the Command Palette modal. Per
+/// [`iced_command_palette_spec.md` §2.2](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+///
+/// Slice 6 renders the canonical layout (text input, divider,
+/// scrollable result list, footer). The result list is empty until the
+/// `ActionRegistry` is wired in a downstream slice; the footer surfaces
+/// the empty-state hint so the modal is recognisable.
+fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
+    let input = text_input("Type a command or search…", &app.command_palette.query)
+        .id(iced::widget::Id::new(PALETTE_INPUT_ID))
+        .on_input(Message::PaletteQuery)
+        .size(14)
+        .padding(6)
+        .width(Length::Fill);
+
+    let divider = rule::horizontal(1.0);
+
+    // Slice 6: empty results list. Real ranking lands once the
+    // ActionRegistry is wired into the runtime view-model.
+    let results: Element<'_, Message> = scrollable(
+        column![text("No actions registered yet (Slice 6 stub).")
+            .size(12)
+            .width(Length::Fill)]
+        .spacing(2)
+        .padding(8),
+    )
+    .height(Length::Fill)
+    .into();
+
+    let footer = text("Esc to dismiss · Enter to run").size(11);
+
+    let body = column![
+        text("Command Palette").size(13),
+        input,
+        divider,
+        results,
+        footer,
+    ]
+    .spacing(8)
+    .padding(12)
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    Modal::new(body)
+        .on_blur(Message::PaletteCloseAndRestoreFocus)
+        .max_width(640.0)
+        .max_height(480.0)
+        .into()
+}
+
+/// Render the Node Finder modal. Per
+/// [`iced_node_finder_spec.md` §3](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+///
+/// Slice 6 renders the canonical layout. The result list is empty
+/// until the runtime exposes a `NodeFinderViewModel`.
+fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
+    let input = text_input(
+        "Search nodes by title, tag, URL, or content…",
+        &app.node_finder.query,
+    )
+    .id(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
+    .on_input(Message::NodeFinderQuery)
+    .size(14)
+    .padding(6)
+    .width(Length::Fill);
+
+    let divider = rule::horizontal(1.0);
+
+    // Slice 6: empty result list. Real fuzzy-match ranking lands once
+    // the runtime exposes NodeFinderViewModel.
+    let empty_label = if app.node_finder.query.is_empty() {
+        "No recently-active nodes yet (Slice 6 stub)."
+    } else {
+        "No matching nodes (Slice 6 stub)."
+    };
+    let results: Element<'_, Message> = scrollable(
+        column![text(empty_label).size(12).width(Length::Fill)]
+            .spacing(2)
+            .padding(8),
+    )
+    .height(Length::Fill)
+    .into();
+
+    let footer = text("Esc to dismiss · Enter to open").size(11);
+
+    let body = column![
+        text("Node Finder").size(13),
+        input,
+        divider,
+        results,
+        footer,
+    ]
+    .spacing(8)
+    .padding(12)
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    Modal::new(body)
+        .on_blur(Message::NodeFinderCloseAndRestoreFocus)
+        .max_width(640.0)
+        .max_height(480.0)
+        .into()
+}
+
 /// Is this iced event the "focus the omnibar" hotkey?
 /// Ctrl+L (Cmd+L on macOS via `Modifiers::command()`). Consumed at
 /// the app level — never reaches the runtime's `HostEvent` translation.
@@ -835,6 +1188,44 @@ fn is_omnibar_focus_hotkey(event: &iced::Event) -> bool {
             modifiers,
             ..
         }) => c.as_ref().eq_ignore_ascii_case("l") && modifiers.command(),
+        _ => false,
+    }
+}
+
+/// Is this iced event the "open Command Palette" hotkey?
+/// Ctrl+Shift+P (Zed/VSCode-shaped). Per
+/// [`iced_command_palette_spec.md` §2.1](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+fn is_command_palette_hotkey(event: &iced::Event) -> bool {
+    match event {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Character(c),
+            modifiers,
+            ..
+        }) => {
+            c.as_ref().eq_ignore_ascii_case("p")
+                && modifiers.command()
+                && modifiers.shift()
+        }
+        _ => false,
+    }
+}
+
+/// Is this iced event the "open Node Finder" hotkey?
+/// Ctrl+P **without** Shift (Zed/VSCode-shaped). Per
+/// [`iced_node_finder_spec.md` §2](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+fn is_node_finder_hotkey(event: &iced::Event) -> bool {
+    match event {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Character(c),
+            modifiers,
+            ..
+        }) => {
+            c.as_ref().eq_ignore_ascii_case("p")
+                && modifiers.command()
+                && !modifiers.shift()
+        }
         _ => false,
     }
 }
@@ -1049,13 +1440,18 @@ mod tests {
         );
         assert!(
             app.host.toast_queue.is_empty(),
-            "toast is pushed by OmnibarRouteToNodeFinder, not OmnibarSubmit",
+            "OmnibarSubmit alone does not toast — routing happens via Task::done",
         );
 
-        // Simulate iced driving the Task::done message.
+        // Simulate iced driving the Task::done message — Slice 6 wiring
+        // opens the Node Finder pre-seeded with the query (no toast).
         let _ = app.update(Message::OmnibarRouteToNodeFinder("graphql tutorial".into()));
-        assert_eq!(app.host.toast_queue.len(), 1);
-        assert!(app.host.toast_queue[0].message.contains("node finder"));
+        assert!(app.node_finder.is_open, "non-URL submit opens the Node Finder");
+        assert_eq!(app.node_finder.query, "graphql tutorial");
+        assert!(
+            app.host.toast_queue.is_empty(),
+            "Slice 6 routing does not toast — the modal itself is the affordance",
+        );
     }
 
     #[test]
@@ -1313,6 +1709,205 @@ mod tests {
         assert!(app.frame.base_layer_active);
 
         let _ = app.update(Message::Tick);
+        let _element = app.view();
+    }
+
+    // --- Command Palette + Node Finder tests (Slice 6) ---
+
+    fn key_press(c: &str, modifiers: iced::keyboard::Modifiers) -> iced::Event {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Character(c.into()),
+            modified_key: iced::keyboard::Key::Character(c.into()),
+            physical_key: iced::keyboard::key::Physical::Unidentified(
+                iced::keyboard::key::NativeCode::Unidentified,
+            ),
+            location: iced::keyboard::Location::Standard,
+            modifiers,
+            text: None,
+            repeat: false,
+        })
+    }
+
+    #[test]
+    fn ctrl_shift_p_opens_command_palette() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        assert!(!app.command_palette.is_open);
+
+        let event = key_press(
+            "p",
+            iced::keyboard::Modifiers::CTRL | iced::keyboard::Modifiers::SHIFT,
+        );
+        // The IcedEvent path returns Task::done(PaletteOpen{...}); simulate
+        // the runtime delivering that message back to update().
+        let _ = app.update(Message::IcedEvent(event));
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        assert!(app.command_palette.is_open);
+        assert_eq!(app.command_palette.origin, PaletteOrigin::KeyboardShortcut);
+    }
+
+    #[test]
+    fn ctrl_p_opens_node_finder_not_palette() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+
+        assert!(app.node_finder.is_open);
+        assert!(!app.command_palette.is_open);
+    }
+
+    #[test]
+    fn palette_and_finder_hotkeys_are_distinct() {
+        let ctrl_p = key_press("p", iced::keyboard::Modifiers::CTRL);
+        let ctrl_shift_p = key_press(
+            "p",
+            iced::keyboard::Modifiers::CTRL | iced::keyboard::Modifiers::SHIFT,
+        );
+
+        assert!(super::is_node_finder_hotkey(&ctrl_p));
+        assert!(!super::is_command_palette_hotkey(&ctrl_p));
+        assert!(super::is_command_palette_hotkey(&ctrl_shift_p));
+        assert!(!super::is_node_finder_hotkey(&ctrl_shift_p));
+    }
+
+    #[test]
+    fn palette_and_finder_are_mutually_exclusive() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        assert!(app.command_palette.is_open);
+
+        // Opening node finder closes the palette.
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        assert!(!app.command_palette.is_open);
+        assert!(app.node_finder.is_open);
+
+        // Opening palette closes the finder.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        assert!(app.command_palette.is_open);
+        assert!(!app.node_finder.is_open);
+    }
+
+    #[test]
+    fn palette_query_updates_state_without_ticking() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteQuery("toggl".into()));
+
+        assert_eq!(app.command_palette.query, "toggl");
+        assert!(
+            app.last_view_model.is_none(),
+            "palette typing must not tick the runtime",
+        );
+    }
+
+    #[test]
+    fn palette_close_clears_state() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteQuery("partial".into()));
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+
+        assert!(!app.command_palette.is_open);
+        assert!(app.command_palette.query.is_empty());
+        assert!(app.command_palette.focused_index.is_none());
+    }
+
+    #[test]
+    fn omnibar_route_to_node_finder_actually_opens_finder() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::OmnibarRouteToNodeFinder("graph theory".into()));
+
+        assert!(app.node_finder.is_open, "non-URL omnibar submit opens node finder");
+        assert_eq!(app.node_finder.query, "graph theory", "query is pre-seeded");
+        assert_eq!(
+            app.node_finder.origin,
+            NodeFinderOrigin::OmnibarRoute("graph theory".into()),
+            "origin records the routed query",
+        );
+        assert_eq!(app.omnibar.mode, OmnibarMode::Display, "omnibar returned to Display");
+    }
+
+    #[test]
+    fn escape_closes_palette_when_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        assert!(app.command_palette.is_open);
+
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+        assert!(!app.command_palette.is_open);
+    }
+
+    #[test]
+    fn palette_action_selected_closes_and_acks() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        assert_eq!(app.host.toast_queue.len(), 0);
+
+        let _ = app.update(Message::PaletteActionSelected(0));
+
+        assert!(!app.command_palette.is_open);
+        assert_eq!(app.host.toast_queue.len(), 1);
+        assert!(app.host.toast_queue[0].message.contains("palette action"));
+    }
+
+    #[test]
+    fn view_renders_with_palette_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::Tick);
+
+        // Render-time smoke test: must not panic with a modal stacked
+        // on top of the body.
+        let _element = app.view();
+    }
+
+    #[test]
+    fn view_renders_with_node_finder_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::Tick);
+
         let _element = app.view();
     }
 }
