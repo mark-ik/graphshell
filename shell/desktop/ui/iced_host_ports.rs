@@ -338,64 +338,6 @@ impl<'a> crate::shell::desktop::ui::host_ports::ServoAccessibilityInjectionPort
 }
 
 // ---------------------------------------------------------------------------
-// Narrow painter-trait stubs — gated behind servo-engine
-// ---------------------------------------------------------------------------
-//
-// The compositor exposes two narrow painter traits alongside the broader
-// `HostPaintPort`: `OverlayAffordancePainter` (overlay strokes/glyphs) and
-// `ContentPassPainter` (content-layer callback registration + native-texture
-// placement). These were carved out of the egui host's compositor path in
-// M3.5 so iced could plug its own painter implementation into the same
-// static `CompositorAdapter` flow.
-//
-// **Iced-idiomatic deviation**: the iced host does NOT paint overlays or
-// content through these traits in production. iced's canvas widget paints
-// everything inline inside `canvas::Program::draw`. Overlay descriptors
-// flow from `FrameViewModel.overlays` directly. The stubs below remain
-// only to prove the trait surface is host-portable, but they consume
-// `compositor_adapter` and `render_backend` types which are gated behind
-// servo-engine by the S2b sweep — so the stubs themselves are
-// servo-engine-gated for now. Decoupling them is part of S3b
-// (compositor-side painter trait extraction).
-
-#[cfg(feature = "servo-engine")]
-mod servo_engine_painter_stubs {
-    use super::*;
-    use crate::shell::desktop::workbench::compositor_adapter::{
-        ContentPassPainter, OverlayAffordancePainter, OverlayStrokePass,
-    };
-
-    #[derive(Default)]
-    pub(crate) struct IcedOverlayAffordancePainter {
-        pub(crate) seen_count: usize,
-    }
-
-    impl OverlayAffordancePainter for IcedOverlayAffordancePainter {
-        fn paint(&mut self, _overlay: &OverlayStrokePass) {
-            self.seen_count += 1;
-        }
-    }
-
-    #[derive(Default)]
-    pub(crate) struct IcedContentPassPainter {
-        pub(crate) native_painted_count: usize,
-    }
-
-    impl ContentPassPainter for IcedContentPassPainter {
-        fn paint_native_content_texture(
-            &mut self,
-            _node_key: NodeKey,
-            _tile_rect: PortableRect,
-            _texture_token: crate::shell::desktop::render_backend::BackendTextureToken,
-        ) {
-            self.native_painted_count += 1;
-        }
-    }
-}
-
-#[cfg(feature = "servo-engine")]
-pub(crate) use servo_engine_painter_stubs::{IcedContentPassPainter, IcedOverlayAffordancePainter};
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -60,7 +60,7 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["servo-engine", "egui-host", "js_jit", "max_log_level", "diagnostics", "wry", "ux-probes", "ux-bridge"]
+default = ["iced-host", "max_log_level", "diagnostics", "ux-probes", "ux-bridge"]
 diagnostics = []
 diagnostics_tests = []
 ux-semantics = []
@@ -68,18 +68,10 @@ ux-probes = ["ux-semantics"]
 ux-bridge = ["ux-semantics"]
 webdriver = ["dep:webdriver_server"]
 test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
-# 2026-04-28 host gate: `egui-host` activates the egui dep stack.
-# It is intentionally independent from `servo-engine`; default builds
-# still enable both, while proof builds can compile Servo ownership
-# without importing the egui workbench stack.
-egui-host = [
-    "dep:egui",
-    "dep:egui-file-dialog",
-    "dep:egui-winit",
-    "dep:egui-wgpu",
-    "dep:egui_tiles",
-    "dep:egui-notify",
-]
+# Legacy marker retained so existing `#[cfg(feature = "egui-host")]`
+# gates remain syntactically recognized while the egui stack itself
+# stays removed from the dependency graph.
+egui-host = []
 # 2026-04-25 servo-into-verso lane (S2): graphshell main's servo
 # dep is now optional and gated behind this feature, which also
 # activates `verso/servo-engine` so verso owns the dep ownership
@@ -95,10 +87,7 @@ tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
 wry = ["dep:wry", "verso/wry-engine"]
 pdf = ["dep:pdfium-render"]
 audio = ["dep:symphonia", "dep:rodio"]
-# M5 scaffolding: gate an iced-backed host adapter behind this feature.
-# Currently stands up a placeholder `IcedHost` + `IcedHostPorts` that
-# implement the `HostPorts` trait bundle; M5.1 adds the real iced crate
-# dep so `IcedHost` can grow an iced `Program`-shaped surface next.
+# Iced is now the only live host lane in graphshell main.
 iced-host = [
     "dep:iced",
     "dep:iced-middlenet-viewer",
@@ -123,8 +112,7 @@ euclid = "0.22"
 inventory = "0.3"
 infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
-# M5: iced is the second host backend. Pulled only under the `iced-host`
-# feature; egui remains the default host until M5/M6 reach parity.
+# Iced is the sole supported host backend in graphshell main.
 iced = { path = "vendor/iced", optional = true, features = ["canvas"] }
 # Iced middlenet viewer lives in its own crate so it can be developed,
 # tested, and demoed without pulling in the heavy Servo/webrender deps
@@ -177,19 +165,10 @@ rand_09 = { package = "rand", version = "0.9" }
 webdriver_server = { path = "../servo-wgpu/components/webdriver_server", package = "servo-webdriver-server", optional = true }
 backtrace = "0.3"
 dirs = "6.0"
-# egui crates are gated behind the `egui-host` feature. Servo ownership
-# no longer activates this stack transitively; modules that need both
-# Servo and egui gate on both features explicitly.
-egui = { version = "0.34.1", optional = true }
-egui-file-dialog = { version = "0.13.0", optional = true }
-egui-winit = { version = "0.34.1", default-features = false, features = ["accesskit", "clipboard", "wayland"], optional = true }
-egui-wgpu = { version = "0.34.1", features = ["winit", "wayland"], optional = true }
-egui_tiles = { version = "0.15.0", features = ["serde"], optional = true }
 graph-canvas = { path = "crates/graph-canvas" }
 graph-cartography = { path = "crates/graph-cartography" }
 graph-tree = { path = "crates/graph-tree" }
 graphshell-core = { path = "crates/graphshell-core" }
-egui-notify = { version = "0.22.0", optional = true }
 arboard = "3"
 nucleo = "0.5.0"
 parking_lot = "0.12"

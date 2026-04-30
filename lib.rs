@@ -20,11 +20,6 @@ mod graph;
 mod input;
 pub use middlenet_engine as middlenet;
 mod model;
-// render/ is the legacy Servo+egui rendering layer
-// (canvas_egui_painter, panels, radial_menu, etc.). Iced-host paints
-// inline via canvas::Program::draw and does not need this module.
-#[cfg(all(feature = "servo-engine", feature = "egui-host"))]
-mod render;
 mod services;
 mod shell;
 mod util;
