@@ -808,12 +808,11 @@ Checklist:
   Promotion and Demotion are retired. Three operations: Close tile
   (deactivate), Remove from graphlet (organizational), Tombstone
   (destructive). §4.4 is the canonical update.
-- [ ] **TERMINOLOGY.md correction pass** (prerequisite for all
-  S2 slice work). Partially landed on 2026-04-29 (canonical Frame
-  refactor commit `b036ce31`); the remainder is iced-plan-specific
-  and still pending:
+- [x] **TERMINOLOGY.md correction pass** (prerequisite for all
+  S2 slice work) — **complete as of 2026-04-29**:
   - [x] Frame moves to Shell ownership; redefined as Shell-owned
-    working context composing 1..N Workbenches (canonical refactor)
+    working context composing 1..N Workbenches (canonical refactor,
+    commit `b036ce31`)
   - [x] Workbench scoped to per-graph tile-tree authority; not a
     singleton/global container (canonical refactor)
   - [x] Presentation Bucket Model (Tree Spine / Swatches / Activity
@@ -822,22 +821,36 @@ Checklist:
     (canonical refactor)
   - [x] Projection vocabulary added (recipe / canvas instance /
     swatch / presentation bucket) (canonical refactor)
-  - [ ] Add **Split** as the H/V container term (this plan's §4.5
-    reconciled term; canonical TERMINOLOGY.md does not yet name it)
-  - [ ] Redefine **Pane** as a spatial concept (leaf in a Frame's
-    split tree), not a graph-citizenship concept. Retire the
-    Pane/Tile non-citizen-vs-citizen distinction
-  - [ ] Remove **Promotion** and **Demotion** as lifecycle terms
-    entirely (note: TERMINOLOGY.md gained a *projection-sense*
-    Promotion in the canonical refactor; the *pane-citizenship-sense*
-    Promotion still needs to retire)
-  - [ ] Add **Active/Inactive** as the two presentation states for
-    tiles in a graphlet (per-graphlet, Navigator-controlled)
-  - [ ] Add **Remove from graphlet** as the non-destructive
-    organizational graph edit
-  - [ ] Confirm **Tombstone** as a separate, confirmation-gated,
-    destructive operation (already in TERMINOLOGY.md; just confirm)
-  - [ ] Remove **GraphletView** as a named concept
+  - [x] **Split** confirmed as the H/V container term and made
+    host-neutral in TERMINOLOGY.md §Tile Tree Architecture / Primitives
+    (S2 follow-up)
+  - [x] **Pane** redefined as spatial leaf in a Frame's split tree,
+    carrying `GraphletId` and pane type (tile or canvas). Pane/Tile
+    non-citizen-vs-citizen distinction retired (S2 follow-up)
+  - [x] **Tile** redefined as the active rendering of a graph node
+    inside a Pane (S2 follow-up)
+  - [x] **Promotion** (pane-citizenship sense) and **Demotion** moved
+    to Legacy/Deprecated; the *projection-sense* Promotion is retained
+    as a separate, distinct term (S2 follow-up)
+  - [x] **Pane Opening Mode** retired (Quarter/Half/Full/Tile no longer
+    a thing); folded into Legacy with a redirect (S2 follow-up)
+  - [x] **Pane Open Event** and **Tile-to-Tile Navigation** retired
+    as egui-era events; post-iced equivalents are graph-side node-open
+    events with traversal edges (S2 follow-up)
+  - [x] **Active/Inactive** added as the two per-graphlet presentation
+    states with explicit naming-collision note vs Runtime Lifecycle
+    Active state (S2 follow-up)
+  - [x] **Close tile**, **Remove from graphlet**, and **Tombstone**
+    documented as the three distinct operations on a node, with
+    operation/domain/effect/weight table (S2 follow-up)
+  - [x] **Address-as-Identity principle** revised — survives as
+    routing/lookup contract; "graph citizenship test" framing retired
+    with Promotion/Demotion (S2 follow-up)
+  - [x] **GraphletView** confirmed never canonical; legacy entry added
+    for completeness (S2 follow-up)
+  - [x] **FrameTabSemantics**, **TabGroupMetadata**, egui-era
+    Container/Tab Group/Grid marked as egui-host implementation
+    details, not part of post-iced canonical model (S2 follow-up)
 - [ ] Define the iced-side composition skeleton (the slot model
   for the iced equivalent of
   [shell_composition_model_spec.md](shell_composition_model_spec.md);

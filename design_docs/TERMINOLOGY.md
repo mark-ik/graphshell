@@ -88,7 +88,9 @@ which UI framework realizes the surfaces.
 
 ## Tile Tree Architecture
 
-The layout system is built on `egui_tiles`, but the Tile Tree is a **Workbench** structure rather than the whole application substrate. Not every visible surface is a tile.
+The layout system is the per-Workbench arrangement of **Panes** within a Frame slot. A Pane is a spatial leaf in a Frame's split tree (Shell-owned per [SHELL.md §3](graphshell_docs/implementation_strategy/shell/SHELL.md)); each Pane shows graph nodes (active tiles of a graphlet, or a canvas instance of the graph). Not every visible surface is a tile — toolbars, omnibar, and tool panes are not tiles.
+
+**Status note (2026-04-29 refactor):** the current code lives on `egui_tiles::Tree<TileKind>`, with an ephemeral-vs-promoted distinction (`TileKind::Pane(PaneState)` ↔ `TileKind::Node(NodePaneState)`) gated by **Promotion**. The canonical model below describes the post-iced-jump-ship target per [`shell/2026-04-28_iced_jump_ship_plan.md`](graphshell_docs/implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §4.4–§4.5: every Pane shows graph nodes; there is no ephemeral non-citizen Pane state; **Promotion** and **Demotion** retire as workbench-citizenship operations. Egui-era usage of these terms persists in legacy code only and is tracked in §Legacy / Deprecated Terms.
 
 ### Projection Rule
 
@@ -130,34 +132,34 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
 
 ### Primitives
 
-* **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`. A Tile is a workbench presentation/container term, not the canonical semantic identity of a graph node.
-* **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
-    * `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
-    * `TileKind::Pane(PaneState)` — an unenrolled content pane with no `NodeKey` yet. This is the canonical representation for ephemeral pane-opening modes before promotion.
-    * `TileKind::Node(NodePaneState)` — a promoted/enrolled node viewer pane bound to an existing graph node and resolved viewer backend (legacy serde alias preserves old `WebView(NodeKey)` layouts).
-    * `TileKind::Tool(ToolPaneState)` — a tool/subsystem pane host (diagnostics today; history/settings/subsystem panes over time).
-* **Tab** (**UI affordance term**): A visual selector control for choosing an active Tile among sibling tiles. Canonical structural term is **Tile**; "tab" is presentation shorthand only.
-* **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
-
-    | Container type | egui_tiles type | Children visible | Resizable | Layout direction |
-    | --- | --- | --- | --- | --- |
-    | **Tab Group** | `Container::Tabs` | One at a time (active tab) | No | Tab bar selects active child |
-    | **Split** | `Container::Linear` | All simultaneously | Yes, via drag handles | `Horizontal` (top↔bottom regions; horizontal divider) or `Vertical` (left↔right regions; vertical divider) |
-    | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
-
-* **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Promoted tiles (`TileKind::Node`, `TileKind::Graph`, `TileKind::Tool`) are always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs. Ephemeral panes (`TileKind::Pane`) are exempt from this invariant — they are placed directly in a split region without a Tab Group wrapper, so no tab selector appears for them.
-    Canonical projection note: when a graph-rooted grouped arrangement is rendered in workbench chrome, the Tab Group / Tile Group is its workbench presentation rather than a separate semantic owner. The association may be live-linked to a graphlet projection or left unlinked as a session arrangement until the user explicitly saves or forks it.
-* **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
-* **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
+* **Tile**: An active rendering of a graph node inside a Pane. A graphlet contains many graph nodes; a tile pane shows the **active** subset (per the Active/Inactive presentation states defined below). Tiles are not separate identity from nodes — a tile *is* a node in its active rendered form. (Egui-era code uses `TileKind` enum variants to distinguish content kinds; that is an implementation detail of the egui host and does not change tile semantics.)
+* **Pane**: A leaf in a Frame's split tree (Shell-owned). A Pane carries a `GraphletId` and a **pane type**, and shows graph nodes scoped to that graphlet:
+    * **Tile pane** — renders the active tiles of the Pane's graphlet, with a tab bar over them (one tab per active tile).
+    * **Canvas pane** — renders a canvas instance scoped to the graphlet (or to the full graph or a query result). See Projection Vocabulary §canvas instance.
+    Every Pane shows graph nodes; there is no non-citizen ephemeral Pane state. Switching a Pane's `GraphletId` retargets it; toggling its pane type switches between tile and canvas rendering. (Egui-era `TileKind::Pane(PaneState)` ephemeral leaves are a legacy shape; see §Legacy.)
+* **Split**: An H/V split container — internal node in a Frame's split tree. Carries a split axis (`Horizontal` for top↔bottom regions, `Vertical` for left↔right regions), child ordering, and **Shares** for proportional space allocation. Resizable via drag handles; nestable to arbitrary depth. Iced realization: `pane_grid::State<Pane>`. Egui-era realization: `egui_tiles::Container::Linear`. The abstract concept (H/V container) is host-neutral.
+* **Tab** (**UI affordance term**): A visual selector control for choosing the active tile among the active tiles of a tile pane. Canonical structural term is **Tile**; "tab" is presentation shorthand only. Iced realization: `iced_aw::Tabs` inside a tile Pane. Egui-era realization: `Container::Tabs` Tab Group wrappers around promoted tiles.
 * **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
+
+The following are **egui-era host primitives** retained for the egui codebase; they are not part of the post-iced canonical model. The iced host expresses these through `pane_grid` directly.
+
+* **Container** (egui-era): A branch tile in `egui_tiles::Tree`. Three structural types: Tab Group (`Container::Tabs`), Split (`Container::Linear`), Grid (`Container::Grid`). The post-iced model uses Frame split tree + tile-pane tab bars instead.
+* **Tab Group** (egui-era): An `egui_tiles::Container::Tabs` wrapper. In the post-iced model, tab grouping lives inside a tile Pane, not as a separate container kind.
+* **Grid** (egui-era): An `egui_tiles::Container::Grid` 2D matrix container. Not part of the post-iced canonical model; use nested Splits or a custom canvas pane instead.
 
 ### Composition Rules
 
-* **Arbitrary nesting**: Containers can hold other Containers to any depth. A Tab Group can contain Splits, which contain Tab Groups, which contain more Splits, etc.
-* **Cross-direction nesting preserved**: A `Horizontal` Split inside a `Vertical` Split (or vice versa) is never collapsed — this is how complex layouts form.
-* **Same-direction merging**: A `Horizontal` Split nested directly inside another `Horizontal` Split is automatically absorbed (children promoted, shares recalculated). Controlled by `join_nested_linear_containers: true`.
-* **Simplification**: The tree is simplified every frame. Empty containers are pruned, single-child containers are collapsed (except Tab Groups wrapping a lone promoted tile, which are kept for the tab strip). Controlled by `SimplificationOptions`.
-* **SimplificationSuppressed**: A flag set on a Split container for the lifetime of any ephemeral pane (`TileKind::Pane`) it directly hosts. While set, same-direction merging and single-child collapse are suppressed for that container, preventing the surrounding layout from reflowing under the ephemeral pane. The flag is cleared and normal simplification resumes on the frame after the ephemeral pane is dismissed.
+Canonical (host-neutral):
+
+* **Arbitrary nesting**: Splits can hold other Splits to any depth. Cross-direction nesting forms complex layouts.
+* **Cross-direction nesting preserved**: A `Horizontal` Split inside a `Vertical` Split (or vice versa) is never collapsed.
+* **Closing a Pane**: Removing a Pane collapses its parent Split if one child remains; the surviving sibling expands.
+
+Egui-era specifics (egui_tiles host only):
+
+* **Same-direction merging** (egui-era): A `Horizontal` Split nested directly inside another `Horizontal` Split is automatically absorbed (children promoted, shares recalculated). Controlled by `join_nested_linear_containers: true`. Iced `pane_grid` does not merge.
+* **Simplification** (egui-era): The tree is simplified every frame. Empty containers are pruned, single-child containers are collapsed (except Tab Groups wrapping a lone promoted tile, which are kept for the tab strip). Controlled by `SimplificationOptions`. Iced `pane_grid` collapses on Pane removal explicitly, not via per-frame simplification.
+* **SimplificationSuppressed** (egui-era): A flag set on a Split container for the lifetime of any ephemeral pane (`TileKind::Pane`) it directly hosts. Bridges egui_tiles' simplification behavior over the egui-era ephemeral-pane lifecycle. Not part of the post-iced canonical model (no ephemeral panes).
 
 ### Composite Structures
 
@@ -179,35 +181,106 @@ This is a presentation correspondence, not a term collapse. A node can exist wit
     A `GraphViewId` may be hosted in a tile tree surface, but tile hosting does not become the owner of that graph-view identity.
 * **GraphLayoutMode**: The layout participation mode for a Graph View pane. `Canonical` — participates in the shared workspace graph layout (shared node positions, one physics simulation). `Divergent` — has its own `LocalSimulation` with independent node positions; activated explicitly by the user.
 * **LocalSimulation**: An independent physics simulation instance owned by a `Divergent` Graph View. Does not affect Canonical pane node positions.
-* **Pane Opening Mode**: The four canonical ways a Pane can be summoned into the Workbench, controlling both size and graph citizenship:
-    * `QuarterPane` — occupies roughly one quarter of the available area; no tab bar, no graph node. Ephemeral.
-    * `HalfPane` — occupies roughly half of the available area; no tab bar, no graph node. Ephemeral.
-    * `FullPane` — occupies the full available area; no tab bar, no graph node. Ephemeral.
-    * `Tile` — full graph citizen: the pane's address is written into the graph as a new `Node`, a tab bar appears, and the pane becomes freely rearrangeable. This is **Promotion**.
-    Ephemeral modes (Quarter/Half/Full) are summoned into a split region with no tab selector of their own, so they do not demand context the way a tile does. They are dismissed once the user's inputs are confirmed, and their dimensions are remembered per pane type for next time. The default expectation is that panes stay ephemeral; promotion to Tile is a deliberate, relatively rare user decision.
-* **Address-as-Identity principle**: A tile's graph citizenship is determined solely by whether its address resolves to a live (non-tombstone) node in the graph. No separate mapping structure exists. The canonical check is: *does a node with this address exist in the graph?* `TileKind::Pane(PaneState)` carries no address yet (or an address not yet written to the graph); `TileKind::Node(NodePaneState)`, `TileKind::Graph`, and `TileKind::Tool` all carry addresses in the canonical `verso://` internal-address scheme that resolve to graph nodes. Legacy `graphshell://` forms are compatibility aliases only. The graph's node set is itself the authoritative membership list — querying it is querying graph citizenship.
-* **Pane** (graph-citizenship clarification): A Pane in any ephemeral opening mode has **no graph presence** — it carries no address yet written to the graph, does not participate in edge events, and is not tracked in the graph data model. It lives in the tile tree only as `TileKind::Pane(PaneState)`.
-* **Tile** (graph-citizenship): A Pane whose address has been written to the graph as a `Node` — i.e., a promoted pane. The tab bar materializes as the visual symptom of that address being in the graph. `TileKind::Node(NodePaneState)` is the promoted content tile. `TileKind::Graph` and `TileKind::Tool` are also tiles in this sense: their canonical `verso://` addresses resolve to graph nodes and they carry tab bars. A collection of Tiles grouped into a Frame corresponds to a bounded region of nodes in the graph canvas, visually represented by a titled, colored frame backdrop on the canvas (bound by `ArrangementRelation` / `frame-member` edges).
-    Projection reminder: a tile is how node-bearing or graph-view-bearing content appears in the workbench. It is not a synonym for `Node`.
-* **Verso internal address scheme**: Internal tile types use a `verso://` address namespace so that their graph presence follows the same address-as-identity rule as web content tiles. Canonical forms:
-    * `verso://view/<GraphViewId>` — a Graph View pane node.
-    * `verso://tool/<name>` — a tool/subsystem pane node. If multiple instances of the same tool are open simultaneously, a numeric discriminator is appended: `verso://tool/<name>/<n>` (starting at 2; the discriminator is recycled upon pane closure).
-    * `verso://frame/<FrameId>` — a Frame node. Frame nodes carry `ArrangementRelation` / `frame-member` edges to all member tile nodes; on the canvas, a named Frame is rendered as a titled, colored backdrop (legacy term: MagneticZone) attracting its member nodes via `FamilyPhysicsPolicy.arrangement_weight`.
-    * `verso://settings/<section>` — a Settings surface route.
-    * `verso://clip/<uuid>` — an internal clip node address.
-    Legacy `graphshell://...` forms remain accepted as compatibility aliases during migration.
-    Tool and settings address schemes follow the same discriminator pattern.
-* **Promotion** (aka **Pane Promotion**): The event at which a Pane transitions from an ephemeral opening mode to `Tile`. Promotion writes the pane's address into the graph as a new `Node`, then upgrades the tile-tree payload from `TileKind::Pane(PaneState)` to `TileKind::Node(NodePaneState)`. If the pane was sourced from an existing Tile (opened via a tile-to-pane navigation), promotion also asserts an `Edge` between the source tile's node and the newly created node — resolving the pending relationship recorded at open time. If the pane was summoned independently (no source tile), promotion creates only the node. Long-term direction: layout mutations (split, reorder, resize) will emit `GraphIntent`s so that the graph becomes the write path for layout metadata, with `egui_tiles` acting as renderer rather than authority.
-* **Demotion**: The inverse of Promotion. Demoting a tile removes its address from the graph (transitions the node to `Tombstone`), cascades tombstone to edges from that node, and downgrades the tile-tree payload back to `TileKind::Pane(PaneState)`. The tab bar disappears. Tombstoned edges and the tombstoned node are preserved in the graph for history and can be restored if the tile is re-promoted. Demotion is the undo target for a Promotion event.
-* **Pane Open Event**: A tracked, undoable workbench event emitted whenever a Pane is summoned — regardless of opening mode and regardless of whether a source Tile exists. No graph mutation occurs at open time for ephemeral panes. When a source Tile is present, the Pane Open Event records the source tile's `NodeKey` as a pending relationship so that if the user later promotes the pane, the edge can be asserted retroactively. The pending `NodeKey` is preserved in the event log even if the source node is later tombstoned — the record is historical; live edge creation at promotion time requires the source node to be non-tombstone. Pane Open Events participate in global and scoped undo like all other workbench events. If the user's focus context moves away from the scope the pane was opened in before it is explicitly dismissed, the pane is auto-dismissed; system/subsystem/tool panes have their state autosaved on auto-dismiss.
-* **Tile-to-Tile Navigation**: Opening a new Tile (Tile mode) directly from an existing Tile. An immediate edge event: the new tile's address is written to the graph as a node at open time, and an edge is asserted between the source node and the new node, without a pending-relationship step.
-* **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content. The `Tile` opening mode is the promoted presentation; ephemeral modes are the non-promoted presentations. Prefer **Pane Opening Mode** when discussing the user-facing choice; use Pane Presentation Mode only when discussing the underlying chrome/mobility implementation.
-* **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
+
+### Tile Presentation States (per-graphlet)
+
+Each node in a graphlet has one of two **presentation states** that determine
+whether its tile renders in any tile pane bound to that graphlet. State is
+**per-graphlet** — the same node has the same Active/Inactive state across
+every Pane that shows that graphlet. The Navigator is the surface for
+discovering and toggling activation.
+
+* **Active** (presentation): The node's tile renders in any tile pane
+  bound to its graphlet. The tile is interactive; its viewer pass is
+  alive. Activating an Inactive node opens its tile without touching
+  graph truth.
+* **Inactive** (presentation): The node remains in the graphlet but its
+  tile is not shown. Inactive nodes are accessible via the Navigator's
+  Tree Spine (per [NAVIGATOR.md §8](graphshell_docs/implementation_strategy/navigator/NAVIGATOR.md))
+  and can be activated at will. Inactive is the default for nodes that
+  have not been opened in the current session and for nodes whose tiles
+  the user has explicitly closed.
+
+**Naming-collision note.** "Active" appears in two unrelated state
+machines with different meanings:
+
+* **Active (presentation)** — the per-graphlet state defined here:
+  *the node's tile is shown in this graphlet's tile panes*. Toggled by
+  Close tile / activate-from-Navigator. Owned by runtime lifecycle as
+  presentation state, projected by Navigator.
+* **Active (Runtime Lifecycle)** — the four-state node lifecycle
+  (Active → Warm → Cold → Tombstone) defined in §Runtime Lifecycle:
+  *the node has a live webview and is rendering*. Toggled by lifecycle
+  reconciliation, not by user toggling.
+
+The two axes are orthogonal: a node Active (presentation) typically also
+needs to be Active or Warm (lifecycle) for its viewer to render
+content. A node Inactive (presentation) can be in any lifecycle state.
+Where a doc or code site needs disambiguation, prefer
+`PresentationState::Active` vs `Lifecycle::Active`.
+
+### Tile and Graphlet Operations
+
+The three distinct operations on a node:
+
+| Operation | Domain | Effect | Weight |
+|---|---|---|---|
+| **Close tile** | runtime lifecycle | Node → Inactive in this graphlet. Graph unchanged. | Safe; trivially reversible (re-activate from Navigator) |
+| **Remove from graphlet** | Graph (organizational) | Node leaves this graphlet's membership; node persists in the full graph and in any other graphlets it belongs to. | Deliberate edit; reversible by re-adding |
+| **Tombstone** | Graph (node lifecycle) | Node marked deleted in graph truth (see Runtime Lifecycle). Cascades to edges. | Destructive; confirmation required; reversible only via Ghost Node restore |
+
+**Close tile** is the deactivation path: it changes presentation state, not
+graph state. **Remove from graphlet** is the canonical organizational
+graph edit: it changes which graphlet a node belongs to without touching
+the node itself. **Tombstone** is the destructive operation; see Runtime
+Lifecycle for Ghost Node semantics.
+
+### Address-as-Identity (routing principle)
+
+A node's graph identity is its canonical address. The address-resolution
+contract: *given an address, look up the node in the graph by that
+address.* No separate mapping structure exists. Every Pane shows nodes
+whose addresses resolve in the graph; routing decisions (which viewer to
+attach, which tool to invoke) consult the address. The graph's node set
+is the authoritative membership list.
+
+(The egui-era version of this principle framed it as a "graph
+citizenship test" gating Pane vs Tile lifecycle. That gating retires
+with Promotion/Demotion; the address-as-identity principle survives as
+the routing/lookup contract.)
+
+### Verso internal address scheme
+
+Internal pane content uses a `verso://` address namespace so that internal
+nodes follow the same address-resolution rule as web content nodes. Canonical
+forms:
+
+* `verso://view/<GraphViewId>` — a Graph View canvas-pane node.
+* `verso://tool/<name>` — a tool/subsystem pane node. If multiple instances
+  of the same tool are open simultaneously, a numeric discriminator is
+  appended: `verso://tool/<name>/<n>` (starting at 2; the discriminator is
+  recycled upon pane closure).
+* `verso://frame/<FrameId>` — a Frame node. Frame nodes carry
+  `ArrangementRelation` / `frame-member` edges to all member tile nodes;
+  on the canvas, a named Frame is rendered as a titled, colored backdrop
+  (legacy term: MagneticZone) attracting its member nodes via
+  `FamilyPhysicsPolicy.arrangement_weight`.
+* `verso://settings/<section>` — a Settings surface route.
+* `verso://clip/<uuid>` — an internal clip node address.
+
+Legacy `graphshell://...` forms remain accepted as compatibility aliases
+during migration. Tool and settings address schemes follow the same
+discriminator pattern.
+
+### Pane Chrome and Locking
+
+* **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the workbench (chrome density, mobility, locking behavior), distinct from the Pane's content. Reduced chrome (docked) vs. full chrome (free-floating) are presentation choices; both apply to any Pane regardless of its `GraphletId` or pane type.
+* **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current arrangement. Intended to reduce accidental reflow and focus attention on content.
 * **PaneLock**: The reflow lock state of a Pane, independent of `PanePresentationMode`. `Unlocked` (default) — all user-initiated reflow operations permitted. `PositionLocked` — cannot be moved or reordered; can be closed. Docked panes are implicitly position-locked from the user's perspective. `FullyLocked` — cannot be moved, reordered, or closed by the user; reserved for system-owned panes.
-* **FrameTabSemantics**: An optional semantic overlay on top of the `egui_tiles` structural tree. Its role is to persist semantic tab group membership so that meaning is not lost when `egui_tiles` simplification restructures the tree. It serializes into the frame bundle as frame state, not WAL data, and consumers must tolerate the field being absent during rollout.
-* **TabGroupMetadata**: A record within `FrameTabSemantics` for one semantic tab group. Contains `group_id` (`TabGroupId`), ordered `pane_ids`, and `active_pane_id` (repaired to `None` if the previously active pane is removed from the group).
-* **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
-* **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
+* **FrameTabSemantics** (egui-era): An optional semantic overlay on top of the `egui_tiles` structural tree. Its role is to persist semantic tab group membership so that meaning is not lost when `egui_tiles` simplification restructures the tree. It serializes into the frame bundle as frame state, not WAL data, and consumers must tolerate the field being absent during rollout. Not part of the post-iced canonical model — the iced host uses `iced_aw::Tabs` inside tile Panes and does not require a separate semantic overlay.
+* **TabGroupMetadata** (egui-era): A record within `FrameTabSemantics` for one semantic tab group. Contains `group_id` (`TabGroupId`), ordered `pane_ids`, and `active_pane_id` (repaired to `None` if the previously active pane is removed from the group). Same egui-era status as FrameTabSemantics.
+* **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes. (Egui-era code path: `TileKind::Tool(ToolPaneState)`; iced realization: a tile Pane with a tool-pane type variant.)
+* **Tool Pane**: A non-document pane host (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces. (Egui-era code path: `TileKind::Tool(ToolPaneState)`.)
 * **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
 
 ### Surface Composition
@@ -529,5 +602,11 @@ These terms have canonical meaning in graphshell and must be used precisely in c
 *   *FileTree*: Legacy pane mode name. Redistributed: the All-nodes projection maps to **Navigator** (all-nodes section), saved view collections map to **ArrangementRelation** saved frames, and filesystem hierarchy maps to **ContainmentRelation** / `filesystem` sub-kind. The `FileTree` UI remains operational until Navigator sections are validated.
 *   *Recent section / Frames section / Graph section / Relations section / Import Records section* (Navigator): Replaced by the three **Presentation Buckets** — **Tree Spine** (frametree, containment lenses, traversal hierarchy), **Swatches** (graph and relation projections as scoped canvas instances), **Activity Log** (recency, lifecycle events, import events). The five-section list was a flat catalog; the bucket model names the presentation shape. Specific named projections still exist as recipes that land in one of the three buckets. See `navigator/NAVIGATOR.md §8`.
 *   *Workbench-owned Frame*: Frame ownership moved to **Shell**. Frames compose one or more Workbenches into a working context; the Workbench owns its tile tree but not Frame composition or Frame switching. The legacy spec text "a persisted branch/subtree of the Workbench Tile Tree" was workbench-internal phrasing; Frame is now top-level Shell-owned and may scope a single workbench (the trivial case) or multiple workbenches. See `shell/SHELL.md §3` and `workbench/WORKBENCH.md §2`.
+*   *Promotion (pane-citizenship sense)* / *Pane Promotion* / *Demotion*: Retired as workbench-citizenship lifecycle operations. The egui-era model distinguished an ephemeral non-citizen Pane (`TileKind::Pane(PaneState)`) from a promoted graph-citizen Tile (`TileKind::Node(NodePaneState)`); Promotion was the event that wrote the address into the graph and Demotion was its inverse. The post-iced canonical model (per [`shell/2026-04-28_iced_jump_ship_plan.md`](graphshell_docs/implementation_strategy/shell/2026-04-28_iced_jump_ship_plan.md) §4.4) eliminates the ephemeral state — every Pane shows graph nodes from the start. The three operations replacing the Promotion/Demotion lifecycle are **Close tile** (deactivate; presentation only), **Remove from graphlet** (organizational graph edit), and **Tombstone** (destructive node deletion). The *projection-sense* Promotion (turning an ephemeral projection result into authority truth via intent) is a separate, retained term — see Projection Vocabulary §Promotion.
+*   *Pane Opening Mode* (`QuarterPane` / `HalfPane` / `FullPane` / `Tile`): Retired with the ephemeral-Pane lifecycle. Every Pane is now a spatial leaf in a Frame's split tree; size is expressed through Split proportions, not through ephemeral mode. Opening a node opens it as an Active tile in a tile pane (creating or selecting one) — there is no separate "open ephemeral" intermediate step.
+*   *Pane (graph-citizenship clarification)* / *Tile (graph-citizenship)*: Retired. The Pane/Tile distinction in the egui-era was citizenship-vs-non-citizenship; the post-iced model has only the spatial Pane definition (leaf in Frame split tree) and the active-graph-node Tile definition (rendered inside a tile Pane). See Tile Tree Architecture §Primitives.
+*   *Pane Open Event* (egui-era): The egui-era undoable event that recorded a pending source-`NodeKey` relationship for later promotion. Retired alongside Promotion. The post-iced equivalent is a graph-side node-open event (a `GraphReducerIntent` that opens or activates a node) plus a presentation-side activation event that does not require a separate pending-edge step.
+*   *Tile-to-Tile Navigation* (egui-era): The egui-era event for opening a new Tile (in `Tile` mode) directly from an existing Tile, asserting an edge at open time. Retired with Pane Opening Mode; the post-iced equivalent is "open node in a tile pane, asserting traversal edge" — a single graph-side event without the Pane Opening Mode dimension.
+*   *GraphletView*: Never reached canonical TERMINOLOGY.md. Mentioned in pre-2026-04-29 iced-plan drafts and retired before adoption. Today's model uses **Pane** (carrying `GraphletId`) as the rendering surface for a graphlet; there is no separate GraphletView concept.
 
 <!-- markdownlint-enable MD030 MD007 -->
