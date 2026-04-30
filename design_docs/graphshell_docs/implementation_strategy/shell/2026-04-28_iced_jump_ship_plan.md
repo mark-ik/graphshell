@@ -851,14 +851,20 @@ Checklist:
   - [x] **FrameTabSemantics**, **TabGroupMetadata**, egui-era
     Container/Tab Group/Grid marked as egui-host implementation
     details, not part of post-iced canonical model (S2 follow-up)
-- [ ] Define the iced-side composition skeleton (the slot model
-  for the iced equivalent of
-  [shell_composition_model_spec.md](shell_composition_model_spec.md);
-  iced uses panes/`row!`/`column!` instead of egui's named
-  panels — the slot identities and authority assignments stay
-  the same). Include the FrameTree rendering slot (H/V splits
-  within the workbench area) and the active/inactive toggle
-  surface for nodes in a graphlet.
+- [x] **Define the iced-side composition skeleton** — landed
+  2026-04-29 as
+  [`iced_composition_skeleton_spec.md`](iced_composition_skeleton_spec.md).
+  Defines: slot model (CommandBar / NavigatorTop / NavigatorLeft /
+  FrameSplitTree / NavigatorRight / NavigatorBottom / StatusBar);
+  Frame split tree as `pane_grid::State<Pane>`; canvas instances
+  shared across main canvas / canvas Panes / swatches / base layer;
+  three Navigator Presentation Bucket surfaces; Active/Inactive
+  toggle UI in the Tree Spine bucket.
+  **Canonical interaction constraint** added in this spec:
+  **splits are created implicitly by drag, not by buttons** — drop
+  edge derives the split axis (Zed / VSCode pattern). No "Split
+  horizontal" / "Split vertical" toolbar actions, ever. See
+  [`iced_composition_skeleton_spec.md` §3.1](iced_composition_skeleton_spec.md).
 - [ ] Specify the omnibar shape for iced: Shell-owned input/dispatch,
   Navigator-owned breadcrumb projection, both rendered through the
   same iced widget per [SHELL.md §6](SHELL.md)
