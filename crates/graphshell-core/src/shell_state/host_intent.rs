@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::actions::ActionId;
 use crate::geometry::PortablePoint;
+use crate::graph::NodeKey;
 
 /// Portable intent a host can push into `FrameHostInput.host_intents`
 /// for the runtime to translate and apply during its tick.
@@ -67,6 +68,16 @@ pub enum HostIntent {
     Action {
         action_id: ActionId,
     },
+    /// User picked a node from a finder surface (Node Finder, future
+    /// Tree Spine "reveal in workbench" row). The runtime promotes the
+    /// node to focused state — concrete pane-routing semantics
+    /// (active pane vs new pane vs replace focused pane) are picked
+    /// up from the user's `WorkbenchProfile` once that surface lands;
+    /// for now the runtime sets `focused_node_hint` so downstream
+    /// systems (focus ring, tile activation) can react.
+    OpenNode {
+        node_key: NodeKey,
+    },
 }
 
 #[cfg(test)]
@@ -88,6 +99,17 @@ mod tests {
     fn action_serde_roundtrip() {
         let intent = HostIntent::Action {
             action_id: ActionId::WorkbenchOpenSettingsPane,
+        };
+        let json = serde_json::to_string(&intent).expect("serialize");
+        let back: HostIntent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(intent, back);
+    }
+
+    #[test]
+    fn open_node_serde_roundtrip() {
+        // NodeKey is petgraph::NodeIndex with the serde-1 feature.
+        let intent = HostIntent::OpenNode {
+            node_key: NodeKey::new(7),
         };
         let json = serde_json::to_string(&intent).expect("serialize");
         let back: HostIntent = serde_json::from_str(&json).expect("deserialize");

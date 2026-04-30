@@ -393,6 +393,11 @@ pub(crate) struct GraphshellRuntime {
     /// `apply_host_intents` since runtime start. Saturating; used by
     /// tests + diagnostics to confirm the routing path closed.
     pub(crate) dispatched_action_count: u64,
+    /// Monotonic count of `HostIntent::OpenNode`s observed by
+    /// `apply_host_intents`. Slice 12: paired with `focused_node_hint`
+    /// so tests can distinguish "no open intent yet" from "open
+    /// intent fired but the node was already focused".
+    pub(crate) opened_node_count: u64,
 }
 
 impl GraphshellRuntime {
@@ -467,6 +472,22 @@ impl GraphshellRuntime {
                     self.last_dispatched_action = Some(*action_id);
                     self.dispatched_action_count =
                         self.dispatched_action_count.saturating_add(1);
+                }
+                HostIntent::OpenNode { node_key } => {
+                    // Slice 12: promote the node to focused state. The
+                    // canonical `focused_node_hint` field is the
+                    // shell-wide "which node has focus" signal that
+                    // downstream systems (focus ring fade, pane
+                    // activation, omnibar context projection) read.
+                    // Pane-routing semantics per the user's
+                    // WorkbenchProfile land in a later slice.
+                    //
+                    // Unknown / tombstoned `node_key`s are accepted
+                    // silently — the focus consumers already tolerate
+                    // stale hints.
+                    self.focused_node_hint = Some(*node_key);
+                    self.opened_node_count =
+                        self.opened_node_count.saturating_add(1);
                 }
             }
         }
@@ -872,6 +893,7 @@ impl GraphshellRuntime {
             diagnostics_state: crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new(),
             last_dispatched_action: None,
             dispatched_action_count: 0,
+            opened_node_count: 0,
         }
     }
 

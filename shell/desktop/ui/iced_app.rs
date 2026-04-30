@@ -11,16 +11,15 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 11 / Stage A+E)**: Slices 3-10 built the host UI
-//! and closed the palette dispatch loop end-to-end. Slice 11 swaps
-//! the Node Finder's placeholder result list for the live runtime
-//! graph: `NodeFinderOpen` and `OmnibarRouteToNodeFinder` populate
-//! `all_results` from `runtime.graph_app.domain_graph().nodes()`,
-//! mapping each node to a `NodeFinderResult` carrying a real
-//! `NodeKey`, title, URL, and a scheme-derived type chip. Selection
-//! still toasts the resolved title + URL; an `OpenNode` host intent
-//! is the next slice. The finder now reflects current graph truth
-//! every time it opens.
+//! **Scope (Slice 12 / Stage A+E)**: Slices 3-11 closed the host UI
+//! layer and the palette dispatch loop. Slice 12 closes the Node
+//! Finder dispatch loop: `HostIntent::OpenNode { node_key }` is added
+//! to `graphshell-core`, the runtime's `apply_host_intents` promotes
+//! the node to `focused_node_hint` (and bumps `opened_node_count`),
+//! and the iced finder pushes the intent on `NodeFinderResultSelected`,
+//! drives an inline tick to drain the queue, and toasts the resolved
+//! title + URL. Pane-routing per `WorkbenchProfile` (active pane vs
+//! new pane vs replace) is a downstream domain slice.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1075,22 +1074,33 @@ impl IcedApp {
                 Task::none()
             }
             Message::NodeFinderResultSelected(idx) => {
-                // Slice 7: look up the visible result and toast its
-                // address. Downstream slice will emit
-                // WorkbenchIntent::OpenNode { node_key }.
+                // Slice 12: resolve the visible-list slot to a real
+                // NodeKey and push HostIntent::OpenNode. The runtime's
+                // apply_host_intents promotes the node to
+                // focused_node_hint and bumps opened_node_count;
+                // pane-routing per WorkbenchProfile is downstream
+                // domain work.
                 let visible = visible_finder_results(&self.node_finder);
-                let acked = visible
-                    .get(idx)
-                    .map(|r| (r.title.clone(), r.address.clone()));
-                if let Some((title, address)) = acked {
+                let acked = visible.get(idx).map(|r| {
+                    (r.node_key, r.title.clone(), r.address.clone())
+                });
+                if let Some((node_key, title, address)) = acked {
+                    self.host.pending_host_intents.push(
+                        graphshell_core::shell_state::host_intent::HostIntent::OpenNode {
+                            node_key,
+                        },
+                    );
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
-                        message: format!("open: {title} ({address}) (stub)"),
+                        message: format!("open: {title} ({address})"),
                         duration: None,
                     });
                     self.node_finder.is_open = false;
                     self.node_finder.query.clear();
                     self.node_finder.focused_index = None;
+                    // Drive a tick so the runtime drains the intent
+                    // immediately and observers see the focus change.
+                    self.tick_with_events(Vec::new());
                 }
                 Task::none()
             }
@@ -2909,6 +2919,58 @@ mod tests {
             nodes_in_graph,
             "every node in the graph maps to one finder row",
         );
+    }
+
+    #[test]
+    fn finder_selection_dispatches_open_node_intent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        seed_test_nodes(&mut app, 1);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+
+        // Capture the resolved NodeKey before selection.
+        let row0_node_key = app.node_finder.all_results[0].node_key;
+        assert_eq!(app.host.runtime.opened_node_count, 0);
+        assert!(app.host.runtime.focused_node_hint.is_none());
+
+        let _ = app.update(Message::NodeFinderResultSelected(0));
+
+        assert!(
+            app.host.pending_host_intents.is_empty(),
+            "intent queue drained by post-select tick",
+        );
+        assert_eq!(
+            app.host.runtime.opened_node_count, 1,
+            "runtime observed exactly one HostIntent::OpenNode",
+        );
+        assert_eq!(
+            app.host.runtime.focused_node_hint,
+            Some(row0_node_key),
+            "runtime promoted the resolved NodeKey to focused_node_hint",
+        );
+    }
+
+    #[test]
+    fn finder_out_of_range_selection_does_not_dispatch() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+
+        // Empty graph → empty result list → idx 0 is out of range.
+        let _ = app.update(Message::NodeFinderResultSelected(0));
+
+        assert_eq!(
+            app.host.runtime.opened_node_count, 0,
+            "out-of-range selection must not dispatch",
+        );
+        assert!(app.host.runtime.focused_node_hint.is_none());
     }
 
     #[test]
