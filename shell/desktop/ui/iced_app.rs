@@ -11,16 +11,16 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 6 / Stage A+E)**: Slices 3-4 wired the Frame split
+//! **Scope (Slice 7 / Stage A+E)**: Slices 3-4 wired the Frame split
 //! tree, Navigator host structural layout, and the `gs::TileTabs`
 //! widget; Slice 5 added real `gs::Modal` and `gs::ContextMenu`
-//! widgets in `graphshell-iced-widgets`; Slice 6 wires the Command
-//! Palette (`Ctrl+Shift+P`) and Node Finder (`Ctrl+P`) modals into
-//! `IcedApp` using `gs::Modal`. Both modals carry widget-local state
-//! (open flag, query, focused index) and stub-empty result lists —
-//! the `ActionRegistry` / `NodeFinderViewModel` data sources are
-//! wired in a downstream slice. Mutual exclusion (opening one closes
-//! the other) and Escape / click-outside dismissal are wired today.
+//! widgets; Slice 6 wired the Command Palette (`Ctrl+Shift+P`) and
+//! Node Finder (`Ctrl+P`) modals; Slice 7 fills both modals with
+//! placeholder ranked-action / result data, substring filtering by
+//! query, arrow-key Up/Down navigation, focused-state row styling,
+//! and Enter-to-submit-focused. The placeholder data is replaced by
+//! runtime view-model output (`ActionRegistry`, `NodeFinderViewModel`)
+//! once those surfaces land in `graphshell-runtime`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -237,20 +237,47 @@ pub(crate) enum PaletteOrigin {
     Programmatic,
 }
 
+/// One ranked action in the Command Palette. Host-side mirror of
+/// [`iced_command_palette_spec.md` §2.3](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md)'s
+/// `RankedAction`. Slice 7 sources placeholder data so the row layout
+/// is exercised; the runtime view-model takes over once `ActionRegistry`
+/// is ported to `graphshell-runtime`.
+#[derive(Debug, Clone)]
+pub(crate) struct RankedAction {
+    /// Stable handle for selection routing. Slice 7: placeholder index;
+    /// downstream slice will carry a real `ActionId`.
+    pub(crate) action_id: u32,
+    /// Verb-target label (e.g. "Open Settings"), per the canonical
+    /// command-surface wording rules.
+    pub(crate) label: String,
+    /// Optional secondary description rendered dimmer beneath the label.
+    pub(crate) description: Option<String>,
+    /// Right-aligned shortcut hint (e.g. "Ctrl+,").
+    pub(crate) keybinding: Option<String>,
+    /// `false` greys the row out; selection is suppressed.
+    pub(crate) is_available: bool,
+    /// Tooltip-style explanation when `is_available == false`.
+    pub(crate) disabled_reason: Option<String>,
+}
+
 /// Widget-local state for the Command Palette modal. Per
 /// [`iced_command_palette_spec.md` §2.3](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
 ///
-/// Slice 6 carries the open-state, query, and focused-row index. The
-/// `ranked_actions` list is empty until the `ActionRegistry` is wired
-/// in a downstream slice; the Modal renders a "no actions" footer when
-/// the list is empty rather than crashing.
+/// `all_actions` is the master list (placeholder data in Slice 7,
+/// runtime-sourced once the `ActionRegistry` is wired). The visible
+/// list is computed inline by [`visible_palette_actions`] so the
+/// query filter is always consistent with the typed input. The
+/// `focused_index` is an index into the *visible* slice, not the
+/// master list.
 #[derive(Debug, Clone)]
 pub(crate) struct CommandPaletteState {
     pub(crate) is_open: bool,
     pub(crate) origin: PaletteOrigin,
     pub(crate) query: String,
     pub(crate) focused_index: Option<usize>,
+    pub(crate) all_actions: Vec<RankedAction>,
 }
 
 impl Default for CommandPaletteState {
@@ -260,7 +287,71 @@ impl Default for CommandPaletteState {
             origin: PaletteOrigin::KeyboardShortcut,
             query: String::new(),
             focused_index: None,
+            all_actions: placeholder_actions(),
         }
+    }
+}
+
+/// Slice 7 placeholder list. Replaced by runtime view-model output
+/// once `ActionRegistry` lives in `graphshell-runtime`.
+fn placeholder_actions() -> Vec<RankedAction> {
+    vec![
+        RankedAction {
+            action_id: 1,
+            label: "Open Settings".into(),
+            description: Some("Configure Graphshell preferences".into()),
+            keybinding: Some("Ctrl+,".into()),
+            is_available: true,
+            disabled_reason: None,
+        },
+        RankedAction {
+            action_id: 2,
+            label: "Toggle Navigator Left".into(),
+            description: Some("Show or hide the left Navigator host".into()),
+            keybinding: None,
+            is_available: true,
+            disabled_reason: None,
+        },
+        RankedAction {
+            action_id: 3,
+            label: "Close Current Pane".into(),
+            description: None,
+            keybinding: Some("Ctrl+W".into()),
+            is_available: true,
+            disabled_reason: None,
+        },
+        RankedAction {
+            action_id: 4,
+            label: "Reload Graph".into(),
+            description: Some("Re-derive Navigator projections".into()),
+            keybinding: None,
+            is_available: true,
+            disabled_reason: None,
+        },
+        RankedAction {
+            action_id: 5,
+            label: "Tombstone Node".into(),
+            description: Some("Mark the focused node as deleted".into()),
+            keybinding: None,
+            is_available: false,
+            disabled_reason: Some("No node currently focused".into()),
+        },
+    ]
+}
+
+/// Filter the palette's master list by query. Empty query → all rows.
+/// Substring match (case-insensitive) on the label; the runtime swap
+/// will replace this with `ActionRegistryViewModel::rank_for_query`.
+fn visible_palette_actions(state: &CommandPaletteState) -> Vec<&RankedAction> {
+    if state.query.is_empty() {
+        state.all_actions.iter().collect()
+    } else {
+        let q = state.query.to_lowercase();
+        state
+            .all_actions
+            .iter()
+            .filter(|a| a.label.to_lowercase().contains(&q))
+            .collect()
     }
 }
 
@@ -275,19 +366,51 @@ pub(crate) enum NodeFinderOrigin {
     Programmatic,
 }
 
+/// Where in a node the user's query matched. Per
+/// [`iced_node_finder_spec.md` §4](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MatchSource {
+    Title,
+    Address,
+    Tag,
+    Recency,
+}
+
+/// One result row in the Node Finder. Host-side mirror of
+/// [`iced_node_finder_spec.md` §4](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md)'s
+/// `NodeFinderResult`. Slice 7 carries placeholder data; the runtime
+/// view-model owns the real list once `NodeFinderViewModel` is wired.
+#[derive(Debug, Clone)]
+pub(crate) struct NodeFinderResult {
+    /// Stable handle for selection routing. Slice 7: placeholder
+    /// index; downstream slice will carry a real `NodeKey`.
+    pub(crate) result_id: u32,
+    /// Node title (or address fallback).
+    pub(crate) title: String,
+    /// Canonical address (URL or `verso://...`).
+    pub(crate) address: String,
+    /// Short type chip (Web, Tool, Internal, …).
+    pub(crate) node_type: String,
+    /// Where the query matched.
+    pub(crate) match_source: MatchSource,
+}
+
 /// Widget-local state for the Node Finder modal. Per
 /// [`iced_node_finder_spec.md` §5](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
 ///
-/// Slice 6 carries the open-state and query. The `results` list is
-/// empty until the runtime exposes a `NodeFinderViewModel`; downstream
-/// slices wire fuzzy-match ranking against graph truth.
+/// `all_results` is the master list. Empty-query means recency-ranked
+/// (the placeholder list approximates this for Slice 7); a typed query
+/// filters by substring on title or address.
 #[derive(Debug, Clone)]
 pub(crate) struct NodeFinderState {
     pub(crate) is_open: bool,
     pub(crate) origin: NodeFinderOrigin,
     pub(crate) query: String,
     pub(crate) focused_index: Option<usize>,
+    pub(crate) all_results: Vec<NodeFinderResult>,
 }
 
 impl Default for NodeFinderState {
@@ -297,7 +420,62 @@ impl Default for NodeFinderState {
             origin: NodeFinderOrigin::KeyboardShortcut,
             query: String::new(),
             focused_index: None,
+            all_results: placeholder_node_results(),
         }
+    }
+}
+
+/// Slice 7 placeholder list. Replaced by `NodeFinderViewModel` output
+/// once the runtime exposes the recency aggregate + fuzzy-match index.
+fn placeholder_node_results() -> Vec<NodeFinderResult> {
+    vec![
+        NodeFinderResult {
+            result_id: 1,
+            title: "Welcome to Graphshell".into(),
+            address: "verso://welcome".into(),
+            node_type: "Internal".into(),
+            match_source: MatchSource::Recency,
+        },
+        NodeFinderResult {
+            result_id: 2,
+            title: "Settings".into(),
+            address: "verso://settings".into(),
+            node_type: "Tool".into(),
+            match_source: MatchSource::Recency,
+        },
+        NodeFinderResult {
+            result_id: 3,
+            title: "Example Domain".into(),
+            address: "https://example.com".into(),
+            node_type: "Web".into(),
+            match_source: MatchSource::Recency,
+        },
+        NodeFinderResult {
+            result_id: 4,
+            title: "Diagnostics".into(),
+            address: "verso://tool/diagnostics".into(),
+            node_type: "Tool".into(),
+            match_source: MatchSource::Recency,
+        },
+    ]
+}
+
+/// Filter the finder's master list by query. Empty query → all rows
+/// (recency order, per spec). Substring match on title or address;
+/// runtime swap replaces this with fuzzy-match ranking.
+fn visible_finder_results(state: &NodeFinderState) -> Vec<&NodeFinderResult> {
+    if state.query.is_empty() {
+        state.all_results.iter().collect()
+    } else {
+        let q = state.query.to_lowercase();
+        state
+            .all_results
+            .iter()
+            .filter(|r| {
+                r.title.to_lowercase().contains(&q)
+                    || r.address.to_lowercase().contains(&q)
+            })
+            .collect()
     }
 }
 
@@ -430,6 +608,15 @@ pub(crate) enum Message {
     /// list. Slice 6: stub-acks via toast; downstream slice routes the
     /// selected `ActionId` to `HostIntent::Action`.
     PaletteActionSelected(usize),
+    /// ArrowDown pressed while the palette is open — advance the
+    /// focused row (wraps).
+    PaletteFocusDown,
+    /// ArrowUp pressed while the palette is open — retreat the
+    /// focused row (wraps).
+    PaletteFocusUp,
+    /// Enter pressed inside the palette text input — fires the
+    /// currently-focused row, or row 0 if no row is focused.
+    PaletteSubmitFocused,
 
     // --- Node Finder messages — Slice 6 ---
     // Per [`iced_node_finder_spec.md`](
@@ -445,6 +632,15 @@ pub(crate) enum Message {
     /// User picked the result at the given index. Slice 6: stub-acks
     /// via toast; downstream slice routes to `WorkbenchIntent::OpenNode`.
     NodeFinderResultSelected(usize),
+    /// ArrowDown pressed while the finder is open — advance the
+    /// focused row (wraps).
+    NodeFinderFocusDown,
+    /// ArrowUp pressed while the finder is open — retreat the focused
+    /// row (wraps).
+    NodeFinderFocusUp,
+    /// Enter pressed inside the finder text input — fires the
+    /// currently-focused row, or row 0 if no row is focused.
+    NodeFinderSubmitFocused,
 }
 
 impl IcedApp {
@@ -519,6 +715,26 @@ impl IcedApp {
                     }
                     if self.omnibar.mode == OmnibarMode::Input {
                         return Task::done(Message::OmnibarKeyEscape);
+                    }
+                }
+                // Arrow-key navigation when a modal is open. The arrows
+                // also move the text_input cursor harmlessly within the
+                // typed query — proper key consumption requires a
+                // text_input on_key wiring deferred to a later slice.
+                if self.command_palette.is_open {
+                    if is_arrow_down_key(&event) {
+                        return Task::done(Message::PaletteFocusDown);
+                    }
+                    if is_arrow_up_key(&event) {
+                        return Task::done(Message::PaletteFocusUp);
+                    }
+                }
+                if self.node_finder.is_open {
+                    if is_arrow_down_key(&event) {
+                        return Task::done(Message::NodeFinderFocusDown);
+                    }
+                    if is_arrow_up_key(&event) {
+                        return Task::done(Message::NodeFinderFocusUp);
                     }
                 }
 
@@ -683,17 +899,54 @@ impl IcedApp {
                 Task::none()
             }
             Message::PaletteActionSelected(idx) => {
-                // Slice 6 stub: ack via toast. Downstream slice will look
-                // up the RankedAction at `idx` and emit HostIntent::Action.
-                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
-                    severity: ToastSeverity::Info,
-                    message: format!("palette action #{idx} (stub)"),
-                    duration: None,
-                });
-                self.command_palette.is_open = false;
-                self.command_palette.query.clear();
-                self.command_palette.focused_index = None;
+                // Slice 7: read the visible-list slot, look up the
+                // master RankedAction, and stub-ack via toast. The
+                // downstream slice will swap this for HostIntent::Action.
+                let visible = visible_palette_actions(&self.command_palette);
+                let acked_label = visible
+                    .get(idx)
+                    .filter(|a| a.is_available)
+                    .map(|a| a.label.clone());
+                if let Some(label) = acked_label {
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Info,
+                        message: format!("action: {label} (stub)"),
+                        duration: None,
+                    });
+                    self.command_palette.is_open = false;
+                    self.command_palette.query.clear();
+                    self.command_palette.focused_index = None;
+                }
+                // Disabled or out-of-range: do nothing.
                 Task::none()
+            }
+            Message::PaletteFocusDown => {
+                let visible_count = visible_palette_actions(&self.command_palette).len();
+                if visible_count > 0 {
+                    let next = self
+                        .command_palette
+                        .focused_index
+                        .map(|i| (i + 1) % visible_count)
+                        .unwrap_or(0);
+                    self.command_palette.focused_index = Some(next);
+                }
+                Task::none()
+            }
+            Message::PaletteFocusUp => {
+                let visible_count = visible_palette_actions(&self.command_palette).len();
+                if visible_count > 0 {
+                    let prev = self
+                        .command_palette
+                        .focused_index
+                        .map(|i| if i == 0 { visible_count - 1 } else { i - 1 })
+                        .unwrap_or(visible_count - 1);
+                    self.command_palette.focused_index = Some(prev);
+                }
+                Task::none()
+            }
+            Message::PaletteSubmitFocused => {
+                let idx = self.command_palette.focused_index.unwrap_or(0);
+                Task::done(Message::PaletteActionSelected(idx))
             }
 
             // --- Node Finder handlers ---
@@ -719,18 +972,52 @@ impl IcedApp {
                 Task::none()
             }
             Message::NodeFinderResultSelected(idx) => {
-                // Slice 6 stub: ack via toast. Downstream slice will
-                // look up the NodeKey at `idx` and emit
-                // WorkbenchIntent::OpenNode.
-                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
-                    severity: ToastSeverity::Info,
-                    message: format!("node finder result #{idx} (stub)"),
-                    duration: None,
-                });
-                self.node_finder.is_open = false;
-                self.node_finder.query.clear();
-                self.node_finder.focused_index = None;
+                // Slice 7: look up the visible result and toast its
+                // address. Downstream slice will emit
+                // WorkbenchIntent::OpenNode { node_key }.
+                let visible = visible_finder_results(&self.node_finder);
+                let acked = visible
+                    .get(idx)
+                    .map(|r| (r.title.clone(), r.address.clone()));
+                if let Some((title, address)) = acked {
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Info,
+                        message: format!("open: {title} ({address}) (stub)"),
+                        duration: None,
+                    });
+                    self.node_finder.is_open = false;
+                    self.node_finder.query.clear();
+                    self.node_finder.focused_index = None;
+                }
                 Task::none()
+            }
+            Message::NodeFinderFocusDown => {
+                let visible_count = visible_finder_results(&self.node_finder).len();
+                if visible_count > 0 {
+                    let next = self
+                        .node_finder
+                        .focused_index
+                        .map(|i| (i + 1) % visible_count)
+                        .unwrap_or(0);
+                    self.node_finder.focused_index = Some(next);
+                }
+                Task::none()
+            }
+            Message::NodeFinderFocusUp => {
+                let visible_count = visible_finder_results(&self.node_finder).len();
+                if visible_count > 0 {
+                    let prev = self
+                        .node_finder
+                        .focused_index
+                        .map(|i| if i == 0 { visible_count - 1 } else { i - 1 })
+                        .unwrap_or(visible_count - 1);
+                    self.node_finder.focused_index = Some(prev);
+                }
+                Task::none()
+            }
+            Message::NodeFinderSubmitFocused => {
+                let idx = self.node_finder.focused_index.unwrap_or(0);
+                Task::done(Message::NodeFinderResultSelected(idx))
             }
         }
     }
@@ -1076,33 +1363,48 @@ fn render_command_bar(app: &IcedApp) -> Element<'_, Message> {
 /// [`iced_command_palette_spec.md` §2.2](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
 ///
-/// Slice 6 renders the canonical layout (text input, divider,
-/// scrollable result list, footer). The result list is empty until the
-/// `ActionRegistry` is wired in a downstream slice; the footer surfaces
-/// the empty-state hint so the modal is recognisable.
+/// Slice 7 renders real result rows from the (placeholder) action list,
+/// with focused-state highlighting and click handlers per row. Disabled
+/// rows render dimmed and accept no clicks (`on_press_maybe(None)`).
+/// Arrow-key navigation routes through `PaletteFocusUp/Down`; Enter
+/// fires the focused row via `PaletteSubmitFocused`.
 fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
     let input = text_input("Type a command or search…", &app.command_palette.query)
         .id(iced::widget::Id::new(PALETTE_INPUT_ID))
         .on_input(Message::PaletteQuery)
+        .on_submit(Message::PaletteSubmitFocused)
         .size(14)
         .padding(6)
         .width(Length::Fill);
 
     let divider = rule::horizontal(1.0);
 
-    // Slice 6: empty results list. Real ranking lands once the
-    // ActionRegistry is wired into the runtime view-model.
-    let results: Element<'_, Message> = scrollable(
-        column![text("No actions registered yet (Slice 6 stub).")
-            .size(12)
-            .width(Length::Fill)]
-        .spacing(2)
-        .padding(8),
-    )
-    .height(Length::Fill)
-    .into();
+    let visible = visible_palette_actions(&app.command_palette);
+    let focused = app.command_palette.focused_index;
 
-    let footer = text("Esc to dismiss · Enter to run").size(11);
+    let results: Element<'_, Message> = if visible.is_empty() {
+        let empty_label = if app.command_palette.query.is_empty() {
+            "No actions available."
+        } else {
+            "No matching actions."
+        };
+        container(text(empty_label).size(12))
+            .padding(12)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else {
+        let rows: Vec<Element<'_, Message>> = visible
+            .iter()
+            .enumerate()
+            .map(|(i, action)| render_palette_row(i, action, focused == Some(i)))
+            .collect();
+        scrollable(column(rows).spacing(2).padding(4))
+            .height(Length::Fill)
+            .into()
+    };
+
+    let footer = text("Esc to dismiss · ↑/↓ to navigate · Enter to run").size(11);
 
     let body = column![
         text("Command Palette").size(13),
@@ -1123,12 +1425,93 @@ fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
         .into()
 }
 
+/// One row in the Command Palette ranked-action list.
+///
+/// Layout: label (filling, bold-ish via size) on the left, optional
+/// keybinding right-aligned. Description (if present) appears beneath
+/// the label at smaller size. Disabled rows pass `None` to
+/// `on_press_maybe`; focused rows get a brighter background.
+fn render_palette_row<'a>(
+    idx: usize,
+    action: &'a RankedAction,
+    is_focused: bool,
+) -> Element<'a, Message> {
+    // Header line: label + optional keybinding.
+    let label_el: Element<'a, Message> = text(action.label.as_str()).size(13).width(Length::Fill).into();
+    let header: Element<'a, Message> = if let Some(kb) = action.keybinding.as_deref() {
+        row![label_el, text(kb).size(11)]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .into()
+    } else {
+        label_el
+    };
+
+    // Optional description line.
+    let body: Element<'a, Message> = match action.description.as_deref() {
+        Some(desc) if !desc.is_empty() => column![header, text(desc).size(11)]
+            .spacing(2)
+            .into(),
+        _ => header,
+    };
+
+    let msg: Option<Message> = if action.is_available {
+        Some(Message::PaletteActionSelected(idx))
+    } else {
+        None
+    };
+
+    let is_disabled = !action.is_available;
+
+    button(body)
+        .on_press_maybe(msg)
+        .padding([6, 10])
+        .width(Length::Fill)
+        .style(move |theme: &iced::Theme, status| {
+            let pal = theme.palette();
+            let hovered = matches!(
+                status,
+                iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed
+            );
+            let bg = if is_focused {
+                Some(pal.primary.weak.color.into())
+            } else if hovered && !is_disabled {
+                Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+            } else {
+                None
+            };
+            let text_color = if is_disabled {
+                iced::Color {
+                    a: pal.background.base.text.a * 0.4,
+                    ..pal.background.base.text
+                }
+            } else if is_focused {
+                pal.primary.weak.text
+            } else {
+                pal.background.base.text
+            };
+            iced::widget::button::Style {
+                background: bg,
+                text_color,
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
 /// Render the Node Finder modal. Per
 /// [`iced_node_finder_spec.md` §3](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
 ///
-/// Slice 6 renders the canonical layout. The result list is empty
-/// until the runtime exposes a `NodeFinderViewModel`.
+/// Slice 7 renders real result rows from the (placeholder) result list
+/// with click handlers and focused-state highlighting. Arrow-key nav
+/// routes through `NodeFinderFocusUp/Down`; Enter fires the focused row
+/// via `NodeFinderSubmitFocused`.
 fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
     let input = text_input(
         "Search nodes by title, tag, URL, or content…",
@@ -1136,28 +1519,39 @@ fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
     )
     .id(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
     .on_input(Message::NodeFinderQuery)
+    .on_submit(Message::NodeFinderSubmitFocused)
     .size(14)
     .padding(6)
     .width(Length::Fill);
 
     let divider = rule::horizontal(1.0);
 
-    // Slice 6: empty result list. Real fuzzy-match ranking lands once
-    // the runtime exposes NodeFinderViewModel.
-    let empty_label = if app.node_finder.query.is_empty() {
-        "No recently-active nodes yet (Slice 6 stub)."
-    } else {
-        "No matching nodes (Slice 6 stub)."
-    };
-    let results: Element<'_, Message> = scrollable(
-        column![text(empty_label).size(12).width(Length::Fill)]
-            .spacing(2)
-            .padding(8),
-    )
-    .height(Length::Fill)
-    .into();
+    let visible = visible_finder_results(&app.node_finder);
+    let focused = app.node_finder.focused_index;
 
-    let footer = text("Esc to dismiss · Enter to open").size(11);
+    let results: Element<'_, Message> = if visible.is_empty() {
+        let empty_label = if app.node_finder.query.is_empty() {
+            "No recently-active nodes yet."
+        } else {
+            "No matching nodes."
+        };
+        container(text(empty_label).size(12))
+            .padding(12)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else {
+        let rows: Vec<Element<'_, Message>> = visible
+            .iter()
+            .enumerate()
+            .map(|(i, result)| render_finder_row(i, result, focused == Some(i)))
+            .collect();
+        scrollable(column(rows).spacing(2).padding(4))
+            .height(Length::Fill)
+            .into()
+    };
+
+    let footer = text("Esc to dismiss · ↑/↓ to navigate · Enter to open").size(11);
 
     let body = column![
         text("Node Finder").size(13),
@@ -1175,6 +1569,64 @@ fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
         .on_blur(Message::NodeFinderCloseAndRestoreFocus)
         .max_width(640.0)
         .max_height(480.0)
+        .into()
+}
+
+/// One row in the Node Finder result list.
+///
+/// Layout: title (filling) + node-type chip on the right; address
+/// (smaller, dimmer) beneath the title. The match-source badge from
+/// the spec is folded into the type chip until styling tokens land.
+fn render_finder_row<'a>(
+    idx: usize,
+    result: &'a NodeFinderResult,
+    is_focused: bool,
+) -> Element<'a, Message> {
+    let title_el: Element<'a, Message> = text(result.title.as_str()).size(13).width(Length::Fill).into();
+    let header: Element<'a, Message> = row![
+        title_el,
+        text(result.node_type.as_str()).size(10),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center)
+    .into();
+
+    let body = column![header, text(result.address.as_str()).size(11)]
+        .spacing(2);
+
+    button(body)
+        .on_press(Message::NodeFinderResultSelected(idx))
+        .padding([6, 10])
+        .width(Length::Fill)
+        .style(move |theme: &iced::Theme, status| {
+            let pal = theme.palette();
+            let hovered = matches!(
+                status,
+                iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed
+            );
+            let bg = if is_focused {
+                Some(pal.primary.weak.color.into())
+            } else if hovered {
+                Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+            } else {
+                None
+            };
+            let text_color = if is_focused {
+                pal.primary.weak.text
+            } else {
+                pal.background.base.text
+            };
+            iced::widget::button::Style {
+                background: bg,
+                text_color,
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
         .into()
 }
 
@@ -1236,6 +1688,28 @@ fn is_escape_key(event: &iced::Event) -> bool {
         event,
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
             key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+            ..
+        })
+    )
+}
+
+/// Is this iced event an ArrowDown keypress?
+fn is_arrow_down_key(event: &iced::Event) -> bool {
+    matches!(
+        event,
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown),
+            ..
+        })
+    )
+}
+
+/// Is this iced event an ArrowUp keypress?
+fn is_arrow_up_key(event: &iced::Event) -> bool {
+    matches!(
+        event,
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp),
             ..
         })
     )
@@ -1876,11 +2350,18 @@ mod tests {
         });
         assert_eq!(app.host.toast_queue.len(), 0);
 
+        // Slice 7: row 0 of placeholder list is "Open Settings" — the
+        // toast carries the resolved label so this is also a smoke-test
+        // for the visible-list lookup path.
         let _ = app.update(Message::PaletteActionSelected(0));
 
         assert!(!app.command_palette.is_open);
         assert_eq!(app.host.toast_queue.len(), 1);
-        assert!(app.host.toast_queue[0].message.contains("palette action"));
+        assert!(
+            app.host.toast_queue[0].message.contains("Open Settings"),
+            "expected resolved label in toast, got: {}",
+            app.host.toast_queue[0].message,
+        );
     }
 
     #[test]
@@ -1909,5 +2390,200 @@ mod tests {
         let _ = app.update(Message::Tick);
 
         let _element = app.view();
+    }
+
+    // --- Modal data + nav tests (Slice 7) ---
+
+    #[test]
+    fn palette_starts_with_placeholder_actions() {
+        let runtime = GraphshellRuntime::for_testing();
+        let app = IcedApp::with_runtime(runtime);
+
+        assert!(
+            app.command_palette.all_actions.len() >= 4,
+            "default palette should carry placeholder action list",
+        );
+        assert!(
+            app.command_palette
+                .all_actions
+                .iter()
+                .any(|a| a.label == "Open Settings"),
+            "expected canonical placeholder action",
+        );
+    }
+
+    #[test]
+    fn palette_query_filters_visible_actions() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let total = app.command_palette.all_actions.len();
+
+        // No query → all actions visible.
+        assert_eq!(visible_palette_actions(&app.command_palette).len(), total);
+
+        // Substring match (case-insensitive).
+        let _ = app.update(Message::PaletteQuery("settings".into()));
+        let visible = visible_palette_actions(&app.command_palette);
+        assert!(visible.iter().all(|a| a.label.to_lowercase().contains("settings")));
+        assert!(!visible.is_empty(), "Settings is in the placeholder list");
+
+        // Reset query → all visible again.
+        let _ = app.update(Message::PaletteQuery(String::new()));
+        assert_eq!(visible_palette_actions(&app.command_palette).len(), total);
+    }
+
+    #[test]
+    fn palette_focus_down_advances_and_wraps() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        let total = visible_palette_actions(&app.command_palette).len();
+        assert!(total > 1, "need ≥2 placeholder rows for wrap test");
+
+        let _ = app.update(Message::PaletteFocusDown);
+        assert_eq!(app.command_palette.focused_index, Some(0));
+
+        for expected in 1..total {
+            let _ = app.update(Message::PaletteFocusDown);
+            assert_eq!(app.command_palette.focused_index, Some(expected));
+        }
+
+        // Wrap around.
+        let _ = app.update(Message::PaletteFocusDown);
+        assert_eq!(app.command_palette.focused_index, Some(0));
+    }
+
+    #[test]
+    fn palette_focus_up_from_none_wraps_to_last() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        let total = visible_palette_actions(&app.command_palette).len();
+        assert!(total > 0);
+
+        let _ = app.update(Message::PaletteFocusUp);
+        assert_eq!(app.command_palette.focused_index, Some(total - 1));
+    }
+
+    #[test]
+    fn palette_submit_focused_fires_focused_action() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        // Focus the second row.
+        let _ = app.update(Message::PaletteFocusDown);
+        let _ = app.update(Message::PaletteFocusDown);
+        assert_eq!(app.command_palette.focused_index, Some(1));
+
+        // Resolve PaletteSubmitFocused → PaletteActionSelected(1).
+        let _ = app.update(Message::PaletteSubmitFocused);
+        let _ = app.update(Message::PaletteActionSelected(1));
+
+        assert!(!app.command_palette.is_open, "selecting closes the palette");
+        assert_eq!(app.host.toast_queue.len(), 1);
+    }
+
+    #[test]
+    fn palette_disabled_action_select_is_noop() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        // Find the index of the disabled placeholder ("Tombstone Node").
+        let visible = visible_palette_actions(&app.command_palette);
+        let disabled_idx = visible
+            .iter()
+            .position(|a| !a.is_available)
+            .expect("placeholder list contains one disabled row");
+
+        let _ = app.update(Message::PaletteActionSelected(disabled_idx));
+
+        assert!(
+            app.command_palette.is_open,
+            "disabled selection must not close the palette",
+        );
+        assert!(app.host.toast_queue.is_empty());
+    }
+
+    #[test]
+    fn palette_query_reset_clears_focus() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteFocusDown);
+        assert_eq!(app.command_palette.focused_index, Some(0));
+
+        let _ = app.update(Message::PaletteQuery("newquery".into()));
+        assert!(
+            app.command_palette.focused_index.is_none(),
+            "query change must reset focus index — visible list shape changed",
+        );
+    }
+
+    #[test]
+    fn finder_focus_down_advances_and_wraps() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+
+        let total = visible_finder_results(&app.node_finder).len();
+        assert!(total > 1);
+
+        let _ = app.update(Message::NodeFinderFocusDown);
+        assert_eq!(app.node_finder.focused_index, Some(0));
+
+        for expected in 1..total {
+            let _ = app.update(Message::NodeFinderFocusDown);
+            assert_eq!(app.node_finder.focused_index, Some(expected));
+        }
+
+        let _ = app.update(Message::NodeFinderFocusDown);
+        assert_eq!(app.node_finder.focused_index, Some(0), "wrap to first row");
+    }
+
+    #[test]
+    fn finder_query_filters_by_title_or_address() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeFinderQuery("verso".into()));
+        let visible = visible_finder_results(&app.node_finder);
+        assert!(!visible.is_empty(), "verso:// addresses should match");
+        assert!(visible.iter().all(|r| {
+            r.title.to_lowercase().contains("verso") || r.address.to_lowercase().contains("verso")
+        }));
+    }
+
+    #[test]
+    fn finder_result_selected_toasts_address() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::NodeFinderResultSelected(0));
+
+        assert!(!app.node_finder.is_open);
+        assert_eq!(app.host.toast_queue.len(), 1);
+        let msg = &app.host.toast_queue[0].message;
+        // The first placeholder result is "Welcome to Graphshell".
+        assert!(msg.contains("Welcome to Graphshell"), "got: {msg}");
     }
 }
