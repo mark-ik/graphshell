@@ -11,17 +11,16 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 10 / Stage A+E)**: Slices 3-9 wired the host UI
-//! layer end-to-end and seeded the Command Palette from the canonical
-//! `ActionId` registry. Slice 10 adds `HostIntent::Action { action_id }`
-//! to `graphshell-core` and routes palette selection through it: the
-//! iced host pushes the intent onto `pending_host_intents`, ticks the
-//! runtime, and the runtime's `apply_host_intents` records the
-//! dispatch on `last_dispatched_action` / `dispatched_action_count`.
-//! Per-action runtime handlers (the ~2000-LOC dispatch table in
-//! `runtime/registries/action.rs`) are wired one-by-one in subsequent
-//! slices; the routing path is closed and tests observe the dispatch
-//! land in the runtime.
+//! **Scope (Slice 11 / Stage A+E)**: Slices 3-10 built the host UI
+//! and closed the palette dispatch loop end-to-end. Slice 11 swaps
+//! the Node Finder's placeholder result list for the live runtime
+//! graph: `NodeFinderOpen` and `OmnibarRouteToNodeFinder` populate
+//! `all_results` from `runtime.graph_app.domain_graph().nodes()`,
+//! mapping each node to a `NodeFinderResult` carrying a real
+//! `NodeKey`, title, URL, and a scheme-derived type chip. Selection
+//! still toasts the resolved title + URL; an `OpenNode` host intent
+//! is the next slice. The finder now reflects current graph truth
+//! every time it opens.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -364,20 +363,25 @@ pub(crate) enum MatchSource {
 /// One result row in the Node Finder. Host-side mirror of
 /// [`iced_node_finder_spec.md` §4](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md)'s
-/// `NodeFinderResult`. Slice 7 carries placeholder data; the runtime
-/// view-model owns the real list once `NodeFinderViewModel` is wired.
+/// `NodeFinderResult`.
+///
+/// Slice 11: `node_key` carries the canonical
+/// `graphshell_core::graph::NodeKey`; results are read live from
+/// `runtime.graph_app.domain_graph()` whenever the finder opens.
+/// Selection toasts the resolved title + URL; downstream slice will
+/// route to a real `OpenNode` host intent.
 #[derive(Debug, Clone)]
 pub(crate) struct NodeFinderResult {
-    /// Stable handle for selection routing. Slice 7: placeholder
-    /// index; downstream slice will carry a real `NodeKey`.
-    pub(crate) result_id: u32,
-    /// Node title (or address fallback).
+    /// Canonical node identity. Selection routing reads this directly.
+    pub(crate) node_key: graphshell_core::graph::NodeKey,
+    /// Node title (or address fallback when the title is empty).
     pub(crate) title: String,
     /// Canonical address (URL or `verso://...`).
     pub(crate) address: String,
-    /// Short type chip (Web, Tool, Internal, …).
+    /// Short type chip (Web / Internal / Other) derived from the
+    /// address scheme.
     pub(crate) node_type: String,
-    /// Where the query matched.
+    /// Where the query matched (Title / Address / Recency).
     pub(crate) match_source: MatchSource,
 }
 
@@ -404,49 +408,52 @@ impl Default for NodeFinderState {
             origin: NodeFinderOrigin::KeyboardShortcut,
             query: String::new(),
             focused_index: None,
-            all_results: placeholder_node_results(),
+            all_results: Vec::new(),
         }
     }
 }
 
-/// Slice 7 placeholder list. Replaced by `NodeFinderViewModel` output
-/// once the runtime exposes the recency aggregate + fuzzy-match index.
-fn placeholder_node_results() -> Vec<NodeFinderResult> {
-    vec![
-        NodeFinderResult {
-            result_id: 1,
-            title: "Welcome to Graphshell".into(),
-            address: "verso://welcome".into(),
-            node_type: "Internal".into(),
-            match_source: MatchSource::Recency,
-        },
-        NodeFinderResult {
-            result_id: 2,
-            title: "Settings".into(),
-            address: "verso://settings".into(),
-            node_type: "Tool".into(),
-            match_source: MatchSource::Recency,
-        },
-        NodeFinderResult {
-            result_id: 3,
-            title: "Example Domain".into(),
-            address: "https://example.com".into(),
-            node_type: "Web".into(),
-            match_source: MatchSource::Recency,
-        },
-        NodeFinderResult {
-            result_id: 4,
-            title: "Diagnostics".into(),
-            address: "verso://tool/diagnostics".into(),
-            node_type: "Tool".into(),
-            match_source: MatchSource::Recency,
-        },
-    ]
+/// Build the finder's result list from the runtime's current graph
+/// state. Called when the finder opens (or when the omnibar routes
+/// non-URL input here) so the result set always reflects current
+/// truth — the spec's "recency-ranked" empty-query default is
+/// approximated by graph-iteration order pending a real recency
+/// aggregate in `SUBSYSTEM_HISTORY`.
+fn build_finder_results(
+    graph_app: &crate::app::GraphBrowserApp,
+) -> Vec<NodeFinderResult> {
+    graph_app
+        .domain_graph()
+        .nodes()
+        .map(|(node_key, node)| {
+            let address = node.url().to_string();
+            let title = if node.title.is_empty() {
+                address.clone()
+            } else {
+                node.title.clone()
+            };
+            let node_type = if address.starts_with("verso:") {
+                "Internal".to_string()
+            } else if address.starts_with("http://") || address.starts_with("https://") {
+                "Web".to_string()
+            } else {
+                "Other".to_string()
+            };
+            NodeFinderResult {
+                node_key,
+                title,
+                address,
+                node_type,
+                match_source: MatchSource::Recency,
+            }
+        })
+        .collect()
 }
 
 /// Filter the finder's master list by query. Empty query → all rows
-/// (recency order, per spec). Substring match on title or address;
-/// runtime swap replaces this with fuzzy-match ranking.
+/// in recency order. Substring match on title or address; runtime
+/// swap replaces this with fuzzy-match ranking when
+/// `NodeFinderViewModel` lands.
 fn visible_finder_results(state: &NodeFinderState) -> Vec<&NodeFinderResult> {
     if state.query.is_empty() {
         state.all_results.iter().collect()
@@ -897,7 +904,10 @@ impl IcedApp {
             Message::OmnibarRouteToNodeFinder(query) => {
                 self.omnibar.draft.clear();
                 self.omnibar.mode = OmnibarMode::Display;
-                // Open the Node Finder pre-seeded with the routed query.
+                // Open the Node Finder pre-seeded with the routed query
+                // and refreshed result list from the live graph.
+                self.node_finder.all_results =
+                    build_finder_results(&self.host.runtime.graph_app);
                 self.node_finder.is_open = true;
                 self.node_finder.origin = NodeFinderOrigin::OmnibarRoute(query.clone());
                 self.node_finder.query = query;
@@ -1041,8 +1051,12 @@ impl IcedApp {
             // --- Node Finder handlers ---
 
             Message::NodeFinderOpen { origin } => {
-                // Mutually exclusive with the command palette.
+                // Mutually exclusive with the command palette. Refresh
+                // the result list from the live graph so the finder
+                // always reflects current truth.
                 self.command_palette.is_open = false;
+                self.node_finder.all_results =
+                    build_finder_results(&self.host.runtime.graph_app);
                 self.node_finder.is_open = true;
                 self.node_finder.origin = origin;
                 self.node_finder.query.clear();
@@ -2785,16 +2799,34 @@ mod tests {
         );
     }
 
+    /// Seed the runtime with `count` nodes via the same OmnibarSubmit
+    /// path the real UI uses, returning the URL strings so the test
+    /// can assert on them.
+    fn seed_test_nodes(app: &mut IcedApp, count: usize) -> Vec<String> {
+        let mut urls = Vec::with_capacity(count);
+        for i in 0..count {
+            let url = format!("https://example{i}.test/");
+            let _ = app.update(Message::OmnibarInput(url.clone()));
+            let _ = app.update(Message::OmnibarSubmit);
+            urls.push(url);
+        }
+        urls
+    }
+
     #[test]
     fn finder_focus_down_advances_and_wraps() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
+
+        // Seed at least 2 nodes so wrap behaviour is observable.
+        seed_test_nodes(&mut app, 3);
+
         let _ = app.update(Message::NodeFinderOpen {
             origin: NodeFinderOrigin::KeyboardShortcut,
         });
 
         let total = visible_finder_results(&app.node_finder).len();
-        assert!(total > 1);
+        assert!(total > 1, "seeded ≥3 nodes; finder should reflect them");
 
         let _ = app.update(Message::NodeFinderFocusDown);
         assert_eq!(app.node_finder.focused_index, Some(0));
@@ -2813,18 +2845,33 @@ mod tests {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
 
-        let _ = app.update(Message::NodeFinderQuery("verso".into()));
+        seed_test_nodes(&mut app, 3); // example0 / example1 / example2
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::NodeFinderQuery("example1".into()));
+
         let visible = visible_finder_results(&app.node_finder);
-        assert!(!visible.is_empty(), "verso:// addresses should match");
-        assert!(visible.iter().all(|r| {
-            r.title.to_lowercase().contains("verso") || r.address.to_lowercase().contains("verso")
-        }));
+        assert!(!visible.is_empty(), "exactly one URL contains 'example1'");
+        assert!(
+            visible.iter().all(|r| {
+                r.title.to_lowercase().contains("example1")
+                    || r.address.to_lowercase().contains("example1")
+            }),
+            "filtered set must satisfy the query",
+        );
     }
 
     #[test]
-    fn finder_result_selected_toasts_address() {
+    fn finder_result_selected_toasts_resolved_url() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
+
+        let urls = seed_test_nodes(&mut app, 1);
+        // OmnibarSubmit pushes its own success toast — drain so this
+        // test only observes the finder's toast.
+        app.host.toast_queue.clear();
 
         let _ = app.update(Message::NodeFinderOpen {
             origin: NodeFinderOrigin::KeyboardShortcut,
@@ -2834,8 +2881,51 @@ mod tests {
         assert!(!app.node_finder.is_open);
         assert_eq!(app.host.toast_queue.len(), 1);
         let msg = &app.host.toast_queue[0].message;
-        // The first placeholder result is "Welcome to Graphshell".
-        assert!(msg.contains("Welcome to Graphshell"), "got: {msg}");
+        assert!(
+            msg.contains(&urls[0]),
+            "toast should carry the resolved URL ({}); got: {msg}",
+            urls[0],
+        );
+    }
+
+    #[test]
+    fn finder_seeded_from_runtime_graph_on_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Finder default is empty until opened — Slice 11 reads from
+        // the live graph at open time rather than caching placeholders.
+        assert!(app.node_finder.all_results.is_empty());
+
+        seed_test_nodes(&mut app, 2);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+
+        let nodes_in_graph = app.host.runtime.graph_app.domain_graph().nodes().count();
+        assert_eq!(
+            app.node_finder.all_results.len(),
+            nodes_in_graph,
+            "every node in the graph maps to one finder row",
+        );
+    }
+
+    #[test]
+    fn omnibar_route_to_finder_seeds_real_results() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        seed_test_nodes(&mut app, 2);
+
+        // Non-URL omnibar submit routes the query to the Node Finder
+        // and populates results from the live graph.
+        let _ = app.update(Message::OmnibarRouteToNodeFinder("ex".into()));
+
+        assert!(app.node_finder.is_open);
+        assert_eq!(app.node_finder.query, "ex");
+        let visible = visible_finder_results(&app.node_finder);
+        assert!(!visible.is_empty(), "seeded URLs match 'ex' substring");
     }
 
     // --- Context menu tests (Slice 8) ---
