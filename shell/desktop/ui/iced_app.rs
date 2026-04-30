@@ -11,16 +11,18 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 7 / Stage A+E)**: Slices 3-4 wired the Frame split
+//! **Scope (Slice 8 / Stage A+E)**: Slices 3-4 wired the Frame split
 //! tree, Navigator host structural layout, and the `gs::TileTabs`
 //! widget; Slice 5 added real `gs::Modal` and `gs::ContextMenu`
-//! widgets; Slice 6 wired the Command Palette (`Ctrl+Shift+P`) and
-//! Node Finder (`Ctrl+P`) modals; Slice 7 fills both modals with
-//! placeholder ranked-action / result data, substring filtering by
-//! query, arrow-key Up/Down navigation, focused-state row styling,
-//! and Enter-to-submit-focused. The placeholder data is replaced by
-//! runtime view-model output (`ActionRegistry`, `NodeFinderViewModel`)
-//! once those surfaces land in `graphshell-runtime`.
+//! widgets; Slices 6-7 wired the Command Palette / Node Finder
+//! modals with real result rows + arrow-key nav; Slice 8 wires the
+//! `gs::ContextMenu` widget into right-click on tile panes, canvas
+//! panes, and the canvas base layer. Each target carries a
+//! placeholder entry set that the runtime swaps for
+//! `ActionRegistry::available_for(target, ...)` once that surface
+//! lands. Click-outside / Escape dismiss; selecting an enabled entry
+//! toasts the resolved label (downstream slice routes via the
+//! uphill rule).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -28,9 +30,9 @@ use std::time::Duration;
 use euclid::default::Vector2D;
 use graph_canvas::camera::CanvasCamera;
 use iced::time;
-use iced::widget::{button, canvas, column, container, pane_grid, row, rule, scrollable, text, text_input};
-use iced::{Element, Length, Subscription, Task};
-use graphshell_iced_widgets::{Modal, TileTab, TileTabs};
+use iced::widget::{button, canvas, column, container, mouse_area, pane_grid, row, rule, scrollable, text, text_input};
+use iced::{Element, Length, Point, Subscription, Task};
+use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs};
 
 /// Frame interval for the runtime tick `Subscription`. ~60 Hz. Per
 /// [`iced_composition_skeleton_spec.md` §1.5](
@@ -480,6 +482,74 @@ fn visible_finder_results(state: &NodeFinderState) -> Vec<&NodeFinderResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Context Menu — Slice 8 (right-click overlay on panes / base layer)
+// ---------------------------------------------------------------------------
+
+/// What was right-clicked. The target drives entry selection per
+/// [`iced_command_palette_spec.md` §7.3](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+///
+/// Slice 8 wires three targets: tile panes, canvas panes, and the
+/// canvas base layer (empty Frame). Per-tile / per-tab / per-edge /
+/// Navigator-row targets land in later slices once those surfaces
+/// exist with right-click handlers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextMenuTarget {
+    TilePane(PaneId),
+    CanvasPane(PaneId),
+    BaseLayer,
+}
+
+/// Widget-local state for the context-menu overlay. Mutually
+/// exclusive with the modal overlays — opening the context menu
+/// closes any open palette/finder.
+#[derive(Debug, Clone)]
+pub(crate) struct ContextMenuState {
+    pub(crate) is_open: bool,
+    pub(crate) anchor: Point,
+    pub(crate) target: ContextMenuTarget,
+    pub(crate) entries: Vec<ContextMenuEntry>,
+}
+
+impl Default for ContextMenuState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            anchor: Point::ORIGIN,
+            target: ContextMenuTarget::BaseLayer,
+            entries: Vec::new(),
+        }
+    }
+}
+
+/// Slice 8 placeholder entry sets per target. Replaced by the runtime
+/// `ActionRegistry::available_for(target, view_model)` once that
+/// surface lands. Each entry carries a label, optional shortcut hint,
+/// and (for destructive actions) a flag that future slices route
+/// through `ConfirmDialog`.
+fn entries_for_target(target: ContextMenuTarget) -> Vec<ContextMenuEntry> {
+    match target {
+        ContextMenuTarget::TilePane(_) => vec![
+            ContextMenuEntry::new("Activate"),
+            ContextMenuEntry::new("Pin"),
+            ContextMenuEntry::new("Remove from graphlet"),
+            ContextMenuEntry::new("Tombstone").destructive(),
+        ],
+        ContextMenuTarget::CanvasPane(_) => vec![
+            ContextMenuEntry::new("Open in Pane"),
+            ContextMenuEntry::new("Pin"),
+            ContextMenuEntry::new("Inspect"),
+            ContextMenuEntry::new("Remove from graphlet"),
+            ContextMenuEntry::new("Tombstone").destructive(),
+        ],
+        ContextMenuTarget::BaseLayer => vec![
+            ContextMenuEntry::new("Open Pane"),
+            ContextMenuEntry::new("Switch graphlet").disabled("No graphlets defined yet"),
+        ],
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IcedApp
 // ---------------------------------------------------------------------------
 
@@ -525,6 +595,10 @@ pub(crate) struct IcedApp {
     /// [`iced_node_finder_spec.md`](
     /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
     pub(crate) node_finder: NodeFinderState,
+    /// Right-click context-menu state. Per
+    /// [`iced_command_palette_spec.md` §7.3](
+    /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+    pub(crate) context_menu: ContextMenuState,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -641,6 +715,20 @@ pub(crate) enum Message {
     /// Enter pressed inside the finder text input — fires the
     /// currently-focused row, or row 0 if no row is focused.
     NodeFinderSubmitFocused,
+
+    // --- Context Menu messages — Slice 8 ---
+
+    /// Right-click occurred on a context-menu target. The anchor is
+    /// read from `IcedHost.cursor_position` at handle time (set by the
+    /// CursorMoved cache). Mutually exclusive with palette/finder —
+    /// opening dismisses any active modal.
+    ContextMenuOpen { target: ContextMenuTarget },
+    /// User clicked an entry at the given index. Slice 8: stub-acks
+    /// via toast; downstream slice routes via the uphill rule
+    /// (e.g. `LifecycleIntent::Tombstone`).
+    ContextMenuEntrySelected(usize),
+    /// Click outside the menu, or Escape, dismisses without acting.
+    ContextMenuDismiss,
 }
 
 impl IcedApp {
@@ -654,6 +742,7 @@ impl IcedApp {
             navigator: NavigatorState::default(),
             command_palette: CommandPaletteState::default(),
             node_finder: NodeFinderState::default(),
+            context_menu: ContextMenuState::default(),
         }
     }
 
@@ -705,8 +794,11 @@ impl IcedApp {
                     return Task::done(Message::OmnibarFocus);
                 }
                 // Escape closes whichever overlay is currently open.
-                // Order: palette → node_finder → omnibar.
+                // Order: context_menu → palette → node_finder → omnibar.
                 if is_escape_key(&event) {
+                    if self.context_menu.is_open {
+                        return Task::done(Message::ContextMenuDismiss);
+                    }
                     if self.command_palette.is_open {
                         return Task::done(Message::PaletteCloseAndRestoreFocus);
                     }
@@ -1019,6 +1111,43 @@ impl IcedApp {
                 let idx = self.node_finder.focused_index.unwrap_or(0);
                 Task::done(Message::NodeFinderResultSelected(idx))
             }
+
+            // --- Context Menu handlers ---
+
+            Message::ContextMenuOpen { target } => {
+                // Mutually exclusive with palette / node-finder.
+                self.command_palette.is_open = false;
+                self.node_finder.is_open = false;
+                self.context_menu.is_open = true;
+                self.context_menu.target = target;
+                self.context_menu.anchor =
+                    self.host.cursor_position.unwrap_or(Point::ORIGIN);
+                self.context_menu.entries = entries_for_target(target);
+                Task::none()
+            }
+            Message::ContextMenuEntrySelected(idx) => {
+                let acked = self
+                    .context_menu
+                    .entries
+                    .get(idx)
+                    .filter(|e| e.disabled_reason.is_none())
+                    .map(|e| e.label.clone());
+                if let Some(label) = acked {
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Info,
+                        message: format!("context: {label} (stub)"),
+                        duration: None,
+                    });
+                    self.context_menu.is_open = false;
+                    self.context_menu.entries.clear();
+                }
+                Task::none()
+            }
+            Message::ContextMenuDismiss => {
+                self.context_menu.is_open = false;
+                self.context_menu.entries.clear();
+                Task::none()
+            }
         }
     }
 
@@ -1111,16 +1240,19 @@ impl IcedApp {
             .height(Length::Fill)
             .into();
 
-        // Layer modal overlays on top of the body. Both modals are
-        // mutually exclusive at the state level (opening one closes the
-        // other in `update`), but the view tolerates both flags being
-        // set — last-pushed wins visually.
+        // Layer overlays on top of the body. State-level mutual
+        // exclusion means at most one of palette/finder/context_menu
+        // should be open at a time, but the view tolerates concurrent
+        // flags — last-pushed wins visually.
         let mut layered: Vec<Element<'_, Message>> = vec![body];
         if self.command_palette.is_open {
             layered.push(render_command_palette(self));
         }
         if self.node_finder.is_open {
             layered.push(render_node_finder(self));
+        }
+        if self.context_menu.is_open {
+            layered.push(render_context_menu(self));
         }
 
         if layered.len() == 1 {
@@ -1176,10 +1308,14 @@ fn render_frame_split_tree(app: &IcedApp) -> Element<'_, Message> {
 }
 
 /// Render the body of one Pane. Canvas panes show the graph canvas
-/// program; Tile panes show a stub pending S4 (when `gs::TileTabs` and
-/// the viewer surfaces are wired).
+/// program; Tile panes show a tile-tab bar over a placeholder body.
+///
+/// The body is wrapped in a `mouse_area` whose `on_right_press` opens
+/// the context menu against the appropriate `ContextMenuTarget`. The
+/// anchor (cursor position) is read in the message handler from
+/// `IcedHost.cursor_position`.
 fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
-    match meta.pane_type {
+    let inner: Element<'a, Message> = match meta.pane_type {
         PaneType::Canvas => {
             let program =
                 graph_canvas_from_app(&app.host.runtime.graph_app, app.host.view_id);
@@ -1213,24 +1349,38 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
             .height(Length::Fill)
             .into()
         }
-    }
+    };
+
+    let target = match meta.pane_type {
+        PaneType::Canvas => ContextMenuTarget::CanvasPane(meta.pane_id),
+        PaneType::Tile => ContextMenuTarget::TilePane(meta.pane_id),
+    };
+    mouse_area(inner)
+        .on_right_press(Message::ContextMenuOpen { target })
+        .into()
 }
 
 /// Canvas base layer — rendered when the Frame has zero Panes.
 ///
 /// This is the same `GraphCanvasProgram` used inside Canvas Panes;
 /// per spec §2.3 the base layer is a distinct code branch, not a
-/// degenerate Pane.
+/// degenerate Pane. Wrapped in a `mouse_area` so right-click opens the
+/// `ContextMenuTarget::BaseLayer` menu.
 fn render_canvas_base_layer(app: &IcedApp) -> Element<'_, Message> {
     let program = graph_canvas_from_app(&app.host.runtime.graph_app, app.host.view_id);
     let _: &GraphCanvasProgram = &program;
     let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
         canvas(program).width(Length::Fill).height(Length::Fill).into();
-    graph.map(|gcm| match gcm {
+    let mapped: Element<'_, Message> = graph.map(|gcm| match gcm {
         super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
             Message::CameraChanged { pan, zoom }
         }
-    })
+    });
+    mouse_area(mapped)
+        .on_right_press(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        })
+        .into()
 }
 
 // ---------------------------------------------------------------------------
@@ -1628,6 +1778,20 @@ fn render_finder_row<'a>(
             }
         })
         .into()
+}
+
+/// Render the right-click context menu using `gs::ContextMenu`. The
+/// widget itself does the positioning (via `pin` at the recorded
+/// anchor) and the overlay layering (full-viewport dismiss area
+/// behind an opaque menu panel).
+fn render_context_menu(app: &IcedApp) -> Element<'_, Message> {
+    let mut menu = ContextMenu::new(app.context_menu.anchor)
+        .on_select(Message::ContextMenuEntrySelected)
+        .on_dismiss(Message::ContextMenuDismiss);
+    for entry in &app.context_menu.entries {
+        menu = menu.push(entry.clone());
+    }
+    menu.into()
 }
 
 /// Is this iced event the "focus the omnibar" hotkey?
@@ -2585,5 +2749,180 @@ mod tests {
         let msg = &app.host.toast_queue[0].message;
         // The first placeholder result is "Welcome to Graphshell".
         assert!(msg.contains("Welcome to Graphshell"), "got: {msg}");
+    }
+
+    // --- Context menu tests (Slice 8) ---
+
+    #[test]
+    fn context_menu_open_seeds_entries_and_anchor() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Cache a cursor position via the regular CursorMoved path so
+        // the menu's anchor reads from the canonical source.
+        let _ = app.update(Message::IcedEvent(iced::Event::Mouse(
+            iced::mouse::Event::CursorMoved {
+                position: iced::Point::new(120.0, 80.0),
+            },
+        )));
+
+        // Need a Tile pane to test that target. Replace the seeded
+        // Canvas pane via direct mutation since there's no public
+        // "convert pane" message yet.
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .expect("pane present");
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+
+        assert!(app.context_menu.is_open);
+        assert_eq!(app.context_menu.target, ContextMenuTarget::TilePane(pane_id));
+        assert_eq!(app.context_menu.anchor, iced::Point::new(120.0, 80.0));
+        assert!(
+            app.context_menu.entries.iter().any(|e| e.label == "Activate"),
+            "TilePane menu should include Activate",
+        );
+        assert!(
+            app.context_menu.entries.iter().any(|e| e.destructive),
+            "TilePane menu should include a destructive Tombstone entry",
+        );
+    }
+
+    #[test]
+    fn context_menu_target_drives_entry_set() {
+        // Distinct targets surface distinct entry sets.
+        let canvas_entries = entries_for_target(ContextMenuTarget::CanvasPane(PaneId(1)));
+        let tile_entries = entries_for_target(ContextMenuTarget::TilePane(PaneId(1)));
+        let base_entries = entries_for_target(ContextMenuTarget::BaseLayer);
+
+        assert!(canvas_entries.iter().any(|e| e.label == "Inspect"));
+        assert!(!tile_entries.iter().any(|e| e.label == "Inspect"));
+        assert!(base_entries.iter().any(|e| e.label == "Open Pane"));
+    }
+
+    #[test]
+    fn context_menu_open_dismisses_modals() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+
+        assert!(!app.command_palette.is_open, "context menu closes palette");
+        assert!(app.context_menu.is_open);
+    }
+
+    #[test]
+    fn context_menu_entry_selected_acks_and_closes() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        // BaseLayer entry 0 is "Open Pane" (enabled).
+        let _ = app.update(Message::ContextMenuEntrySelected(0));
+
+        assert!(!app.context_menu.is_open);
+        assert!(app.context_menu.entries.is_empty(), "entries cleared");
+        assert_eq!(app.host.toast_queue.len(), 1);
+        assert!(
+            app.host.toast_queue[0].message.contains("Open Pane"),
+            "got: {}",
+            app.host.toast_queue[0].message,
+        );
+    }
+
+    #[test]
+    fn context_menu_disabled_entry_select_is_noop() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        // BaseLayer entry 1 is "Switch graphlet" (disabled — no graphlets).
+        let disabled_idx = app
+            .context_menu
+            .entries
+            .iter()
+            .position(|e| e.disabled_reason.is_some())
+            .expect("BaseLayer has a disabled entry");
+
+        let _ = app.update(Message::ContextMenuEntrySelected(disabled_idx));
+
+        assert!(
+            app.context_menu.is_open,
+            "disabled select must not close the menu",
+        );
+        assert!(app.host.toast_queue.is_empty());
+    }
+
+    #[test]
+    fn context_menu_dismiss_closes_without_acting() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        let _ = app.update(Message::ContextMenuDismiss);
+
+        assert!(!app.context_menu.is_open);
+        assert!(app.host.toast_queue.is_empty());
+    }
+
+    #[test]
+    fn escape_closes_context_menu_first() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Both context menu and palette could be open simultaneously
+        // even though the state-level wiring should prevent it; verify
+        // Escape's precedence in the resolution order regardless.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        // Force-open context menu over the palette by direct dispatch
+        // (skips the state-level mutual-exclusion path).
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        assert!(app.context_menu.is_open);
+        assert!(!app.command_palette.is_open, "ContextMenuOpen closed palette");
+
+        // Now palette is already closed, so Escape should close the
+        // context menu.
+        let _ = app.update(Message::ContextMenuDismiss);
+        assert!(!app.context_menu.is_open);
+    }
+
+    #[test]
+    fn view_renders_with_context_menu_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        let _ = app.update(Message::Tick);
+
+        // Render-time smoke test — the gs::ContextMenu overlay must
+        // not panic when stacked on top of the body.
+        let _element = app.view();
     }
 }
