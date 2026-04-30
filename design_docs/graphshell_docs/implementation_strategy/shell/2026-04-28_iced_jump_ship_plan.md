@@ -903,9 +903,15 @@ Checklist:
   edge derives the split axis (Zed / VSCode pattern). No "Split
   horizontal" / "Split vertical" toolbar actions, ever. See
   [`iced_composition_skeleton_spec.md` §3.1](iced_composition_skeleton_spec.md).
-- [ ] Specify the omnibar shape for iced: Shell-owned input/dispatch,
-  Navigator-owned breadcrumb projection, both rendered through the
-  same iced widget per [SHELL.md §6](SHELL.md)
+- [x] **Specify the omnibar shape for iced** — landed 2026-04-29 as
+  [`iced_omnibar_spec.md`](iced_omnibar_spec.md). Covers three modes
+  (Display / Input / Fullscreen), widget tree, `OmnibarSession` state
+  shape, Message contract, update routing including
+  `CommandBarFocusTarget`-scoped submission, provider-mailbox
+  Subscription, IME and AccessKit (Stage E), focus dance with the
+  command palette, and the omnibar coherence guarantee restated. Reuses
+  the landed seams (`NavigatorContextProjection`, `BreadcrumbPath`,
+  `CommandBarFocusTarget`, `HostRequestMailbox`) — does not redefine.
 - [ ] Specify command palette behavior in iced terms (the
   `command_palette_state` portable state already exists; this is
   rendering only)
