@@ -86,6 +86,30 @@ which UI framework realizes the surfaces.
   structure, arrangement, and durable state never do. See
   `navigator/NAVIGATOR.md §4`.
 
+## Settings and Permissions Spine
+
+Added 2026-04-30. Five-scope hierarchy for layered settings and permission
+grants: **default → persona → graph → view/tile → pane**. Reads walk
+narrowest-to-broadest; writes target an explicit scope; permissions narrow
+but never widen across scopes. Canonical spec:
+`graphshell_docs/implementation_strategy/aspect_control/settings_and_permissions_spine_spec.md`.
+
+* **Persona** (added 2026-04-30): The top-level user-identity scope above
+  graph. A persona owns 1..N graphs, plus identity material (Verse / Nostr
+  / Matrix keys), persona-default theme, keybindings, and permissions.
+  Supersedes the egui-era "Profile" concept (which was one-graph-per-profile);
+  the new model decouples user-identity from graph and admits multi-graph
+  personas. Per-persona settings live under
+  `{config_dir}/graphshell/personas/{persona_id}/settings/` in a
+  `cosmic-config`-shape layered key-value store.
+* **Settings Scope** (added 2026-04-30): One of `default | persona | graph |
+  view/tile | pane`. The active scope path for a surface determines how
+  setting reads resolve. Each scope has a canonical persistence backing
+  per the spine spec.
+* **Intent Idempotence + Replay Contract**: see Data Model §Intent for the
+  canonical statement; settings writes satisfy this contract for crash
+  recovery and sync.
+
 ## Tile Tree Architecture
 
 The layout system is the per-Workbench arrangement of **Panes** within a Frame slot. A Pane is a spatial leaf in a Frame's split tree (Shell-owned per [SHELL.md §3](graphshell_docs/implementation_strategy/shell/SHELL.md)); each Pane shows graph nodes (active tiles of a graphlet, or a canvas instance of the graph). Not every visible surface is a tile — toolbars, omnibar, and tool panes are not tiles.
