@@ -11,14 +11,14 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 3 / Stage B)**: the Frame split tree is now wired.
-//! `IcedApp` carries a [`FrameState`] whose `pane_grid::State<PaneMeta>`
-//! is the split-tree authority per
-//! [`iced_composition_skeleton_spec.md` §3](
-//! ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md).
-//! The `FrameSplitTree` slot renders `pane_grid` when Panes exist, or
-//! the canvas base layer when the Frame is empty (per spec §2.3).
-//! Drag, resize, and close events are all wired.
+//! **Scope (Slice 5 / Stage B+)**: Slice 3 wired the Frame split tree;
+//! Slice 4 added Navigator host structural layout and the real
+//! `gs::TileTabs` widget; Slice 5 completes the widget layer with the
+//! real `gs::Modal` and `gs::ContextMenu` widgets in
+//! `graphshell-iced-widgets`. Both are materialised via `From` impls
+//! over `stack` + `mouse_area` / `pin` + `opaque` — no raw `Widget`
+//! trait impl needed. The next slice (S4 / Navigator data plumbing)
+//! wires real graphlet projections into the tile pane and Navigator hosts.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

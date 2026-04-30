@@ -20,13 +20,16 @@
 //! gs::ContextMenu::new()...
 //! ```
 //!
-//! ## Slice 1 status (foundation-laying)
+//! ## Slice status
 //!
-//! These types are **scaffolding only**: signatures and constructors
-//! exist so downstream specs and host code can reference the names,
-//! but the actual `Widget` impls are deferred to the S4 sub-slice
-//! that materializes each surface (per the iced jump-ship plan).
-//! Each module carries a `// TODO(S4):` marker for the impl work.
+//! - **`TileTabs` / `TileTab`** (Slice 4): real widget, materialised via
+//!   `From<TileTabs<Message>> for Element<'_, Message>`.
+//! - **`Modal`** (Slice 5): real widget, materialised via
+//!   `From<Modal<'_, Message>> for Element<'_, Message>` — composes
+//!   `stack`, `mouse_area`, and `opaque`.
+//! - **`ContextMenu`** (Slice 5): real widget, materialised via
+//!   `From<ContextMenu<Message>> for Element<'_, Message>` — composes
+//!   `stack`, `pin`, and `opaque`.
 //!
 //! ## Naming
 //!

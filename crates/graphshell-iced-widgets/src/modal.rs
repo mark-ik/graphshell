@@ -14,19 +14,19 @@
 //!   [`iced_composition_skeleton_spec.md` §6.2](
 //!   ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md)).
 //!
-//! Slice 1 scope: signature-only scaffolding. The `Widget` impl is
-//! deferred to the S4 sub-slice that materializes the first consuming
-//! surface (Command Palette is the natural first).
+//! Slice 5 scope: materialised via `From<Modal<'_, Message>> for
+//! iced::Element<'_, Message>` — composes native iced widgets (stack,
+//! mouse_area, container, opaque) so no raw Widget trait impl is needed.
+//! Event routing: `mouse_area` on the scrim fires `on_blur`; `opaque`
+//! on the card blocks events from passing through to the scrim.
 
-use iced::Element;
+use iced::widget::container;
+use iced::widget::mouse_area;
+use iced::{Border, Color, Element, Length, Shadow, Vector};
 
 /// Modal overlay around a content `Element`. Renders the content
 /// centered above a translucent scrim; clicking the scrim emits the
 /// `on_blur` message if configured.
-///
-/// Slice 1: builder shape only. The `Widget` impl in S4 will read
-/// every field below, so the lints are pre-silenced rather than
-/// flagged as dead code today.
 #[allow(dead_code)]
 pub struct Modal<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
     pub(crate) content: Element<'a, Message, Theme, Renderer>,
@@ -56,13 +56,13 @@ where
         self
     }
 
-    /// Cap the modal card's width.
+    /// Cap the modal card's width in pixels.
     pub fn max_width(mut self, width: f32) -> Self {
         self.max_width = Some(width);
         self
     }
 
-    /// Cap the modal card's height.
+    /// Cap the modal card's height in pixels.
     pub fn max_height(mut self, height: f32) -> Self {
         self.max_height = Some(height);
         self
@@ -80,11 +80,84 @@ where
     Modal::new(content)
 }
 
-// TODO(S4): impl iced::widget::Widget<Message, Theme, Renderer> for Modal,
-// plus From<Modal<...>> for Element<...>. The Widget impl owns:
-//   - layout: full-bounds scrim + centered card with bounded size
-//   - draw: scrim color from theme, card background, drop shadow
-//   - on_event: pointer events on the scrim → on_blur; events on the
-//     card route to inner content
-//   - operate: focus trap inside the card; restore on close
-// Reference shape: iced::widget::Container + iced::overlay layering.
+/// Materialises a [`Modal`] into an iced `Element`.
+///
+/// Layout (bottom to top via [`iced::widget::stack`]):
+///
+/// 1. **Scrim**: full-viewport semi-transparent `container` wrapped in
+///    a `mouse_area` that fires `on_blur` on left-press. If `on_blur`
+///    is `None`, the scrim still renders but does not emit messages.
+/// 2. **Card**: the content wrapped in a styled `container` (rounded
+///    corners, drop shadow, opaque background), then wrapped in
+///    `iced::widget::opaque` so pointer events on the card do not
+///    fall through to the scrim's `mouse_area`, then centered via an
+///    outer `container`.
+///
+/// `max_width` / `max_height` constrain the card size. Without them
+/// the card shrinks to fit its content.
+impl<'a, Message: Clone + 'a> From<Modal<'a, Message>> for Element<'a, Message> {
+    fn from(widget: Modal<'a, Message>) -> Self {
+        let Modal { content, on_blur, max_width, max_height } = widget;
+
+        // ── Scrim ──────────────────────────────────────────────────────
+        // Full-viewport translucent overlay. The inner space fills all
+        // available room so the scrim/mouse_area also fills.
+        let scrim_inner: Element<'a, Message> = container(
+            iced::widget::space().width(Length::Fill).height(Length::Fill),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|_: &iced::Theme| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.5).into()),
+            ..Default::default()
+        })
+        .into();
+
+        let scrim: Element<'a, Message> = if let Some(msg) = on_blur {
+            mouse_area(scrim_inner).on_press(msg).into()
+        } else {
+            scrim_inner
+        };
+
+        // ── Card ───────────────────────────────────────────────────────
+        // Styled panel wrapping the caller's content. `opaque` ensures
+        // clicks inside the card do not propagate to the scrim layer.
+        let mut card_inner = container(content)
+            .padding(16)
+            .style(|theme: &iced::Theme| {
+                let pal = theme.palette();
+                container::Style {
+                    background: Some(pal.background.base.color.into()),
+                    border: Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                        offset: Vector::new(0.0, 4.0),
+                        blur_radius: 16.0,
+                    },
+                    ..Default::default()
+                }
+            });
+        if let Some(w) = max_width {
+            card_inner = card_inner.max_width(w);
+        }
+        if let Some(h) = max_height {
+            card_inner = card_inner.max_height(h);
+        }
+
+        // Centered outer container: fills all space and centers the
+        // (opaque-wrapped) card within it.
+        let card: Element<'a, Message> =
+            container(iced::widget::opaque(card_inner))
+                .center(Length::Fill)
+                .into();
+
+        // ── Stack ──────────────────────────────────────────────────────
+        iced::widget::stack![scrim, card]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+}
