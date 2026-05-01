@@ -398,6 +398,11 @@ pub(crate) struct GraphshellRuntime {
     /// so tests can distinguish "no open intent yet" from "open
     /// intent fired but the node was already focused".
     pub(crate) opened_node_count: u64,
+    /// UX observability sink. Hosts emit `UxEvent`s here whenever
+    /// chrome surfaces transition or intents dispatch. Per
+    /// `graphshell_core::ux_observability` (Slice 23) — portable
+    /// taxonomy + trait so future hosts plug in identically.
+    pub(crate) ux_observers: graphshell_core::ux_observability::UxObservers,
 }
 
 impl GraphshellRuntime {
@@ -469,9 +474,24 @@ impl GraphshellRuntime {
                     // dispatch arm Action uses.
                     self.focused_node_hint = Some(*node_key);
                     self.dispatch_action(*action_id);
+                    // Slice 23: surface the dispatch with the resolved
+                    // target so observers can correlate action +
+                    // affected node.
+                    self.ux_observers.emit(
+                        graphshell_core::ux_observability::UxEvent::ActionDispatched {
+                            action_id: *action_id,
+                            target: Some(*node_key),
+                        },
+                    );
                 }
                 HostIntent::Action { action_id } => {
                     self.dispatch_action(*action_id);
+                    self.ux_observers.emit(
+                        graphshell_core::ux_observability::UxEvent::ActionDispatched {
+                            action_id: *action_id,
+                            target: None,
+                        },
+                    );
                 }
                 HostIntent::OpenNode { node_key } => {
                     // Slice 12: promote the node to focused state. The
@@ -488,6 +508,11 @@ impl GraphshellRuntime {
                     self.focused_node_hint = Some(*node_key);
                     self.opened_node_count =
                         self.opened_node_count.saturating_add(1);
+                    self.ux_observers.emit(
+                        graphshell_core::ux_observability::UxEvent::OpenNodeDispatched {
+                            node_key: *node_key,
+                        },
+                    );
                 }
             }
         }
@@ -965,6 +990,7 @@ impl GraphshellRuntime {
             last_dispatched_action: None,
             dispatched_action_count: 0,
             opened_node_count: 0,
+            ux_observers: graphshell_core::ux_observability::UxObservers::new(),
         }
     }
 

@@ -478,6 +478,7 @@ impl EguiHost {
             last_dispatched_action: None,
             dispatched_action_count: 0,
             opened_node_count: 0,
+            ux_observers: graphshell_core::ux_observability::UxObservers::new(),
         };
 
         let mut gui = Self {

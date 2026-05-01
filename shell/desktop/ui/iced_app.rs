@@ -11,19 +11,22 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 22 / Stage A+E)**: Slices 19-21 brought up the
-//! StatusBar, wired Tree Spine to live GraphTree data, and added
-//! per-tab right-click capture. Slice 22 extends the per-action
-//! dispatch table with two more handlers — `NodePinToggle` (routes
-//! to `GraphIntent::TogglePrimaryNodePin` via `apply_reducer_intents`)
-//! and `NodeMarkTombstone` (calls `mark_tombstone_for_selected`
-//! after the ConfirmDialog gate from Slice 14 has confirmed). Seven
-//! `ActionId`s now have real runtime behavior; the rest remain
-//! observable no-ops via the dispatch counters introduced in Slice 10.
+//! **Scope (Slice 23 / Stage A+E + observability)**: Slices 3-22
+//! built the iced host UI and dispatch loops. Slice 23 introduces a
+//! portable, host-neutral observability layer
+//! (`graphshell_core::ux_observability`) and emits `UxEvent`s from
+//! every chrome-surface transition and intent dispatch. The taxonomy
+//! covers `SurfaceOpened`, `SurfaceDismissed { reason }`,
+//! `ActionDispatched`, `OpenNodeDispatched`. Two built-in observers
+//! ship in core: `CountingObserver` (lock-free atomic counters) and
+//! `RecordingObserver` (bounded ring of events). Future hosts (egui
+//! today, Stage-G/H later) plug into the same trait; tests use
+//! `RecordingObserver` to assert event sequences.
 //!
-//! Note: AccessKit / UxProbes / diagnostics-channel emissions for
-//! these new surfaces are *not* yet wired — that's parallel
-//! observability work tracked separately.
+//! Still pending observability work (separate slice track):
+//! AccessKit roles + labels on every gs::* widget, UxProbes that
+//! verify §4.10 graph coherence guarantees, and diagnostics-channel
+//! adapters that route `UxEvent`s into the existing channel registry.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1127,11 +1130,28 @@ impl IcedApp {
             Message::PaletteOpen { origin } => {
                 // Opening the palette closes the node finder (mutually
                 // exclusive overlays per the canonical specs).
+                let was_finder_open = self.node_finder.is_open;
                 self.node_finder.is_open = false;
                 self.command_palette.is_open = true;
                 self.command_palette.origin = origin;
                 self.command_palette.query.clear();
                 self.command_palette.focused_index = None;
+                if was_finder_open {
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface: graphshell_core::ux_observability::SurfaceId::NodeFinder,
+                            reason:
+                                graphshell_core::ux_observability::DismissReason::Superseded,
+                        },
+                    );
+                }
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                        surface: graphshell_core::ux_observability::SurfaceId::CommandPalette,
+                    },
+                );
                 iced::widget::operation::focus(iced::widget::Id::new(PALETTE_INPUT_ID))
             }
             Message::PaletteQuery(query) => {
@@ -1145,6 +1165,13 @@ impl IcedApp {
                 self.command_palette.is_open = false;
                 self.command_palette.query.clear();
                 self.command_palette.focused_index = None;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::CommandPalette,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
                 Task::none()
             }
             Message::PaletteActionSelected(idx) => {
@@ -1219,6 +1246,7 @@ impl IcedApp {
                 // Mutually exclusive with the command palette. Refresh
                 // the result list from the live graph so the finder
                 // always reflects current truth.
+                let was_palette_open = self.command_palette.is_open;
                 self.command_palette.is_open = false;
                 self.node_finder.all_results =
                     build_finder_results(&self.host.runtime.graph_app);
@@ -1226,6 +1254,23 @@ impl IcedApp {
                 self.node_finder.origin = origin;
                 self.node_finder.query.clear();
                 self.node_finder.focused_index = None;
+                if was_palette_open {
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface:
+                                graphshell_core::ux_observability::SurfaceId::CommandPalette,
+                            reason:
+                                graphshell_core::ux_observability::DismissReason::Superseded,
+                        },
+                    );
+                }
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                        surface: graphshell_core::ux_observability::SurfaceId::NodeFinder,
+                    },
+                );
                 iced::widget::operation::focus(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
             }
             Message::NodeFinderQuery(query) => {
@@ -1237,6 +1282,13 @@ impl IcedApp {
                 self.node_finder.is_open = false;
                 self.node_finder.query.clear();
                 self.node_finder.focused_index = None;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::NodeFinder,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
                 Task::none()
             }
             Message::NodeFinderResultSelected(idx) => {
@@ -1303,6 +1355,8 @@ impl IcedApp {
 
             Message::ContextMenuOpen { target } => {
                 // Mutually exclusive with palette / node-finder.
+                let was_palette = self.command_palette.is_open;
+                let was_finder = self.node_finder.is_open;
                 self.command_palette.is_open = false;
                 self.node_finder.is_open = false;
                 self.context_menu.is_open = true;
@@ -1310,6 +1364,33 @@ impl IcedApp {
                 self.context_menu.anchor =
                     self.host.cursor_position.unwrap_or(Point::ORIGIN);
                 self.context_menu.items = items_for_target(target);
+                if was_palette {
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface:
+                                graphshell_core::ux_observability::SurfaceId::CommandPalette,
+                            reason:
+                                graphshell_core::ux_observability::DismissReason::Superseded,
+                        },
+                    );
+                }
+                if was_finder {
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface: graphshell_core::ux_observability::SurfaceId::NodeFinder,
+                            reason:
+                                graphshell_core::ux_observability::DismissReason::Superseded,
+                        },
+                    );
+                }
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                        surface: graphshell_core::ux_observability::SurfaceId::ContextMenu,
+                    },
+                );
                 Task::none()
             }
             Message::ContextMenuEntrySelected(idx) => {
@@ -1334,12 +1415,28 @@ impl IcedApp {
                 if let Some((label, destructive, intent)) = acked {
                     self.context_menu.is_open = false;
                     self.context_menu.items.clear();
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface:
+                                graphshell_core::ux_observability::SurfaceId::ContextMenu,
+                            reason:
+                                graphshell_core::ux_observability::DismissReason::Confirmed,
+                        },
+                    );
 
                     if destructive && intent.is_some() {
                         // Park the intent in the confirm dialog gate.
                         self.confirm_dialog.is_open = true;
                         self.confirm_dialog.action_label = label;
                         self.confirm_dialog.pending_intent = intent;
+                        emit_ux_event(
+                            self,
+                            graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                                surface:
+                                    graphshell_core::ux_observability::SurfaceId::ConfirmDialog,
+                            },
+                        );
                         return Task::none();
                     }
 
@@ -1364,6 +1461,13 @@ impl IcedApp {
             Message::ContextMenuDismiss => {
                 self.context_menu.is_open = false;
                 self.context_menu.items.clear();
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::ContextMenu,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
                 Task::none()
             }
 
@@ -1373,6 +1477,13 @@ impl IcedApp {
                 let label = std::mem::take(&mut self.confirm_dialog.action_label);
                 let intent = self.confirm_dialog.pending_intent.take();
                 self.confirm_dialog.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::ConfirmDialog,
+                        reason: graphshell_core::ux_observability::DismissReason::Confirmed,
+                    },
+                );
                 if let Some(intent) = intent {
                     self.host.pending_host_intents.push(intent);
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
@@ -1388,6 +1499,13 @@ impl IcedApp {
                 let _ = self.confirm_dialog.pending_intent.take();
                 self.confirm_dialog.action_label.clear();
                 self.confirm_dialog.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::ConfirmDialog,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
                 Task::none()
             }
 
@@ -2244,6 +2362,15 @@ fn is_url_shaped(s: &str) -> bool {
         return true;
     }
     !s.contains(' ') && s.contains('.')
+}
+
+/// Emit a UX event onto the runtime's observer registry. Centralized
+/// so every emission site has identical borrow shape — `&self.host.runtime`
+/// is enough; emit() takes `&self`. Per
+/// [`ux_observability`](
+/// ../../../crates/graphshell-core/src/ux_observability.rs).
+fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEvent) {
+    app.host.runtime.ux_observers.emit(event);
 }
 
 /// Render the Tree Spine bucket — Navigator's left-rail "structural
@@ -3289,6 +3416,207 @@ mod tests {
         assert!(matches!(
             pin_intent,
             Some(graphshell_core::shell_state::host_intent::HostIntent::Action { .. })
+        ));
+    }
+
+    // --- UX observability tests (Slice 23) ---
+
+    /// Convenience: register a RecordingObserver on the runtime and
+    /// return the shared handle so the test can inspect the
+    /// recorded event stream after running messages.
+    fn install_recording_observer(
+        app: &mut IcedApp,
+    ) -> std::sync::Arc<graphshell_core::ux_observability::RecordingObserver> {
+        let recorder =
+            std::sync::Arc::new(graphshell_core::ux_observability::RecordingObserver::with_capacity(
+                64,
+            ));
+        let proxy = RecordingProxy(std::sync::Arc::clone(&recorder));
+        app.host.runtime.ux_observers.register(Box::new(proxy));
+        recorder
+    }
+
+    struct RecordingProxy(std::sync::Arc<graphshell_core::ux_observability::RecordingObserver>);
+    impl graphshell_core::ux_observability::UxObserver for RecordingProxy {
+        fn observe(&self, event: &graphshell_core::ux_observability::UxEvent) {
+            self.0.observe(event);
+        }
+    }
+
+    #[test]
+    fn palette_open_close_emits_ux_events() {
+        use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let recorder = install_recording_observer(&mut app);
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+
+        let events = recorder.snapshot();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            events[0],
+            UxEvent::SurfaceOpened {
+                surface: SurfaceId::CommandPalette
+            }
+        ));
+        assert!(matches!(
+            events[1],
+            UxEvent::SurfaceDismissed {
+                surface: SurfaceId::CommandPalette,
+                reason: DismissReason::Cancelled,
+            }
+        ));
+    }
+
+    #[test]
+    fn opening_palette_over_finder_emits_superseded_dismissal() {
+        use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let recorder = install_recording_observer(&mut app);
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        let events = recorder.snapshot();
+        // Expected: NodeFinder Opened, NodeFinder Superseded, CommandPalette Opened.
+        assert_eq!(events.len(), 3);
+        assert!(matches!(
+            events[0],
+            UxEvent::SurfaceOpened {
+                surface: SurfaceId::NodeFinder
+            }
+        ));
+        assert!(matches!(
+            events[1],
+            UxEvent::SurfaceDismissed {
+                surface: SurfaceId::NodeFinder,
+                reason: DismissReason::Superseded,
+            }
+        ));
+        assert!(matches!(
+            events[2],
+            UxEvent::SurfaceOpened {
+                surface: SurfaceId::CommandPalette
+            }
+        ));
+    }
+
+    #[test]
+    fn destructive_context_select_emits_confirm_dialog_open() {
+        use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let recorder = install_recording_observer(&mut app);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane {
+                pane_id,
+                node_key: None,
+            },
+        });
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.destructive)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+
+        let events = recorder.snapshot();
+        // Expected sequence: ContextMenu Opened, ContextMenu
+        // Confirmed (the destructive selection), ConfirmDialog Opened.
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UxEvent::SurfaceOpened {
+                surface: SurfaceId::ContextMenu
+            }
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UxEvent::SurfaceDismissed {
+                surface: SurfaceId::ContextMenu,
+                reason: DismissReason::Confirmed,
+            }
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UxEvent::SurfaceOpened {
+                surface: SurfaceId::ConfirmDialog
+            }
+        )));
+    }
+
+    #[test]
+    fn action_dispatch_emits_action_dispatched_event() {
+        use graphshell_core::ux_observability::UxEvent;
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let recorder = install_recording_observer(&mut app);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        let events = recorder.snapshot();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UxEvent::ActionDispatched {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+                target: None,
+            }
+        )));
+    }
+
+    #[test]
+    fn open_node_dispatch_emits_open_node_event() {
+        use graphshell_core::ux_observability::UxEvent;
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let recorder = install_recording_observer(&mut app);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::OpenNode { node_key },
+        );
+        app.tick_with_events(Vec::new());
+
+        let events = recorder.snapshot();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            UxEvent::OpenNodeDispatched { node_key: nk } if nk == node_key
         ));
     }
 
