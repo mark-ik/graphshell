@@ -225,6 +225,10 @@ pub(crate) struct FrameState {
     /// from here on remount. Today the cache is observable + drained
     /// by the tests; live restoration awaits the program-side hook.
     pub pane_cameras: std::collections::HashMap<PaneId, CanvasCamera>,
+    /// `true` while a pane drag is in progress (between Picked and
+    /// Dropped/Canceled). Slice 36 — drives the drop-zone hint
+    /// banner; pane_grid handles the actual drop logic.
+    pub drag_in_progress: bool,
 }
 
 impl FrameState {
@@ -243,6 +247,7 @@ impl FrameState {
             base_layer_active: false,
             focused_pane: None,
             pane_cameras: std::collections::HashMap::new(),
+            drag_in_progress: false,
         }
     }
 }
@@ -1414,15 +1419,22 @@ impl IcedApp {
             }
             Message::PaneGridDragged(event) => {
                 match event {
-                    pane_grid::DragEvent::Picked { .. } => {}
+                    pane_grid::DragEvent::Picked { .. } => {
+                        // Slice 36: surface drag-in-progress so the
+                        // drop-zone hint banner renders.
+                        self.frame.drag_in_progress = true;
+                    }
                     pane_grid::DragEvent::Dropped { pane, target } => {
                         // `State::drop` handles all target variants
                         // (edge-of-grid, center-of-pane, edge-of-pane)
                         // with the correct split axis derived from the
                         // drop region (per pane_grid §3.1 defaults).
                         self.frame.split_state.drop(pane, target);
+                        self.frame.drag_in_progress = false;
                     }
-                    pane_grid::DragEvent::Canceled { .. } => {}
+                    pane_grid::DragEvent::Canceled { .. } => {
+                        self.frame.drag_in_progress = false;
+                    }
                 }
                 Task::none()
             }
@@ -2110,6 +2122,14 @@ impl IcedApp {
         // entirely so the trivial case stays uncluttered.
         if !self.inactive_frames.is_empty() {
             body_children.push(render_frame_switcher(self));
+        }
+        // Slice 36: drop-zone hint banner appears only while a pane
+        // drag is in progress. Pane_grid handles the actual drop
+        // logic; the banner is a visible cue so the user knows
+        // dropping on an edge splits and dropping on the center
+        // swaps panes.
+        if self.frame.drag_in_progress {
+            body_children.push(render_drop_zone_hint());
         }
         if self.navigator.show_top {
             body_children.push(render_navigator_host(self, NavigatorAnchor::Top));
@@ -3114,6 +3134,32 @@ fn host_routed_action(
 /// ../../../crates/graphshell-core/src/ux_observability.rs).
 fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEvent) {
     app.host.runtime.ux_observers.emit(event);
+}
+
+/// Render the drop-zone hint banner — Slice 36. Visible only while
+/// a pane drag is in progress (FrameState::drag_in_progress is
+/// `true`, between Picked and Dropped/Canceled). Pane_grid handles
+/// the actual drop logic; this banner is a visible cue describing
+/// the drop targets.
+fn render_drop_zone_hint() -> Element<'static, Message> {
+    let hint = text(
+        "Dragging — drop on a pane edge to split, on the center to swap panes",
+    )
+    .size(11);
+    container(hint)
+        .padding([3, 8])
+        .width(Length::Fill)
+        .height(Length::Fixed(22.0))
+        .center_y(Length::Fill)
+        .style(|theme: &iced::Theme| {
+            let pal = theme.palette();
+            container::Style {
+                background: Some(pal.primary.weak.color.into()),
+                text_color: Some(pal.primary.weak.text),
+                ..Default::default()
+            }
+        })
+        .into()
 }
 
 /// Render the Frame switcher bar — Slice 31. Visible only when
@@ -5435,6 +5481,76 @@ mod tests {
         let _ = app.update(Message::NodeCreateOpen);
         let _ = app.update(Message::Tick);
         let _element = app.view();
+    }
+
+    // --- Drop-zone hint tests (Slice 36) ---
+
+    #[test]
+    fn pane_drag_picked_sets_drag_in_progress() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let handle = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(h, _)| *h)
+            .unwrap();
+        assert!(!app.frame.drag_in_progress);
+
+        let _ = app.update(Message::PaneGridDragged(
+            iced::widget::pane_grid::DragEvent::Picked { pane: handle },
+        ));
+
+        assert!(app.frame.drag_in_progress);
+    }
+
+    #[test]
+    fn pane_drag_canceled_clears_drag_in_progress() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let handle = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(h, _)| *h)
+            .unwrap();
+
+        let _ = app.update(Message::PaneGridDragged(
+            iced::widget::pane_grid::DragEvent::Picked { pane: handle },
+        ));
+        assert!(app.frame.drag_in_progress);
+
+        let _ = app.update(Message::PaneGridDragged(
+            iced::widget::pane_grid::DragEvent::Canceled { pane: handle },
+        ));
+        assert!(!app.frame.drag_in_progress);
+    }
+
+    #[test]
+    fn view_renders_drop_zone_hint_during_drag() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let handle = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(h, _)| *h)
+            .unwrap();
+
+        // Render once without drag — banner not in tree.
+        {
+            let _ = app.view();
+        }
+
+        let _ = app.update(Message::PaneGridDragged(
+            iced::widget::pane_grid::DragEvent::Picked { pane: handle },
+        ));
+
+        // Render with drag — must not panic; banner is in the tree.
+        let _ = app.view();
     }
 
     // --- Per-pane camera cache tests (Slice 35) ---
