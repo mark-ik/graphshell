@@ -66,6 +66,10 @@ pub enum SurfaceId {
     NodeFinder,
     ContextMenu,
     ConfirmDialog,
+    /// Modal that prompts the user for a URL when an action like
+    /// `NodeNew` fires from a non-omnibar surface (palette, context
+    /// menu, programmatic).
+    NodeCreate,
     StatusBar,
     TreeSpine,
     NavigatorHost,

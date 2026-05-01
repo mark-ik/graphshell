@@ -47,21 +47,26 @@
 //! (this slice, UxEvent stream); Swatches remains a stub pending
 //! the canvas-instance multi-render-profile work.
 //!
-//! **Slice 28**: per-action runtime handler dispatch table extended
-//! to 17 `ActionId`s (was 7). New runtime arms route via either
-//! `apply_reducer_intents`, `enqueue_app_command`, or direct
-//! `GraphBrowserApp` methods: GraphFitGraphlet, PersistSaveSnapshot,
-//! PersistRestoreLatestGraph, PersistRestoreSession,
-//! PersistImportBookmarks, NodePinSelected, NodeUnpinSelected,
-//! NodeCopyUrl (via ActionOnNode pre-focus), NodeCopyTitle. Plus
-//! a host-side intercept for ActionIds whose effect opens an
-//! iced-owned overlay — `host_routed_action` translates them to
-//! iced Messages before the runtime dispatch path runs;
-//! GraphCommandPalette is the first wired (re-opens the palette).
-//! The canonical wildcard arm at the end documents what each
-//! remaining category needs (FrameId context, render-mode setter,
-//! workbench-overlay state, etc.) so the next iteration is
-//! mechanical.
+//! **Slice 28-32**: per-action handler dispatch table grew from 7 to
+//! 28 `ActionId`s across structural-context unlocks:
+//!
+//! - **Slice 28**: 7 added via `apply_reducer_intents` /
+//!   `enqueue_app_command` / direct methods. Plus `host_routed_action`
+//!   intercept layer.
+//! - **Slice 29**: Tile graphlet projection — finishes deferred
+//!   per-tile NodeKey threading; tile pane shows real tabs from
+//!   `runtime.graph_tree.members()`.
+//! - **Slice 30**: 6 settings/hub/history actions wired via
+//!   `verso://...` URL routing through `add_node_and_sync`.
+//! - **Slice 31**: Frame switcher — multi-Frame composition with
+//!   inactive_frames Vec; FrameOpen/FrameDelete/FrameSelect host-
+//!   routed.
+//! - **Slice 32**: NodeCreate URL-input modal — NodeNew /
+//!   NodeNewAsTab host-routed; new SurfaceId::NodeCreate variant
+//!   propagated through accessibility / ux_diagnostics / ux_probes.
+//!
+//! 28 ActionIds wired (was 7). Remaining unhandled categories
+//! enumerated in `dispatch_action`'s wildcard arm.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -588,6 +593,23 @@ pub(crate) struct ConfirmDialogState {
 }
 
 // ---------------------------------------------------------------------------
+// NodeCreate Modal — Slice 32 (URL input for NodeNew)
+// ---------------------------------------------------------------------------
+
+/// Stable widget id for the NodeCreate text input. Slice 32.
+const NODE_CREATE_INPUT_ID: &str = "graphshell:node_create_input";
+
+/// Widget-local state for the URL-prompt modal. Opened by the
+/// `NodeNew` / `NodeNewAsTab` actions; submission creates a node at
+/// the entered URL via `HostIntent::CreateNodeAtUrl` and closes the
+/// modal. Cancel / click-outside / Escape drops the draft.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NodeCreateState {
+    pub(crate) is_open: bool,
+    pub(crate) url_draft: String,
+}
+
+// ---------------------------------------------------------------------------
 // Context Menu — Slice 8 (right-click overlay on panes / base layer)
 // ---------------------------------------------------------------------------
 
@@ -815,6 +837,9 @@ pub(crate) struct IcedApp {
     /// [`iced_command_palette_spec.md` §5](
     /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
     pub(crate) confirm_dialog: ConfirmDialogState,
+    /// URL-input modal opened by `NodeNew` / `NodeNewAsTab` actions
+    /// from non-omnibar surfaces (palette, context menu). Slice 32.
+    pub(crate) node_create: NodeCreateState,
     /// Bounded recorder backing the Navigator's Activity Log
     /// bucket. Registered as a `UxObserver` on the runtime; every
     /// `UxEvent` the host emits flows in. Slice 27.
@@ -901,6 +926,19 @@ pub(crate) enum Message {
     /// `HostIntent::OpenNode { node_key }` so the runtime promotes
     /// it to focused state — same wiring as Node Finder selection.
     TreeSpineNodeClicked(graphshell_core::graph::NodeKey),
+
+    // --- NodeCreate modal messages — Slice 32 ---
+
+    /// Open the NodeCreate URL-input modal. Triggered by
+    /// `NodeNew` / `NodeNewAsTab` actions from palette / context menu.
+    NodeCreateOpen,
+    /// Text edited in the URL field.
+    NodeCreateInput(String),
+    /// User pressed Enter / clicked Create. If the URL is non-empty,
+    /// dispatches `HostIntent::CreateNodeAtUrl` and closes the modal.
+    NodeCreateSubmit,
+    /// Cancel button, click-outside, or Escape — drops the draft.
+    NodeCreateCancel,
 
     // --- Frame composition messages — Slice 31 ---
 
@@ -1028,6 +1066,7 @@ impl IcedApp {
             node_finder: NodeFinderState::default(),
             context_menu: ContextMenuState::default(),
             confirm_dialog: ConfirmDialogState::default(),
+            node_create: NodeCreateState::default(),
             activity_log_recorder: std::sync::Arc::clone(&activity_log_recorder),
             frame_id: FrameId::next(),
             frame_label: "Frame 1".to_string(),
@@ -1103,12 +1142,15 @@ impl IcedApp {
                     return Task::done(Message::OmnibarFocus);
                 }
                 // Escape closes whichever overlay is currently open.
-                // Order: confirm_dialog → context_menu → palette →
-                // node_finder → omnibar (the dialog sits on top of
-                // everything else when it's open).
+                // Order: confirm_dialog → node_create → context_menu
+                // → palette → node_finder → omnibar (modals on top
+                // dismiss first; backgrounded modals next).
                 if is_escape_key(&event) {
                     if self.confirm_dialog.is_open {
                         return Task::done(Message::ConfirmDialogCancel);
+                    }
+                    if self.node_create.is_open {
+                        return Task::done(Message::NodeCreateCancel);
                     }
                     if self.context_menu.is_open {
                         return Task::done(Message::ContextMenuDismiss);
@@ -1684,6 +1726,58 @@ impl IcedApp {
                 Task::none()
             }
 
+            // --- NodeCreate modal handlers ---
+
+            Message::NodeCreateOpen => {
+                self.node_create.is_open = true;
+                self.node_create.url_draft.clear();
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                        surface: graphshell_core::ux_observability::SurfaceId::NodeCreate,
+                    },
+                );
+                iced::widget::operation::focus(iced::widget::Id::new(
+                    NODE_CREATE_INPUT_ID,
+                ))
+            }
+            Message::NodeCreateInput(value) => {
+                self.node_create.url_draft = value;
+                Task::none()
+            }
+            Message::NodeCreateSubmit => {
+                let draft = std::mem::take(&mut self.node_create.url_draft);
+                self.node_create.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::NodeCreate,
+                        reason: graphshell_core::ux_observability::DismissReason::Confirmed,
+                    },
+                );
+                if !draft.is_empty() {
+                    self.queue_create_node_at_url(draft.clone());
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Success,
+                        message: format!("created: {draft}"),
+                        duration: None,
+                    });
+                }
+                Task::none()
+            }
+            Message::NodeCreateCancel => {
+                self.node_create.url_draft.clear();
+                self.node_create.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::NodeCreate,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
+                Task::none()
+            }
+
             // --- Frame composition handlers ---
 
             Message::NewFrame => {
@@ -1858,6 +1952,9 @@ impl IcedApp {
         }
         if self.context_menu.is_open {
             layered.push(render_context_menu(self));
+        }
+        if self.node_create.is_open {
+            layered.push(render_node_create_modal(self));
         }
         if self.confirm_dialog.is_open {
             layered.push(render_confirm_dialog(self));
@@ -2499,6 +2596,47 @@ fn render_finder_row<'a>(
         .into()
 }
 
+/// Render the NodeCreate URL-input modal — Slice 32. Visible
+/// whenever `NodeCreateState::is_open` is true. Click-outside
+/// (`Modal::on_blur`) and Escape both fire `NodeCreateCancel`;
+/// Enter on the text input fires `NodeCreateSubmit`.
+fn render_node_create_modal(app: &IcedApp) -> Element<'_, Message> {
+    let title = text("Create node").size(15);
+    let body = text("Enter a URL or address to open as a new node.").size(13);
+    let input = text_input("https://…", &app.node_create.url_draft)
+        .id(iced::widget::Id::new(NODE_CREATE_INPUT_ID))
+        .on_input(Message::NodeCreateInput)
+        .on_submit(Message::NodeCreateSubmit)
+        .size(14)
+        .padding(6)
+        .width(Length::Fill);
+
+    let cancel = button(text("Cancel").size(13))
+        .on_press(Message::NodeCreateCancel)
+        .padding([6, 14]);
+    let create = button(text("Create").size(13))
+        .on_press(Message::NodeCreateSubmit)
+        .padding([6, 14]);
+
+    let buttons = iced::widget::row![
+        iced::widget::Space::new().width(Length::Fill),
+        cancel,
+        create,
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+
+    let inner = column![title, body, input, buttons]
+        .spacing(12)
+        .padding(4)
+        .width(Length::Fill);
+
+    Modal::new(inner)
+        .on_blur(Message::NodeCreateCancel)
+        .max_width(480.0)
+        .into()
+}
+
 /// Render the confirmation modal that gates destructive intents.
 /// Shown when `ConfirmDialogState::is_open` is `true`; click-outside
 /// (`Modal::on_blur`) and Escape both fire `ConfirmDialogCancel`. Per
@@ -2707,6 +2845,13 @@ fn host_routed_action(
         // frame). A future picker modal can route via SwitchFrame(idx)
         // for explicit selection.
         ActionId::FrameSelect => Some(Message::SwitchFrame(0)),
+
+        // Slice 32: NodeCreate modal lives host-side; both NodeNew
+        // and NodeNewAsTab open the same URL-input modal. The
+        // pane-vs-tab distinction is downstream (the tab semantics
+        // would route through workbench-routing once the pane
+        // policy lands).
+        ActionId::NodeNew | ActionId::NodeNewAsTab => Some(Message::NodeCreateOpen),
         _ => None,
     }
 }
@@ -2926,6 +3071,7 @@ fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent) -> String
             SurfaceId::NodeFinder => "Node Finder",
             SurfaceId::ContextMenu => "Context Menu",
             SurfaceId::ConfirmDialog => "Confirm Dialog",
+            SurfaceId::NodeCreate => "Create Node",
             SurfaceId::StatusBar => "Status Bar",
             SurfaceId::TreeSpine => "Tree Spine",
             SurfaceId::NavigatorHost => "Navigator",
@@ -3737,18 +3883,27 @@ mod tests {
             origin: PaletteOrigin::KeyboardShortcut,
         });
 
-        let visible = visible_palette_actions(&app.command_palette);
-        let row0_id = visible[0].action_id;
+        // Pick an action that goes through runtime dispatch (not the
+        // host-routed actions like NodeNew / FrameOpen — those
+        // intercept before HostIntent::Action). GraphTogglePhysics
+        // is a stable runtime-side action.
+        let idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| {
+                a.action_id == graphshell_core::actions::ActionId::GraphTogglePhysics
+            })
+            .expect("GraphTogglePhysics in registry");
+
         assert_eq!(
             app.host.runtime.dispatched_action_count, 0,
             "no dispatch yet"
         );
         assert!(app.host.runtime.last_dispatched_action.is_none());
 
-        let _ = app.update(Message::PaletteActionSelected(0));
+        let _ = app.update(Message::PaletteActionSelected(idx));
 
-        // The intent landed on pending_host_intents AND was drained
-        // by the inline tick that PaletteActionSelected triggers.
         assert!(
             app.host.pending_host_intents.is_empty(),
             "intent queue drained by post-select tick",
@@ -3759,7 +3914,7 @@ mod tests {
         );
         assert_eq!(
             app.host.runtime.last_dispatched_action,
-            Some(row0_id),
+            Some(graphshell_core::actions::ActionId::GraphTogglePhysics),
             "runtime recorded the resolved ActionId",
         );
     }
@@ -4760,6 +4915,110 @@ mod tests {
                 .nodes()
                 .any(|(_, n)| n.url() == "verso://settings"),
         );
+    }
+
+    // --- NodeCreate modal tests (Slice 32) ---
+
+    #[test]
+    fn node_create_open_focuses_input_and_clears_draft() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        app.node_create.url_draft = "stale".into();
+
+        let _task = app.update(Message::NodeCreateOpen);
+
+        assert!(app.node_create.is_open);
+        assert!(app.node_create.url_draft.is_empty(), "open clears stale draft");
+    }
+
+    #[test]
+    fn node_create_submit_creates_node_at_url() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let nodes_before = app.host.runtime.graph_app.domain_graph().nodes().count();
+
+        let _ = app.update(Message::NodeCreateOpen);
+        let _ = app.update(Message::NodeCreateInput("https://create.test/".into()));
+        let _ = app.update(Message::NodeCreateSubmit);
+
+        assert!(!app.node_create.is_open);
+        let nodes_after = app.host.runtime.graph_app.domain_graph().nodes().count();
+        assert_eq!(nodes_after, nodes_before + 1);
+        assert!(
+            app.host
+                .runtime
+                .graph_app
+                .domain_graph()
+                .nodes()
+                .any(|(_, n)| n.url() == "https://create.test/"),
+        );
+    }
+
+    #[test]
+    fn node_create_cancel_drops_draft() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeCreateOpen);
+        let _ = app.update(Message::NodeCreateInput("https://nope.test/".into()));
+        let nodes_before = app.host.runtime.graph_app.domain_graph().nodes().count();
+        let _ = app.update(Message::NodeCreateCancel);
+
+        assert!(!app.node_create.is_open);
+        assert!(app.node_create.url_draft.is_empty());
+        assert_eq!(
+            app.host.runtime.graph_app.domain_graph().nodes().count(),
+            nodes_before,
+            "cancel must not create a node",
+        );
+    }
+
+    #[test]
+    fn node_create_submit_empty_is_noop() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let nodes_before = app.host.runtime.graph_app.domain_graph().nodes().count();
+
+        let _ = app.update(Message::NodeCreateOpen);
+        let _ = app.update(Message::NodeCreateSubmit);
+
+        assert_eq!(
+            app.host.runtime.graph_app.domain_graph().nodes().count(),
+            nodes_before,
+        );
+    }
+
+    #[test]
+    fn node_new_action_routes_to_node_create_modal() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let node_new_idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| a.action_id == graphshell_core::actions::ActionId::NodeNew)
+            .expect("NodeNew in registry");
+
+        let _task = app.update(Message::PaletteActionSelected(node_new_idx));
+        // Resolve the host-intercepted Task::done
+        let _ = app.update(Message::NodeCreateOpen);
+
+        assert!(app.node_create.is_open);
+        assert_eq!(app.host.runtime.dispatched_action_count, 0);
+    }
+
+    #[test]
+    fn view_renders_with_node_create_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::NodeCreateOpen);
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
     }
 
     // --- Frame composition tests (Slice 31) ---

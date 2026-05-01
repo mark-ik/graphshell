@@ -103,6 +103,7 @@ fn surface_open_channel(surface: SurfaceId) -> &'static str {
         SurfaceId::NodeFinder => "ux.node_finder.opened",
         SurfaceId::ContextMenu => "ux.context_menu.opened",
         SurfaceId::ConfirmDialog => "ux.confirm_dialog.opened",
+        SurfaceId::NodeCreate => "ux.node_create.opened",
         SurfaceId::StatusBar => "ux.status_bar.opened",
         SurfaceId::TreeSpine => "ux.tree_spine.opened",
         SurfaceId::NavigatorHost => "ux.navigator_host.opened",
@@ -119,6 +120,7 @@ fn surface_dismiss_channel(surface: SurfaceId) -> &'static str {
         SurfaceId::NodeFinder => "ux.node_finder.dismissed",
         SurfaceId::ContextMenu => "ux.context_menu.dismissed",
         SurfaceId::ConfirmDialog => "ux.confirm_dialog.dismissed",
+        SurfaceId::NodeCreate => "ux.node_create.dismissed",
         SurfaceId::StatusBar => "ux.status_bar.dismissed",
         SurfaceId::TreeSpine => "ux.tree_spine.dismissed",
         SurfaceId::NavigatorHost => "ux.navigator_host.dismissed",
@@ -149,6 +151,7 @@ pub fn all_channel_ids() -> &'static [&'static str] {
         "ux.node_finder.opened",
         "ux.context_menu.opened",
         "ux.confirm_dialog.opened",
+        "ux.node_create.opened",
         "ux.status_bar.opened",
         "ux.tree_spine.opened",
         "ux.navigator_host.opened",
@@ -161,6 +164,7 @@ pub fn all_channel_ids() -> &'static [&'static str] {
         "ux.node_finder.dismissed",
         "ux.context_menu.dismissed",
         "ux.confirm_dialog.dismissed",
+        "ux.node_create.dismissed",
         "ux.status_bar.dismissed",
         "ux.tree_spine.dismissed",
         "ux.navigator_host.dismissed",
@@ -346,10 +350,11 @@ mod tests {
         let ids = all_channel_ids();
         // Every SurfaceId variant has both an opened and dismissed
         // channel (2 each), plus action.dispatched and
-        // open_node.dispatched. 11 surfaces × 2 + 2 = 24.
-        assert_eq!(ids.len(), 24);
+        // open_node.dispatched. 12 surfaces × 2 + 2 = 26.
+        assert_eq!(ids.len(), 26);
         assert!(ids.contains(&"ux.command_palette.opened"));
         assert!(ids.contains(&"ux.command_palette.dismissed"));
+        assert!(ids.contains(&"ux.node_create.opened"));
         assert!(ids.contains(&"ux.action.dispatched"));
         assert!(ids.contains(&"ux.open_node.dispatched"));
     }

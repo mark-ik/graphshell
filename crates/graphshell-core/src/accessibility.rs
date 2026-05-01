@@ -132,6 +132,15 @@ pub fn descriptor_for(surface: SurfaceId) -> AccessibilityDescriptor {
             ),
             keyboard_shortcut: None,
         },
+        SurfaceId::NodeCreate => AccessibilityDescriptor {
+            role: Role::Dialog,
+            label: "Create node",
+            description: Some(
+                "Enter a URL or address. Press Enter to create the \
+                 node, or Cancel / Escape to abandon.",
+            ),
+            keyboard_shortcut: None,
+        },
         SurfaceId::StatusBar => AccessibilityDescriptor {
             role: Role::ContentInfo,
             label: "Status bar",
@@ -208,6 +217,7 @@ mod tests {
             SurfaceId::NodeFinder,
             SurfaceId::ContextMenu,
             SurfaceId::ConfirmDialog,
+            SurfaceId::NodeCreate,
             SurfaceId::StatusBar,
             SurfaceId::TreeSpine,
             SurfaceId::NavigatorHost,

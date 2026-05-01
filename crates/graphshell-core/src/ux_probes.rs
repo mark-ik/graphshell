@@ -105,6 +105,7 @@ fn is_modal_like(surface: SurfaceId) -> bool {
             | SurfaceId::NodeFinder
             | SurfaceId::ContextMenu
             | SurfaceId::ConfirmDialog
+            | SurfaceId::NodeCreate
     )
 }
 
