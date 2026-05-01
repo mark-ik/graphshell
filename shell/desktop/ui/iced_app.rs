@@ -11,16 +11,13 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 13 / Stage A+E)**: Slices 3-12 closed the palette
-//! and node-finder dispatch loops. Slice 13 closes the third — the
-//! ContextMenu — by reshaping each row into a `ContextMenuItem` that
-//! pairs a display entry with an optional `HostIntent`. Selection
-//! pushes the intent through the same `pending_host_intents` queue
-//! the other surfaces use; rows with no intent stay stub-only and
-//! toast with a "(stub)" suffix. Several entries are wired to real
-//! `ActionId`s today (Activate / Pin / Remove from graphlet /
-//! Tombstone / Inspect); the rest stay stubs pending data the
-//! current targets don't carry (e.g. destination pane, target node).
+//! **Scope (Slice 14 / Stage A+E)**: Slices 3-13 closed all three
+//! command-surface dispatch loops. Slice 14 adds the
+//! `ConfirmDialogState` gate that destructive intents (today:
+//! Tombstone) route through before pushing — the user must click
+//! Confirm in a `gs::Modal`-backed dialog before the runtime sees
+//! the dispatch. Cancel / click-outside / Escape drops the parked
+//! intent. Non-destructive entries continue to dispatch immediately.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -471,6 +468,35 @@ fn visible_finder_results(state: &NodeFinderState) -> Vec<&NodeFinderResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Confirm Dialog — Slice 14 (gate destructive intents)
+// ---------------------------------------------------------------------------
+
+/// Widget-local state for the confirmation modal that gates
+/// destructive `HostIntent`s. Per
+/// [`iced_command_palette_spec.md` §5](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md):
+/// any command-surface entry marked `destructive` must route through
+/// this gate before pushing its intent — the user must explicitly
+/// confirm before the runtime sees the dispatch.
+///
+/// Slice 14 wires this for the ContextMenu's destructive entries
+/// (today: Tombstone). Palette destructive routing lands once
+/// `RankedAction` carries an `is_destructive` flag (the
+/// `graphshell_core::actions::ActionId` registry doesn't expose
+/// destructive metadata yet).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ConfirmDialogState {
+    pub(crate) is_open: bool,
+    /// Verb-target description rendered in the dialog body
+    /// (e.g., "Tombstone the focused node").
+    pub(crate) action_label: String,
+    /// Intent to push on confirm. `None` while the dialog is closed.
+    /// On Cancel / dismiss the intent is dropped without dispatch.
+    pub(crate) pending_intent:
+        Option<graphshell_core::shell_state::host_intent::HostIntent>,
+}
+
+// ---------------------------------------------------------------------------
 // Context Menu — Slice 8 (right-click overlay on panes / base layer)
 // ---------------------------------------------------------------------------
 
@@ -648,6 +674,10 @@ pub(crate) struct IcedApp {
     /// [`iced_command_palette_spec.md` §7.3](
     /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
     pub(crate) context_menu: ContextMenuState,
+    /// Confirmation modal that gates destructive intents. Per
+    /// [`iced_command_palette_spec.md` §5](
+    /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+    pub(crate) confirm_dialog: ConfirmDialogState,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -778,6 +808,16 @@ pub(crate) enum Message {
     ContextMenuEntrySelected(usize),
     /// Click outside the menu, or Escape, dismisses without acting.
     ContextMenuDismiss,
+
+    // --- Confirm Dialog messages — Slice 14 ---
+
+    /// User confirmed the pending destructive intent. The handler
+    /// pushes the saved intent onto `pending_host_intents`, drives
+    /// a tick, and closes the dialog.
+    ConfirmDialogConfirm,
+    /// User cancelled (Cancel button, click-outside via Modal::on_blur,
+    /// or Escape). The pending intent is dropped without dispatch.
+    ConfirmDialogCancel,
 }
 
 impl IcedApp {
@@ -792,6 +832,7 @@ impl IcedApp {
             command_palette: CommandPaletteState::default(),
             node_finder: NodeFinderState::default(),
             context_menu: ContextMenuState::default(),
+            confirm_dialog: ConfirmDialogState::default(),
         }
     }
 
@@ -843,8 +884,13 @@ impl IcedApp {
                     return Task::done(Message::OmnibarFocus);
                 }
                 // Escape closes whichever overlay is currently open.
-                // Order: context_menu → palette → node_finder → omnibar.
+                // Order: confirm_dialog → context_menu → palette →
+                // node_finder → omnibar (the dialog sits on top of
+                // everything else when it's open).
                 if is_escape_key(&event) {
+                    if self.confirm_dialog.is_open {
+                        return Task::done(Message::ConfirmDialogCancel);
+                    }
                     if self.context_menu.is_open {
                         return Task::done(Message::ContextMenuDismiss);
                     }
@@ -1212,13 +1258,32 @@ impl IcedApp {
                 // and push it onto pending_host_intents (same path the
                 // palette and node finder use). Disabled rows are
                 // no-ops; rows with `intent = None` toast only.
-                let acked = self
-                    .context_menu
-                    .items
-                    .get(idx)
-                    .filter(|item| item.entry.disabled_reason.is_none())
-                    .map(|item| (item.entry.label.clone(), item.intent.clone()));
-                if let Some((label, intent)) = acked {
+                //
+                // Slice 14: destructive rows do NOT push immediately —
+                // the intent is parked in `confirm_dialog.pending_intent`
+                // and the user must confirm via the gated modal first.
+                let acked = self.context_menu.items.get(idx).filter(|item| {
+                    item.entry.disabled_reason.is_none()
+                });
+                let acked = acked.map(|item| {
+                    (
+                        item.entry.label.clone(),
+                        item.entry.destructive,
+                        item.intent.clone(),
+                    )
+                });
+                if let Some((label, destructive, intent)) = acked {
+                    self.context_menu.is_open = false;
+                    self.context_menu.items.clear();
+
+                    if destructive && intent.is_some() {
+                        // Park the intent in the confirm dialog gate.
+                        self.confirm_dialog.is_open = true;
+                        self.confirm_dialog.action_label = label;
+                        self.confirm_dialog.pending_intent = intent;
+                        return Task::none();
+                    }
+
                     let dispatched = if let Some(intent) = intent {
                         self.host.pending_host_intents.push(intent);
                         true
@@ -1231,11 +1296,7 @@ impl IcedApp {
                         message: format!("context: {label}{suffix}"),
                         duration: None,
                     });
-                    self.context_menu.is_open = false;
-                    self.context_menu.items.clear();
                     if dispatched {
-                        // Drain the intent immediately so observers see
-                        // the dispatch land in the runtime.
                         self.tick_with_events(Vec::new());
                     }
                 }
@@ -1244,6 +1305,30 @@ impl IcedApp {
             Message::ContextMenuDismiss => {
                 self.context_menu.is_open = false;
                 self.context_menu.items.clear();
+                Task::none()
+            }
+
+            // --- Confirm Dialog handlers ---
+
+            Message::ConfirmDialogConfirm => {
+                let label = std::mem::take(&mut self.confirm_dialog.action_label);
+                let intent = self.confirm_dialog.pending_intent.take();
+                self.confirm_dialog.is_open = false;
+                if let Some(intent) = intent {
+                    self.host.pending_host_intents.push(intent);
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Info,
+                        message: format!("confirmed: {label}"),
+                        duration: None,
+                    });
+                    self.tick_with_events(Vec::new());
+                }
+                Task::none()
+            }
+            Message::ConfirmDialogCancel => {
+                let _ = self.confirm_dialog.pending_intent.take();
+                self.confirm_dialog.action_label.clear();
+                self.confirm_dialog.is_open = false;
                 Task::none()
             }
         }
@@ -1351,6 +1436,9 @@ impl IcedApp {
         }
         if self.context_menu.is_open {
             layered.push(render_context_menu(self));
+        }
+        if self.confirm_dialog.is_open {
+            layered.push(render_confirm_dialog(self));
         }
 
         if layered.len() == 1 {
@@ -1875,6 +1963,66 @@ fn render_finder_row<'a>(
                 ..Default::default()
             }
         })
+        .into()
+}
+
+/// Render the confirmation modal that gates destructive intents.
+/// Shown when `ConfirmDialogState::is_open` is `true`; click-outside
+/// (`Modal::on_blur`) and Escape both fire `ConfirmDialogCancel`. Per
+/// [`iced_command_palette_spec.md` §5](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
+fn render_confirm_dialog(app: &IcedApp) -> Element<'_, Message> {
+    let title = text("Confirm destructive action").size(15);
+    let body = text(format!(
+        "{} cannot be undone. Continue?",
+        app.confirm_dialog.action_label
+    ))
+    .size(13);
+
+    let cancel = button(text("Cancel").size(13))
+        .on_press(Message::ConfirmDialogCancel)
+        .padding([6, 14]);
+    let confirm = button(text("Confirm").size(13))
+        .on_press(Message::ConfirmDialogConfirm)
+        .padding([6, 14])
+        .style(|theme: &iced::Theme, status| {
+            let pal = theme.palette();
+            let hovered = matches!(
+                status,
+                iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed
+            );
+            iced::widget::button::Style {
+                background: Some(if hovered {
+                    pal.danger.strong.color.into()
+                } else {
+                    pal.danger.base.color.into()
+                }),
+                text_color: pal.danger.strong.text,
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
+
+    let buttons = iced::widget::row![
+        iced::widget::Space::new().width(Length::Fill),
+        cancel,
+        confirm,
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+
+    let inner = column![title, body, buttons]
+        .spacing(12)
+        .padding(4)
+        .width(Length::Fill);
+
+    Modal::new(inner)
+        .on_blur(Message::ConfirmDialogCancel)
+        .max_width(420.0)
         .into()
 }
 
@@ -3285,7 +3433,7 @@ mod tests {
     }
 
     #[test]
-    fn context_menu_destructive_entry_dispatches_tombstone() {
+    fn context_menu_destructive_entry_routes_through_confirm_dialog() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
 
@@ -3311,12 +3459,175 @@ mod tests {
             .position(|i| i.entry.destructive)
             .expect("TilePane menu carries a destructive Tombstone entry");
 
+        // Slice 14: destructive selection parks the intent in the
+        // confirm dialog instead of dispatching immediately.
         let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
 
+        assert!(
+            app.confirm_dialog.is_open,
+            "destructive selection opens the confirm dialog gate",
+        );
+        assert!(app.confirm_dialog.pending_intent.is_some());
+        assert!(
+            !app.context_menu.is_open,
+            "context menu closed when the dialog opened",
+        );
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "no dispatch yet — awaiting confirmation",
+        );
+
+        // User confirms.
+        let _ = app.update(Message::ConfirmDialogConfirm);
+
+        assert!(!app.confirm_dialog.is_open);
+        assert!(app.confirm_dialog.pending_intent.is_none());
         assert_eq!(
             app.host.runtime.last_dispatched_action,
             Some(graphshell_core::actions::ActionId::NodeMarkTombstone),
+            "confirm dispatched the parked intent",
         );
+    }
+
+    #[test]
+    fn confirm_dialog_cancel_drops_pending_intent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.destructive)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+        assert!(app.confirm_dialog.is_open);
+
+        let _ = app.update(Message::ConfirmDialogCancel);
+
+        assert!(!app.confirm_dialog.is_open);
+        assert!(app.confirm_dialog.pending_intent.is_none());
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "cancel must drop the parked intent without dispatching",
+        );
+    }
+
+    #[test]
+    fn confirm_dialog_escape_cancels_first() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Open both context menu and (hypothetically) confirm dialog
+        // — but since destructive selection closes the menu before
+        // opening the dialog, the natural state is just the dialog.
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.destructive)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+        assert!(app.confirm_dialog.is_open);
+
+        let _ = app.update(Message::ConfirmDialogCancel);
+
+        assert!(!app.confirm_dialog.is_open);
+    }
+
+    #[test]
+    fn non_destructive_action_skips_confirm_dialog() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+        let pin_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.label == "Pin")
+            .unwrap();
+
+        let _ = app.update(Message::ContextMenuEntrySelected(pin_idx));
+
+        assert!(
+            !app.confirm_dialog.is_open,
+            "non-destructive entries do not open the confirm dialog",
+        );
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 1,
+            "non-destructive entries dispatch immediately",
+        );
+    }
+
+    #[test]
+    fn view_renders_with_confirm_dialog_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.destructive)
+            .unwrap();
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+        let _ = app.update(Message::Tick);
+
+        let _element = app.view();
     }
 
     #[test]
