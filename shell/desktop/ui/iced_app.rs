@@ -224,6 +224,35 @@ impl FrameState {
 }
 
 // ---------------------------------------------------------------------------
+// Frame composition — Slice 31 (multi-Frame switcher)
+// ---------------------------------------------------------------------------
+
+/// Stable application-level identity for a Frame. Distinct from
+/// `FrameState` (the per-Frame split-tree authority) — `FrameId` is
+/// the durable handle by which the Frame switcher routes
+/// activation messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FrameId(u64);
+
+impl FrameId {
+    fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+/// One backgrounded Frame held in `inactive_frames`. The active
+/// Frame's state lives in `IcedApp::frame` (the existing field
+/// from Slice 3); switching swaps the contents via `std::mem::swap`
+/// so `app.frame.*` continues to address the active Frame's pane
+/// grid without test churn.
+pub(crate) struct NamedFrame {
+    pub(crate) id: FrameId,
+    pub(crate) label: String,
+    pub(crate) state: FrameState,
+}
+
+// ---------------------------------------------------------------------------
 // Navigator host state — Slice 4 (structural layout)
 // ---------------------------------------------------------------------------
 
@@ -791,6 +820,14 @@ pub(crate) struct IcedApp {
     /// `UxEvent` the host emits flows in. Slice 27.
     pub(crate) activity_log_recorder:
         std::sync::Arc<graphshell_core::ux_observability::RecordingObserver>,
+    /// Active Frame's identity. The active Frame's split-tree state
+    /// lives in `frame` (the Slice 3 field). Slice 31.
+    pub(crate) frame_id: FrameId,
+    /// Active Frame's display label (rendered in the Frame switcher).
+    pub(crate) frame_label: String,
+    /// Backgrounded Frames. Switching frames swaps the active
+    /// `FrameState` with one of these via `std::mem::swap`.
+    pub(crate) inactive_frames: Vec<NamedFrame>,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -864,6 +901,19 @@ pub(crate) enum Message {
     /// `HostIntent::OpenNode { node_key }` so the runtime promotes
     /// it to focused state — same wiring as Node Finder selection.
     TreeSpineNodeClicked(graphshell_core::graph::NodeKey),
+
+    // --- Frame composition messages — Slice 31 ---
+
+    /// Create a new Frame with a fresh `FrameState` and switch to it
+    /// (the previous active Frame moves into `inactive_frames`).
+    NewFrame,
+    /// Switch the active Frame. `index` addresses
+    /// `inactive_frames[index]`; the current active Frame moves into
+    /// that slot via mem::swap.
+    SwitchFrame(usize),
+    /// Close the current active Frame and switch to
+    /// `inactive_frames[0]`. No-op when there's only one Frame.
+    CloseCurrentFrame,
 
     // --- Tile Tabs messages — Slice 29 ---
 
@@ -979,6 +1029,9 @@ impl IcedApp {
             context_menu: ContextMenuState::default(),
             confirm_dialog: ConfirmDialogState::default(),
             activity_log_recorder: std::sync::Arc::clone(&activity_log_recorder),
+            frame_id: FrameId::next(),
+            frame_label: "Frame 1".to_string(),
+            inactive_frames: Vec::new(),
         };
         // Slice 26: register a UxChannelObserver with a NoopSink so
         // every UxEvent passes through the canonical channel-mapping
@@ -1631,6 +1684,45 @@ impl IcedApp {
                 Task::none()
             }
 
+            // --- Frame composition handlers ---
+
+            Message::NewFrame => {
+                let new_id = FrameId::next();
+                let total = self.inactive_frames.len() + 2;
+                let new_label = format!("Frame {total}");
+                let mut new_state = FrameState::new();
+                // Swap: new_state becomes the active frame; the
+                // previously-active frame moves into inactive_frames.
+                std::mem::swap(&mut self.frame, &mut new_state);
+                let prev = NamedFrame {
+                    id: self.frame_id,
+                    label: std::mem::replace(&mut self.frame_label, new_label),
+                    state: new_state,
+                };
+                self.inactive_frames.push(prev);
+                self.frame_id = new_id;
+                Task::none()
+            }
+            Message::SwitchFrame(index) => {
+                if let Some(target) = self.inactive_frames.get_mut(index) {
+                    std::mem::swap(&mut self.frame, &mut target.state);
+                    std::mem::swap(&mut self.frame_id, &mut target.id);
+                    std::mem::swap(&mut self.frame_label, &mut target.label);
+                }
+                Task::none()
+            }
+            Message::CloseCurrentFrame => {
+                // Pull the first inactive frame in as the new active
+                // frame; the closed frame is dropped. No-op when
+                // there's only one frame open.
+                if let Some(restored) = self.inactive_frames.pop() {
+                    self.frame = restored.state;
+                    self.frame_id = restored.id;
+                    self.frame_label = restored.label;
+                }
+                Task::none()
+            }
+
             // --- Tile Tabs handlers ---
 
             Message::TileTabSelected { pane_id: _, node_key } => {
@@ -1731,6 +1823,12 @@ impl IcedApp {
         // Full-height column: optional top | main row | optional bottom | toasts.
         let mut body_children: Vec<Element<'_, Message>> = Vec::new();
         body_children.push(command_bar);
+        // Slice 31: Frame switcher visible whenever there's more
+        // than one Frame open. Single-Frame sessions skip the chrome
+        // entirely so the trivial case stays uncluttered.
+        if !self.inactive_frames.is_empty() {
+            body_children.push(render_frame_switcher(self));
+        }
         if self.navigator.show_top {
             body_children.push(render_navigator_host(self, NavigatorAnchor::Top));
         }
@@ -2580,9 +2678,14 @@ fn is_url_shaped(s: &str) -> bool {
 }
 
 /// Slice 28 host-side intercept for `ActionId`s whose effect is
-/// opening or toggling an iced-owned overlay. Returns `Some(Message)`
-/// when the host should handle the action directly; `None` lets the
-/// caller fall through to `HostIntent::Action` runtime dispatch.
+/// opening or toggling an iced-owned overlay or rearranging
+/// host-side composition state. Returns `Some(Message)` when the
+/// host should handle the action directly; `None` lets the caller
+/// fall through to `HostIntent::Action` runtime dispatch.
+///
+/// Slice 31 extends this with Frame switcher routing — Frame
+/// composition lives in `IcedApp` (`frame`, `inactive_frames`),
+/// not the runtime, so Frame* actions intercept here.
 fn host_routed_action(
     action_id: graphshell_core::actions::ActionId,
 ) -> Option<Message> {
@@ -2594,6 +2697,16 @@ fn host_routed_action(
         // GraphRadialMenu was retired (see iced_command_palette_spec.md
         // §7.4). Re-introducing it is part of the input-subsystem
         // rework, not a host-route today.
+
+        // Slice 31: Frame composition lives host-side.
+        ActionId::FrameOpen => Some(Message::NewFrame),
+        ActionId::FrameDelete => Some(Message::CloseCurrentFrame),
+        // FrameSelect cycles to the next frame. The caller can pre-
+        // compute the target index, but the simplest dispatch is a
+        // sentinel: SwitchFrame(0) (the most-recently-backgrounded
+        // frame). A future picker modal can route via SwitchFrame(idx)
+        // for explicit selection.
+        ActionId::FrameSelect => Some(Message::SwitchFrame(0)),
         _ => None,
     }
 }
@@ -2605,6 +2718,81 @@ fn host_routed_action(
 /// ../../../crates/graphshell-core/src/ux_observability.rs).
 fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEvent) {
     app.host.runtime.ux_observers.emit(event);
+}
+
+/// Render the Frame switcher bar — Slice 31. Visible only when
+/// there's more than one Frame open. Each Frame is a small button
+/// labeled by `frame_label`; the active Frame is highlighted; a
+/// trailing "+" button creates a new Frame.
+fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
+    let mut row = iced::widget::row![
+        text(format!("{} (active)", app.frame_label)).size(11),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+
+    for (idx, frame) in app.inactive_frames.iter().enumerate() {
+        let label = frame.label.clone();
+        row = row.push(
+            button(text(label).size(11))
+                .on_press(Message::SwitchFrame(idx))
+                .padding([2, 8])
+                .style(|theme: &iced::Theme, status| {
+                    let pal = theme.palette();
+                    let hovered = matches!(
+                        status,
+                        iced::widget::button::Status::Hovered
+                            | iced::widget::button::Status::Pressed
+                    );
+                    iced::widget::button::Style {
+                        background: if hovered {
+                            Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.08).into())
+                        } else {
+                            None
+                        },
+                        text_color: pal.background.base.text,
+                        border: iced::Border {
+                            radius: 3.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }
+                }),
+        );
+    }
+
+    row = row.push(iced::widget::Space::new().width(Length::Fill));
+    row = row.push(
+        button(text("+").size(11))
+            .on_press(Message::NewFrame)
+            .padding([2, 8]),
+    );
+    if !app.inactive_frames.is_empty() {
+        row = row.push(
+            button(text("×").size(11))
+                .on_press(Message::CloseCurrentFrame)
+                .padding([2, 8]),
+        );
+    }
+
+    container(row)
+        .padding([3, 8])
+        .width(Length::Fill)
+        .height(Length::Fixed(22.0))
+        .style(|theme: &iced::Theme| {
+            let pal = theme.palette();
+            container::Style {
+                background: Some(
+                    iced::Color {
+                        a: 0.04,
+                        ..pal.background.base.text
+                    }
+                    .into(),
+                ),
+                ..Default::default()
+            }
+        })
+        .into()
 }
 
 /// Render the Tree Spine bucket — Navigator's left-rail "structural
@@ -4572,6 +4760,109 @@ mod tests {
                 .nodes()
                 .any(|(_, n)| n.url() == "verso://settings"),
         );
+    }
+
+    // --- Frame composition tests (Slice 31) ---
+
+    #[test]
+    fn iced_app_starts_with_one_frame() {
+        let runtime = GraphshellRuntime::for_testing();
+        let app = IcedApp::with_runtime(runtime);
+        assert_eq!(app.inactive_frames.len(), 0);
+        assert_eq!(app.frame_label, "Frame 1");
+    }
+
+    #[test]
+    fn new_frame_creates_blank_frame_and_backgrounds_previous() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let initial_id = app.frame_id;
+        let initial_label = app.frame_label.clone();
+
+        let _ = app.update(Message::NewFrame);
+
+        assert_eq!(app.inactive_frames.len(), 1);
+        assert_eq!(app.inactive_frames[0].id, initial_id);
+        assert_eq!(app.inactive_frames[0].label, initial_label);
+        assert_ne!(app.frame_id, initial_id, "active frame got a fresh id");
+        assert_eq!(app.frame_label, "Frame 2");
+        // The new active frame is a fresh FrameState (one Canvas pane).
+        assert_eq!(app.frame.split_state.len(), 1);
+    }
+
+    #[test]
+    fn switch_frame_swaps_active_with_inactive_slot() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let frame1_id = app.frame_id;
+        let _ = app.update(Message::NewFrame); // Frame 1 → background
+        let frame2_id = app.frame_id;
+        assert_eq!(app.inactive_frames.len(), 1);
+        assert_eq!(app.inactive_frames[0].id, frame1_id);
+
+        let _ = app.update(Message::SwitchFrame(0));
+
+        assert_eq!(app.frame_id, frame1_id, "switch promoted Frame 1");
+        assert_eq!(app.inactive_frames.len(), 1);
+        assert_eq!(
+            app.inactive_frames[0].id, frame2_id,
+            "Frame 2 moved into the inactive slot",
+        );
+    }
+
+    #[test]
+    fn close_current_frame_promotes_inactive_or_noop_when_alone() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        // Single frame: close is a no-op.
+        let only_id = app.frame_id;
+        let _ = app.update(Message::CloseCurrentFrame);
+        assert_eq!(app.frame_id, only_id);
+        assert_eq!(app.inactive_frames.len(), 0);
+
+        // Add a second frame, close it, verify the first is restored.
+        let _ = app.update(Message::NewFrame);
+        let _ = app.update(Message::CloseCurrentFrame);
+        assert_eq!(app.frame_id, only_id);
+        assert_eq!(app.inactive_frames.len(), 0);
+    }
+
+    #[test]
+    fn frame_open_action_routes_to_new_frame_message() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let frame_open_idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| a.action_id == graphshell_core::actions::ActionId::FrameOpen)
+            .expect("FrameOpen in registry");
+        let _task = app.update(Message::PaletteActionSelected(frame_open_idx));
+        // Resolve the host-intercepted Task → NewFrame.
+        let _ = app.update(Message::NewFrame);
+        assert_eq!(
+            app.inactive_frames.len(),
+            1,
+            "FrameOpen should have moved Frame 1 into inactive_frames",
+        );
+    }
+
+    #[test]
+    fn view_renders_frame_switcher_only_when_multiple_frames_open() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        // Single frame: render just builds without the switcher.
+        let _ = app.update(Message::Tick);
+        {
+            let _ = app.view();
+        }
+        // Two frames: switcher renders.
+        let _ = app.update(Message::NewFrame);
+        let _ = app.update(Message::Tick);
+        let _ = app.view();
     }
 
     #[test]
