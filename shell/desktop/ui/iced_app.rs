@@ -85,7 +85,7 @@ use graph_canvas::camera::CanvasCamera;
 use iced::time;
 use iced::widget::{button, canvas, column, container, mouse_area, pane_grid, row, rule, scrollable, text, text_input};
 use iced::{Element, Length, Point, Subscription, Task};
-use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs};
+use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, tokens};
 
 /// Frame interval for the runtime tick `Subscription`. ~60 Hz. Per
 /// [`iced_composition_skeleton_spec.md` §1.5](
@@ -2667,7 +2667,7 @@ fn render_palette_row<'a>(
             let bg = if is_focused {
                 Some(pal.primary.weak.color.into())
             } else if hovered && !is_disabled {
-                Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                Some(tokens::HOVER_OVERLAY_SUBTLE.into())
             } else {
                 None
             };
@@ -2798,7 +2798,7 @@ fn render_finder_row<'a>(
             let bg = if is_focused {
                 Some(pal.primary.weak.color.into())
             } else if hovered {
-                Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                Some(tokens::HOVER_OVERLAY_SUBTLE.into())
             } else {
                 None
             };
@@ -3188,7 +3188,7 @@ fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
                     );
                     iced::widget::button::Style {
                         background: if hovered {
-                            Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.08).into())
+                            Some(tokens::HOVER_OVERLAY_STRONG.into())
                         } else {
                             None
                         },
@@ -3225,10 +3225,10 @@ fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
             let pal = theme.palette();
             container::Style {
                 background: Some(
-                    iced::Color {
-                        a: 0.04,
-                        ..pal.background.base.text
-                    }
+                    tokens::chrome_band(
+                        pal.background.base.text,
+                        tokens::CHROME_BAND_MEDIUM,
+                    )
                     .into(),
                 ),
                 ..Default::default()
@@ -3379,7 +3379,7 @@ fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> Element<'a,
             );
             iced::widget::button::Style {
                 background: if hovered {
-                    Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                    Some(tokens::HOVER_OVERLAY_SUBTLE.into())
                 } else {
                     None
                 },
@@ -3399,14 +3399,14 @@ fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> Element<'a,
             let pal = theme.palette();
             container::Style {
                 background: Some(
-                    iced::Color {
-                        a: 0.03,
-                        ..pal.background.base.text
-                    }
+                    tokens::chrome_band(
+                        pal.background.base.text,
+                        tokens::CHROME_BAND_FAINT,
+                    )
                     .into(),
                 ),
                 border: iced::Border {
-                    radius: 3.0.into(),
+                    radius: tokens::RADIUS_BUTTON.into(),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -3540,7 +3540,7 @@ fn tree_spine_row<'a>(
             );
             iced::widget::button::Style {
                 background: if hovered {
-                    Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                    Some(tokens::HOVER_OVERLAY_SUBTLE.into())
                 } else {
                     None
                 },
@@ -3612,11 +3612,8 @@ fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
         let pal = theme.palette();
         container::Style {
             background: Some(
-                iced::Color {
-                    a: 0.05,
-                    ..pal.background.base.text
-                }
-                .into(),
+                tokens::chrome_band(pal.background.base.text, tokens::CHROME_BAND_BASE)
+                    .into(),
             ),
             ..Default::default()
         }

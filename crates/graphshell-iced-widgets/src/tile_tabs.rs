@@ -26,6 +26,8 @@
 use iced::widget::{button, mouse_area, row, text};
 use iced::{Alignment, Border, Color, Element, Length};
 
+use crate::tokens;
+
 /// One entry in a [`TileTabs`] bar — a clickable handle that switches
 /// which tile is foregrounded in the parent Pane.
 #[derive(Debug, Clone)]
@@ -199,11 +201,11 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
             .style(|_theme: &iced::Theme, status| button::Style {
                 background: match status {
                     button::Status::Hovered | button::Status::Pressed => {
-                        Some(Color::from_rgba(1.0, 1.0, 1.0, 0.15).into())
+                        Some(tokens::PRESSED_OVERLAY.into())
                     }
                     _ => None,
                 },
-                border: Border { radius: 2.0.into(), ..Default::default() },
+                border: Border { radius: tokens::RADIUS_TIGHT.into(), ..Default::default() },
                 ..Default::default()
             });
 
@@ -228,7 +230,7 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
                 background: Some(if is_selected {
                     pal.primary.strong.color.into()
                 } else if hovered {
-                    Color::from_rgba(1.0, 1.0, 1.0, 0.08).into()
+                    tokens::HOVER_OVERLAY_STRONG.into()
                 } else {
                     Color::TRANSPARENT.into()
                 }),
@@ -237,7 +239,7 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
                 } else {
                     pal.background.base.text
                 },
-                border: Border { radius: 4.0.into(), ..Default::default() },
+                border: Border { radius: tokens::RADIUS_TAB.into(), ..Default::default() },
                 ..Default::default()
             }
         });

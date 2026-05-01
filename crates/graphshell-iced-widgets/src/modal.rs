@@ -24,6 +24,8 @@ use iced::widget::container;
 use iced::widget::mouse_area;
 use iced::{Border, Color, Element, Length, Shadow, Vector};
 
+use crate::tokens;
+
 /// Modal overlay around a content `Element`. Renders the content
 /// centered above a translucent scrim; clicking the scrim emits the
 /// `on_blur` message if configured.
@@ -108,7 +110,7 @@ impl<'a, Message: Clone + 'a> From<Modal<'a, Message>> for Element<'a, Message> 
         .width(Length::Fill)
         .height(Length::Fill)
         .style(|_: &iced::Theme| container::Style {
-            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.5).into()),
+            background: Some(tokens::MODAL_SCRIM.into()),
             ..Default::default()
         })
         .into();
@@ -129,7 +131,7 @@ impl<'a, Message: Clone + 'a> From<Modal<'a, Message>> for Element<'a, Message> 
                 container::Style {
                     background: Some(pal.background.base.color.into()),
                     border: Border {
-                        radius: 8.0.into(),
+                        radius: tokens::RADIUS_MODAL.into(),
                         ..Default::default()
                     },
                     shadow: Shadow {

@@ -23,6 +23,8 @@
 use iced::widget::{button, column, container, mouse_area, row, text};
 use iced::{Alignment, Border, Color, Element, Length, Point, Shadow, Vector};
 
+use crate::tokens;
+
 /// One entry in a context menu. Disabled entries render with a
 /// dimmed style and surface the `disabled_reason` on hover (per
 /// [`iced_command_palette_spec.md` §3.4](
@@ -176,7 +178,7 @@ impl<'a, Message: Clone + 'a> From<ContextMenu<Message>> for Element<'a, Message
             container::Style {
                 background: Some(pal.background.base.color.into()),
                 border: Border {
-                    radius: 4.0.into(),
+                    radius: tokens::RADIUS_TAB.into(),
                     ..Default::default()
                 },
                 shadow: Shadow {
@@ -249,14 +251,14 @@ fn build_entry<'a, Message: Clone + 'a>(
                 }
             } else if is_destructive {
                 // Red-tinted text for destructive actions.
-                Color::from_rgb(0.8, 0.2, 0.2)
+                tokens::DESTRUCTIVE_TEXT
             } else {
                 pal.background.base.text
             };
 
             button::Style {
                 background: if hovered && !is_disabled {
-                    Some(Color::from_rgba(1.0, 1.0, 1.0, 0.08).into())
+                    Some(tokens::HOVER_OVERLAY_STRONG.into())
                 } else {
                     None
                 },
