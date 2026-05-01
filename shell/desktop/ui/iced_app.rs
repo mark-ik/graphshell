@@ -1069,6 +1069,21 @@ pub(crate) enum Message {
     /// `inactive_frames[0]`. No-op when there's only one Frame.
     CloseCurrentFrame,
 
+    // --- Settings pane messages — Slice 39 ---
+    // Settings live as tile content rendered inside any tile pane
+    // whose active tile's URL starts with "verso://settings". The
+    // pane delegates to render_settings_pane(app); these messages
+    // are the toggle-style controls it surfaces.
+
+    /// Toggle whether the left Navigator host is visible.
+    SettingsToggleNavigatorLeft,
+    /// Toggle whether the right Navigator host is visible.
+    SettingsToggleNavigatorRight,
+    /// Toggle whether the top Navigator host is visible.
+    SettingsToggleNavigatorTop,
+    /// Toggle whether the bottom Navigator host is visible.
+    SettingsToggleNavigatorBottom,
+
     // --- Tile Tabs messages — Slice 29 ---
 
     /// User clicked a tile tab. Dispatches `HostIntent::OpenNode`
@@ -2022,6 +2037,25 @@ impl IcedApp {
                 Task::none()
             }
 
+            // --- Settings pane handlers ---
+
+            Message::SettingsToggleNavigatorLeft => {
+                self.navigator.show_left = !self.navigator.show_left;
+                Task::none()
+            }
+            Message::SettingsToggleNavigatorRight => {
+                self.navigator.show_right = !self.navigator.show_right;
+                Task::none()
+            }
+            Message::SettingsToggleNavigatorTop => {
+                self.navigator.show_top = !self.navigator.show_top;
+                Task::none()
+            }
+            Message::SettingsToggleNavigatorBottom => {
+                self.navigator.show_bottom = !self.navigator.show_bottom;
+                Task::none()
+            }
+
             // --- Tile Tabs handlers ---
 
             Message::TileTabSelected { pane_id: _, node_key } => {
@@ -2292,6 +2326,51 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
     }
 }
 
+/// Render the settings pane content — Slice 39. Shown inside any
+/// tile pane whose active tile's URL starts with `verso://settings`.
+/// Today exposes a small set of host-side toggles (Navigator host
+/// visibility); per-section settings (verso://settings/physics,
+/// /frames, etc.) inspect the URL suffix to decide what to render.
+fn render_settings_pane(app: &IcedApp) -> Element<'_, Message> {
+    let header = text("Settings").size(15);
+    let nav_section = text("Navigator hosts").size(13);
+    let nav_left = iced::widget::checkbox(app.navigator.show_left)
+        .label("Left sidebar")
+        .on_toggle(|_| Message::SettingsToggleNavigatorLeft)
+        .size(14);
+    let nav_right = iced::widget::checkbox(app.navigator.show_right)
+        .label("Right sidebar")
+        .on_toggle(|_| Message::SettingsToggleNavigatorRight)
+        .size(14);
+    let nav_top = iced::widget::checkbox(app.navigator.show_top)
+        .label("Top toolbar")
+        .on_toggle(|_| Message::SettingsToggleNavigatorTop)
+        .size(14);
+    let nav_bottom = iced::widget::checkbox(app.navigator.show_bottom)
+        .label("Bottom toolbar")
+        .on_toggle(|_| Message::SettingsToggleNavigatorBottom)
+        .size(14);
+
+    let footer = text(
+        "Per-section settings (physics, frames, hub) reach this same \
+         pane via verso://settings/<section>; richer controls land \
+         per section as the host wires them.",
+    )
+    .size(11);
+
+    container(
+        scrollable(
+            column![header, nav_section, nav_left, nav_right, nav_top, nav_bottom, footer]
+                .spacing(8)
+                .padding(12),
+        )
+        .height(Length::Fill),
+    )
+    .height(Length::Fill)
+    .width(Length::Fill)
+    .into()
+}
+
 /// Render the body of a Tile pane — Slice 29 wires real graphlet
 /// projection per the iced jump-ship plan §S5.
 ///
@@ -2367,18 +2446,33 @@ fn render_tile_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, M
         .first()
         .map(|(_, l)| l.clone())
         .unwrap_or_else(|| "—".into());
-    let tile_body = container(
-        text(format!("Tile body — active: {active_label}")).size(12),
-    )
-    .center(Length::Fill);
 
-    column![
-        Element::from(tabs),
-        tile_body.height(Length::Fill).width(Length::Fill),
-    ]
-    .spacing(0)
-    .height(Length::Fill)
-    .into()
+    // Slice 39: detect verso://settings URLs on the active tile and
+    // render the settings pane content instead of the placeholder.
+    // Other tile-content variants (WebViewSurface, middlenet viewer)
+    // are downstream tile-render-mode work; for now settings is the
+    // first concrete content view.
+    let active_url = tiles.first().and_then(|(node_key, _)| {
+        app.host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .get_node(*node_key)
+            .map(|n| n.url().to_string())
+    });
+    let tile_body: Element<'a, Message> = match active_url.as_deref() {
+        Some(url) if url.starts_with("verso://settings") => render_settings_pane(app),
+        _ => container(
+            text(format!("Tile body — active: {active_label}")).size(12),
+        )
+        .center(Length::Fill)
+        .into(),
+    };
+
+    column![Element::from(tabs), tile_body]
+        .spacing(0)
+        .height(Length::Fill)
+        .into()
 }
 
 /// Resolve the tile list for a tile pane. Slice 29: defaults to the
@@ -5500,6 +5594,82 @@ mod tests {
         let mut app = IcedApp::with_runtime(runtime);
 
         let _ = app.update(Message::NodeCreateOpen);
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
+    }
+
+    // --- Settings pane content tests (Slice 39) ---
+
+    #[test]
+    fn settings_toggle_navigator_left_flips_state() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let initial = app.navigator.show_left;
+
+        let _ = app.update(Message::SettingsToggleNavigatorLeft);
+        assert_eq!(app.navigator.show_left, !initial);
+
+        let _ = app.update(Message::SettingsToggleNavigatorLeft);
+        assert_eq!(app.navigator.show_left, initial, "second toggle restores");
+    }
+
+    #[test]
+    fn settings_toggle_all_navigator_anchors_independent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::SettingsToggleNavigatorRight);
+        let _ = app.update(Message::SettingsToggleNavigatorTop);
+        let _ = app.update(Message::SettingsToggleNavigatorBottom);
+
+        assert!(app.navigator.show_right);
+        assert!(app.navigator.show_top);
+        assert!(app.navigator.show_bottom);
+        // Left was not toggled; default state preserved.
+        assert!(app.navigator.show_left);
+    }
+
+    #[test]
+    fn tile_pane_with_settings_url_renders_settings_pane() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Seed via OmnibarSubmit so a verso://settings node is the
+        // first GraphTree member; the Tile pane defaults to the
+        // first member as its active tile.
+        let _ = app.update(Message::OmnibarInput("verso://settings".into()));
+        let _ = app.update(Message::OmnibarSubmit);
+        // Convert the seeded Canvas pane to Tile so the settings
+        // body renders.
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+
+        let _ = app.update(Message::Tick);
+        // Render-time smoke test: the tile pane with a settings
+        // active tile must not panic; the URL detection routes to
+        // render_settings_pane.
+        let _element = app.view();
+    }
+
+    #[test]
+    fn open_settings_action_creates_settings_node_and_renders() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Slice 30 routed WorkbenchOpenSettingsPane through verso://
+        // settings creation. Slice 39 makes that node render real
+        // settings UI when shown in a Tile pane.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::WorkbenchOpenSettingsPane,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
         let _ = app.update(Message::Tick);
         let _element = app.view();
     }
