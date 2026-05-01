@@ -2120,6 +2120,76 @@
         assert_eq!(app.host.runtime.dispatched_action_count, 0);
     }
 
+    // --- Modal fade-in clock tests (Slice 47) ---
+
+    #[test]
+    fn palette_open_sets_modal_opened_at_and_close_clears_it() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        assert!(app.modal_opened_at.is_none());
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::Programmatic,
+        });
+        assert!(app.modal_opened_at.is_some());
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+        assert!(app.modal_opened_at.is_none());
+    }
+
+    #[test]
+    fn node_finder_open_sets_modal_opened_at_and_close_clears_it() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::OmnibarRoute(String::new()),
+        });
+        assert!(app.modal_opened_at.is_some());
+        let _ = app.update(Message::NodeFinderCloseAndRestoreFocus);
+        assert!(app.modal_opened_at.is_none());
+    }
+
+    #[test]
+    fn node_create_open_sets_modal_opened_at_and_close_clears_it() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::NodeCreateOpen);
+        assert!(app.modal_opened_at.is_some());
+        let _ = app.update(Message::NodeCreateCancel);
+        assert!(app.modal_opened_at.is_none());
+    }
+
+    #[test]
+    fn frame_rename_open_sets_modal_opened_at_and_close_clears_it() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::FrameRenameOpen);
+        assert!(app.modal_opened_at.is_some());
+        let _ = app.update(Message::FrameRenameCancel);
+        assert!(app.modal_opened_at.is_none());
+    }
+
+    #[test]
+    fn switching_between_modals_resets_the_fade_clock() {
+        // Mutually exclusive overlays share a single clock — opening
+        // a second modal must overwrite the first one's timestamp so
+        // the new surface fades from scrim cleanly.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::Programmatic,
+        });
+        let palette_started = app.modal_opened_at.expect("palette set the clock");
+        // Sleep a tiny bit so the second timestamp differs.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::OmnibarRoute(String::new()),
+        });
+        let finder_started = app.modal_opened_at.expect("finder set the clock");
+        assert!(
+            finder_started > palette_started,
+            "expected finder open to overwrite palette timestamp"
+        );
+    }
+
     // --- Frame composition tests (Slice 31) ---
 
     #[test]

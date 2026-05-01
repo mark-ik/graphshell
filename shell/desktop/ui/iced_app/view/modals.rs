@@ -2,7 +2,7 @@
 //! Slice 44 / Phase D continuation. Covers the `gs::Modal`-backed
 //! surfaces (Command Palette / Node Finder / Confirm Dialog /
 //! Node Create / Frame Rename) plus `gs::ContextMenu` (right-click
-//! overlay), and the helpers they share (palette_fade_opacity,
+//! overlay), and the helpers they share (`modal_fade_opacity`,
 //! palette + finder row builders).
 
 use super::*;
@@ -57,24 +57,27 @@ pub(crate) fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
     .width(Length::Fill)
     .height(Length::Fill);
 
-    // Slice 42: fade-in opacity computed from the host's
+    // Slice 42 / 47: fade-in opacity computed from the host's
     // modal_opened_at. Duration 150ms with ease_out_cubic feels
-    // snappy without a flash.
-    let opacity = palette_fade_opacity(app);
-
+    // snappy without a flash. The same clock + curve drives every
+    // gs::Modal-backed surface — palette, finder, node-create,
+    // frame-rename, and confirm-dialog all read this value.
     Modal::new(body)
         .on_blur(Message::PaletteCloseAndRestoreFocus)
         .max_width(640.0)
         .max_height(480.0)
-        .opacity(opacity)
+        .opacity(modal_fade_opacity(app))
         .into()
 }
 
-/// Opacity factor for the Command Palette modal — Slice 42. Reads
-/// `modal_opened_at` and applies an ease-out-cubic curve over a
-/// 150ms duration. Returns 1.0 if no timestamp is set or the modal
-/// has been open longer than the duration.
-fn palette_fade_opacity(app: &IcedApp) -> f32 {
+/// Opacity factor for the active gs::Modal-backed surface. Reads
+/// `IcedApp::modal_opened_at` and applies an ease-out-cubic curve
+/// over a 150ms duration. Returns `1.0` if no timestamp is set or
+/// the modal has been open longer than the duration. Mutually
+/// exclusive overlays share the same clock — opening one modal
+/// resets `modal_opened_at`, so the new surface fades in from the
+/// scrim cleanly without ghost frames from the previous one.
+pub(crate) fn modal_fade_opacity(app: &IcedApp) -> f32 {
     const FADE_MS: u64 = 150;
     let Some(opened_at) = app.modal_opened_at else {
         return 1.0;
@@ -231,6 +234,7 @@ pub(crate) fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
         .on_blur(Message::NodeFinderCloseAndRestoreFocus)
         .max_width(640.0)
         .max_height(480.0)
+        .opacity(modal_fade_opacity(app))
         .into()
 }
 
@@ -334,6 +338,7 @@ pub(crate) fn render_frame_rename_modal(app: &IcedApp) -> Element<'_, Message> {
     Modal::new(inner)
         .on_blur(Message::FrameRenameCancel)
         .max_width(420.0)
+        .opacity(modal_fade_opacity(app))
         .into()
 }
 
@@ -375,6 +380,7 @@ pub(crate) fn render_node_create_modal(app: &IcedApp) -> Element<'_, Message> {
     Modal::new(inner)
         .on_blur(Message::NodeCreateCancel)
         .max_width(480.0)
+        .opacity(modal_fade_opacity(app))
         .into()
 }
 
@@ -435,6 +441,7 @@ pub(crate) fn render_confirm_dialog(app: &IcedApp) -> Element<'_, Message> {
     Modal::new(inner)
         .on_blur(Message::ConfirmDialogCancel)
         .max_width(420.0)
+        .opacity(modal_fade_opacity(app))
         .into()
 }
 

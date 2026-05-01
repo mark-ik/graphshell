@@ -730,12 +730,12 @@ impl IcedApp {
 
             // --- Command Palette handlers ---
 
-            // Slice 42: PaletteOpen is the demonstrator wiring for
-            // modal fade-in via the Slice 38 animation framework.
-            // The pattern (set modal_opened_at on open, clear on
-            // close, ease_out_cubic in the renderer) extends
-            // mechanically to NodeFinder / NodeCreate /
-            // FrameRename / ConfirmDialog in follow-up slices.
+            // Modal fade-in pattern (Slice 42, generalized in Slice 47):
+            // every gs::Modal-backed surface sets `modal_opened_at` on
+            // open, clears it on close, and reads `modal_fade_opacity`
+            // in its renderer. Mutually exclusive overlays share the
+            // same clock — opening one modal overwrites the previous
+            // timestamp so the new surface always fades from scrim.
             Message::PaletteOpen { origin } => {
                 // Opening the palette closes the node finder (mutually
                 // exclusive overlays per the canonical specs).
@@ -866,11 +866,11 @@ impl IcedApp {
                 // always reflects current truth.
                 let was_palette_open = self.command_palette.is_open;
                 self.command_palette.is_open = false;
-                // Slice 42: palette superseded → clear its fade-in
-                // clock. NodeFinder doesn't use modal_opened_at yet
-                // (Palette is the demonstrator); when it adopts the
-                // pattern this becomes `Some(Instant::now())`.
-                self.modal_opened_at = None;
+                // Slice 47: every gs::Modal-backed surface fades in
+                // through the same clock. The previous palette's
+                // timestamp is overwritten here so the finder fades
+                // from the scrim cleanly.
+                self.modal_opened_at = Some(std::time::Instant::now());
                 self.node_finder.all_results =
                     build_finder_results(&self.host.runtime.graph_app);
                 self.node_finder.is_open = true;
@@ -905,6 +905,7 @@ impl IcedApp {
                 self.node_finder.is_open = false;
                 self.node_finder.query.clear();
                 self.node_finder.focused_index = None;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -939,6 +940,7 @@ impl IcedApp {
                     self.node_finder.is_open = false;
                     self.node_finder.query.clear();
                     self.node_finder.focused_index = None;
+                    self.modal_opened_at = None;
                     // Drive a tick so the runtime drains the intent
                     // immediately and observers see the focus change.
                     self.tick_with_events(Vec::new());
@@ -1062,6 +1064,9 @@ impl IcedApp {
                         self.confirm_dialog.is_open = true;
                         self.confirm_dialog.action_label = label;
                         self.confirm_dialog.pending_intent = intent;
+                        // Confirm dialog is gs::Modal-backed; fade in
+                        // through the shared clock.
+                        self.modal_opened_at = Some(std::time::Instant::now());
                         emit_ux_event(
                             self,
                             graphshell_core::ux_observability::UxEvent::SurfaceOpened {
@@ -1109,6 +1114,7 @@ impl IcedApp {
                 let label = std::mem::take(&mut self.confirm_dialog.action_label);
                 let intent = self.confirm_dialog.pending_intent.take();
                 self.confirm_dialog.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -1131,6 +1137,7 @@ impl IcedApp {
                 let _ = self.confirm_dialog.pending_intent.take();
                 self.confirm_dialog.action_label.clear();
                 self.confirm_dialog.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -1169,6 +1176,7 @@ impl IcedApp {
             Message::NodeCreateOpen => {
                 self.node_create.is_open = true;
                 self.node_create.url_draft.clear();
+                self.modal_opened_at = Some(std::time::Instant::now());
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceOpened {
@@ -1186,6 +1194,7 @@ impl IcedApp {
             Message::NodeCreateSubmit => {
                 let draft = std::mem::take(&mut self.node_create.url_draft);
                 self.node_create.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -1206,6 +1215,7 @@ impl IcedApp {
             Message::NodeCreateCancel => {
                 self.node_create.url_draft.clear();
                 self.node_create.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -1221,6 +1231,7 @@ impl IcedApp {
             Message::FrameRenameOpen => {
                 self.frame_rename.is_open = true;
                 self.frame_rename.label_draft = self.frame_label.clone();
+                self.modal_opened_at = Some(std::time::Instant::now());
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceOpened {
@@ -1242,6 +1253,7 @@ impl IcedApp {
                     self.frame_label = trimmed.to_string();
                 }
                 self.frame_rename.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -1254,6 +1266,7 @@ impl IcedApp {
             Message::FrameRenameCancel => {
                 self.frame_rename.label_draft.clear();
                 self.frame_rename.is_open = false;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
