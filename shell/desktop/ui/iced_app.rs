@@ -37,6 +37,15 @@
 //!
 //! All four modules are portable: `graphshell-core` only. Future
 //! hosts (egui, Stage-G/H) plug in identically.
+//!
+//! **Slice 27**: the Navigator's Activity Log bucket — the third
+//! and last Presentation Bucket — is now wired to live data via a
+//! bounded `RecordingObserver` (capacity 100). Every `UxEvent` the
+//! host emits flows in; the bucket renders most-recent-first as
+//! one line per event. Three Navigator buckets now ship with real
+//! data: Tree Spine (Slice 20, GraphTree members), Activity Log
+//! (this slice, UxEvent stream); Swatches remains a stub pending
+//! the canvas-instance multi-render-profile work.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -237,6 +246,24 @@ impl Default for NavigatorState {
 /// Stable widget id for the command palette text input. Addressed by
 /// `iced::widget::operation::focus` on `PaletteOpen`.
 const PALETTE_INPUT_ID: &str = "graphshell:command_palette_input";
+
+/// How many UX events the Activity Log bucket retains. Bounded so
+/// long-lived sessions don't accumulate unbounded history. The
+/// bucket renders the most-recent end of the buffer.
+const ACTIVITY_LOG_CAPACITY: usize = 100;
+
+/// `UxObserver` adapter that forwards into the host's
+/// `Arc<RecordingObserver>` so the Activity Log bucket can snapshot
+/// the recorder without holding a mutable borrow on the registry.
+struct ActivityLogRecorderProxy(
+    std::sync::Arc<graphshell_core::ux_observability::RecordingObserver>,
+);
+
+impl graphshell_core::ux_observability::UxObserver for ActivityLogRecorderProxy {
+    fn observe(&self, event: &graphshell_core::ux_observability::UxEvent) {
+        self.0.observe(event);
+    }
+}
 
 /// Stable widget id for the node finder text input.
 const NODE_FINDER_INPUT_ID: &str = "graphshell:node_finder_input";
@@ -743,6 +770,11 @@ pub(crate) struct IcedApp {
     /// [`iced_command_palette_spec.md` §5](
     /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
     pub(crate) confirm_dialog: ConfirmDialogState,
+    /// Bounded recorder backing the Navigator's Activity Log
+    /// bucket. Registered as a `UxObserver` on the runtime; every
+    /// `UxEvent` the host emits flows in. Slice 27.
+    pub(crate) activity_log_recorder:
+        std::sync::Arc<graphshell_core::ux_observability::RecordingObserver>,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -895,6 +927,11 @@ pub(crate) enum Message {
 impl IcedApp {
     /// Construct an app whose `IcedHost` wraps the supplied runtime.
     pub(crate) fn with_runtime(runtime: GraphshellRuntime) -> Self {
+        let activity_log_recorder = std::sync::Arc::new(
+            graphshell_core::ux_observability::RecordingObserver::with_capacity(
+                ACTIVITY_LOG_CAPACITY,
+            ),
+        );
         let mut app = Self {
             host: IcedHost::with_runtime(runtime),
             last_view_model: None,
@@ -905,6 +942,7 @@ impl IcedApp {
             node_finder: NodeFinderState::default(),
             context_menu: ContextMenuState::default(),
             confirm_dialog: ConfirmDialogState::default(),
+            activity_log_recorder: std::sync::Arc::clone(&activity_log_recorder),
         };
         // Slice 26: register a UxChannelObserver with a NoopSink so
         // every UxEvent passes through the canonical channel-mapping
@@ -919,6 +957,12 @@ impl IcedApp {
             .runtime
             .ux_observers
             .register(Box::new(channel_observer));
+        // Slice 27: register the Activity Log recorder. The Arc clone
+        // gives the host a snapshot handle while the registry owns
+        // its observer-side adapter.
+        app.host.runtime.ux_observers.register(Box::new(
+            ActivityLogRecorderProxy(activity_log_recorder),
+        ));
         app
     }
 
@@ -1861,17 +1905,13 @@ fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> Element<'_, 
         .width(Length::Fill)
         .into();
 
-    // Activity Log bucket — lazy+scrollable event stream stub.
-    // Real: `scrollable(lazy(generation, |_| column(event_rows)))` per spec §6.3.
-    let activity_log: Element<'_, Message> = scrollable(
-        column![
-            text("Activity Log").size(11),
-            text("  — (no events)").size(11),
-        ]
-        .spacing(2),
-    )
-    .height(Length::FillPortion(1))
-    .into();
+    // Activity Log bucket — Slice 27 reads from the host's bounded
+    // RecordingObserver and renders one row per UxEvent in
+    // most-recent-first order. Per
+    // [`iced_composition_skeleton_spec.md` §6.3](
+    // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md):
+    // event-stream view of recent runtime activity.
+    let activity_log: Element<'_, Message> = render_activity_log_bucket(app);
 
     match anchor {
         NavigatorAnchor::Left | NavigatorAnchor::Right => {
@@ -2459,6 +2499,110 @@ fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
     scrollable(spine.spacing(2).padding([2, 0]))
         .height(Length::FillPortion(2))
         .into()
+}
+
+/// Render the Activity Log bucket — Navigator's right-rail
+/// "what just happened" stream. Per
+/// [`iced_composition_skeleton_spec.md` §6.3](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md).
+///
+/// Slice 27: snapshots the host's bounded `RecordingObserver`
+/// (capacity `ACTIVITY_LOG_CAPACITY = 100`) and renders one row per
+/// recorded event in most-recent-first order. Empty buffer shows a
+/// "no activity yet" placeholder. Subsequent slices can add
+/// click-to-navigate (e.g., a row for `OpenNodeDispatched` could
+/// re-focus that node) and visual filtering.
+fn render_activity_log_bucket(app: &IcedApp) -> Element<'_, Message> {
+    let header: Element<'_, Message> =
+        text("Activity Log").size(11).width(Length::Fill).into();
+
+    let events = app.activity_log_recorder.snapshot();
+    if events.is_empty() {
+        return scrollable(
+            column![header, text("  — no activity yet").size(11)].spacing(4),
+        )
+        .height(Length::FillPortion(1))
+        .into();
+    }
+
+    // Render most-recent first. The recorder appends in observation
+    // order, so reverse for display.
+    let rows: Vec<Element<'_, Message>> = events
+        .into_iter()
+        .rev()
+        .map(activity_log_row)
+        .collect();
+
+    let mut col = column![header];
+    for row in rows {
+        col = col.push(row);
+    }
+
+    scrollable(col.spacing(2).padding([2, 0]))
+        .height(Length::FillPortion(1))
+        .into()
+}
+
+/// One row in the Activity Log. Renders a single line of text
+/// describing the event; click handlers land in a future slice.
+fn activity_log_row<'a>(
+    event: graphshell_core::ux_observability::UxEvent,
+) -> Element<'a, Message> {
+    text(format_ux_event(&event))
+        .size(11)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Convert a `UxEvent` into a concise human-readable summary line
+/// for the Activity Log. Surface variants render as
+/// `"opened: Command Palette"` / `"dismissed: Node Finder (cancelled)"`;
+/// dispatches render as `"action: graph:toggle_physics"` /
+/// `"open node: n7"`.
+fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent) -> String {
+    use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
+    fn surface_label(s: SurfaceId) -> &'static str {
+        match s {
+            SurfaceId::Omnibar => "Omnibar",
+            SurfaceId::CommandPalette => "Command Palette",
+            SurfaceId::NodeFinder => "Node Finder",
+            SurfaceId::ContextMenu => "Context Menu",
+            SurfaceId::ConfirmDialog => "Confirm Dialog",
+            SurfaceId::StatusBar => "Status Bar",
+            SurfaceId::TreeSpine => "Tree Spine",
+            SurfaceId::NavigatorHost => "Navigator",
+            SurfaceId::TilePane => "Tile Pane",
+            SurfaceId::CanvasPane => "Canvas Pane",
+            SurfaceId::BaseLayer => "Base Layer",
+        }
+    }
+    fn reason_label(r: DismissReason) -> &'static str {
+        match r {
+            DismissReason::Confirmed => "confirmed",
+            DismissReason::Cancelled => "cancelled",
+            DismissReason::Superseded => "superseded",
+            DismissReason::Programmatic => "programmatic",
+        }
+    }
+    match event {
+        UxEvent::SurfaceOpened { surface } => {
+            format!("opened: {}", surface_label(*surface))
+        }
+        UxEvent::SurfaceDismissed { surface, reason } => format!(
+            "dismissed: {} ({})",
+            surface_label(*surface),
+            reason_label(*reason)
+        ),
+        UxEvent::ActionDispatched { action_id, target } => match target {
+            Some(node_key) => {
+                format!("action: {} → n{}", action_id.key(), node_key.index())
+            }
+            None => format!("action: {}", action_id.key()),
+        },
+        UxEvent::OpenNodeDispatched { node_key } => {
+            format!("open node: n{}", node_key.index())
+        }
+    }
 }
 
 /// One row in the Tree Spine list. Click dispatches an OpenNode
@@ -3612,6 +3756,102 @@ mod tests {
                 target: None,
             }
         )));
+    }
+
+    #[test]
+    fn activity_log_records_palette_open_and_close() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Empty at construction.
+        assert!(app.activity_log_recorder.is_empty());
+
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+
+        let events = app.activity_log_recorder.snapshot();
+        assert_eq!(events.len(), 2);
+        assert_eq!(format_ux_event(&events[0]), "opened: Command Palette");
+        assert_eq!(
+            format_ux_event(&events[1]),
+            "dismissed: Command Palette (cancelled)",
+        );
+    }
+
+    #[test]
+    fn activity_log_capacity_is_bounded() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Fire many open/close cycles — well past capacity.
+        for _ in 0..(ACTIVITY_LOG_CAPACITY + 50) {
+            let _ = app.update(Message::PaletteOpen {
+                origin: PaletteOrigin::KeyboardShortcut,
+            });
+            let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+        }
+
+        // Recorder is bounded — older events evicted.
+        let len = app.activity_log_recorder.len();
+        assert!(
+            len <= ACTIVITY_LOG_CAPACITY,
+            "recorder exceeded capacity: {len}",
+        );
+    }
+
+    #[test]
+    fn format_ux_event_renders_canonical_lines() {
+        use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
+        assert_eq!(
+            format_ux_event(&UxEvent::SurfaceOpened {
+                surface: SurfaceId::ContextMenu,
+            }),
+            "opened: Context Menu",
+        );
+        assert_eq!(
+            format_ux_event(&UxEvent::SurfaceDismissed {
+                surface: SurfaceId::ConfirmDialog,
+                reason: DismissReason::Superseded,
+            }),
+            "dismissed: Confirm Dialog (superseded)",
+        );
+        assert_eq!(
+            format_ux_event(&UxEvent::ActionDispatched {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+                target: None,
+            }),
+            "action: graph:toggle_physics",
+        );
+        assert_eq!(
+            format_ux_event(&UxEvent::ActionDispatched {
+                action_id: graphshell_core::actions::ActionId::NodePinToggle,
+                target: Some(graphshell_core::graph::NodeKey::new(7)),
+            }),
+            "action: node:pin_toggle → n7",
+        );
+        assert_eq!(
+            format_ux_event(&UxEvent::OpenNodeDispatched {
+                node_key: graphshell_core::graph::NodeKey::new(3),
+            }),
+            "open node: n3",
+        );
+    }
+
+    #[test]
+    fn view_renders_with_activity_log_populated() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Fire some events so the bucket has rows.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+        let _ = app.update(Message::Tick);
+
+        let _element = app.view();
     }
 
     #[test]
