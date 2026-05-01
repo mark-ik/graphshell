@@ -76,10 +76,14 @@ pub enum SurfaceId {
     StatusBar,
     TreeSpine,
     NavigatorHost,
-    /// A tile pane (tile-tabs + body). Pane id discriminator carried
-    /// in the event payload, not in the variant.
+    /// A tile pane (tile-tabs + body). The variant is the granular
+    /// surface; per-pane discrimination (PaneId) is host-side state
+    /// and not carried in the `UxEvent` payload today — extending
+    /// `UxEvent::SurfaceOpened` with a target field is queued as a
+    /// future enrichment when downstream observers need it.
     TilePane,
-    /// A canvas pane.
+    /// A canvas pane. Same per-pane discrimination caveat as
+    /// [`Self::TilePane`].
     CanvasPane,
     /// The canvas base layer (empty Frame fallback).
     BaseLayer,

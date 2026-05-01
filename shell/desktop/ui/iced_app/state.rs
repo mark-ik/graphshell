@@ -56,9 +56,13 @@ pub(crate) struct OmnibarSession {
     /// when transitioning to Input mode (if empty), then updated by
     /// `OmnibarInput`. Cleared on submit or Escape.
     pub(crate) draft: String,
-    /// Widget id held before the omnibar captured focus; restored on
-    /// dismiss, submit, or Escape. Unpopulated in Slice 2 — full
-    /// focus-restore lands when iced exposes a focus-query operation.
+    /// Widget id held before the omnibar captured focus; intended
+    /// to be restored on dismiss, submit, or Escape so the prior
+    /// focus target keeps caret state. Currently unset and unread —
+    /// vendored iced has no focus-query Operation to seed it from.
+    /// Stays as future capacity; remove if a year passes without
+    /// the underlying iced API.
+    #[allow(dead_code)]
     pub(crate) focus_token: Option<iced::widget::Id>,
 }
 
@@ -434,6 +438,12 @@ pub(crate) enum NodeFinderOrigin {
 /// Where in a node the user's query matched. Per
 /// [`iced_node_finder_spec.md` §4](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
+///
+/// Slice 43 staleness note: the field on `NodeFinderResult` is
+/// always set to `Recency` today because no per-row ranking
+/// distinguishes title vs address vs content matches yet. The
+/// shape stays so a future fuzzy-match adapter can populate it.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MatchSource {
     Title,
@@ -526,6 +536,12 @@ pub(super) fn build_finder_results(
                 title,
                 address,
                 node_type,
+                // Slice 11 → Slice 43 staleness fix: the field is
+                // currently always `Recency` because no per-result
+                // ranking distinguishes title vs address vs content
+                // matches yet. Real fuzzy ranking (when
+                // NodeFinderViewModel lands) recomputes this per
+                // visible row at filter time.
                 match_source: MatchSource::Recency,
             }
         })

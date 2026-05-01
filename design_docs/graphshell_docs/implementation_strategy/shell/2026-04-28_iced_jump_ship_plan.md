@@ -756,6 +756,22 @@ exploration. The guarantees are stable; surface chrome and styling can
 evolve without changing them. If a future change to a surface conflicts
 with its guarantee, the guarantee wins or the change is rejected.
 
+**2026-05-01 probe-coverage status**: Slice 25 ships
+`graphshell_core::ux_probes` with two canonical probes —
+`MutualExclusionProbe` (covers the "modal supersession" invariant
+shared across Command Palette / Node Finder / Context Menu /
+Confirm Dialog / Node Create / Frame Rename) and
+`OpenDismissBalanceProbe` (catches dismissal leaks). Most per-surface
+guarantees in the table above lack a direct probe today — adding
+each is a small follow-up slice (one struct that observes the
+relevant `UxEvent` shape and asserts the named invariant against
+runtime state). The sequencing is not a blocker: the
+modal-supersession probe is the most-violated invariant in practice,
+and the others (graph-truth-unchanged, click-doesn't-mutate, etc.)
+are easier to verify because the surfaces that mutate go through
+`HostIntent::Action` / `ActionOnNode` which the dispatch counters
+already observe.
+
 ---
 
 ## 5. Anti-patterns to avoid

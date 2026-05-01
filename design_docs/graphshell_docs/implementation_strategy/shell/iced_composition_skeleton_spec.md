@@ -255,6 +255,19 @@ work consumes:
   drives the runtime tick. Animation state stays widget-local where
   possible (per §9 anti-pattern: don't hoist).
 
+  **2026-05-01 update (Slice 38 / 42)**: cosmic-time integration is
+  deferred — vendored iced 0.14 fork compatibility is unverified, and
+  the early animation needs (drop-zone pulse, modal fade-in) are
+  small enough not to need the keyframe DSL. Slice 38 ships custom
+  primitives in `graphshell_iced_widgets::animation` (`Animation`
+  one-shots with `progress`, `ease_out_cubic` /
+  `ease_in_out_cubic`, continuous `pulse(now, since, period_ms)`).
+  Slice 42 wires modal fade-in via `gs::Modal::opacity()` and the
+  Command Palette as the demonstrator; per-frame interpolation
+  continues to ride the existing Tick Subscription. The module
+  surface is shaped so a future cosmic-time swap doesn't change
+  call sites.
+
 These two hooks are surface-level wiring, not full Stage F / E
 specifications — those are downstream sub-deliverables (per §10).
 
@@ -635,6 +648,16 @@ three canonical Presentation Buckets: Tree Spine, Swatches, Activity Log.
 Each Navigator host (NavigatorTop / NavigatorLeft / NavigatorRight /
 NavigatorBottom) renders one, two, or all three buckets depending on its
 form factor, scope, and available space (per [NAVIGATOR.md §11](../navigator/NAVIGATOR.md)).
+
+**2026-05-01 implementation note**: all three buckets ship live data as
+of Slice 33 (Tree Spine reads `runtime.graph_tree.members()`, Swatches
+renders one canvas instance per built-in `SwatchRecipe`, Activity Log
+reads from a bounded `RecordingObserver` over `UxEvent`s). The
+sub-section sketches below describe `lazy` + `scrollable` virtualization;
+the iced host currently renders the buckets with a plain
+`scrollable(column(rows))` because list sizes stay small (<100 rows in
+practice). Adopting `lazy` is queued for when a single bucket exceeds
+the size at which one-shot column-build becomes a tick-time bottleneck.
 
 ### 6.1 Tree Spine bucket
 
