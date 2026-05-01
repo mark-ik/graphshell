@@ -1599,12 +1599,25 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
             // Tile list and selection state come from the Navigator domain
             // layer (S5); this slice uses placeholder tabs so the widget is
             // exercised in the live layout.
+            //
+            // Slice 21 wires per-tab right-click: each tab dispatches
+            // ContextMenuOpen with TilePane { pane_id, node_key }. Tab
+            // → NodeKey lookup currently passes None — the structural
+            // wiring closes; future slices populate node_keys when
+            // real tile data is wired.
+            let pane_id_for_tabs = meta.pane_id;
             let tabs = TileTabs::new()
                 .push(TileTab::new("Tab A"))
                 .push(TileTab::new("Tab B"))
                 .selected(Some(0))
                 .on_select(|_i| Message::Tick)
-                .on_close(|_i| Message::Tick);
+                .on_close(|_i| Message::Tick)
+                .on_right_click(move |_i| Message::ContextMenuOpen {
+                    target: ContextMenuTarget::TilePane {
+                        pane_id: pane_id_for_tabs,
+                        node_key: None,
+                    },
+                });
             let tile_body = container(text("Tile body — Navigator wires content in S5").size(12))
                 .center(Length::Fill);
             column![

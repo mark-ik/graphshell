@@ -23,7 +23,7 @@
 //! outer tab button sees them, giving correct select-vs-close dispatch
 //! without any manual hit-testing.
 
-use iced::widget::{button, row, text};
+use iced::widget::{button, mouse_area, row, text};
 use iced::{Alignment, Border, Color, Element, Length};
 
 /// One entry in a [`TileTabs`] bar — a clickable handle that switches
@@ -68,6 +68,7 @@ pub struct TileTabs<Message> {
     pub(crate) selected: Option<usize>,
     pub(crate) on_select: Option<Box<dyn Fn(usize) -> Message>>,
     pub(crate) on_close: Option<Box<dyn Fn(usize) -> Message>>,
+    pub(crate) on_right_click: Option<Box<dyn Fn(usize) -> Message>>,
 }
 
 impl<Message> TileTabs<Message> {
@@ -78,6 +79,7 @@ impl<Message> TileTabs<Message> {
             selected: None,
             on_select: None,
             on_close: None,
+            on_right_click: None,
         }
     }
 
@@ -114,6 +116,16 @@ impl<Message> TileTabs<Message> {
         self.on_close = Some(Box::new(f));
         self
     }
+
+    /// Register a right-click handler. Receives the index of the
+    /// right-clicked tab; the host typically translates into a
+    /// `ContextMenuOpen` message keyed on that tab's node identity.
+    /// Wraps each tab's outer button in a `mouse_area` so iced's
+    /// right-press capture fires before the button consumes the event.
+    pub fn on_right_click(mut self, f: impl Fn(usize) -> Message + 'static) -> Self {
+        self.on_right_click = Some(Box::new(f));
+        self
+    }
 }
 
 impl<Message> Default for TileTabs<Message> {
@@ -130,7 +142,13 @@ impl<Message> Default for TileTabs<Message> {
 /// `on_close(i)` only; clicking the label area fires `on_select(i)`.
 impl<'a, Message: Clone + 'a> From<TileTabs<Message>> for Element<'a, Message> {
     fn from(widget: TileTabs<Message>) -> Self {
-        let TileTabs { tabs, selected, on_select, on_close } = widget;
+        let TileTabs {
+            tabs,
+            selected,
+            on_select,
+            on_close,
+            on_right_click,
+        } = widget;
 
         if tabs.is_empty() {
             // Empty tab bar: zero-height spacer so layout is stable.
@@ -147,6 +165,7 @@ impl<'a, Message: Clone + 'a> From<TileTabs<Message>> for Element<'a, Message> {
                     selected == Some(i),
                     on_select.as_ref().map(|f| f(i)),
                     on_close.as_ref().map(|f| f(i)),
+                    on_right_click.as_ref().map(|f| f(i)),
                 )
             })
             .collect();
@@ -169,6 +188,7 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
     is_selected: bool,
     select_msg: Option<Message>,
     close_msg: Option<Message>,
+    right_click_msg: Option<Message>,
 ) -> Element<'a, Message> {
     let label_el: Element<'a, Message> = text(label).size(13).into();
 
@@ -195,7 +215,7 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
         label_el
     };
 
-    button(content)
+    let tab_button = button(content)
         .on_press_maybe(select_msg)
         .padding([4, 8])
         .style(move |theme: &iced::Theme, status| {
@@ -220,6 +240,15 @@ fn build_tab_cell<'a, Message: Clone + 'a>(
                 border: Border { radius: 4.0.into(), ..Default::default() },
                 ..Default::default()
             }
-        })
-        .into()
+        });
+
+    // Wrap the tab button in a mouse_area when a right-click handler
+    // is configured, so iced's right-press capture fires the host's
+    // ContextMenuOpen-shaped message before the underlying button
+    // sees the event.
+    if let Some(msg) = right_click_msg {
+        mouse_area(tab_button).on_right_press(msg).into()
+    } else {
+        tab_button.into()
+    }
 }
