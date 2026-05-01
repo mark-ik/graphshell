@@ -3591,6 +3591,56 @@ mod tests {
     }
 
     #[test]
+    fn iced_supersession_satisfies_mutual_exclusion_probe() {
+        use graphshell_core::ux_probes::{
+            MutualExclusionProbe, OpenDismissBalanceProbe, UxProbe, probe_as_observer,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let mutex_probe = Arc::new(MutualExclusionProbe::new());
+        let balance_probe = Arc::new(OpenDismissBalanceProbe::new());
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&mutex_probe) as Arc<dyn UxProbe>,
+        ));
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&balance_probe) as Arc<dyn UxProbe>,
+        ));
+
+        // Drive a sequence the iced host actually produces: open
+        // palette, supersede with finder, supersede with context
+        // menu, dismiss. Probes verify the supersession sequencing
+        // doesn't leave any modal hanging.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        let _ = app.update(Message::ContextMenuDismiss);
+
+        let mutex_failures = mutex_probe.drain_failures();
+        let balance_failures = balance_probe.drain_failures();
+        assert!(
+            mutex_failures.is_empty(),
+            "iced supersession trips mutual_exclusion: {mutex_failures:?}",
+        );
+        assert!(
+            balance_failures.is_empty(),
+            "iced supersession trips open_dismiss_balance: {balance_failures:?}",
+        );
+        assert!(
+            balance_probe.pending_opens().is_empty(),
+            "iced left a modal open at the end of the sequence",
+        );
+    }
+
+    #[test]
     fn open_node_dispatch_emits_open_node_event() {
         use graphshell_core::ux_observability::UxEvent;
         let runtime = GraphshellRuntime::for_testing();
