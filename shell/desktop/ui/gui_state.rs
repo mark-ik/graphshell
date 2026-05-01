@@ -523,6 +523,24 @@ impl GraphshellRuntime {
                     }
                 }
             }
+            ActionId::GraphFit => {
+                // GraphBrowserApp::request_fit_to_screen routes the
+                // CameraCommand::Fit to the focused view internally,
+                // so no per-view lookup is needed.
+                self.graph_app.request_fit_to_screen();
+            }
+            ActionId::PersistUndo => {
+                // Mirrors `GraphIntent::Undo`: capture the workspace
+                // layout snapshot, run the undo, ignore the bool result
+                // (host doesn't care whether anything was actually
+                // restored — toast feedback is a future slice).
+                let layout = self.graph_app.current_undo_checkpoint_layout_json();
+                let _ = self.graph_app.perform_undo(layout);
+            }
+            ActionId::PersistRedo => {
+                let layout = self.graph_app.current_undo_checkpoint_layout_json();
+                let _ = self.graph_app.perform_redo(layout);
+            }
             _ => {
                 // Unhandled action — dispatch counters recorded the
                 // call above. Per-action wiring lands incrementally.

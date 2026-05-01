@@ -11,17 +11,14 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 17 / Stage A+E)**: Slices 3-16 wired the dispatch
-//! loops, per-action handlers, and per-target NodeKey routing. Slice
-//! 17 fills in canvas right-click hit-testing: the
-//! `iced-graph-canvas-viewer` Program handles `ButtonPressed(Right)`
-//! natively, runs `pick_node_at` against the projected scene's hit
-//! proxies, and emits `GraphCanvasMessage::RightClicked { hit_node }`.
-//! The host's `from_app` mapping translates that into
-//! `Message::ContextMenuOpen { CanvasPane { pane_id, node_key } }`,
-//! so right-clicking a canvas node now produces a context menu
-//! whose actions route via `HostIntent::ActionOnNode` to that exact
-//! node. Tile-tab hit-testing remains a future slice.
+//! **Scope (Slice 18 / Stage A+E)**: Slice 17 closed canvas
+//! right-click hit-testing. Slice 18 extends the per-action
+//! dispatch table with three more handlers: `GraphFit` (calls
+//! `GraphBrowserApp::request_fit_to_screen`), `PersistUndo` and
+//! `PersistRedo` (route through the existing
+//! `current_undo_checkpoint_layout_json` → `perform_undo/redo`
+//! pipeline). Five `ActionId`s now have real runtime behavior; the
+//! rest stay observable no-ops via the Slice 10 dispatch counters.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -3097,6 +3094,50 @@ mod tests {
             pin_intent,
             Some(graphshell_core::shell_state::host_intent::HostIntent::Action { .. })
         ));
+    }
+
+    #[test]
+    fn graph_fit_action_dispatches_without_panicking() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        // Seed a node so there's a focused view available.
+        seed_test_nodes(&mut app, 1);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphFit,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        // The fit request lands on the focused view's camera-command
+        // queue, drained by the next render frame. The test confirms
+        // the routing path closed without panicking.
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::GraphFit),
+        );
+    }
+
+    #[test]
+    fn persist_undo_and_redo_actions_are_dispatched() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Both undo and redo are no-ops without a checkpoint history,
+        // but the dispatch path must still run without panicking.
+        for action_id in [
+            graphshell_core::actions::ActionId::PersistUndo,
+            graphshell_core::actions::ActionId::PersistRedo,
+        ] {
+            app.host.pending_host_intents.push(
+                graphshell_core::shell_state::host_intent::HostIntent::Action { action_id },
+            );
+            app.tick_with_events(Vec::new());
+        }
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 2);
     }
 
     #[test]
