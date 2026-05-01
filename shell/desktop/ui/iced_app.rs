@@ -11,13 +11,14 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 14 / Stage A+E)**: Slices 3-13 closed all three
-//! command-surface dispatch loops. Slice 14 adds the
-//! `ConfirmDialogState` gate that destructive intents (today:
-//! Tombstone) route through before pushing — the user must click
-//! Confirm in a `gs::Modal`-backed dialog before the runtime sees
-//! the dispatch. Cancel / click-outside / Escape drops the parked
-//! intent. Non-destructive entries continue to dispatch immediately.
+//! **Scope (Slice 15 / Stage A+E)**: Slices 3-14 closed every
+//! dispatch loop in the iced host. Slice 15 starts wiring real
+//! per-action runtime handlers in `gui_state::apply_host_intents`:
+//! `GraphTogglePhysics` and `GraphToggleGhostNodes` now mutate the
+//! corresponding runtime flags. Unhandled `ActionId`s remain
+//! observable no-ops — the dispatch counters bump but no domain
+//! method is called yet. Per-action handlers land incrementally;
+//! each new arm closes the loop for one more `ActionId`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -2839,6 +2840,84 @@ mod tests {
             app.host.runtime.last_dispatched_action,
             Some(row0_id),
             "runtime recorded the resolved ActionId",
+        );
+    }
+
+    #[test]
+    fn toggle_physics_action_actually_toggles_runtime_flag() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let initial_running = app
+            .host
+            .runtime
+            .graph_app
+            .workspace
+            .graph_runtime
+            .physics
+            .is_running;
+
+        // Push HostIntent::Action(GraphTogglePhysics) directly via the
+        // queue so we don't have to find the right palette index.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        let after_running = app
+            .host
+            .runtime
+            .graph_app
+            .workspace
+            .graph_runtime
+            .physics
+            .is_running;
+
+        assert_ne!(
+            initial_running, after_running,
+            "GraphTogglePhysics should flip physics.is_running",
+        );
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+
+        // A second dispatch flips it back.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+            },
+        );
+        app.tick_with_events(Vec::new());
+        let twice_toggled = app
+            .host
+            .runtime
+            .graph_app
+            .workspace
+            .graph_runtime
+            .physics
+            .is_running;
+        assert_eq!(twice_toggled, initial_running, "second toggle restores");
+    }
+
+    #[test]
+    fn unhandled_action_still_records_dispatch() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // ActionId::FrameRename has no handler today — Slice 15 is
+        // incremental. The dispatch counter still bumps so the
+        // routing path is observable.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::FrameRename,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::FrameRename),
         );
     }
 
