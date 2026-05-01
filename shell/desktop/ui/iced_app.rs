@@ -11,14 +11,17 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 18 / Stage A+E)**: Slice 17 closed canvas
-//! right-click hit-testing. Slice 18 extends the per-action
-//! dispatch table with three more handlers: `GraphFit` (calls
-//! `GraphBrowserApp::request_fit_to_screen`), `PersistUndo` and
-//! `PersistRedo` (route through the existing
-//! `current_undo_checkpoint_layout_json` → `perform_undo/redo`
-//! pipeline). Five `ActionId`s now have real runtime behavior; the
-//! rest stay observable no-ops via the Slice 10 dispatch counters.
+//! **Scope (Slice 19 / Stage A+E)**: Slice 18 wired more per-action
+//! handlers. Slice 19 brings up the StatusBar slot from the
+//! composition skeleton spec §2 — a 20px row at the bottom of the
+//! Application column showing live runtime indicators: a green
+//! "ready" dot, the cumulative `dispatched_action_count`, the
+//! current `pending_host_intents` queue depth, and the
+//! `focused_node_hint` (or "—" when no node is focused). All four
+//! values read directly from runtime state — no new state shape
+//! introduced. The bar is the bottom edge of the Elm triad's view;
+//! per-target chrome (background-task indicators, sync status)
+//! lands when those subsystems expose runtime view-model data.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1463,6 +1466,7 @@ impl IcedApp {
             body_children.push(render_navigator_host(self, NavigatorAnchor::Bottom));
         }
         body_children.push(toast_stack.into());
+        body_children.push(render_status_bar(self));
 
         let body: Element<'_, Message> = container(column(body_children).spacing(0))
             .padding(0)
@@ -2215,6 +2219,75 @@ fn is_url_shaped(s: &str) -> bool {
         return true;
     }
     !s.contains(' ') && s.contains('.')
+}
+
+/// Render the StatusBar slot. Per
+/// [`iced_composition_skeleton_spec.md` §2](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md):
+/// ambient system status, process indicators, background task count.
+///
+/// Slice 19 wires four indicators sourced from runtime state:
+/// - **status dot** — green "ready" pulse (will animate on activity
+///   in a later slice with `cosmic-time`)
+/// - **actions** — `runtime.dispatched_action_count` (cumulative
+///   `HostIntent::Action` dispatches since runtime start)
+/// - **pending** — `host.pending_host_intents.len()` (queued intents
+///   awaiting the next tick drain)
+/// - **focused** — `runtime.focused_node_hint` (rendered as the
+///   underlying NodeKey index, or "—" when no node is focused)
+fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
+    let dispatched = app.host.runtime.dispatched_action_count;
+    let pending = app.host.pending_host_intents.len();
+    let focused_label = app
+        .host
+        .runtime
+        .focused_node_hint
+        .map(|k| format!("n{}", k.index()))
+        .unwrap_or_else(|| "—".to_string());
+
+    let dot = text("●").size(11).style(|theme: &iced::Theme| {
+        let pal = theme.palette();
+        iced::widget::text::Style {
+            color: Some(pal.success.base.color),
+        }
+    });
+    let ready = text("ready").size(11);
+    let actions = text(format!("actions: {dispatched}")).size(11);
+    let pending_text = text(format!("pending: {pending}")).size(11);
+    let focused = text(format!("focused: {focused_label}")).size(11);
+
+    container(
+        iced::widget::row![
+            dot,
+            ready,
+            iced::widget::Space::new().width(Length::Fixed(8.0)),
+            actions,
+            iced::widget::Space::new().width(Length::Fixed(8.0)),
+            pending_text,
+            iced::widget::Space::new().width(Length::Fixed(8.0)),
+            focused,
+            iced::widget::Space::new().width(Length::Fill),
+        ]
+        .spacing(4)
+        .align_y(iced::Alignment::Center),
+    )
+    .padding([3, 8])
+    .width(Length::Fill)
+    .height(Length::Fixed(20.0))
+    .style(|theme: &iced::Theme| {
+        let pal = theme.palette();
+        container::Style {
+            background: Some(
+                iced::Color {
+                    a: 0.05,
+                    ..pal.background.base.text
+                }
+                .into(),
+            ),
+            ..Default::default()
+        }
+    })
+    .into()
 }
 
 /// Render the host's toast queue as a stack of severity-prefixed rows.
@@ -3094,6 +3167,30 @@ mod tests {
             pin_intent,
             Some(graphshell_core::shell_state::host_intent::HostIntent::Action { .. })
         ));
+    }
+
+    #[test]
+    fn view_renders_status_bar_with_runtime_counters() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Smoke test: status bar renders with default state. Drop
+        // the borrow before the next mutation.
+        {
+            let _element = app.view();
+        }
+
+        // Dispatch an action to bump the actions counter; render again.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+            },
+        );
+        app.tick_with_events(Vec::new());
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
     }
 
     #[test]
