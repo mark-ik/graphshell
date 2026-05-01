@@ -85,7 +85,7 @@ use graph_canvas::camera::CanvasCamera;
 use iced::time;
 use iced::widget::{button, canvas, column, container, mouse_area, pane_grid, row, rule, scrollable, text, text_input};
 use iced::{Element, Length, Point, Subscription, Task};
-use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, tokens};
+use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, animation, tokens};
 
 /// Frame interval for the runtime tick `Subscription`. ~60 Hz. Per
 /// [`iced_composition_skeleton_spec.md` §1.5](
@@ -939,6 +939,10 @@ pub(crate) struct IcedApp {
     /// Backgrounded Frames. Switching frames swaps the active
     /// `FrameState` with one of these via `std::mem::swap`.
     pub(crate) inactive_frames: Vec<NamedFrame>,
+    /// Stable reference instant for animation phase clocks. Slice 38.
+    /// All pulse-shaped animations read from this so their phases
+    /// stay coherent (no per-pulse drift).
+    pub(crate) startup_instant: std::time::Instant,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -1184,6 +1188,7 @@ impl IcedApp {
             frame_id: FrameId::next(),
             frame_label: "Frame 1".to_string(),
             inactive_frames: Vec::new(),
+            startup_instant: std::time::Instant::now(),
         };
         // Slice 26: register a UxChannelObserver with a NoopSink so
         // every UxEvent passes through the canonical channel-mapping
@@ -2128,8 +2133,15 @@ impl IcedApp {
         // logic; the banner is a visible cue so the user knows
         // dropping on an edge splits and dropping on the center
         // swaps panes.
+        // Slice 38: banner alpha pulses with a 1200ms sine period to
+        // signal "active" without being aggressive.
         if self.frame.drag_in_progress {
-            body_children.push(render_drop_zone_hint());
+            let pulse = animation::pulse(
+                std::time::Instant::now(),
+                self.startup_instant,
+                1200,
+            );
+            body_children.push(render_drop_zone_hint(pulse));
         }
         if self.navigator.show_top {
             body_children.push(render_navigator_host(self, NavigatorAnchor::Top));
@@ -3136,25 +3148,37 @@ fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEven
     app.host.runtime.ux_observers.emit(event);
 }
 
-/// Render the drop-zone hint banner — Slice 36. Visible only while
-/// a pane drag is in progress (FrameState::drag_in_progress is
-/// `true`, between Picked and Dropped/Canceled). Pane_grid handles
-/// the actual drop logic; this banner is a visible cue describing
-/// the drop targets.
-fn render_drop_zone_hint() -> Element<'static, Message> {
+/// Render the drop-zone hint banner — Slice 36 / 38. Visible only
+/// while a pane drag is in progress
+/// (`FrameState::drag_in_progress == true`, between Picked and
+/// Dropped/Canceled). Pane_grid handles the drop logic; this banner
+/// is a visible cue describing the drop targets.
+///
+/// Slice 38 modulates the banner's background alpha by a sine pulse
+/// computed from the host's `startup_instant`, so the banner
+/// breathes (period 1200ms) while the drag is active. The base
+/// color is the theme's primary-weak; alpha ramps `[0.45, 0.95]`.
+fn render_drop_zone_hint(pulse: f32) -> Element<'static, Message> {
     let hint = text(
         "Dragging — drop on a pane edge to split, on the center to swap panes",
     )
     .size(11);
+    // Map pulse [0,1] → alpha [0.45, 0.95] so the banner stays
+    // visible at trough but is more opaque at crest.
+    let alpha = 0.45 + 0.50 * pulse;
     container(hint)
         .padding([3, 8])
         .width(Length::Fill)
         .height(Length::Fixed(22.0))
         .center_y(Length::Fill)
-        .style(|theme: &iced::Theme| {
+        .style(move |theme: &iced::Theme| {
             let pal = theme.palette();
+            let bg = iced::Color {
+                a: alpha,
+                ..pal.primary.weak.color
+            };
             container::Style {
-                background: Some(pal.primary.weak.color.into()),
+                background: Some(bg.into()),
                 text_color: Some(pal.primary.weak.text),
                 ..Default::default()
             }

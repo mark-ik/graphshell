@@ -40,6 +40,7 @@
 //! the qualified name avoids the egui_tiles-shaped conflation between
 //! "the page" and "the handle that selects it".
 
+pub mod animation;
 pub mod context_menu;
 pub mod modal;
 pub mod tile_tabs;
