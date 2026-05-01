@@ -67,6 +67,15 @@
 //!
 //! 28 ActionIds wired (was 7). Remaining unhandled categories
 //! enumerated in `dispatch_action`'s wildcard arm.
+//!
+//! **Slice 33**: Swatches bucket — the third Navigator Presentation
+//! Bucket — now renders a real grid of compact canvas instances per
+//! built-in recipe (FullGraph, RecentlyActive, FocusedNeighborhood).
+//! All three Navigator buckets (Tree Spine / Swatches / Activity
+//! Log) now ship with real data; the placeholder-stub state is
+//! gone. Per-recipe scene scoping (filtered nodes, lens overrides)
+//! is the next iteration; the rendering pipeline doesn't change
+//! shape when that lands.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -225,6 +234,49 @@ impl FrameState {
             base_layer_active: false,
             focused_pane: None,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Swatches — Slice 33 (Navigator's third Presentation Bucket)
+// ---------------------------------------------------------------------------
+
+/// One projection recipe surfaced as a swatch card. Per
+/// [`iced_composition_skeleton_spec.md` §6.2](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md):
+/// each swatch is a live canvas instance running one recipe at the
+/// `Swatch` render profile (compact, low-fidelity).
+///
+/// Slice 33 ships three placeholder recipes — `FullGraph`,
+/// `RecentlyActive`, `FocusedNeighborhood` — all currently rendering
+/// the same scene against the runtime's graph_app. Real per-recipe
+/// scoping (filtered scene input, lens overrides) lands when the
+/// projection-recipe authority surfaces a `recipe.derive_scene_input`
+/// method; the rendering pipeline below doesn't change shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SwatchRecipe {
+    FullGraph,
+    RecentlyActive,
+    FocusedNeighborhood,
+}
+
+impl SwatchRecipe {
+    fn label(self) -> &'static str {
+        match self {
+            SwatchRecipe::FullGraph => "Full graph",
+            SwatchRecipe::RecentlyActive => "Recently active",
+            SwatchRecipe::FocusedNeighborhood => "Focused neighborhood",
+        }
+    }
+
+    /// Built-in recipe set for Slice 33. When user-defined recipes
+    /// land, the order comes from a runtime view-model field instead.
+    fn builtin_set() -> &'static [SwatchRecipe] {
+        &[
+            SwatchRecipe::FullGraph,
+            SwatchRecipe::RecentlyActive,
+            SwatchRecipe::FocusedNeighborhood,
+        ]
     }
 }
 
@@ -926,6 +978,13 @@ pub(crate) enum Message {
     /// `HostIntent::OpenNode { node_key }` so the runtime promotes
     /// it to focused state — same wiring as Node Finder selection.
     TreeSpineNodeClicked(graphshell_core::graph::NodeKey),
+
+    // --- Swatches bucket messages — Slice 33 ---
+
+    /// User clicked a swatch card. Slice 33 stub: surface via toast;
+    /// downstream slice promotes the swatch to a canvas Pane via the
+    /// uphill rule (per iced_composition_skeleton_spec.md §6.2).
+    SwatchClicked(SwatchRecipe),
 
     // --- NodeCreate modal messages — Slice 32 ---
 
@@ -1726,6 +1785,17 @@ impl IcedApp {
                 Task::none()
             }
 
+            // --- Swatches handlers ---
+
+            Message::SwatchClicked(recipe) => {
+                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                    severity: ToastSeverity::Info,
+                    message: format!("swatch: {} (stub)", recipe.label()),
+                    duration: None,
+                });
+                Task::none()
+            }
+
             // --- NodeCreate modal handlers ---
 
             Message::NodeCreateOpen => {
@@ -2244,12 +2314,13 @@ fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> Element<'_, 
     // runtime promotes the node to focused via HostIntent::OpenNode.
     let tree_spine: Element<'_, Message> = render_tree_spine_bucket(app);
 
-    // Swatches bucket — virtualized canvas grid stub.
-    // Real: `scrollable(wrap_horizontally(swatch_cards))` per spec §6.2.
-    let swatches: Element<'_, Message> = container(text("Swatches — (stub)").size(11))
-        .height(Length::FillPortion(1))
-        .width(Length::Fill)
-        .into();
+    // Swatches bucket — Slice 33 renders one compact canvas card per
+    // built-in projection recipe. Per
+    // [`iced_composition_skeleton_spec.md` §6.2](
+    // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md):
+    // virtualized grid of `canvas::Program` instances at the
+    // `RenderProfile::Swatch` profile.
+    let swatches: Element<'_, Message> = render_swatches_bucket(app);
 
     // Activity Log bucket — Slice 27 reads from the host's bounded
     // RecordingObserver and renders one row per UxEvent in
@@ -3001,6 +3072,120 @@ fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
 
     scrollable(spine.spacing(2).padding([2, 0]))
         .height(Length::FillPortion(2))
+        .into()
+}
+
+/// Render the Swatches bucket — Navigator's middle-row "live
+/// projections at a glance" surface. Per
+/// [`iced_composition_skeleton_spec.md` §6.2](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md):
+/// virtualized grid of compact canvas instances, one per recipe.
+///
+/// Slice 33 ships a vertical stack of three built-in recipe cards
+/// (FullGraph / RecentlyActive / FocusedNeighborhood). Each card is
+/// a `gs::*`-clean composition: a small canvas widget showing the
+/// graph at compact size, a label below, and a click-area that
+/// dispatches `SwatchClicked(recipe)`.
+///
+/// Layout deviates from the spec's wrap_horizontally because vertical
+/// stacking matches how the bucket lives inside a sidebar Navigator
+/// host (180px wide). When a Navigator host opens in the wider
+/// Top/Bottom toolbar configuration, the layout adapts via
+/// FillPortion height — the card-internals don't change shape.
+///
+/// Real per-recipe scene scoping (filtered nodes, lens overrides)
+/// lands when the projection-recipe authority is wired; the canvas
+/// rendering path below stays.
+fn render_swatches_bucket(app: &IcedApp) -> Element<'_, Message> {
+    let header: Element<'_, Message> =
+        text("Swatches").size(11).width(Length::Fill).into();
+
+    let nodes_count = app.host.runtime.graph_app.domain_graph().nodes().count();
+    if nodes_count == 0 {
+        return scrollable(
+            column![header, text("  — no recipes (graph is empty)").size(11)]
+                .spacing(4),
+        )
+        .height(Length::FillPortion(1))
+        .into();
+    }
+
+    let mut col = column![header];
+    for recipe in SwatchRecipe::builtin_set() {
+        col = col.push(render_swatch_card(app, *recipe));
+    }
+
+    scrollable(col.spacing(6).padding([2, 0]))
+        .height(Length::FillPortion(1))
+        .into()
+}
+
+/// Render one swatch card. Layout: a 60px-tall canvas frame on top
+/// (showing the graph in miniature), then a click-button under it
+/// labeled with the recipe name.
+fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> Element<'a, Message> {
+    // Slice 33: every recipe currently shares the same scene input
+    // (full graph). When per-recipe scoping lands, this swap to
+    // `recipe.scene_input_for(graph_app, view_id)` — single call site
+    // change.
+    let program = graph_canvas_from_app(&app.host.runtime.graph_app, app.host.view_id);
+    let _: &GraphCanvasProgram = &program;
+    let canvas_widget: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
+        canvas(program)
+            .width(Length::Fill)
+            .height(Length::Fixed(60.0))
+            .into();
+    // Swatch canvases swallow camera-changed and right-clicked events
+    // for now — they don't have their own pane id and right-click
+    // would compete with the swatch click handler. Map to Tick (no-op).
+    let canvas_inner: Element<'_, Message> = canvas_widget.map(|_| Message::Tick);
+
+    let label = button(text(recipe.label()).size(11).width(Length::Fill))
+        .on_press(Message::SwatchClicked(recipe))
+        .padding([2, 6])
+        .width(Length::Fill)
+        .style(|theme: &iced::Theme, status| {
+            let pal = theme.palette();
+            let hovered = matches!(
+                status,
+                iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed
+            );
+            iced::widget::button::Style {
+                background: if hovered {
+                    Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                } else {
+                    None
+                },
+                text_color: pal.background.base.text,
+                border: iced::Border {
+                    radius: 2.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
+
+    container(column![canvas_inner, label].spacing(2))
+        .padding(3)
+        .width(Length::Fill)
+        .style(|theme: &iced::Theme| {
+            let pal = theme.palette();
+            container::Style {
+                background: Some(
+                    iced::Color {
+                        a: 0.03,
+                        ..pal.background.base.text
+                    }
+                    .into(),
+                ),
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
         .into()
 }
 
@@ -4915,6 +5100,52 @@ mod tests {
                 .nodes()
                 .any(|(_, n)| n.url() == "verso://settings"),
         );
+    }
+
+    // --- Swatches tests (Slice 33) ---
+
+    #[test]
+    fn swatch_recipe_builtin_set_has_canonical_recipes() {
+        let recipes = SwatchRecipe::builtin_set();
+        assert!(recipes.contains(&SwatchRecipe::FullGraph));
+        assert!(recipes.contains(&SwatchRecipe::RecentlyActive));
+        assert!(recipes.contains(&SwatchRecipe::FocusedNeighborhood));
+        assert!(recipes.iter().all(|r| !r.label().is_empty()));
+    }
+
+    #[test]
+    fn swatch_clicked_acks_via_toast() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let toasts_before = app.host.toast_queue.len();
+        let _ = app.update(Message::SwatchClicked(SwatchRecipe::FullGraph));
+
+        assert_eq!(app.host.toast_queue.len(), toasts_before + 1);
+        let msg = &app.host.toast_queue.last().unwrap().message;
+        assert!(msg.contains("Full graph"), "got: {msg}");
+    }
+
+    #[test]
+    fn view_renders_swatches_bucket_empty_graph() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        // Ensure the left Navigator host is visible so swatches render.
+        app.navigator.show_left = true;
+
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
+    }
+
+    #[test]
+    fn view_renders_swatches_bucket_populated() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        app.navigator.show_left = true;
+        seed_test_nodes(&mut app, 3);
+
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
     }
 
     // --- NodeCreate modal tests (Slice 32) ---
