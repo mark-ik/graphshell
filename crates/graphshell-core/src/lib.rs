@@ -30,6 +30,7 @@ pub mod shell_state;
 pub mod signal_router;
 pub mod time;
 pub mod types;
+pub mod ux_diagnostics;
 pub mod ux_observability;
 pub mod ux_probes;
 pub mod viewer_host;

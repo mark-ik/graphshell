@@ -11,22 +11,32 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 23 / Stage A+E + observability)**: Slices 3-22
-//! built the iced host UI and dispatch loops. Slice 23 introduces a
-//! portable, host-neutral observability layer
-//! (`graphshell_core::ux_observability`) and emits `UxEvent`s from
-//! every chrome-surface transition and intent dispatch. The taxonomy
-//! covers `SurfaceOpened`, `SurfaceDismissed { reason }`,
-//! `ActionDispatched`, `OpenNodeDispatched`. Two built-in observers
-//! ship in core: `CountingObserver` (lock-free atomic counters) and
-//! `RecordingObserver` (bounded ring of events). Future hosts (egui
-//! today, Stage-G/H later) plug into the same trait; tests use
-//! `RecordingObserver` to assert event sequences.
+//! **Scope (Slice 26 / observability complete)**: Slices 23-26
+//! shipped the full host-neutral observability foundation:
 //!
-//! Still pending observability work (separate slice track):
-//! AccessKit roles + labels on every gs::* widget, UxProbes that
-//! verify §4.10 graph coherence guarantees, and diagnostics-channel
-//! adapters that route `UxEvent`s into the existing channel registry.
+//! - **Slice 23**: `graphshell_core::ux_observability` —
+//!   `UxEvent` taxonomy, `UxObserver` trait, `UxObservers` registry,
+//!   built-in `CountingObserver` and `RecordingObserver`. Iced
+//!   emits at every chrome-surface transition and intent dispatch.
+//! - **Slice 24**: `graphshell_core::accessibility` —
+//!   `AccessibilityDescriptor` keyed by `SurfaceId`, using
+//!   `accesskit::Role` directly. The lookup is locked-in shape;
+//!   iced's vendored fork has no AccessKit hook today, but a
+//!   future host or a future iced version consumes the same lookup.
+//! - **Slice 25**: `graphshell_core::ux_probes` —
+//!   `MutualExclusionProbe` and `OpenDismissBalanceProbe` assert
+//!   §4.10 invariants against the event stream. The iced host's
+//!   "dismiss-before-open" supersession sequencing satisfies both
+//!   under a real message-driven trace.
+//! - **Slice 26**: `graphshell_core::ux_diagnostics` —
+//!   `UxChannelObserver` adapter forwards each `UxEvent` to a
+//!   pluggable `DiagnosticsChannelSink`, routing through canonical
+//!   `"ux.<surface>.<event>"` channel ids. Iced runtime registers a
+//!   `NoopChannelSink` by default; a future host swap to a real
+//!   registry sink is one line.
+//!
+//! All four modules are portable: `graphshell-core` only. Future
+//! hosts (egui, Stage-G/H) plug in identically.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -885,7 +895,7 @@ pub(crate) enum Message {
 impl IcedApp {
     /// Construct an app whose `IcedHost` wraps the supplied runtime.
     pub(crate) fn with_runtime(runtime: GraphshellRuntime) -> Self {
-        Self {
+        let mut app = Self {
             host: IcedHost::with_runtime(runtime),
             last_view_model: None,
             omnibar: OmnibarSession::default(),
@@ -895,7 +905,21 @@ impl IcedApp {
             node_finder: NodeFinderState::default(),
             context_menu: ContextMenuState::default(),
             confirm_dialog: ConfirmDialogState::default(),
-        }
+        };
+        // Slice 26: register a UxChannelObserver with a NoopSink so
+        // every UxEvent passes through the canonical channel-mapping
+        // path even though no host-side registry is wired yet. When
+        // the diagnostics feature lights up, replacing the sink is a
+        // one-line change.
+        let channel_observer =
+            graphshell_core::ux_diagnostics::UxChannelObserver::new(
+                graphshell_core::ux_diagnostics::NoopChannelSink,
+            );
+        app.host
+            .runtime
+            .ux_observers
+            .register(Box::new(channel_observer));
+        app
     }
 
     fn title(&self) -> String {
@@ -3588,6 +3612,61 @@ mod tests {
                 target: None,
             }
         )));
+    }
+
+    #[test]
+    fn iced_messages_flow_through_channel_bridge() {
+        use graphshell_core::ux_diagnostics::{
+            DiagnosticsChannelSink, RecordingChannelSink, UxChannelObserver,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Replace the default Noop sink with a recording sink so we
+        // can observe what channel ids fire. The NoopChannelSink
+        // observer registered by `with_runtime` stays — its emissions
+        // are silent — but the recording observer below sees the
+        // same event stream and forwards to a sink we can inspect.
+        struct ProxySink(Arc<RecordingChannelSink>);
+        impl DiagnosticsChannelSink for ProxySink {
+            fn record(&self, e: &graphshell_core::ux_diagnostics::ChannelEmission) {
+                self.0.record(e);
+            }
+        }
+        let recorder = Arc::new(RecordingChannelSink::with_capacity(32));
+        app.host.runtime.ux_observers.register(Box::new(
+            UxChannelObserver::new(ProxySink(Arc::clone(&recorder))),
+        ));
+
+        // Drive a representative sequence and verify the channel
+        // mapping is hit.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::PaletteCloseAndRestoreFocus);
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphTogglePhysics,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        let snap = recorder.snapshot();
+        let channels: Vec<&str> = snap.iter().map(|e| e.channel_id).collect();
+        assert!(
+            channels.contains(&"ux.command_palette.opened"),
+            "channel bridge missed palette open; saw {channels:?}",
+        );
+        assert!(
+            channels.contains(&"ux.command_palette.dismissed"),
+            "channel bridge missed palette dismiss; saw {channels:?}",
+        );
+        assert!(
+            channels.contains(&"ux.action.dispatched"),
+            "channel bridge missed action dispatch; saw {channels:?}",
+        );
     }
 
     #[test]
