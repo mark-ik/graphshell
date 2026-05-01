@@ -50,6 +50,10 @@ impl App {
             Message::Canvas(GraphCanvasMessage::CameraChanged { pan, zoom }) => {
                 self.last_camera = Some((pan, zoom));
             }
+            Message::Canvas(GraphCanvasMessage::RightClicked { .. }) => {
+                // Demo: ignore. The full host opens a context menu
+                // against the resolved node here.
+            }
         }
         Task::none()
     }

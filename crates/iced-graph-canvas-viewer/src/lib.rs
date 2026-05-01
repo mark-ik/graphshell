@@ -39,9 +39,10 @@ use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Action};
 use iced::{Point, Rectangle, Renderer, Size, Theme};
 
-use euclid::default::{Rect as EuclidRect, Size2D, Vector2D};
+use euclid::default::{Point2D as EuclidPoint, Rect as EuclidRect, Size2D, Vector2D};
 use graph_canvas::camera::{CanvasCamera, CanvasViewport};
 use graph_canvas::derive::{DeriveConfig, NodeVisualOverride, derive_scene};
+use graph_canvas::hit_test::{HitTestResult, hit_test_point};
 use graph_canvas::packet::ProjectedScene;
 use graph_canvas::scene::CanvasSceneInput;
 
@@ -60,6 +61,11 @@ pub enum GraphCanvasMessage {
     /// Camera state changed (pan, zoom). Hosts persist these onto
     /// their per-view camera map.
     CameraChanged { pan: Vector2D<f32>, zoom: f32 },
+    /// User right-clicked inside the canvas. The viewer ran hit-test
+    /// against the currently-projected scene; `hit_node` is the node
+    /// under the cursor (if any). Hosts open a context menu against
+    /// the resolved target.
+    RightClicked { hit_node: Option<NodeKey> },
 }
 
 /// Padding around the graph bounding box when fit-to-bounds frames
@@ -229,6 +235,52 @@ impl GraphCanvasProgram {
             .clone()
             .or_else(|| self.fit_camera_and_viewport(bounds).map(|(c, _)| c))
     }
+
+    /// Hit-test a canvas-local point against the currently-projected
+    /// scene. Returns the topmost node whose hit proxy contains the
+    /// point, or `None` if the cursor is over empty space (or if the
+    /// scene has no nodes / the bounds are degenerate).
+    pub fn pick_node_at(
+        &self,
+        state: &GraphCanvasState,
+        bounds: Rectangle,
+        canvas_local: Point,
+    ) -> Option<NodeKey> {
+        let camera = self.camera_for_update_readonly(state, bounds.size())?;
+        let viewport = canvas_viewport_from_size(bounds.size());
+        let scene = self.project_scene_with(&camera, &viewport)?;
+        let screen_pos = EuclidPoint::new(canvas_local.x, canvas_local.y);
+        match hit_test_point(screen_pos, &scene.hit_proxies) {
+            HitTestResult::Node(id) => Some(id),
+            // Edges and scene-objects don't (yet) open context menus
+            // — they'd need their own ContextMenuTarget variants.
+            _ => None,
+        }
+    }
+
+    /// Read-only sibling of `camera_for_update`. Returns the active
+    /// camera (state.camera if set, else fit-to-bounds) without
+    /// mutating state. Used by hit-test paths that only need to read
+    /// the current camera, never seed it.
+    fn camera_for_update_readonly(
+        &self,
+        state: &GraphCanvasState,
+        bounds: Size,
+    ) -> Option<CanvasCamera> {
+        state
+            .camera
+            .clone()
+            .or_else(|| self.fit_camera_and_viewport(bounds).map(|(c, _)| c))
+    }
+}
+
+/// Build a `CanvasViewport` from an iced widget's bounds Size. Mirrors
+/// the conversion `fit_camera_and_viewport` does internally.
+fn canvas_viewport_from_size(size: Size) -> CanvasViewport {
+    CanvasViewport {
+        rect: EuclidRect::from_size(Size2D::new(size.width, size.height)),
+        scale_factor: 1.0,
+    }
 }
 
 impl canvas::Program<GraphCanvasMessage> for GraphCanvasProgram {
@@ -292,6 +344,19 @@ impl canvas::Program<GraphCanvasMessage> for GraphCanvasProgram {
                 } else {
                     None
                 }
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                // Slice 17: hit-test the cursor against the projected
+                // scene, surface the resolved NodeKey (if any) to the
+                // host so it can open a context menu against the node.
+                let Some(local_pos) = cursor.position_in(bounds) else {
+                    return None;
+                };
+                let hit_node = self.pick_node_at(state, bounds, local_pos);
+                Some(
+                    Action::publish(GraphCanvasMessage::RightClicked { hit_node })
+                        .and_capture(),
+                )
             }
             _ => None,
         }
@@ -377,6 +442,69 @@ mod tests {
         assert!(program.scene_input.nodes.is_empty());
         assert!(program.world_bounds().is_none());
         assert!(program.project_scene(Size::new(400.0, 300.0)).is_none());
+    }
+
+    #[test]
+    fn pick_node_at_returns_node_under_cursor() {
+        // Build a program with two nodes; project against a known
+        // viewport; ask pick_node_at where each node renders. With
+        // fit-to-bounds, the two sample nodes land on opposite sides
+        // of the viewport center.
+        let program = GraphCanvasProgram::new(sample_input());
+        let bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 200.0,
+        };
+        let state = GraphCanvasState::default();
+
+        // Ask the program where node 0 (world x=-50) projects.
+        let scene = program.project_scene(bounds.size()).expect("scene");
+        let node0_proxy = scene
+            .hit_proxies
+            .iter()
+            .find(|p| matches!(p, graph_canvas::packet::HitProxy::Node { id, .. } if *id == NodeKey::new(0)))
+            .expect("node 0 in proxies");
+        let node0_center = match node0_proxy {
+            graph_canvas::packet::HitProxy::Node { center, .. } => *center,
+            _ => unreachable!(),
+        };
+
+        let cursor = Point::new(node0_center.x, node0_center.y);
+        let hit = program.pick_node_at(&state, bounds, cursor);
+        assert_eq!(hit, Some(NodeKey::new(0)));
+    }
+
+    #[test]
+    fn pick_node_at_returns_none_for_empty_space() {
+        let program = GraphCanvasProgram::new(sample_input());
+        let bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 200.0,
+        };
+        let state = GraphCanvasState::default();
+
+        // (0, 0) — top-left corner; the sample nodes are centered
+        // around the viewport middle, so this is empty space.
+        let hit = program.pick_node_at(&state, bounds, Point::new(0.0, 0.0));
+        assert_eq!(hit, None);
+    }
+
+    #[test]
+    fn pick_node_at_returns_none_for_empty_scene() {
+        let program = GraphCanvasProgram::empty();
+        let bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 200.0,
+        };
+        let state = GraphCanvasState::default();
+        let hit = program.pick_node_at(&state, bounds, Point::new(50.0, 50.0));
+        assert_eq!(hit, None);
     }
 
     #[test]

@@ -11,17 +11,17 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 16 / Stage A+E)**: Slices 3-15 closed every
-//! dispatch loop and started wiring real per-action handlers.
-//! Slice 16 reshapes `ContextMenuTarget` so pane variants carry an
-//! optional `NodeKey`, and adds `HostIntent::ActionOnNode { action_id,
-//! node_key }` to graphshell-core. The runtime pre-focuses the
-//! target before running the per-action handler, so per-node
-//! actions (Pin / Tombstone / Activate) operate on the named node
-//! instead of whatever happened to be focused. Pane right-click
-//! handlers pass `node_key: None` today; future hit-test wiring
-//! (canvas hit-test, tile-tab right-click) populates the field so
-//! the action targets the specific node under the cursor.
+//! **Scope (Slice 17 / Stage A+E)**: Slices 3-16 wired the dispatch
+//! loops, per-action handlers, and per-target NodeKey routing. Slice
+//! 17 fills in canvas right-click hit-testing: the
+//! `iced-graph-canvas-viewer` Program handles `ButtonPressed(Right)`
+//! natively, runs `pick_node_at` against the projected scene's hit
+//! proxies, and emits `GraphCanvasMessage::RightClicked { hit_node }`.
+//! The host's `from_app` mapping translates that into
+//! `Message::ContextMenuOpen { CanvasPane { pane_id, node_key } }`,
+//! so right-clicking a canvas node now produces a context menu
+//! whose actions route via `HostIntent::ActionOnNode` to that exact
+//! node. Tile-tab hit-testing remains a future slice.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1558,9 +1558,19 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
             let _: &GraphCanvasProgram = &program;
             let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
                 canvas(program).width(Length::Fill).height(Length::Fill).into();
-            graph.map(|gcm| match gcm {
+            // Capture the pane id so RightClicked can target this pane.
+            let pane_id = meta.pane_id;
+            graph.map(move |gcm| match gcm {
                 super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
                     Message::CameraChanged { pan, zoom }
+                }
+                super::iced_graph_canvas::GraphCanvasMessage::RightClicked { hit_node } => {
+                    Message::ContextMenuOpen {
+                        target: ContextMenuTarget::CanvasPane {
+                            pane_id,
+                            node_key: hit_node,
+                        },
+                    }
                 }
             })
         }
@@ -1587,23 +1597,22 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
         }
     };
 
-    // Slice 16: pane right-click currently passes node_key: None.
-    // Future hit-test wiring (canvas hit-test, tile-tab right-click)
-    // populates the node_key so the action targets the specific node
-    // under the cursor.
-    let target = match meta.pane_type {
-        PaneType::Canvas => ContextMenuTarget::CanvasPane {
-            pane_id: meta.pane_id,
-            node_key: None,
-        },
-        PaneType::Tile => ContextMenuTarget::TilePane {
-            pane_id: meta.pane_id,
-            node_key: None,
-        },
-    };
-    mouse_area(inner)
-        .on_right_press(Message::ContextMenuOpen { target })
-        .into()
+    // Slice 17: canvas panes handle right-click natively in the
+    // canvas Program (hit-test populates node_key). Tile panes still
+    // route right-click via the outer mouse_area since they don't
+    // have an inner Program; tile-tab right-click hit-test lands
+    // when the tile bar exposes per-tab targets.
+    match meta.pane_type {
+        PaneType::Canvas => inner,
+        PaneType::Tile => mouse_area(inner)
+            .on_right_press(Message::ContextMenuOpen {
+                target: ContextMenuTarget::TilePane {
+                    pane_id: meta.pane_id,
+                    node_key: None,
+                },
+            })
+            .into(),
+    }
 }
 
 /// Canvas base layer — rendered when the Frame has zero Panes.
@@ -1617,16 +1626,23 @@ fn render_canvas_base_layer(app: &IcedApp) -> Element<'_, Message> {
     let _: &GraphCanvasProgram = &program;
     let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
         canvas(program).width(Length::Fill).height(Length::Fill).into();
-    let mapped: Element<'_, Message> = graph.map(|gcm| match gcm {
-        super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
-            Message::CameraChanged { pan, zoom }
-        }
-    });
-    mouse_area(mapped)
-        .on_right_press(Message::ContextMenuOpen {
-            target: ContextMenuTarget::BaseLayer,
+    // Slice 17: the canvas program now handles right-click natively
+    // and runs hit-test. Empty-space right-click still falls through
+    // to BaseLayer; node-on right-click would currently surface
+    // CanvasPane semantics, but the base layer has no pane id so we
+    // route every right-click to BaseLayer for now. A later slice
+    // can introduce a `BaseLayerWithNode { node_key }` target.
+    graph
+        .map(|gcm| match gcm {
+            super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
+                Message::CameraChanged { pan, zoom }
+            }
+            super::iced_graph_canvas::GraphCanvasMessage::RightClicked { .. } => {
+                Message::ContextMenuOpen {
+                    target: ContextMenuTarget::BaseLayer,
+                }
+            }
         })
-        .into()
 }
 
 // ---------------------------------------------------------------------------
