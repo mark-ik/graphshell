@@ -216,6 +216,15 @@ pub(crate) struct FrameState {
     /// canvas base layer is the active render path.
     pub base_layer_active: bool,
     pub focused_pane: Option<pane_grid::Pane>,
+    /// Per-pane camera state — Slice 35. iced's `Program::State`
+    /// already gives a per-widget camera within a stable widget
+    /// tree, but Frame switches (Slice 31) rebuild the tree, losing
+    /// the iced-side state. This cache persists each pane's camera
+    /// at the most recent `Message::CameraChanged` so a future
+    /// canvas-program-initialization slice can seed `Program::State`
+    /// from here on remount. Today the cache is observable + drained
+    /// by the tests; live restoration awaits the program-side hook.
+    pub pane_cameras: std::collections::HashMap<PaneId, CanvasCamera>,
 }
 
 impl FrameState {
@@ -233,6 +242,7 @@ impl FrameState {
             split_state,
             base_layer_active: false,
             focused_pane: None,
+            pane_cameras: std::collections::HashMap::new(),
         }
     }
 }
@@ -941,9 +951,15 @@ pub(crate) enum Message {
     IcedEvent(iced::Event),
     /// Camera state mutated in the graph canvas. Published by
     /// `GraphCanvasProgram::update` after wheel-zoom or drag-pan.
-    /// `update` persists the new values into the runtime's per-view
-    /// camera map so other surfaces see the same camera state.
-    CameraChanged { pan: Vector2D<f32>, zoom: f32 },
+    /// `update` writes the new values into the runtime's per-view
+    /// camera map (legacy path) AND into the active Frame's
+    /// per-pane cache (Slice 35) keyed by `pane_id`. The base layer
+    /// passes `pane_id = None`.
+    CameraChanged {
+        pane_id: Option<PaneId>,
+        pan: Vector2D<f32>,
+        zoom: f32,
+    },
     /// User clicked a link inside a middlenet-rendered document.
     /// Routes through `HostIntent::CreateNodeAtUrl`; spatial-browsing
     /// semantics (links open as new nodes, not navigate-in-place).
@@ -1292,7 +1308,9 @@ impl IcedApp {
                 }
                 Task::none()
             }
-            Message::CameraChanged { pan, zoom } => {
+            Message::CameraChanged { pane_id, pan, zoom } => {
+                // Legacy view-keyed entry — preserved so fit-to-screen
+                // and cross-host paths keep observing camera changes.
                 let view_id = self.host.view_id;
                 let entry = self
                     .host
@@ -1306,6 +1324,17 @@ impl IcedApp {
                 entry.pan = pan;
                 entry.zoom = zoom;
                 entry.pan_velocity = Vector2D::zero();
+                // Slice 35: per-pane cache on the active Frame.
+                if let Some(pane_id) = pane_id {
+                    let cached = self
+                        .frame
+                        .pane_cameras
+                        .entry(pane_id)
+                        .or_insert_with(CanvasCamera::default);
+                    cached.pan = pan;
+                    cached.zoom = zoom;
+                    cached.pan_velocity = Vector2D::zero();
+                }
                 Task::none()
             }
             Message::LinkActivated(target) => {
@@ -1402,6 +1431,11 @@ impl IcedApp {
                 Task::none()
             }
             Message::ClosePane(pane) => {
+                // Slice 35: drop the closing pane's per-pane camera
+                // cache before the pane handle goes away.
+                if let Some(meta) = self.frame.split_state.get(pane) {
+                    self.frame.pane_cameras.remove(&meta.pane_id);
+                }
                 if self.frame.focused_pane == Some(pane) {
                     self.frame.focused_pane = None;
                 }
@@ -2184,11 +2218,16 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
             let _: &GraphCanvasProgram = &program;
             let graph: Element<'_, super::iced_graph_canvas::GraphCanvasMessage> =
                 canvas(program).width(Length::Fill).height(Length::Fill).into();
-            // Capture the pane id so RightClicked can target this pane.
+            // Capture the pane id so RightClicked can target this pane
+            // and CameraChanged can route into FrameState.pane_cameras.
             let pane_id = meta.pane_id;
             graph.map(move |gcm| match gcm {
                 super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
-                    Message::CameraChanged { pan, zoom }
+                    Message::CameraChanged {
+                        pane_id: Some(pane_id),
+                        pan,
+                        zoom,
+                    }
                 }
                 super::iced_graph_canvas::GraphCanvasMessage::RightClicked { hit_node } => {
                     Message::ContextMenuOpen {
@@ -2359,7 +2398,14 @@ fn render_canvas_base_layer(app: &IcedApp) -> Element<'_, Message> {
     graph
         .map(|gcm| match gcm {
             super::iced_graph_canvas::GraphCanvasMessage::CameraChanged { pan, zoom } => {
-                Message::CameraChanged { pan, zoom }
+                // Slice 35: base layer carries pane_id: None — it has
+                // no associated PaneId; only the legacy view-keyed
+                // entry receives the camera persist.
+                Message::CameraChanged {
+                    pane_id: None,
+                    pan,
+                    zoom,
+                }
             }
             super::iced_graph_canvas::GraphCanvasMessage::RightClicked { .. } => {
                 Message::ContextMenuOpen {
@@ -3637,7 +3683,11 @@ mod tests {
 
         let pan = Vector2D::new(42.0, -17.0);
         let zoom = 1.75;
-        let _task = app.update(Message::CameraChanged { pan, zoom });
+        let _task = app.update(Message::CameraChanged {
+            pane_id: None,
+            pan,
+            zoom,
+        });
 
         let camera = app
             .host
@@ -5385,6 +5435,96 @@ mod tests {
         let _ = app.update(Message::NodeCreateOpen);
         let _ = app.update(Message::Tick);
         let _element = app.view();
+    }
+
+    // --- Per-pane camera cache tests (Slice 35) ---
+
+    #[test]
+    fn camera_change_with_pane_id_writes_per_pane_cache() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        assert!(app.frame.pane_cameras.is_empty());
+
+        let pan = Vector2D::new(10.0, 20.0);
+        let zoom = 2.5;
+        let _ = app.update(Message::CameraChanged {
+            pane_id: Some(pane_id),
+            pan,
+            zoom,
+        });
+
+        let cached = app
+            .frame
+            .pane_cameras
+            .get(&pane_id)
+            .expect("pane camera was cached");
+        assert_eq!(cached.pan, pan);
+        assert_eq!(cached.zoom, zoom);
+    }
+
+    #[test]
+    fn camera_change_with_no_pane_id_skips_per_pane_cache() {
+        // Base-layer camera changes pass pane_id: None; nothing
+        // should land in pane_cameras.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::CameraChanged {
+            pane_id: None,
+            pan: Vector2D::new(5.0, 5.0),
+            zoom: 1.5,
+        });
+
+        assert!(app.frame.pane_cameras.is_empty());
+        // Legacy view-keyed entry still gets the camera so
+        // fit-to-screen / cross-host paths see the change.
+        let view_id = app.host.view_id;
+        let entry = app
+            .host
+            .runtime
+            .graph_app
+            .workspace
+            .graph_runtime
+            .canvas_cameras
+            .get(&view_id)
+            .expect("legacy entry");
+        assert_eq!(entry.pan, Vector2D::new(5.0, 5.0));
+        assert_eq!(entry.zoom, 1.5);
+    }
+
+    #[test]
+    fn close_pane_drops_its_camera_cache_entry() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let (handle, pane_id) = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(h, m)| (*h, m.pane_id))
+            .unwrap();
+        // Plant a camera in the cache.
+        let _ = app.update(Message::CameraChanged {
+            pane_id: Some(pane_id),
+            pan: Vector2D::new(1.0, 1.0),
+            zoom: 1.0,
+        });
+        assert!(app.frame.pane_cameras.contains_key(&pane_id));
+
+        let _ = app.update(Message::ClosePane(handle));
+
+        assert!(
+            !app.frame.pane_cameras.contains_key(&pane_id),
+            "ClosePane drops the per-pane camera cache entry",
+        );
     }
 
     // --- FrameRename modal tests (Slice 34) ---
