@@ -795,6 +795,13 @@ pub(crate) enum Message {
     /// split tree becomes empty and the canvas base layer is shown.
     ClosePane(pane_grid::Pane),
 
+    // --- Tree Spine messages — Slice 20 ---
+
+    /// User clicked a node row in the Tree Spine bucket. Dispatches
+    /// `HostIntent::OpenNode { node_key }` so the runtime promotes
+    /// it to focused state — same wiring as Node Finder selection.
+    TreeSpineNodeClicked(graphshell_core::graph::NodeKey),
+
     // --- Command Palette messages — Slice 6 ---
     // Per [`iced_command_palette_spec.md`](
     // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
@@ -1381,6 +1388,18 @@ impl IcedApp {
                 self.confirm_dialog.is_open = false;
                 Task::none()
             }
+
+            // --- Tree Spine handlers ---
+
+            Message::TreeSpineNodeClicked(node_key) => {
+                self.host.pending_host_intents.push(
+                    graphshell_core::shell_state::host_intent::HostIntent::OpenNode {
+                        node_key,
+                    },
+                );
+                self.tick_with_events(Vec::new());
+                Task::none()
+            }
         }
     }
 
@@ -1672,20 +1691,11 @@ enum NavigatorAnchor {
 /// (lazy+scrollable trees, canvas swatch grid, event stream) lands once
 /// the Navigator domain layer is wired (S5).
 fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> Element<'_, Message> {
-    let _ = app; // referenced once full bucket data is wired
-
-    // Tree Spine bucket — lazy+scrollable tree stub.
-    // Real: `scrollable(lazy(generation, |_| column(rows)))` per spec §6.1.
-    let tree_spine: Element<'_, Message> = scrollable(
-        column![
-            text("Tree Spine").size(11),
-            text("  ▼ Graphlet: (none)").size(11),
-            text("      ○ —").size(11),
-        ]
-        .spacing(2),
-    )
-    .height(Length::FillPortion(2))
-    .into();
+    // Tree Spine bucket — Slice 20 reads from the runtime's GraphTree
+    // and renders one row per member. Each row is a button that
+    // dispatches `Message::TreeSpineNodeClicked(node_key)` → the
+    // runtime promotes the node to focused via HostIntent::OpenNode.
+    let tree_spine: Element<'_, Message> = render_tree_spine_bucket(app);
 
     // Swatches bucket — virtualized canvas grid stub.
     // Real: `scrollable(wrap_horizontally(swatch_cards))` per spec §6.2.
@@ -2219,6 +2229,104 @@ fn is_url_shaped(s: &str) -> bool {
         return true;
     }
     !s.contains(' ') && s.contains('.')
+}
+
+/// Render the Tree Spine bucket — Navigator's left-rail "structural
+/// list" of nodes in the workbench's GraphTree. Per
+/// [`iced_composition_skeleton_spec.md` §6.1](
+/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_composition_skeleton_spec.md).
+///
+/// Slice 20 wiring: read from `runtime.graph_tree.members()` and emit
+/// one button per member with the resolved title (from the domain
+/// graph). Click → `Message::TreeSpineNodeClicked(node_key)` → push
+/// `HostIntent::OpenNode { node_key }`. Lifecycle / Active+Inactive
+/// toggles, indentation by topology depth, and `lazy` virtualization
+/// are subsequent slices once their domain hooks are wired.
+fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
+    let runtime = &app.host.runtime;
+    let header: Element<'_, Message> = text("Tree Spine")
+        .size(11)
+        .width(Length::Fill)
+        .into();
+
+    let member_count = runtime.graph_tree.member_count();
+    if member_count == 0 {
+        return scrollable(
+            column![header, text("  ○ no members yet").size(11)].spacing(4),
+        )
+        .height(Length::FillPortion(2))
+        .into();
+    }
+
+    // Collect (NodeKey, label) pairs so the borrow on graph_tree is
+    // dropped before the column builder consumes the strings.
+    let members: Vec<(graphshell_core::graph::NodeKey, String)> = runtime
+        .graph_tree
+        .members()
+        .map(|(node_key, _entry)| {
+            let label = runtime
+                .graph_app
+                .domain_graph()
+                .get_node(*node_key)
+                .map(|n| {
+                    if n.title.is_empty() {
+                        n.url().to_string()
+                    } else {
+                        n.title.clone()
+                    }
+                })
+                .unwrap_or_else(|| format!("n{}", node_key.index()));
+            (*node_key, label)
+        })
+        .collect();
+
+    let rows: Vec<Element<'_, Message>> = members
+        .into_iter()
+        .map(|(node_key, label)| tree_spine_row(node_key, label))
+        .collect();
+
+    let mut spine = column![header];
+    for row in rows {
+        spine = spine.push(row);
+    }
+
+    scrollable(spine.spacing(2).padding([2, 0]))
+        .height(Length::FillPortion(2))
+        .into()
+}
+
+/// One row in the Tree Spine list. Click dispatches an OpenNode
+/// intent against the row's NodeKey.
+fn tree_spine_row<'a>(
+    node_key: graphshell_core::graph::NodeKey,
+    label: String,
+) -> Element<'a, Message> {
+    button(text(label).size(11).width(Length::Fill))
+        .on_press(Message::TreeSpineNodeClicked(node_key))
+        .padding([2, 6])
+        .width(Length::Fill)
+        .style(|theme: &iced::Theme, status| {
+            let pal = theme.palette();
+            let hovered = matches!(
+                status,
+                iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed
+            );
+            iced::widget::button::Style {
+                background: if hovered {
+                    Some(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.05).into())
+                } else {
+                    None
+                },
+                text_color: pal.background.base.text,
+                border: iced::Border {
+                    radius: 2.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
 }
 
 /// Render the StatusBar slot. Per
@@ -3167,6 +3275,40 @@ mod tests {
             pin_intent,
             Some(graphshell_core::shell_state::host_intent::HostIntent::Action { .. })
         ));
+    }
+
+    #[test]
+    fn tree_spine_click_dispatches_open_node_intent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+
+        // Pull a NodeKey out of the graph (the GraphTree may be empty
+        // until incremental_sync runs, but the dispatch path is what
+        // we're testing).
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .expect("seeded a node");
+
+        assert_eq!(app.host.runtime.opened_node_count, 0);
+
+        let _ = app.update(Message::TreeSpineNodeClicked(node_key));
+
+        assert_eq!(
+            app.host.runtime.opened_node_count, 1,
+            "tree-spine click dispatches HostIntent::OpenNode",
+        );
+        assert_eq!(
+            app.host.runtime.focused_node_hint,
+            Some(node_key),
+            "runtime promoted the resolved NodeKey to focused",
+        );
     }
 
     #[test]
