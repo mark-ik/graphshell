@@ -865,6 +865,26 @@ pub(crate) enum Message {
     /// it to focused state — same wiring as Node Finder selection.
     TreeSpineNodeClicked(graphshell_core::graph::NodeKey),
 
+    // --- Tile Tabs messages — Slice 29 ---
+
+    /// User clicked a tile tab. Dispatches `HostIntent::OpenNode`
+    /// so the runtime promotes the node to focused state. Per-
+    /// graphlet presentation-state (Active/Inactive) wiring lands
+    /// once the graphlet authority surfaces a transition method.
+    TileTabSelected {
+        pane_id: PaneId,
+        node_key: graphshell_core::graph::NodeKey,
+    },
+    /// User clicked a tile tab's close `×`. Slice 29 stub: surfaces
+    /// the deactivate intent via toast; the real
+    /// `LifecycleIntent::ToggleTilePresentationState { node_key,
+    /// graphlet_id }` path lands when the graphlet authority is
+    /// wired (per iced jump-ship plan §4.4).
+    TileTabClosed {
+        pane_id: PaneId,
+        node_key: graphshell_core::graph::NodeKey,
+    },
+
     // --- Command Palette messages — Slice 6 ---
     // Per [`iced_command_palette_spec.md`](
     // ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
@@ -1610,6 +1630,30 @@ impl IcedApp {
                 self.tick_with_events(Vec::new());
                 Task::none()
             }
+
+            // --- Tile Tabs handlers ---
+
+            Message::TileTabSelected { pane_id: _, node_key } => {
+                self.host.pending_host_intents.push(
+                    graphshell_core::shell_state::host_intent::HostIntent::OpenNode {
+                        node_key,
+                    },
+                );
+                self.tick_with_events(Vec::new());
+                Task::none()
+            }
+            Message::TileTabClosed { pane_id: _, node_key } => {
+                // Slice 29 stub: presentation-state transition lands
+                // when the graphlet authority exposes
+                // ToggleTilePresentationState. For now, surface the
+                // intent so the user knows close was received.
+                self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                    severity: ToastSeverity::Info,
+                    message: format!("close tile: n{} (stub)", node_key.index()),
+                    duration: None,
+                });
+                Task::none()
+            }
         }
     }
 
@@ -1804,40 +1848,7 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
                 }
             })
         }
-        PaneType::Tile => {
-            // Tile pane: TileTabs bar over the tile body.
-            // Tile list and selection state come from the Navigator domain
-            // layer (S5); this slice uses placeholder tabs so the widget is
-            // exercised in the live layout.
-            //
-            // Slice 21 wires per-tab right-click: each tab dispatches
-            // ContextMenuOpen with TilePane { pane_id, node_key }. Tab
-            // → NodeKey lookup currently passes None — the structural
-            // wiring closes; future slices populate node_keys when
-            // real tile data is wired.
-            let pane_id_for_tabs = meta.pane_id;
-            let tabs = TileTabs::new()
-                .push(TileTab::new("Tab A"))
-                .push(TileTab::new("Tab B"))
-                .selected(Some(0))
-                .on_select(|_i| Message::Tick)
-                .on_close(|_i| Message::Tick)
-                .on_right_click(move |_i| Message::ContextMenuOpen {
-                    target: ContextMenuTarget::TilePane {
-                        pane_id: pane_id_for_tabs,
-                        node_key: None,
-                    },
-                });
-            let tile_body = container(text("Tile body — Navigator wires content in S5").size(12))
-                .center(Length::Fill);
-            column![
-                Element::from(tabs),
-                tile_body.height(Length::Fill).width(Length::Fill),
-            ]
-            .spacing(0)
-            .height(Length::Fill)
-            .into()
-        }
+        PaneType::Tile => render_tile_pane_body(app, meta),
     };
 
     // Slice 17: canvas panes handle right-click natively in the
@@ -1856,6 +1867,124 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
             })
             .into(),
     }
+}
+
+/// Render the body of a Tile pane — Slice 29 wires real graphlet
+/// projection per the iced jump-ship plan §S5.
+///
+/// Currently the tile list comes from `runtime.graph_tree.members()`
+/// (the same source the Tree Spine uses). When per-pane graphlet
+/// scoping lands (`Pane::graphlet_id` per spec §3 + a graphlet
+/// authority that returns active tiles per-graphlet), this swaps to
+/// `view_model.active_tiles_for(pane.graphlet_id)` with no shape
+/// change to the rendering pipeline.
+///
+/// Each tab carries the resolved `NodeKey`:
+/// - left-click → `TileTabSelected` → `HostIntent::OpenNode`
+/// - close `×` → `TileTabClosed` → toast (real
+///   `LifecycleIntent::ToggleTilePresentationState` lands when the
+///   graphlet authority surfaces it)
+/// - right-click → `ContextMenuOpen { TilePane { pane_id,
+///   node_key: Some(...) }}` — finishes the deferred Slice 21
+///   wiring where `node_key` had to be `None` for lack of tile data.
+fn render_tile_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
+    let pane_id = meta.pane_id;
+    let tiles = tiles_for_pane(app);
+
+    if tiles.is_empty() {
+        let body = container(
+            text("No tiles in this graphlet — open a node from the Tree Spine \
+                  or via Ctrl+P to populate the tab bar.")
+                .size(12),
+        )
+        .center(Length::Fill);
+        // Keep the empty pane right-clickable so the user can still
+        // open the pane's context menu. node_key is None because
+        // there's no tile under the cursor.
+        return mouse_area(body)
+            .on_right_press(Message::ContextMenuOpen {
+                target: ContextMenuTarget::TilePane {
+                    pane_id,
+                    node_key: None,
+                },
+            })
+            .into();
+    }
+
+    // Build a per-tab NodeKey vec so the right-click and select
+    // closures can index by tab idx without re-querying the runtime.
+    let tab_keys: Vec<graphshell_core::graph::NodeKey> =
+        tiles.iter().map(|(k, _)| *k).collect();
+    let tab_keys_for_select = tab_keys.clone();
+    let tab_keys_for_close = tab_keys.clone();
+    let tab_keys_for_right = tab_keys.clone();
+
+    let mut tabs = TileTabs::new();
+    for (_, label) in &tiles {
+        tabs = tabs.push(TileTab::new(label.clone()));
+    }
+    let tabs = tabs
+        .selected(Some(0))
+        .on_select(move |i| Message::TileTabSelected {
+            pane_id,
+            node_key: tab_keys_for_select[i],
+        })
+        .on_close(move |i| Message::TileTabClosed {
+            pane_id,
+            node_key: tab_keys_for_close[i],
+        })
+        .on_right_click(move |i| Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane {
+                pane_id,
+                node_key: Some(tab_keys_for_right[i]),
+            },
+        });
+
+    let active_label = tiles
+        .first()
+        .map(|(_, l)| l.clone())
+        .unwrap_or_else(|| "—".into());
+    let tile_body = container(
+        text(format!("Tile body — active: {active_label}")).size(12),
+    )
+    .center(Length::Fill);
+
+    column![
+        Element::from(tabs),
+        tile_body.height(Length::Fill).width(Length::Fill),
+    ]
+    .spacing(0)
+    .height(Length::Fill)
+    .into()
+}
+
+/// Resolve the tile list for a tile pane. Slice 29: defaults to the
+/// runtime's `GraphTree` membership (every node in the workbench).
+/// Per-pane graphlet scoping (`Pane::graphlet_id` + a graphlet
+/// authority) is the next graphlet-projection slice.
+fn tiles_for_pane(
+    app: &IcedApp,
+) -> Vec<(graphshell_core::graph::NodeKey, String)> {
+    let runtime = &app.host.runtime;
+    runtime
+        .graph_tree
+        .members()
+        .map(|(node_key, _entry)| {
+            let label = runtime
+                .graph_app
+                .domain_graph()
+                .get_node(*node_key)
+                .map(|n| {
+                    if n.title.is_empty() {
+                        n.url().to_string()
+                    } else {
+                        n.title.clone()
+                    }
+                })
+                .unwrap_or_else(|| format!("n{}", node_key.index()));
+            (*node_key, label)
+        })
+        .collect()
 }
 
 /// Canvas base layer — rendered when the Frame has zero Panes.
@@ -4028,6 +4157,93 @@ mod tests {
             events[0],
             UxEvent::OpenNodeDispatched { node_key: nk } if nk == node_key
         ));
+    }
+
+    // --- Tile graphlet projection tests (Slice 29) ---
+
+    #[test]
+    fn tile_tab_select_dispatches_open_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+        // Convert the seeded Canvas pane to Tile so the tab dispatch
+        // path is observable.
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        let _ = app.update(Message::TileTabSelected { pane_id, node_key });
+
+        assert_eq!(app.host.runtime.opened_node_count, 1);
+        assert_eq!(app.host.runtime.focused_node_hint, Some(node_key));
+    }
+
+    #[test]
+    fn tile_tab_close_toasts_and_does_not_dispatch() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        let toasts_before = app.host.toast_queue.len();
+        let _ = app.update(Message::TileTabClosed { pane_id, node_key });
+
+        assert_eq!(
+            app.host.runtime.opened_node_count, 0,
+            "close must not fire OpenNode",
+        );
+        assert!(
+            app.host.toast_queue.len() > toasts_before,
+            "close stub should toast (until LifecycleIntent lands)",
+        );
+    }
+
+    #[test]
+    fn tile_pane_render_with_no_tiles_does_not_panic() {
+        // Default for_testing() runtime starts with no GraphTree
+        // members — exercises the empty-state branch of
+        // render_tile_pane_body.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
     }
 
     #[test]
