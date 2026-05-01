@@ -68,6 +68,18 @@ pub enum HostIntent {
     Action {
         action_id: ActionId,
     },
+    /// Variant of [`Self::Action`] that targets a specific node. Used
+    /// by surfaces that know exactly which node the action applies to
+    /// (e.g., a right-click context menu on a canvas node, or a Tree
+    /// Spine row's inline action). The runtime sets
+    /// `focused_node_hint = Some(node_key)` *before* running the
+    /// per-action handler, so handlers that operate on focused
+    /// selection (`NodePinToggle`, `NodeMarkTombstone`, etc.) act on
+    /// the named node instead of whatever happened to be focused.
+    ActionOnNode {
+        action_id: ActionId,
+        node_key: NodeKey,
+    },
     /// User picked a node from a finder surface (Node Finder, future
     /// Tree Spine "reveal in workbench" row). The runtime promotes the
     /// node to focused state — concrete pane-routing semantics
@@ -110,6 +122,17 @@ mod tests {
         // NodeKey is petgraph::NodeIndex with the serde-1 feature.
         let intent = HostIntent::OpenNode {
             node_key: NodeKey::new(7),
+        };
+        let json = serde_json::to_string(&intent).expect("serialize");
+        let back: HostIntent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(intent, back);
+    }
+
+    #[test]
+    fn action_on_node_serde_roundtrip() {
+        let intent = HostIntent::ActionOnNode {
+            action_id: ActionId::NodePinToggle,
+            node_key: NodeKey::new(3),
         };
         let json = serde_json::to_string(&intent).expect("serialize");
         let back: HostIntent = serde_json::from_str(&json).expect("deserialize");

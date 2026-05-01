@@ -461,49 +461,17 @@ impl GraphshellRuntime {
                     let pos = euclid::default::Point2D::new(position.x, position.y);
                     let _ = self.graph_app.add_node_and_sync(url.clone(), pos);
                 }
+                HostIntent::ActionOnNode { action_id, node_key } => {
+                    // Slice 16: pre-position focus so per-action
+                    // handlers that operate on the focused selection
+                    // (NodePinToggle, NodeMarkTombstone, etc.) act on
+                    // the named node. Then fall through to the same
+                    // dispatch arm Action uses.
+                    self.focused_node_hint = Some(*node_key);
+                    self.dispatch_action(*action_id);
+                }
                 HostIntent::Action { action_id } => {
-                    // Slice 10: record the dispatch so tests and
-                    // diagnostics can observe that the routing path
-                    // closed.
-                    self.last_dispatched_action = Some(*action_id);
-                    self.dispatched_action_count =
-                        self.dispatched_action_count.saturating_add(1);
-
-                    // Slice 15: per-action handlers land here one by
-                    // one, calling into existing runtime methods. Any
-                    // ActionId without a handler stays a logged no-op
-                    // (the dispatch counters above prove the routing
-                    // path closed even before the handler lands).
-                    use graphshell_core::actions::ActionId;
-                    match action_id {
-                        ActionId::GraphTogglePhysics => {
-                            self.graph_app.toggle_physics();
-                        }
-                        ActionId::GraphToggleGhostNodes => {
-                            // Mirrors `GraphIntent::ToggleGhostNodes`:
-                            // flip per-view tombstones_visible on the
-                            // currently-focused view.
-                            if let Some(view_id) =
-                                self.graph_app.workspace.graph_runtime.focused_view
-                            {
-                                if let Some(view) = self
-                                    .graph_app
-                                    .workspace
-                                    .graph_runtime
-                                    .views
-                                    .get_mut(&view_id)
-                                {
-                                    view.tombstones_visible =
-                                        !view.tombstones_visible;
-                                }
-                            }
-                        }
-                        _ => {
-                            // Unhandled action — dispatch counters
-                            // recorded the call above. Per-action
-                            // wiring lands incrementally.
-                        }
-                    }
+                    self.dispatch_action(*action_id);
                 }
                 HostIntent::OpenNode { node_key } => {
                     // Slice 12: promote the node to focused state. The
@@ -521,6 +489,43 @@ impl GraphshellRuntime {
                     self.opened_node_count =
                         self.opened_node_count.saturating_add(1);
                 }
+            }
+        }
+    }
+
+    /// Dispatch a single `ActionId`. Records the call on the runtime's
+    /// dispatch counters (Slice 10) and runs the per-action handler
+    /// (Slice 15). Shared by `HostIntent::Action` (no target) and
+    /// `HostIntent::ActionOnNode` (target was already pre-focused).
+    /// Unknown actions stay observable no-ops.
+    fn dispatch_action(&mut self, action_id: graphshell_core::actions::ActionId) {
+        self.last_dispatched_action = Some(action_id);
+        self.dispatched_action_count =
+            self.dispatched_action_count.saturating_add(1);
+
+        use graphshell_core::actions::ActionId;
+        match action_id {
+            ActionId::GraphTogglePhysics => {
+                self.graph_app.toggle_physics();
+            }
+            ActionId::GraphToggleGhostNodes => {
+                if let Some(view_id) =
+                    self.graph_app.workspace.graph_runtime.focused_view
+                {
+                    if let Some(view) = self
+                        .graph_app
+                        .workspace
+                        .graph_runtime
+                        .views
+                        .get_mut(&view_id)
+                    {
+                        view.tombstones_visible = !view.tombstones_visible;
+                    }
+                }
+            }
+            _ => {
+                // Unhandled action — dispatch counters recorded the
+                // call above. Per-action wiring lands incrementally.
             }
         }
     }

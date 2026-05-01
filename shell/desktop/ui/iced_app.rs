@@ -11,14 +11,17 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 15 / Stage A+E)**: Slices 3-14 closed every
-//! dispatch loop in the iced host. Slice 15 starts wiring real
-//! per-action runtime handlers in `gui_state::apply_host_intents`:
-//! `GraphTogglePhysics` and `GraphToggleGhostNodes` now mutate the
-//! corresponding runtime flags. Unhandled `ActionId`s remain
-//! observable no-ops — the dispatch counters bump but no domain
-//! method is called yet. Per-action handlers land incrementally;
-//! each new arm closes the loop for one more `ActionId`.
+//! **Scope (Slice 16 / Stage A+E)**: Slices 3-15 closed every
+//! dispatch loop and started wiring real per-action handlers.
+//! Slice 16 reshapes `ContextMenuTarget` so pane variants carry an
+//! optional `NodeKey`, and adds `HostIntent::ActionOnNode { action_id,
+//! node_key }` to graphshell-core. The runtime pre-focuses the
+//! target before running the per-action handler, so per-node
+//! actions (Pin / Tombstone / Activate) operate on the named node
+//! instead of whatever happened to be focused. Pane right-click
+//! handlers pass `node_key: None` today; future hit-test wiring
+//! (canvas hit-test, tile-tab right-click) populates the field so
+//! the action targets the specific node under the cursor.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -505,15 +508,36 @@ pub(crate) struct ConfirmDialogState {
 /// [`iced_command_palette_spec.md` §7.3](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
 ///
-/// Slice 8 wires three targets: tile panes, canvas panes, and the
-/// canvas base layer (empty Frame). Per-tile / per-tab / per-edge /
-/// Navigator-row targets land in later slices once those surfaces
-/// exist with right-click handlers.
+/// Slice 8 wired three targets: tile panes, canvas panes, and the
+/// canvas base layer (empty Frame). Slice 16 added an optional
+/// `node_key` to the pane variants so a future hit-test pass (canvas
+/// node lookup, tile-tab right-click) can route actions to the
+/// specific node under the cursor. The pane right-click handlers
+/// today still pass `node_key: None` — hit-test wiring lands later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContextMenuTarget {
-    TilePane(PaneId),
-    CanvasPane(PaneId),
+    TilePane {
+        pane_id: PaneId,
+        node_key: Option<graphshell_core::graph::NodeKey>,
+    },
+    CanvasPane {
+        pane_id: PaneId,
+        node_key: Option<graphshell_core::graph::NodeKey>,
+    },
     BaseLayer,
+}
+
+impl ContextMenuTarget {
+    /// The node the action applies to, if the target identifies one.
+    /// `None` for `BaseLayer` and for pane variants whose hit-test
+    /// hasn't been wired yet.
+    fn node_key(self) -> Option<graphshell_core::graph::NodeKey> {
+        match self {
+            ContextMenuTarget::TilePane { node_key, .. } => node_key,
+            ContextMenuTarget::CanvasPane { node_key, .. } => node_key,
+            ContextMenuTarget::BaseLayer => None,
+        }
+    }
 }
 
 /// One row in the context menu, pairing the display entry with an
@@ -533,13 +557,28 @@ impl ContextMenuItem {
         Self { entry, intent: None }
     }
 
-    fn action(entry: ContextMenuEntry, action_id: graphshell_core::actions::ActionId) -> Self {
-        Self {
-            entry,
-            intent: Some(
-                graphshell_core::shell_state::host_intent::HostIntent::Action { action_id },
-            ),
-        }
+    /// Build an action item. If `target_node` is `Some`, the dispatch
+    /// routes via `HostIntent::ActionOnNode` so the runtime
+    /// pre-positions focus before running the per-action handler;
+    /// otherwise it routes via `HostIntent::Action` and the handler
+    /// operates on whatever the runtime considers focused.
+    fn action(
+        entry: ContextMenuEntry,
+        action_id: graphshell_core::actions::ActionId,
+        target_node: Option<graphshell_core::graph::NodeKey>,
+    ) -> Self {
+        let intent = match target_node {
+            Some(node_key) => {
+                graphshell_core::shell_state::host_intent::HostIntent::ActionOnNode {
+                    action_id,
+                    node_key,
+                }
+            }
+            None => graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id,
+            },
+        };
+        Self { entry, intent: Some(intent) }
     }
 }
 
@@ -587,33 +626,43 @@ impl Default for ContextMenuState {
 /// - BaseLayer "Switch graphlet" — disabled (no graphlets yet)
 fn items_for_target(target: ContextMenuTarget) -> Vec<ContextMenuItem> {
     use graphshell_core::actions::ActionId;
+    let node = target.node_key();
     match target {
-        ContextMenuTarget::TilePane(_) => vec![
-            ContextMenuItem::action(ContextMenuEntry::new("Activate"), ActionId::NodeWarmSelect),
-            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle),
+        ContextMenuTarget::TilePane { .. } => vec![
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Activate"),
+                ActionId::NodeWarmSelect,
+                node,
+            ),
+            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle, node),
             ContextMenuItem::action(
                 ContextMenuEntry::new("Remove from graphlet"),
                 ActionId::NodeRemoveFromGraphlet,
+                node,
             ),
             ContextMenuItem::action(
                 ContextMenuEntry::new("Tombstone").destructive(),
                 ActionId::NodeMarkTombstone,
+                node,
             ),
         ],
-        ContextMenuTarget::CanvasPane(_) => vec![
+        ContextMenuTarget::CanvasPane { .. } => vec![
             ContextMenuItem::stub(ContextMenuEntry::new("Open in Pane")),
-            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle),
+            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle, node),
             ContextMenuItem::action(
                 ContextMenuEntry::new("Inspect"),
                 ActionId::GraphCommandPalette,
+                node,
             ),
             ContextMenuItem::action(
                 ContextMenuEntry::new("Remove from graphlet"),
                 ActionId::NodeRemoveFromGraphlet,
+                node,
             ),
             ContextMenuItem::action(
                 ContextMenuEntry::new("Tombstone").destructive(),
                 ActionId::NodeMarkTombstone,
+                node,
             ),
         ],
         ContextMenuTarget::BaseLayer => vec![
@@ -1538,9 +1587,19 @@ fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Messag
         }
     };
 
+    // Slice 16: pane right-click currently passes node_key: None.
+    // Future hit-test wiring (canvas hit-test, tile-tab right-click)
+    // populates the node_key so the action targets the specific node
+    // under the cursor.
     let target = match meta.pane_type {
-        PaneType::Canvas => ContextMenuTarget::CanvasPane(meta.pane_id),
-        PaneType::Tile => ContextMenuTarget::TilePane(meta.pane_id),
+        PaneType::Canvas => ContextMenuTarget::CanvasPane {
+            pane_id: meta.pane_id,
+            node_key: None,
+        },
+        PaneType::Tile => ContextMenuTarget::TilePane {
+            pane_id: meta.pane_id,
+            node_key: None,
+        },
     };
     mouse_area(inner)
         .on_right_press(Message::ContextMenuOpen { target })
@@ -2900,6 +2959,131 @@ mod tests {
     }
 
     #[test]
+    fn action_on_node_pre_focuses_target_then_dispatches() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Seed two nodes so we have real NodeKeys to target.
+        seed_test_nodes(&mut app, 2);
+        let target_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .nth(1)
+            .map(|(k, _)| k)
+            .expect("seeded ≥2 nodes");
+
+        // Dispatch an action targeting the second node directly.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::ActionOnNode {
+                action_id: graphshell_core::actions::ActionId::NodePinToggle,
+                node_key: target_key,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(
+            app.host.runtime.focused_node_hint,
+            Some(target_key),
+            "ActionOnNode pre-focuses the target before running the handler",
+        );
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::NodePinToggle),
+        );
+    }
+
+    #[test]
+    fn context_menu_with_target_node_dispatches_action_on_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        seed_test_nodes(&mut app, 1);
+        let target_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        // Manually open a context menu against a target carrying a
+        // real NodeKey — Slice 16 ships the type but the right-click
+        // handlers don't hit-test yet, so this simulates a future
+        // canvas-hit-test path.
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::CanvasPane {
+                pane_id: PaneId(99),
+                node_key: Some(target_key),
+            },
+        });
+
+        // Pick the "Pin" entry — wired to NodePinToggle.
+        let pin_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.label == "Pin")
+            .expect("CanvasPane menu carries a Pin entry");
+        let pin_intent = app.context_menu.items[pin_idx].intent.clone();
+
+        // The intent should be ActionOnNode (target carries a node_key).
+        assert!(matches!(
+            pin_intent,
+            Some(graphshell_core::shell_state::host_intent::HostIntent::ActionOnNode { .. })
+        ));
+
+        let _ = app.update(Message::ContextMenuEntrySelected(pin_idx));
+
+        assert_eq!(app.host.runtime.focused_node_hint, Some(target_key));
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+    }
+
+    #[test]
+    fn context_menu_without_target_node_dispatches_plain_action() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .unwrap();
+
+        // Right-click the pane body — current handler passes node_key: None.
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane {
+                pane_id,
+                node_key: None,
+            },
+        });
+
+        let pin_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.label == "Pin")
+            .unwrap();
+        let pin_intent = app.context_menu.items[pin_idx].intent.clone();
+
+        // Without a target node, the intent is plain Action.
+        assert!(matches!(
+            pin_intent,
+            Some(graphshell_core::shell_state::host_intent::HostIntent::Action { .. })
+        ));
+    }
+
+    #[test]
     fn unhandled_action_still_records_dispatch() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
@@ -3327,11 +3511,11 @@ mod tests {
             .expect("pane present");
 
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
 
         assert!(app.context_menu.is_open);
-        assert_eq!(app.context_menu.target, ContextMenuTarget::TilePane(pane_id));
+        assert_eq!(app.context_menu.target, ContextMenuTarget::TilePane { pane_id, node_key: None });
         assert_eq!(app.context_menu.anchor, iced::Point::new(120.0, 80.0));
         assert!(
             app.context_menu
@@ -3349,8 +3533,8 @@ mod tests {
     #[test]
     fn context_menu_target_drives_entry_set() {
         // Distinct targets surface distinct entry sets.
-        let canvas = items_for_target(ContextMenuTarget::CanvasPane(PaneId(1)));
-        let tile = items_for_target(ContextMenuTarget::TilePane(PaneId(1)));
+        let canvas = items_for_target(ContextMenuTarget::CanvasPane { pane_id: PaneId(1), node_key: None });
+        let tile = items_for_target(ContextMenuTarget::TilePane { pane_id: PaneId(1), node_key: None });
         let base = items_for_target(ContextMenuTarget::BaseLayer);
 
         assert!(canvas.iter().any(|i| i.entry.label == "Inspect"));
@@ -3479,7 +3663,7 @@ mod tests {
             .expect("pane present");
 
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
         // Find the "Pin" entry — it's wired to ActionId::NodePinToggle.
         let pin_idx = app
@@ -3528,7 +3712,7 @@ mod tests {
             .expect("pane present");
 
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
 
         let tombstone_idx = app
@@ -3585,7 +3769,7 @@ mod tests {
             .unwrap();
 
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
         let tombstone_idx = app
             .context_menu
@@ -3625,7 +3809,7 @@ mod tests {
             .map(|(_, m)| m.pane_id)
             .unwrap();
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
         let tombstone_idx = app
             .context_menu
@@ -3658,7 +3842,7 @@ mod tests {
             .unwrap();
 
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
         let pin_idx = app
             .context_menu
@@ -3695,7 +3879,7 @@ mod tests {
             .map(|(_, m)| m.pane_id)
             .unwrap();
         let _ = app.update(Message::ContextMenuOpen {
-            target: ContextMenuTarget::TilePane(pane_id),
+            target: ContextMenuTarget::TilePane { pane_id, node_key: None },
         });
         let tombstone_idx = app
             .context_menu
