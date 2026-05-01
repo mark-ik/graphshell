@@ -141,6 +141,15 @@ pub fn descriptor_for(surface: SurfaceId) -> AccessibilityDescriptor {
             ),
             keyboard_shortcut: None,
         },
+        SurfaceId::FrameRename => AccessibilityDescriptor {
+            role: Role::Dialog,
+            label: "Rename frame",
+            description: Some(
+                "Enter a new label for the active Frame. Press Enter \
+                 to apply, or Cancel / Escape to abandon.",
+            ),
+            keyboard_shortcut: None,
+        },
         SurfaceId::StatusBar => AccessibilityDescriptor {
             role: Role::ContentInfo,
             label: "Status bar",
@@ -218,6 +227,7 @@ mod tests {
             SurfaceId::ContextMenu,
             SurfaceId::ConfirmDialog,
             SurfaceId::NodeCreate,
+            SurfaceId::FrameRename,
             SurfaceId::StatusBar,
             SurfaceId::TreeSpine,
             SurfaceId::NavigatorHost,

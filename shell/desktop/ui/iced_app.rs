@@ -662,6 +662,23 @@ pub(crate) struct NodeCreateState {
 }
 
 // ---------------------------------------------------------------------------
+// FrameRename Modal — Slice 34
+// ---------------------------------------------------------------------------
+
+/// Stable widget id for the FrameRename text input.
+const FRAME_RENAME_INPUT_ID: &str = "graphshell:frame_rename_input";
+
+/// Widget-local state for the Frame rename modal. Triggered by the
+/// `FrameRename` action (host-routed from Slice 31's Frame
+/// composition layer); applies the new label to the active Frame
+/// on submit. Cancel / click-outside / Escape drops the draft.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FrameRenameState {
+    pub(crate) is_open: bool,
+    pub(crate) label_draft: String,
+}
+
+// ---------------------------------------------------------------------------
 // Context Menu — Slice 8 (right-click overlay on panes / base layer)
 // ---------------------------------------------------------------------------
 
@@ -892,6 +909,8 @@ pub(crate) struct IcedApp {
     /// URL-input modal opened by `NodeNew` / `NodeNewAsTab` actions
     /// from non-omnibar surfaces (palette, context menu). Slice 32.
     pub(crate) node_create: NodeCreateState,
+    /// Label-input modal opened by the `FrameRename` action. Slice 34.
+    pub(crate) frame_rename: FrameRenameState,
     /// Bounded recorder backing the Navigator's Activity Log
     /// bucket. Registered as a `UxObserver` on the runtime; every
     /// `UxEvent` the host emits flows in. Slice 27.
@@ -998,6 +1017,19 @@ pub(crate) enum Message {
     NodeCreateSubmit,
     /// Cancel button, click-outside, or Escape — drops the draft.
     NodeCreateCancel,
+
+    // --- FrameRename modal messages — Slice 34 ---
+
+    /// Open the Frame rename modal pre-seeded with the active
+    /// Frame's current label. Triggered by `FrameRename` action.
+    FrameRenameOpen,
+    /// Text edited in the label field.
+    FrameRenameInput(String),
+    /// User submitted the new label — applies it to the active
+    /// Frame and closes the modal. Empty submissions are no-ops.
+    FrameRenameSubmit,
+    /// Cancel button, click-outside, or Escape — drops the draft.
+    FrameRenameCancel,
 
     // --- Frame composition messages — Slice 31 ---
 
@@ -1126,6 +1158,7 @@ impl IcedApp {
             context_menu: ContextMenuState::default(),
             confirm_dialog: ConfirmDialogState::default(),
             node_create: NodeCreateState::default(),
+            frame_rename: FrameRenameState::default(),
             activity_log_recorder: std::sync::Arc::clone(&activity_log_recorder),
             frame_id: FrameId::next(),
             frame_label: "Frame 1".to_string(),
@@ -1207,6 +1240,9 @@ impl IcedApp {
                 if is_escape_key(&event) {
                     if self.confirm_dialog.is_open {
                         return Task::done(Message::ConfirmDialogCancel);
+                    }
+                    if self.frame_rename.is_open {
+                        return Task::done(Message::FrameRenameCancel);
                     }
                     if self.node_create.is_open {
                         return Task::done(Message::NodeCreateCancel);
@@ -1848,6 +1884,54 @@ impl IcedApp {
                 Task::none()
             }
 
+            // --- FrameRename modal handlers ---
+
+            Message::FrameRenameOpen => {
+                self.frame_rename.is_open = true;
+                self.frame_rename.label_draft = self.frame_label.clone();
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceOpened {
+                        surface: graphshell_core::ux_observability::SurfaceId::FrameRename,
+                    },
+                );
+                iced::widget::operation::focus(iced::widget::Id::new(
+                    FRAME_RENAME_INPUT_ID,
+                ))
+            }
+            Message::FrameRenameInput(value) => {
+                self.frame_rename.label_draft = value;
+                Task::none()
+            }
+            Message::FrameRenameSubmit => {
+                let draft = std::mem::take(&mut self.frame_rename.label_draft);
+                let trimmed = draft.trim();
+                if !trimmed.is_empty() {
+                    self.frame_label = trimmed.to_string();
+                }
+                self.frame_rename.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::FrameRename,
+                        reason: graphshell_core::ux_observability::DismissReason::Confirmed,
+                    },
+                );
+                Task::none()
+            }
+            Message::FrameRenameCancel => {
+                self.frame_rename.label_draft.clear();
+                self.frame_rename.is_open = false;
+                emit_ux_event(
+                    self,
+                    graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                        surface: graphshell_core::ux_observability::SurfaceId::FrameRename,
+                        reason: graphshell_core::ux_observability::DismissReason::Cancelled,
+                    },
+                );
+                Task::none()
+            }
+
             // --- Frame composition handlers ---
 
             Message::NewFrame => {
@@ -2025,6 +2109,9 @@ impl IcedApp {
         }
         if self.node_create.is_open {
             layered.push(render_node_create_modal(self));
+        }
+        if self.frame_rename.is_open {
+            layered.push(render_frame_rename_modal(self));
         }
         if self.confirm_dialog.is_open {
             layered.push(render_confirm_dialog(self));
@@ -2667,6 +2754,51 @@ fn render_finder_row<'a>(
         .into()
 }
 
+/// Render the FrameRename label-input modal — Slice 34. Visible
+/// whenever `FrameRenameState::is_open` is true. Click-outside
+/// (`Modal::on_blur`) and Escape both fire `FrameRenameCancel`;
+/// Enter on the text input fires `FrameRenameSubmit`.
+fn render_frame_rename_modal(app: &IcedApp) -> Element<'_, Message> {
+    let title = text("Rename frame").size(15);
+    let body = text(format!(
+        "Renaming \"{}\". Empty submissions are no-ops.",
+        app.frame_label
+    ))
+    .size(13);
+    let input = text_input("Frame label", &app.frame_rename.label_draft)
+        .id(iced::widget::Id::new(FRAME_RENAME_INPUT_ID))
+        .on_input(Message::FrameRenameInput)
+        .on_submit(Message::FrameRenameSubmit)
+        .size(14)
+        .padding(6)
+        .width(Length::Fill);
+
+    let cancel = button(text("Cancel").size(13))
+        .on_press(Message::FrameRenameCancel)
+        .padding([6, 14]);
+    let apply = button(text("Apply").size(13))
+        .on_press(Message::FrameRenameSubmit)
+        .padding([6, 14]);
+
+    let buttons = iced::widget::row![
+        iced::widget::Space::new().width(Length::Fill),
+        cancel,
+        apply,
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+
+    let inner = column![title, body, input, buttons]
+        .spacing(12)
+        .padding(4)
+        .width(Length::Fill);
+
+    Modal::new(inner)
+        .on_blur(Message::FrameRenameCancel)
+        .max_width(420.0)
+        .into()
+}
+
 /// Render the NodeCreate URL-input modal — Slice 32. Visible
 /// whenever `NodeCreateState::is_open` is true. Click-outside
 /// (`Modal::on_blur`) and Escape both fire `NodeCreateCancel`;
@@ -2916,6 +3048,8 @@ fn host_routed_action(
         // frame). A future picker modal can route via SwitchFrame(idx)
         // for explicit selection.
         ActionId::FrameSelect => Some(Message::SwitchFrame(0)),
+        // Slice 34: rename modal owns the active Frame's label.
+        ActionId::FrameRename => Some(Message::FrameRenameOpen),
 
         // Slice 32: NodeCreate modal lives host-side; both NodeNew
         // and NodeNewAsTab open the same URL-input modal. The
@@ -3257,6 +3391,7 @@ fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent) -> String
             SurfaceId::ContextMenu => "Context Menu",
             SurfaceId::ConfirmDialog => "Confirm Dialog",
             SurfaceId::NodeCreate => "Create Node",
+            SurfaceId::FrameRename => "Rename Frame",
             SurfaceId::StatusBar => "Status Bar",
             SurfaceId::TreeSpine => "Tree Spine",
             SurfaceId::NavigatorHost => "Navigator",
@@ -5250,6 +5385,80 @@ mod tests {
         let _ = app.update(Message::NodeCreateOpen);
         let _ = app.update(Message::Tick);
         let _element = app.view();
+    }
+
+    // --- FrameRename modal tests (Slice 34) ---
+
+    #[test]
+    fn frame_rename_open_seeds_draft_with_current_label() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _task = app.update(Message::FrameRenameOpen);
+
+        assert!(app.frame_rename.is_open);
+        assert_eq!(
+            app.frame_rename.label_draft, app.frame_label,
+            "open seeds the draft with the current label",
+        );
+    }
+
+    #[test]
+    fn frame_rename_submit_applies_new_label() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::FrameRenameOpen);
+        let _ = app.update(Message::FrameRenameInput("Research session".into()));
+        let _ = app.update(Message::FrameRenameSubmit);
+
+        assert!(!app.frame_rename.is_open);
+        assert_eq!(app.frame_label, "Research session");
+    }
+
+    #[test]
+    fn frame_rename_submit_empty_or_whitespace_is_noop() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let original_label = app.frame_label.clone();
+        let _ = app.update(Message::FrameRenameOpen);
+        let _ = app.update(Message::FrameRenameInput("   ".into()));
+        let _ = app.update(Message::FrameRenameSubmit);
+
+        assert_eq!(app.frame_label, original_label);
+    }
+
+    #[test]
+    fn frame_rename_cancel_drops_draft() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let original_label = app.frame_label.clone();
+        let _ = app.update(Message::FrameRenameOpen);
+        let _ = app.update(Message::FrameRenameInput("never apply".into()));
+        let _ = app.update(Message::FrameRenameCancel);
+
+        assert!(!app.frame_rename.is_open);
+        assert_eq!(app.frame_label, original_label);
+    }
+
+    #[test]
+    fn frame_rename_action_routes_to_modal() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| a.action_id == graphshell_core::actions::ActionId::FrameRename)
+            .expect("FrameRename in registry");
+
+        let _task = app.update(Message::PaletteActionSelected(idx));
+        let _ = app.update(Message::FrameRenameOpen);
+
+        assert!(app.frame_rename.is_open);
+        assert_eq!(app.host.runtime.dispatched_action_count, 0);
     }
 
     // --- Frame composition tests (Slice 31) ---

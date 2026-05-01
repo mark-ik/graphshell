@@ -106,6 +106,7 @@ fn is_modal_like(surface: SurfaceId) -> bool {
             | SurfaceId::ContextMenu
             | SurfaceId::ConfirmDialog
             | SurfaceId::NodeCreate
+            | SurfaceId::FrameRename
     )
 }
 

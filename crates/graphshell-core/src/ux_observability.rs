@@ -70,6 +70,9 @@ pub enum SurfaceId {
     /// `NodeNew` fires from a non-omnibar surface (palette, context
     /// menu, programmatic).
     NodeCreate,
+    /// Modal that prompts the user for a new label when the
+    /// `FrameRename` action fires.
+    FrameRename,
     StatusBar,
     TreeSpine,
     NavigatorHost,
