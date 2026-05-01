@@ -482,11 +482,34 @@ pub(super) fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
     .width(Length::Fill)
     .height(Length::Fill);
 
+    // Slice 42: fade-in opacity computed from the host's
+    // modal_opened_at. Duration 150ms with ease_out_cubic feels
+    // snappy without a flash.
+    let opacity = palette_fade_opacity(app);
+
     Modal::new(body)
         .on_blur(Message::PaletteCloseAndRestoreFocus)
         .max_width(640.0)
         .max_height(480.0)
+        .opacity(opacity)
         .into()
+}
+
+/// Opacity factor for the Command Palette modal — Slice 42. Reads
+/// `modal_opened_at` and applies an ease-out-cubic curve over a
+/// 150ms duration. Returns 1.0 if no timestamp is set or the modal
+/// has been open longer than the duration.
+fn palette_fade_opacity(app: &IcedApp) -> f32 {
+    const FADE_MS: u64 = 150;
+    let Some(opened_at) = app.modal_opened_at else {
+        return 1.0;
+    };
+    let anim = animation::Animation {
+        started_at: opened_at,
+        duration: std::time::Duration::from_millis(FADE_MS),
+    };
+    let t = anim.progress(std::time::Instant::now());
+    animation::ease_out_cubic(t)
 }
 
 /// One row in the Command Palette ranked-action list.

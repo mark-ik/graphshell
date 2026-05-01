@@ -178,6 +178,13 @@ pub(crate) struct IcedApp {
     /// All pulse-shaped animations read from this so their phases
     /// stay coherent (no per-pulse drift).
     pub(crate) startup_instant: std::time::Instant,
+    /// Set whenever any modal-like surface (palette / finder /
+    /// confirm / node_create / frame_rename) opens; cleared when
+    /// it closes. Slice 42: modal renderers compute `opacity =
+    /// ease_out_cubic(progress)` from this and pass to
+    /// `gs::Modal::opacity` for a fade-in. ContextMenu doesn't use
+    /// gs::Modal, so it doesn't participate today.
+    pub(crate) modal_opened_at: Option<std::time::Instant>,
 }
 
 /// Messages iced pushes into `IcedApp::update`.
@@ -439,6 +446,7 @@ impl IcedApp {
             frame_label: "Frame 1".to_string(),
             inactive_frames: Vec::new(),
             startup_instant: std::time::Instant::now(),
+            modal_opened_at: None,
         };
         // Slice 26: register a UxChannelObserver with a NoopSink so
         // every UxEvent passes through the canonical channel-mapping
@@ -722,6 +730,12 @@ impl IcedApp {
 
             // --- Command Palette handlers ---
 
+            // Slice 42: PaletteOpen is the demonstrator wiring for
+            // modal fade-in via the Slice 38 animation framework.
+            // The pattern (set modal_opened_at on open, clear on
+            // close, ease_out_cubic in the renderer) extends
+            // mechanically to NodeFinder / NodeCreate /
+            // FrameRename / ConfirmDialog in follow-up slices.
             Message::PaletteOpen { origin } => {
                 // Opening the palette closes the node finder (mutually
                 // exclusive overlays per the canonical specs).
@@ -731,6 +745,7 @@ impl IcedApp {
                 self.command_palette.origin = origin;
                 self.command_palette.query.clear();
                 self.command_palette.focused_index = None;
+                self.modal_opened_at = Some(std::time::Instant::now());
                 if was_finder_open {
                     emit_ux_event(
                         self,
@@ -760,6 +775,7 @@ impl IcedApp {
                 self.command_palette.is_open = false;
                 self.command_palette.query.clear();
                 self.command_palette.focused_index = None;
+                self.modal_opened_at = None;
                 emit_ux_event(
                     self,
                     graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
@@ -792,6 +808,7 @@ impl IcedApp {
                     self.command_palette.is_open = false;
                     self.command_palette.query.clear();
                     self.command_palette.focused_index = None;
+                    self.modal_opened_at = None;
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
                         message: format!("action: {label} [{key}]"),
@@ -849,6 +866,11 @@ impl IcedApp {
                 // always reflects current truth.
                 let was_palette_open = self.command_palette.is_open;
                 self.command_palette.is_open = false;
+                // Slice 42: palette superseded → clear its fade-in
+                // clock. NodeFinder doesn't use modal_opened_at yet
+                // (Palette is the demonstrator); when it adopts the
+                // pattern this becomes `Some(Instant::now())`.
+                self.modal_opened_at = None;
                 self.node_finder.all_results =
                     build_finder_results(&self.host.runtime.graph_app);
                 self.node_finder.is_open = true;
@@ -960,6 +982,9 @@ impl IcedApp {
                 let was_finder = self.node_finder.is_open;
                 self.command_palette.is_open = false;
                 self.node_finder.is_open = false;
+                // Slice 42: ContextMenu doesn't use gs::Modal —
+                // clear the fade-in clock if a modal was open.
+                self.modal_opened_at = None;
                 self.context_menu.is_open = true;
                 self.context_menu.target = target;
                 // The cursor cache is fed by every CursorMoved
