@@ -46,6 +46,22 @@
 //! data: Tree Spine (Slice 20, GraphTree members), Activity Log
 //! (this slice, UxEvent stream); Swatches remains a stub pending
 //! the canvas-instance multi-render-profile work.
+//!
+//! **Slice 28**: per-action runtime handler dispatch table extended
+//! to 17 `ActionId`s (was 7). New runtime arms route via either
+//! `apply_reducer_intents`, `enqueue_app_command`, or direct
+//! `GraphBrowserApp` methods: GraphFitGraphlet, PersistSaveSnapshot,
+//! PersistRestoreLatestGraph, PersistRestoreSession,
+//! PersistImportBookmarks, NodePinSelected, NodeUnpinSelected,
+//! NodeCopyUrl (via ActionOnNode pre-focus), NodeCopyTitle. Plus
+//! a host-side intercept for ActionIds whose effect opens an
+//! iced-owned overlay — `host_routed_action` translates them to
+//! iced Messages before the runtime dispatch path runs;
+//! GraphCommandPalette is the first wired (re-opens the palette).
+//! The canonical wildcard arm at the end documents what each
+//! remaining category needs (FrameId context, render-mode setter,
+//! workbench-overlay state, etc.) so the next iteration is
+//! mechanical.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -1243,16 +1259,18 @@ impl IcedApp {
                 Task::none()
             }
             Message::PaletteActionSelected(idx) => {
-                // Slice 10: resolve the visible-list slot to a canonical
-                // ActionId and push HostIntent::Action onto the runtime's
-                // pending-intents queue. The runtime's
-                // `apply_host_intents` records the dispatch in
-                // `last_dispatched_action` / `dispatched_action_count`
-                // and tick-drives any per-action handlers that have
-                // landed. The toast continues to surface the resolved
-                // label + namespace:name key so the dispatch path is
-                // user-visible. Disabled / out-of-range selections are
-                // no-ops.
+                // Slice 10/28: resolve the visible-list slot to a
+                // canonical ActionId. Slice 28 adds the host-side
+                // intercept: ActionIds whose effect is opening
+                // another iced overlay (palette / finder / settings
+                // pane) are handled here, *before* pushing
+                // HostIntent::Action — those can't be runtime-side
+                // because the host owns the overlay state.
+                //
+                // Other actions push the intent and tick the runtime
+                // so apply_host_intents records the dispatch in
+                // last_dispatched_action / dispatched_action_count
+                // and runs any per-action handler that has landed.
                 let visible = visible_palette_actions(&self.command_palette);
                 let acked = visible
                     .get(idx)
@@ -1260,21 +1278,25 @@ impl IcedApp {
                     .map(|a| (a.label.clone(), a.action_id));
                 if let Some((label, action_id)) = acked {
                     let key = action_id.key();
-                    self.host.pending_host_intents.push(
-                        graphshell_core::shell_state::host_intent::HostIntent::Action {
-                            action_id,
-                        },
-                    );
+                    self.command_palette.is_open = false;
+                    self.command_palette.query.clear();
+                    self.command_palette.focused_index = None;
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
                         message: format!("action: {label} [{key}]"),
                         duration: None,
                     });
-                    self.command_palette.is_open = false;
-                    self.command_palette.query.clear();
-                    self.command_palette.focused_index = None;
-                    // Drive a tick so the runtime drains the intent
-                    // immediately and observers see the dispatch.
+                    // Host-side intercepts: turn the ActionId into
+                    // an iced Message rather than a runtime intent.
+                    if let Some(host_msg) = host_routed_action(action_id) {
+                        return Task::done(host_msg);
+                    }
+                    // Runtime path.
+                    self.host.pending_host_intents.push(
+                        graphshell_core::shell_state::host_intent::HostIntent::Action {
+                            action_id,
+                        },
+                    );
                     self.tick_with_events(Vec::new());
                 }
                 Task::none()
@@ -2426,6 +2448,25 @@ fn is_url_shaped(s: &str) -> bool {
         return true;
     }
     !s.contains(' ') && s.contains('.')
+}
+
+/// Slice 28 host-side intercept for `ActionId`s whose effect is
+/// opening or toggling an iced-owned overlay. Returns `Some(Message)`
+/// when the host should handle the action directly; `None` lets the
+/// caller fall through to `HostIntent::Action` runtime dispatch.
+fn host_routed_action(
+    action_id: graphshell_core::actions::ActionId,
+) -> Option<Message> {
+    use graphshell_core::actions::ActionId;
+    match action_id {
+        ActionId::GraphCommandPalette => Some(Message::PaletteOpen {
+            origin: PaletteOrigin::Programmatic,
+        }),
+        // GraphRadialMenu was retired (see iced_command_palette_spec.md
+        // §7.4). Re-introducing it is part of the input-subsystem
+        // rework, not a host-route today.
+        _ => None,
+    }
 }
 
 /// Emit a UX event onto the runtime's observer registry. Centralized
@@ -4141,6 +4182,120 @@ mod tests {
         assert_eq!(
             app.host.runtime.last_dispatched_action,
             Some(graphshell_core::actions::ActionId::NodeMarkTombstone),
+        );
+    }
+
+    #[test]
+    fn graph_fit_graphlet_action_dispatches() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::GraphFitGraphlet,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+    }
+
+    #[test]
+    fn persist_save_snapshot_action_dispatches() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::PersistSaveSnapshot,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+    }
+
+    #[test]
+    fn persist_import_bookmarks_action_dispatches() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::PersistImportBookmarks,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+    }
+
+    #[test]
+    fn node_copy_url_action_targeted_via_action_on_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::ActionOnNode {
+                action_id: graphshell_core::actions::ActionId::NodeCopyUrl,
+                node_key,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(app.host.runtime.focused_node_hint, Some(node_key));
+    }
+
+    #[test]
+    fn graph_command_palette_action_routes_through_host_intercept() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+
+        // Find the GraphCommandPalette ActionId in the palette list.
+        let palette_idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| {
+                a.action_id == graphshell_core::actions::ActionId::GraphCommandPalette
+            })
+            .expect("GraphCommandPalette is in the canonical action list");
+
+        // Pre-condition: no dispatch yet.
+        assert_eq!(app.host.runtime.dispatched_action_count, 0);
+
+        // Selecting GraphCommandPalette should route through the host
+        // intercept (re-open the palette as Programmatic) rather than
+        // pushing a runtime intent.
+        let _task = app.update(Message::PaletteActionSelected(palette_idx));
+        // The intercept dispatches PaletteOpen via Task::done; simulate
+        // the runtime delivering it.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::Programmatic,
+        });
+
+        assert!(
+            app.command_palette.is_open,
+            "host intercept reopened the palette",
+        );
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "host-routed action did NOT push HostIntent::Action",
         );
     }
 

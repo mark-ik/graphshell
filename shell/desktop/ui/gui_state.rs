@@ -582,9 +582,116 @@ impl GraphshellRuntime {
                 // user has already confirmed.
                 self.graph_app.mark_tombstone_for_selected();
             }
+
+            // Slice 28: continued runtime-side dispatch wiring. Each
+            // arm routes to either `apply_reducer_intents` against a
+            // bare-variant `GraphIntent` or a direct method on
+            // `GraphBrowserApp`. Actions that need host-side state
+            // changes (open palette, open settings overlay, frame
+            // rename modal, etc.) stay in the wildcard arm — those
+            // are observable no-ops on the runtime side; the iced
+            // host can intercept the corresponding `ActionId` *before*
+            // pushing the intent for surfaces it owns.
+
+            // ── Graph view actions ─────────────────────────────────
+            ActionId::GraphFitGraphlet => {
+                self.graph_app.apply_reducer_intents([
+                    crate::app::GraphIntent::RequestZoomToGraphlet,
+                ]);
+            }
+
+            // ── Persistence actions ────────────────────────────────
+            // These live on `AppCommand`, not `GraphIntent` — they
+            // route through the runtime's app-command drain rather
+            // than the reducer pipeline.
+            ActionId::PersistSaveSnapshot => {
+                self.graph_app.enqueue_app_command(
+                    crate::app::AppCommand::SaveWorkspaceSnapshot,
+                );
+            }
+            ActionId::PersistRestoreLatestGraph | ActionId::PersistRestoreSession => {
+                // Both actions land on the same restore path — the
+                // distinction was historical egui-host chrome.
+                self.graph_app.enqueue_app_command(
+                    crate::app::AppCommand::RestoreGraphSnapshotLatest,
+                );
+            }
+            ActionId::PersistImportBookmarks => {
+                self.graph_app.enqueue_app_command(
+                    crate::app::AppCommand::ImportBookmarksFromFile,
+                );
+            }
+
+            // ── Node actions on focused selection ──────────────────
+            ActionId::NodePinSelected => {
+                // Force-pin: only fires SetNodePinned when the focused
+                // node isn't already pinned. Mirrors NodePinToggle's
+                // shape but skips the toggle.
+                if let Some(key) = self.graph_app.focused_selection().primary()
+                    && let Some(node) = self.graph_app.workspace.domain.graph.get_node(key)
+                    && !node.is_pinned
+                {
+                    self.graph_app.apply_reducer_intents([
+                        crate::app::GraphIntent::SetNodePinned {
+                            key,
+                            is_pinned: true,
+                        },
+                    ]);
+                }
+            }
+            ActionId::NodeUnpinSelected => {
+                if let Some(key) = self.graph_app.focused_selection().primary()
+                    && let Some(node) = self.graph_app.workspace.domain.graph.get_node(key)
+                    && node.is_pinned
+                {
+                    self.graph_app.apply_reducer_intents([
+                        crate::app::GraphIntent::SetNodePinned {
+                            key,
+                            is_pinned: false,
+                        },
+                    ]);
+                }
+            }
+            ActionId::NodeCopyUrl => {
+                // ActionOnNode upstream pre-set focused_node_hint;
+                // resolve to the focused-selection primary which the
+                // hint feeds into. The clipboard request lands on
+                // workspace; the next tick's drain delivers it.
+                if let Some(key) = self.graph_app.focused_selection().primary() {
+                    self.graph_app.request_copy_node_url(key);
+                }
+            }
+            ActionId::NodeCopyTitle => {
+                if let Some(key) = self.graph_app.focused_selection().primary() {
+                    self.graph_app.request_copy_node_title(key);
+                }
+            }
+
             _ => {
                 // Unhandled action — dispatch counters recorded the
                 // call above. Per-action wiring lands incrementally.
+                // Categories still requiring host-side intervention
+                // or domain methods we haven't surfaced yet:
+                //
+                // - GraphCommandPalette / GraphRadialMenu (host-side
+                //   modal toggles; iced host should intercept these
+                //   ActionIds before pushing the intent and route to
+                //   PaletteOpen)
+                // - WorkbenchOpenSettingsPane / OpenSettingsOverlay /
+                //   PersistOpenHub / PersistOpenHistoryManager (open
+                //   tool surfaces — needs URL routing)
+                // - Frame* (need a FrameId context that the dispatch
+                //   shape doesn't carry today)
+                // - NodeNew / NodeNewAsTab / NodeImport* / NodeResolve*
+                //   / NodeRender* / NodeAdd*To* / NodeOpen* / NodeMove*
+                //   / NodeDetach* / NodeChooseFrame / NodeWarmSelect /
+                //   NodeRemoveFromGraphlet / NodeDelete / NodeEditTags
+                //   (each needs additional context like a URL, frame
+                //   id, render mode, or graphlet id)
+                // - Edge* (need EdgeKey or pair context)
+                // - Workbench{Toggle,Lock,Unlock,Group,Activate*}
+                //   (need workbench-domain methods that don't exist
+                //   as GraphIntent bare variants today)
             }
         }
     }
