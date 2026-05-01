@@ -6,7 +6,10 @@
 
 use super::*;
 
-pub(super) fn render_frame_split_tree(app: &IcedApp) -> Element<'_, Message> {
+mod modals;
+pub(crate) use modals::*;
+
+pub(crate) fn render_frame_split_tree(app: &IcedApp) -> Element<'_, Message> {
     if app.frame.base_layer_active {
         render_canvas_base_layer(app)
     } else {
@@ -44,7 +47,7 @@ pub(super) fn render_frame_split_tree(app: &IcedApp) -> Element<'_, Message> {
 /// the context menu against the appropriate `ContextMenuTarget`. The
 /// anchor (cursor position) is read in the message handler from
 /// `IcedHost.cursor_position`.
-pub(super) fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
+pub(crate) fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
     let inner: Element<'a, Message> = match meta.pane_type {
         PaneType::Canvas => {
             let program =
@@ -99,7 +102,7 @@ pub(super) fn render_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element
 /// Today exposes a small set of host-side toggles (Navigator host
 /// visibility); per-section settings (verso://settings/physics,
 /// /frames, etc.) inspect the URL suffix to decide what to render.
-pub(super) fn render_settings_pane(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_settings_pane(app: &IcedApp) -> Element<'_, Message> {
     let header = text("Settings").size(15);
     let nav_section = text("Navigator hosts").size(13);
     let nav_left = iced::widget::checkbox(app.navigator.show_left)
@@ -157,7 +160,7 @@ pub(super) fn render_settings_pane(app: &IcedApp) -> Element<'_, Message> {
 /// - right-click → `ContextMenuOpen { TilePane { pane_id,
 ///   node_key: Some(...) }}` — finishes the deferred Slice 21
 ///   wiring where `node_key` had to be `None` for lack of tile data.
-pub(super) fn render_tile_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
+pub(crate) fn render_tile_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> Element<'a, Message> {
     let pane_id = meta.pane_id;
     let tiles = tiles_for_pane(app);
 
@@ -247,7 +250,7 @@ pub(super) fn render_tile_pane_body<'a>(app: &'a IcedApp, meta: &PaneMeta) -> El
 /// runtime's `GraphTree` membership (every node in the workbench).
 /// Per-pane graphlet scoping (`Pane::graphlet_id` + a graphlet
 /// authority) is the next graphlet-projection slice.
-pub(super) fn tiles_for_pane(
+pub(crate) fn tiles_for_pane(
     app: &IcedApp,
 ) -> Vec<(graphshell_core::graph::NodeKey, String)> {
     let runtime = &app.host.runtime;
@@ -278,7 +281,7 @@ pub(super) fn tiles_for_pane(
 /// per spec §2.3 the base layer is a distinct code branch, not a
 /// degenerate Pane. Wrapped in a `mouse_area` so right-click opens the
 /// `ContextMenuTarget::BaseLayer` menu.
-pub(super) fn render_canvas_base_layer(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_canvas_base_layer(app: &IcedApp) -> Element<'_, Message> {
     let program = graph_canvas_from_app(&app.host.runtime.graph_app, app.host.view_id);
     let _: &GraphCanvasProgram = &program;
     let graph: Element<'_, crate::shell::desktop::ui::iced_graph_canvas::GraphCanvasMessage> =
@@ -334,7 +337,7 @@ pub(super) enum NavigatorAnchor {
 /// form factor. This slice renders structural stubs; real bucket content
 /// (lazy+scrollable trees, canvas swatch grid, event stream) lands once
 /// the Navigator domain layer is wired (S5).
-pub(super) fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> Element<'_, Message> {
+pub(crate) fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> Element<'_, Message> {
     // Tree Spine bucket — Slice 20 reads from the runtime's GraphTree
     // and renders one row per member. Each row is a button that
     // dispatches `Message::TreeSpineNodeClicked(node_key)` → the
@@ -392,7 +395,7 @@ pub(super) fn render_navigator_host(app: &IcedApp, anchor: NavigatorAnchor) -> E
 /// Slice 2: structural layout with placeholder sub-widgets. Real
 /// Navigator projections (scope badge content, graphlet chip, settings
 /// button routing, sync status) land in S4 when those surfaces exist.
-pub(super) fn render_command_bar(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_command_bar(app: &IcedApp) -> Element<'_, Message> {
     let scope_badge = text("–").size(12);
 
     let center: Element<'_, Message> = match app.omnibar.mode {
@@ -432,457 +435,11 @@ pub(super) fn render_command_bar(app: &IcedApp) -> Element<'_, Message> {
 /// rows render dimmed and accept no clicks (`on_press_maybe(None)`).
 /// Arrow-key navigation routes through `PaletteFocusUp/Down`; Enter
 /// fires the focused row via `PaletteSubmitFocused`.
-pub(super) fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
-    let input = text_input("Type a command or search…", &app.command_palette.query)
-        .id(iced::widget::Id::new(PALETTE_INPUT_ID))
-        .on_input(Message::PaletteQuery)
-        .on_submit(Message::PaletteSubmitFocused)
-        .size(14)
-        .padding(6)
-        .width(Length::Fill);
-
-    let divider = rule::horizontal(1.0);
-
-    let visible = visible_palette_actions(&app.command_palette);
-    let focused = app.command_palette.focused_index;
-
-    let results: Element<'_, Message> = if visible.is_empty() {
-        let empty_label = if app.command_palette.query.is_empty() {
-            "— No actions available"
-        } else {
-            "— No matching actions"
-        };
-        container(text(empty_label).size(12))
-            .padding(12)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
-    } else {
-        let rows: Vec<Element<'_, Message>> = visible
-            .iter()
-            .enumerate()
-            .map(|(i, action)| render_palette_row(i, action, focused == Some(i)))
-            .collect();
-        scrollable(column(rows).spacing(2).padding(4))
-            .height(Length::Fill)
-            .into()
-    };
-
-    let footer = text("Esc to dismiss · ↑/↓ to navigate · Enter to run").size(11);
-
-    let body = iced::widget::column![
-        text("Command Palette").size(13),
-        input,
-        divider,
-        results,
-        footer,
-    ]
-    .spacing(8)
-    .padding(12)
-    .width(Length::Fill)
-    .height(Length::Fill);
-
-    // Slice 42: fade-in opacity computed from the host's
-    // modal_opened_at. Duration 150ms with ease_out_cubic feels
-    // snappy without a flash.
-    let opacity = palette_fade_opacity(app);
-
-    Modal::new(body)
-        .on_blur(Message::PaletteCloseAndRestoreFocus)
-        .max_width(640.0)
-        .max_height(480.0)
-        .opacity(opacity)
-        .into()
-}
-
-/// Opacity factor for the Command Palette modal — Slice 42. Reads
-/// `modal_opened_at` and applies an ease-out-cubic curve over a
-/// 150ms duration. Returns 1.0 if no timestamp is set or the modal
-/// has been open longer than the duration.
-fn palette_fade_opacity(app: &IcedApp) -> f32 {
-    const FADE_MS: u64 = 150;
-    let Some(opened_at) = app.modal_opened_at else {
-        return 1.0;
-    };
-    let anim = animation::Animation {
-        started_at: opened_at,
-        duration: std::time::Duration::from_millis(FADE_MS),
-    };
-    let t = anim.progress(std::time::Instant::now());
-    animation::ease_out_cubic(t)
-}
-
-/// One row in the Command Palette ranked-action list.
-///
-/// Layout: label (filling, bold-ish via size) on the left, optional
-/// keybinding right-aligned. Description (if present) appears beneath
-/// the label at smaller size. Disabled rows pass `None` to
-/// `on_press_maybe`; focused rows get a brighter background.
-pub(super) fn render_palette_row<'a>(
-    idx: usize,
-    action: &'a RankedAction,
-    is_focused: bool,
-) -> Element<'a, Message> {
-    // Header line: label + optional keybinding.
-    let label_el: Element<'a, Message> = text(action.label.as_str()).size(13).width(Length::Fill).into();
-    let header: Element<'a, Message> = if let Some(kb) = action.keybinding.as_deref() {
-        iced::widget::row![label_el, text(kb).size(11)]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into()
-    } else {
-        label_el
-    };
-
-    // Optional description line.
-    let body: Element<'a, Message> = match action.description.as_deref() {
-        Some(desc) if !desc.is_empty() => iced::widget::column![header, text(desc).size(11)]
-            .spacing(2)
-            .into(),
-        _ => header,
-    };
-
-    let msg: Option<Message> = if action.is_available {
-        Some(Message::PaletteActionSelected(idx))
-    } else {
-        None
-    };
-
-    let is_disabled = !action.is_available;
-
-    button(body)
-        .on_press_maybe(msg)
-        .padding([6, 10])
-        .width(Length::Fill)
-        .style(move |theme: &iced::Theme, status| {
-            let pal = theme.palette();
-            let hovered = matches!(
-                status,
-                iced::widget::button::Status::Hovered
-                    | iced::widget::button::Status::Pressed
-            );
-            let bg = if is_focused {
-                Some(pal.primary.weak.color.into())
-            } else if hovered && !is_disabled {
-                Some(tokens::HOVER_OVERLAY_SUBTLE.into())
-            } else {
-                None
-            };
-            let text_color = if is_disabled {
-                iced::Color {
-                    a: pal.background.base.text.a * 0.4,
-                    ..pal.background.base.text
-                }
-            } else if is_focused {
-                pal.primary.weak.text
-            } else {
-                pal.background.base.text
-            };
-            iced::widget::button::Style {
-                background: bg,
-                text_color,
-                border: iced::Border {
-                    radius: 3.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
-        })
-        .into()
-}
-
-/// Render the Node Finder modal. Per
-/// [`iced_node_finder_spec.md` §3](
-/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
-///
-/// Slice 7 renders real result rows from the (placeholder) result list
-/// with click handlers and focused-state highlighting. Arrow-key nav
-/// routes through `NodeFinderFocusUp/Down`; Enter fires the focused row
-/// via `NodeFinderSubmitFocused`.
-pub(super) fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
-    let input = text_input(
-        "Search nodes by title, tag, URL, or content…",
-        &app.node_finder.query,
-    )
-    .id(iced::widget::Id::new(NODE_FINDER_INPUT_ID))
-    .on_input(Message::NodeFinderQuery)
-    .on_submit(Message::NodeFinderSubmitFocused)
-    .size(14)
-    .padding(6)
-    .width(Length::Fill);
-
-    let divider = rule::horizontal(1.0);
-
-    let visible = visible_finder_results(&app.node_finder);
-    let focused = app.node_finder.focused_index;
-
-    let results: Element<'_, Message> = if visible.is_empty() {
-        let empty_label = if app.node_finder.query.is_empty() {
-            "— No recently-active nodes yet"
-        } else {
-            "— No matching nodes"
-        };
-        container(text(empty_label).size(12))
-            .padding(12)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
-    } else {
-        let rows: Vec<Element<'_, Message>> = visible
-            .iter()
-            .enumerate()
-            .map(|(i, result)| render_finder_row(i, result, focused == Some(i)))
-            .collect();
-        scrollable(column(rows).spacing(2).padding(4))
-            .height(Length::Fill)
-            .into()
-    };
-
-    let footer = text("Esc to dismiss · ↑/↓ to navigate · Enter to open").size(11);
-
-    let body = iced::widget::column![
-        text("Node Finder").size(13),
-        input,
-        divider,
-        results,
-        footer,
-    ]
-    .spacing(8)
-    .padding(12)
-    .width(Length::Fill)
-    .height(Length::Fill);
-
-    Modal::new(body)
-        .on_blur(Message::NodeFinderCloseAndRestoreFocus)
-        .max_width(640.0)
-        .max_height(480.0)
-        .into()
-}
-
-/// One row in the Node Finder result list.
-///
-/// Layout: title (filling) + node-type chip on the right; address
-/// (smaller, dimmer) beneath the title. The match-source badge from
-/// the spec is folded into the type chip until styling tokens land.
-pub(super) fn render_finder_row<'a>(
-    idx: usize,
-    result: &'a NodeFinderResult,
-    is_focused: bool,
-) -> Element<'a, Message> {
-    let title_el: Element<'a, Message> = text(result.title.as_str()).size(13).width(Length::Fill).into();
-    let header: Element<'a, Message> = iced::widget::row![
-        title_el,
-        text(result.node_type.as_str()).size(10),
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center)
-    .into();
-
-    let body = iced::widget::column![header, text(result.address.as_str()).size(11)]
-        .spacing(2);
-
-    button(body)
-        .on_press(Message::NodeFinderResultSelected(idx))
-        .padding([6, 10])
-        .width(Length::Fill)
-        .style(move |theme: &iced::Theme, status| {
-            let pal = theme.palette();
-            let hovered = matches!(
-                status,
-                iced::widget::button::Status::Hovered
-                    | iced::widget::button::Status::Pressed
-            );
-            let bg = if is_focused {
-                Some(pal.primary.weak.color.into())
-            } else if hovered {
-                Some(tokens::HOVER_OVERLAY_SUBTLE.into())
-            } else {
-                None
-            };
-            let text_color = if is_focused {
-                pal.primary.weak.text
-            } else {
-                pal.background.base.text
-            };
-            iced::widget::button::Style {
-                background: bg,
-                text_color,
-                border: iced::Border {
-                    radius: 3.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
-        })
-        .into()
-}
-
-/// Render the FrameRename label-input modal — Slice 34. Visible
-/// whenever `FrameRenameState::is_open` is true. Click-outside
-/// (`Modal::on_blur`) and Escape both fire `FrameRenameCancel`;
-/// Enter on the text input fires `FrameRenameSubmit`.
-pub(super) fn render_frame_rename_modal(app: &IcedApp) -> Element<'_, Message> {
-    let title = text("Rename frame").size(15);
-    let body = text(format!(
-        "Renaming \"{}\". Empty submissions are no-ops.",
-        app.frame_label
-    ))
-    .size(13);
-    let input = text_input("Frame label", &app.frame_rename.label_draft)
-        .id(iced::widget::Id::new(FRAME_RENAME_INPUT_ID))
-        .on_input(Message::FrameRenameInput)
-        .on_submit(Message::FrameRenameSubmit)
-        .size(14)
-        .padding(6)
-        .width(Length::Fill);
-
-    let cancel = button(text("Cancel").size(13))
-        .on_press(Message::FrameRenameCancel)
-        .padding([6, 14]);
-    let apply = button(text("Apply").size(13))
-        .on_press(Message::FrameRenameSubmit)
-        .padding([6, 14]);
-
-    let buttons = iced::widget::row![
-        iced::widget::Space::new().width(Length::Fill),
-        cancel,
-        apply,
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center);
-
-    let inner = iced::widget::column![title, body, input, buttons]
-        .spacing(12)
-        .padding(4)
-        .width(Length::Fill);
-
-    Modal::new(inner)
-        .on_blur(Message::FrameRenameCancel)
-        .max_width(420.0)
-        .into()
-}
-
-/// Render the NodeCreate URL-input modal — Slice 32. Visible
-/// whenever `NodeCreateState::is_open` is true. Click-outside
-/// (`Modal::on_blur`) and Escape both fire `NodeCreateCancel`;
-/// Enter on the text input fires `NodeCreateSubmit`.
-pub(super) fn render_node_create_modal(app: &IcedApp) -> Element<'_, Message> {
-    let title = text("Create node").size(15);
-    let body = text("Enter a URL or address to open as a new node.").size(13);
-    let input = text_input("https://…", &app.node_create.url_draft)
-        .id(iced::widget::Id::new(NODE_CREATE_INPUT_ID))
-        .on_input(Message::NodeCreateInput)
-        .on_submit(Message::NodeCreateSubmit)
-        .size(14)
-        .padding(6)
-        .width(Length::Fill);
-
-    let cancel = button(text("Cancel").size(13))
-        .on_press(Message::NodeCreateCancel)
-        .padding([6, 14]);
-    let create = button(text("Create").size(13))
-        .on_press(Message::NodeCreateSubmit)
-        .padding([6, 14]);
-
-    let buttons = iced::widget::row![
-        iced::widget::Space::new().width(Length::Fill),
-        cancel,
-        create,
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center);
-
-    let inner = iced::widget::column![title, body, input, buttons]
-        .spacing(12)
-        .padding(4)
-        .width(Length::Fill);
-
-    Modal::new(inner)
-        .on_blur(Message::NodeCreateCancel)
-        .max_width(480.0)
-        .into()
-}
-
-/// Render the confirmation modal that gates destructive intents.
-/// Shown when `ConfirmDialogState::is_open` is `true`; click-outside
-/// (`Modal::on_blur`) and Escape both fire `ConfirmDialogCancel`. Per
-/// [`iced_command_palette_spec.md` §5](
-/// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
-pub(super) fn render_confirm_dialog(app: &IcedApp) -> Element<'_, Message> {
-    let title = text("Confirm destructive action").size(15);
-    let body = text(format!(
-        "{} cannot be undone. Continue?",
-        app.confirm_dialog.action_label
-    ))
-    .size(13);
-
-    let cancel = button(text("Cancel").size(13))
-        .on_press(Message::ConfirmDialogCancel)
-        .padding([6, 14]);
-    let confirm = button(text("Confirm").size(13))
-        .on_press(Message::ConfirmDialogConfirm)
-        .padding([6, 14])
-        .style(|theme: &iced::Theme, status| {
-            let pal = theme.palette();
-            let hovered = matches!(
-                status,
-                iced::widget::button::Status::Hovered
-                    | iced::widget::button::Status::Pressed
-            );
-            iced::widget::button::Style {
-                background: Some(if hovered {
-                    pal.danger.strong.color.into()
-                } else {
-                    pal.danger.base.color.into()
-                }),
-                text_color: pal.danger.strong.text,
-                border: iced::Border {
-                    radius: 3.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
-        });
-
-    let buttons = iced::widget::row![
-        iced::widget::Space::new().width(Length::Fill),
-        cancel,
-        confirm,
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center);
-
-    let inner = iced::widget::column![title, body, buttons]
-        .spacing(12)
-        .padding(4)
-        .width(Length::Fill);
-
-    Modal::new(inner)
-        .on_blur(Message::ConfirmDialogCancel)
-        .max_width(420.0)
-        .into()
-}
-
-/// Render the right-click context menu using `gs::ContextMenu`. The
-/// widget itself does the positioning (via `pin` at the recorded
-/// anchor) and the overlay layering (full-viewport dismiss area
-/// behind an opaque menu panel). The host-side `ContextMenuItem`
-/// pairs the display entry with an optional dispatch payload; only
-/// the entry half is handed to the widget.
-pub(super) fn render_context_menu(app: &IcedApp) -> Element<'_, Message> {
-    let mut menu = ContextMenu::new(app.context_menu.anchor)
-        .on_select(Message::ContextMenuEntrySelected)
-        .on_dismiss(Message::ContextMenuDismiss);
-    for item in &app.context_menu.items {
-        menu = menu.push(item.entry.clone());
-    }
-    menu.into()
-}
 
 /// Is this iced event the "focus the omnibar" hotkey?
 /// Ctrl+L (Cmd+L on macOS via `Modifiers::command()`). Consumed at
 /// the app level — never reaches the runtime's `HostEvent` translation.
-pub(super) fn is_omnibar_focus_hotkey(event: &iced::Event) -> bool {
+pub(crate) fn is_omnibar_focus_hotkey(event: &iced::Event) -> bool {
     match event {
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
             key: iced::keyboard::Key::Character(c),
@@ -897,7 +454,7 @@ pub(super) fn is_omnibar_focus_hotkey(event: &iced::Event) -> bool {
 /// Ctrl+Shift+P (Zed/VSCode-shaped). Per
 /// [`iced_command_palette_spec.md` §2.1](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_command_palette_spec.md).
-pub(super) fn is_command_palette_hotkey(event: &iced::Event) -> bool {
+pub(crate) fn is_command_palette_hotkey(event: &iced::Event) -> bool {
     match event {
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
             key: iced::keyboard::Key::Character(c),
@@ -916,7 +473,7 @@ pub(super) fn is_command_palette_hotkey(event: &iced::Event) -> bool {
 /// Ctrl+P **without** Shift (Zed/VSCode-shaped). Per
 /// [`iced_node_finder_spec.md` §2](
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_node_finder_spec.md).
-pub(super) fn is_node_finder_hotkey(event: &iced::Event) -> bool {
+pub(crate) fn is_node_finder_hotkey(event: &iced::Event) -> bool {
     match event {
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
             key: iced::keyboard::Key::Character(c),
@@ -932,7 +489,7 @@ pub(super) fn is_node_finder_hotkey(event: &iced::Event) -> bool {
 }
 
 /// Is this iced event an Escape keypress?
-pub(super) fn is_escape_key(event: &iced::Event) -> bool {
+pub(crate) fn is_escape_key(event: &iced::Event) -> bool {
     matches!(
         event,
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
@@ -943,7 +500,7 @@ pub(super) fn is_escape_key(event: &iced::Event) -> bool {
 }
 
 /// Is this iced event an ArrowDown keypress?
-pub(super) fn is_arrow_down_key(event: &iced::Event) -> bool {
+pub(crate) fn is_arrow_down_key(event: &iced::Event) -> bool {
     matches!(
         event,
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
@@ -954,7 +511,7 @@ pub(super) fn is_arrow_down_key(event: &iced::Event) -> bool {
 }
 
 /// Is this iced event an ArrowUp keypress?
-pub(super) fn is_arrow_up_key(event: &iced::Event) -> bool {
+pub(crate) fn is_arrow_up_key(event: &iced::Event) -> bool {
     matches!(
         event,
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
@@ -970,7 +527,7 @@ pub(super) fn is_arrow_up_key(event: &iced::Event) -> bool {
 /// ../../../design_docs/graphshell_docs/implementation_strategy/shell/iced_omnibar_spec.md):
 /// explicit scheme (`://`) → URL; no spaces + contains `.` → bare
 /// host. Everything else → non-URL-shaped → route to Node Finder.
-pub(super) fn is_url_shaped(s: &str) -> bool {
+pub(crate) fn is_url_shaped(s: &str) -> bool {
     let s = s.trim();
     if s.is_empty() {
         return false;
@@ -990,7 +547,7 @@ pub(super) fn is_url_shaped(s: &str) -> bool {
 /// Slice 31 extends this with Frame switcher routing — Frame
 /// composition lives in `IcedApp` (`frame`, `inactive_frames`),
 /// not the runtime, so Frame* actions intercept here.
-pub(super) fn host_routed_action(
+pub(crate) fn host_routed_action(
     action_id: graphshell_core::actions::ActionId,
 ) -> Option<Message> {
     use graphshell_core::actions::ActionId;
@@ -1029,7 +586,7 @@ pub(super) fn host_routed_action(
 /// is enough; emit() takes `&self`. Per
 /// [`ux_observability`](
 /// ../../../crates/graphshell-core/src/ux_observability.rs).
-pub(super) fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEvent) {
+pub(crate) fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observability::UxEvent) {
     app.host.runtime.ux_observers.emit(event);
 }
 
@@ -1043,7 +600,7 @@ pub(super) fn emit_ux_event(app: &IcedApp, event: graphshell_core::ux_observabil
 /// computed from the host's `startup_instant`, so the banner
 /// breathes (period 1200ms) while the drag is active. The base
 /// color is the theme's primary-weak; alpha ramps `[0.45, 0.95]`.
-pub(super) fn render_drop_zone_hint(pulse: f32) -> Element<'static, Message> {
+pub(crate) fn render_drop_zone_hint(pulse: f32) -> Element<'static, Message> {
     let hint = text(
         "Dragging — drop on a pane edge to split, on the center to swap panes",
     )
@@ -1075,7 +632,7 @@ pub(super) fn render_drop_zone_hint(pulse: f32) -> Element<'static, Message> {
 /// there's more than one Frame open. Each Frame is a small button
 /// labeled by `frame_label`; the active Frame is highlighted; a
 /// trailing "+" button creates a new Frame.
-pub(super) fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
     let mut row = iced::widget::row![
         text(format!("{} (active)", app.frame_label)).size(11),
     ]
@@ -1157,7 +714,7 @@ pub(super) fn render_frame_switcher(app: &IcedApp) -> Element<'_, Message> {
 /// `HostIntent::OpenNode { node_key }`. Lifecycle / Active+Inactive
 /// toggles, indentation by topology depth, and `lazy` virtualization
 /// are subsequent slices once their domain hooks are wired.
-pub(super) fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
     let runtime = &app.host.runtime;
     let header: Element<'_, Message> = text("Tree Spine")
         .size(11)
@@ -1231,7 +788,7 @@ pub(super) fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
 /// Real per-recipe scene scoping (filtered nodes, lens overrides)
 /// lands when the projection-recipe authority is wired; the canvas
 /// rendering path below stays.
-pub(super) fn render_swatches_bucket(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_swatches_bucket(app: &IcedApp) -> Element<'_, Message> {
     let header: Element<'_, Message> =
         text("Swatches").size(11).width(Length::Fill).into();
 
@@ -1258,7 +815,7 @@ pub(super) fn render_swatches_bucket(app: &IcedApp) -> Element<'_, Message> {
 /// Render one swatch card. Layout: a 60px-tall canvas frame on top
 /// (showing the graph in miniature), then a click-button under it
 /// labeled with the recipe name.
-pub(super) fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> Element<'a, Message> {
+pub(crate) fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> Element<'a, Message> {
     // Slice 33: every recipe currently shares the same scene input
     // (full graph). When per-recipe scoping lands, this swap to
     // `recipe.scene_input_for(graph_app, view_id)` — single call site
@@ -1335,7 +892,7 @@ pub(super) fn render_swatch_card<'a>(app: &'a IcedApp, recipe: SwatchRecipe) -> 
 /// "no activity yet" placeholder. Subsequent slices can add
 /// click-to-navigate (e.g., a row for `OpenNodeDispatched` could
 /// re-focus that node) and visual filtering.
-pub(super) fn render_activity_log_bucket(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_activity_log_bucket(app: &IcedApp) -> Element<'_, Message> {
     let header: Element<'_, Message> =
         text("Activity Log").size(11).width(Length::Fill).into();
 
@@ -1368,7 +925,7 @@ pub(super) fn render_activity_log_bucket(app: &IcedApp) -> Element<'_, Message> 
 
 /// One row in the Activity Log. Renders a single line of text
 /// describing the event; click handlers land in a future slice.
-pub(super) fn activity_log_row<'a>(
+pub(crate) fn activity_log_row<'a>(
     event: graphshell_core::ux_observability::UxEvent,
 ) -> Element<'a, Message> {
     text(format_ux_event(&event))
@@ -1382,7 +939,7 @@ pub(super) fn activity_log_row<'a>(
 /// `"opened: Command Palette"` / `"dismissed: Node Finder (cancelled)"`;
 /// dispatches render as `"action: graph:toggle_physics"` /
 /// `"open node: n7"`.
-pub(super) fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent) -> String {
+pub(crate) fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent) -> String {
     use graphshell_core::ux_observability::{DismissReason, SurfaceId, UxEvent};
     fn surface_label(s: SurfaceId) -> &'static str {
         match s {
@@ -1432,7 +989,7 @@ pub(super) fn format_ux_event(event: &graphshell_core::ux_observability::UxEvent
 
 /// One row in the Tree Spine list. Click dispatches an OpenNode
 /// intent against the row's NodeKey.
-pub(super) fn tree_spine_row<'a>(
+pub(crate) fn tree_spine_row<'a>(
     node_key: graphshell_core::graph::NodeKey,
     label: String,
 ) -> Element<'a, Message> {
@@ -1478,7 +1035,7 @@ pub(super) fn tree_spine_row<'a>(
 ///   awaiting the next tick drain)
 /// - **focused** — `runtime.focused_node_hint` (rendered as the
 ///   underlying NodeKey index, or "—" when no node is focused)
-pub(super) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
+pub(crate) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
     let dispatched = app.host.runtime.dispatched_action_count;
     let opened = app.host.runtime.opened_node_count;
     let pending = app.host.pending_host_intents.len();
@@ -1537,7 +1094,7 @@ pub(super) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
 }
 
 /// Render the host's toast queue as a stack of severity-prefixed rows.
-pub(super) fn render_toast_stack(
+pub(crate) fn render_toast_stack(
     toasts: &[graphshell_runtime::ToastSpec],
 ) -> iced::widget::Column<'_, Message> {
     if toasts.is_empty() {
