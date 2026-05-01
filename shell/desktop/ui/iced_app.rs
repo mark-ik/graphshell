@@ -11,15 +11,16 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 12 / Stage A+E)**: Slices 3-11 closed the host UI
-//! layer and the palette dispatch loop. Slice 12 closes the Node
-//! Finder dispatch loop: `HostIntent::OpenNode { node_key }` is added
-//! to `graphshell-core`, the runtime's `apply_host_intents` promotes
-//! the node to `focused_node_hint` (and bumps `opened_node_count`),
-//! and the iced finder pushes the intent on `NodeFinderResultSelected`,
-//! drives an inline tick to drain the queue, and toasts the resolved
-//! title + URL. Pane-routing per `WorkbenchProfile` (active pane vs
-//! new pane vs replace) is a downstream domain slice.
+//! **Scope (Slice 13 / Stage A+E)**: Slices 3-12 closed the palette
+//! and node-finder dispatch loops. Slice 13 closes the third — the
+//! ContextMenu — by reshaping each row into a `ContextMenuItem` that
+//! pairs a display entry with an optional `HostIntent`. Selection
+//! pushes the intent through the same `pending_host_intents` queue
+//! the other surfaces use; rows with no intent stay stub-only and
+//! toast with a "(stub)" suffix. Several entries are wired to real
+//! `ActionId`s today (Activate / Pin / Remove from graphlet /
+//! Tombstone / Inspect); the rest stay stubs pending data the
+//! current targets don't carry (e.g. destination pane, target node).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -488,6 +489,33 @@ pub(crate) enum ContextMenuTarget {
     BaseLayer,
 }
 
+/// One row in the context menu, pairing the display entry with an
+/// optional dispatch payload. `intent = None` means "stub-only" —
+/// selection logs a toast but emits no host intent. `intent = Some(_)`
+/// pushes the intent through the same `pending_host_intents` queue
+/// that the palette and node finder use, so selection closes the
+/// dispatch loop end-to-end.
+#[derive(Debug, Clone)]
+pub(crate) struct ContextMenuItem {
+    pub(crate) entry: ContextMenuEntry,
+    pub(crate) intent: Option<graphshell_core::shell_state::host_intent::HostIntent>,
+}
+
+impl ContextMenuItem {
+    fn stub(entry: ContextMenuEntry) -> Self {
+        Self { entry, intent: None }
+    }
+
+    fn action(entry: ContextMenuEntry, action_id: graphshell_core::actions::ActionId) -> Self {
+        Self {
+            entry,
+            intent: Some(
+                graphshell_core::shell_state::host_intent::HostIntent::Action { action_id },
+            ),
+        }
+    }
+}
+
 /// Widget-local state for the context-menu overlay. Mutually
 /// exclusive with the modal overlays — opening the context menu
 /// closes any open palette/finder.
@@ -496,7 +524,7 @@ pub(crate) struct ContextMenuState {
     pub(crate) is_open: bool,
     pub(crate) anchor: Point,
     pub(crate) target: ContextMenuTarget,
-    pub(crate) entries: Vec<ContextMenuEntry>,
+    pub(crate) items: Vec<ContextMenuItem>,
 }
 
 impl Default for ContextMenuState {
@@ -505,34 +533,67 @@ impl Default for ContextMenuState {
             is_open: false,
             anchor: Point::ORIGIN,
             target: ContextMenuTarget::BaseLayer,
-            entries: Vec::new(),
+            items: Vec::new(),
         }
     }
 }
 
-/// Slice 8 placeholder entry sets per target. Replaced by the runtime
+/// Slice 13 entry sets per target. Each row pairs a display entry
+/// with an optional `HostIntent`; selection pushes the intent
+/// through the runtime if present. Replaced by the runtime
 /// `ActionRegistry::available_for(target, view_model)` once that
-/// surface lands. Each entry carries a label, optional shortcut hint,
-/// and (for destructive actions) a flag that future slices route
-/// through `ConfirmDialog`.
-fn entries_for_target(target: ContextMenuTarget) -> Vec<ContextMenuEntry> {
+/// surface lands.
+///
+/// Wired entries (selection actually dispatches):
+/// - "Activate" → `NodeWarmSelect`
+/// - "Pin" → `NodePinToggle`
+/// - "Remove from graphlet" → `NodeRemoveFromGraphlet`
+/// - "Tombstone" → `NodeMarkTombstone` (destructive — future slice
+///   routes through ConfirmDialog before push)
+/// - CanvasPane "Inspect" → `GraphCommandPalette` (placeholder
+///   routing — a real "Inspect" action lands later)
+///
+/// Stub-only entries (toast only, no intent yet — need data the
+/// current targets don't carry):
+/// - CanvasPane "Open in Pane" — needs a destination Pane id
+/// - BaseLayer "Open Pane" — needs a node target
+/// - BaseLayer "Switch graphlet" — disabled (no graphlets yet)
+fn items_for_target(target: ContextMenuTarget) -> Vec<ContextMenuItem> {
+    use graphshell_core::actions::ActionId;
     match target {
         ContextMenuTarget::TilePane(_) => vec![
-            ContextMenuEntry::new("Activate"),
-            ContextMenuEntry::new("Pin"),
-            ContextMenuEntry::new("Remove from graphlet"),
-            ContextMenuEntry::new("Tombstone").destructive(),
+            ContextMenuItem::action(ContextMenuEntry::new("Activate"), ActionId::NodeWarmSelect),
+            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle),
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Remove from graphlet"),
+                ActionId::NodeRemoveFromGraphlet,
+            ),
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Tombstone").destructive(),
+                ActionId::NodeMarkTombstone,
+            ),
         ],
         ContextMenuTarget::CanvasPane(_) => vec![
-            ContextMenuEntry::new("Open in Pane"),
-            ContextMenuEntry::new("Pin"),
-            ContextMenuEntry::new("Inspect"),
-            ContextMenuEntry::new("Remove from graphlet"),
-            ContextMenuEntry::new("Tombstone").destructive(),
+            ContextMenuItem::stub(ContextMenuEntry::new("Open in Pane")),
+            ContextMenuItem::action(ContextMenuEntry::new("Pin"), ActionId::NodePinToggle),
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Inspect"),
+                ActionId::GraphCommandPalette,
+            ),
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Remove from graphlet"),
+                ActionId::NodeRemoveFromGraphlet,
+            ),
+            ContextMenuItem::action(
+                ContextMenuEntry::new("Tombstone").destructive(),
+                ActionId::NodeMarkTombstone,
+            ),
         ],
         ContextMenuTarget::BaseLayer => vec![
-            ContextMenuEntry::new("Open Pane"),
-            ContextMenuEntry::new("Switch graphlet").disabled("No graphlets defined yet"),
+            ContextMenuItem::stub(ContextMenuEntry::new("Open Pane")),
+            ContextMenuItem::stub(
+                ContextMenuEntry::new("Switch graphlet").disabled("No graphlets defined yet"),
+            ),
         ],
     }
 }
@@ -1143,30 +1204,46 @@ impl IcedApp {
                 self.context_menu.target = target;
                 self.context_menu.anchor =
                     self.host.cursor_position.unwrap_or(Point::ORIGIN);
-                self.context_menu.entries = entries_for_target(target);
+                self.context_menu.items = items_for_target(target);
                 Task::none()
             }
             Message::ContextMenuEntrySelected(idx) => {
+                // Slice 13: resolve the row to an optional HostIntent
+                // and push it onto pending_host_intents (same path the
+                // palette and node finder use). Disabled rows are
+                // no-ops; rows with `intent = None` toast only.
                 let acked = self
                     .context_menu
-                    .entries
+                    .items
                     .get(idx)
-                    .filter(|e| e.disabled_reason.is_none())
-                    .map(|e| e.label.clone());
-                if let Some(label) = acked {
+                    .filter(|item| item.entry.disabled_reason.is_none())
+                    .map(|item| (item.entry.label.clone(), item.intent.clone()));
+                if let Some((label, intent)) = acked {
+                    let dispatched = if let Some(intent) = intent {
+                        self.host.pending_host_intents.push(intent);
+                        true
+                    } else {
+                        false
+                    };
+                    let suffix = if dispatched { "" } else { " (stub)" };
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
-                        message: format!("context: {label} (stub)"),
+                        message: format!("context: {label}{suffix}"),
                         duration: None,
                     });
                     self.context_menu.is_open = false;
-                    self.context_menu.entries.clear();
+                    self.context_menu.items.clear();
+                    if dispatched {
+                        // Drain the intent immediately so observers see
+                        // the dispatch land in the runtime.
+                        self.tick_with_events(Vec::new());
+                    }
                 }
                 Task::none()
             }
             Message::ContextMenuDismiss => {
                 self.context_menu.is_open = false;
-                self.context_menu.entries.clear();
+                self.context_menu.items.clear();
                 Task::none()
             }
         }
@@ -1804,13 +1881,15 @@ fn render_finder_row<'a>(
 /// Render the right-click context menu using `gs::ContextMenu`. The
 /// widget itself does the positioning (via `pin` at the recorded
 /// anchor) and the overlay layering (full-viewport dismiss area
-/// behind an opaque menu panel).
+/// behind an opaque menu panel). The host-side `ContextMenuItem`
+/// pairs the display entry with an optional dispatch payload; only
+/// the entry half is handed to the widget.
 fn render_context_menu(app: &IcedApp) -> Element<'_, Message> {
     let mut menu = ContextMenu::new(app.context_menu.anchor)
         .on_select(Message::ContextMenuEntrySelected)
         .on_dismiss(Message::ContextMenuDismiss);
-    for entry in &app.context_menu.entries {
-        menu = menu.push(entry.clone());
+    for item in &app.context_menu.items {
+        menu = menu.push(item.entry.clone());
     }
     menu.into()
 }
@@ -3028,11 +3107,14 @@ mod tests {
         assert_eq!(app.context_menu.target, ContextMenuTarget::TilePane(pane_id));
         assert_eq!(app.context_menu.anchor, iced::Point::new(120.0, 80.0));
         assert!(
-            app.context_menu.entries.iter().any(|e| e.label == "Activate"),
+            app.context_menu
+                .items
+                .iter()
+                .any(|i| i.entry.label == "Activate"),
             "TilePane menu should include Activate",
         );
         assert!(
-            app.context_menu.entries.iter().any(|e| e.destructive),
+            app.context_menu.items.iter().any(|i| i.entry.destructive),
             "TilePane menu should include a destructive Tombstone entry",
         );
     }
@@ -3040,13 +3122,13 @@ mod tests {
     #[test]
     fn context_menu_target_drives_entry_set() {
         // Distinct targets surface distinct entry sets.
-        let canvas_entries = entries_for_target(ContextMenuTarget::CanvasPane(PaneId(1)));
-        let tile_entries = entries_for_target(ContextMenuTarget::TilePane(PaneId(1)));
-        let base_entries = entries_for_target(ContextMenuTarget::BaseLayer);
+        let canvas = items_for_target(ContextMenuTarget::CanvasPane(PaneId(1)));
+        let tile = items_for_target(ContextMenuTarget::TilePane(PaneId(1)));
+        let base = items_for_target(ContextMenuTarget::BaseLayer);
 
-        assert!(canvas_entries.iter().any(|e| e.label == "Inspect"));
-        assert!(!tile_entries.iter().any(|e| e.label == "Inspect"));
-        assert!(base_entries.iter().any(|e| e.label == "Open Pane"));
+        assert!(canvas.iter().any(|i| i.entry.label == "Inspect"));
+        assert!(!tile.iter().any(|i| i.entry.label == "Inspect"));
+        assert!(base.iter().any(|i| i.entry.label == "Open Pane"));
     }
 
     #[test]
@@ -3073,16 +3155,17 @@ mod tests {
         let _ = app.update(Message::ContextMenuOpen {
             target: ContextMenuTarget::BaseLayer,
         });
-        // BaseLayer entry 0 is "Open Pane" (enabled).
+        // BaseLayer entry 0 is "Open Pane" (enabled, intent = None — stub-only).
         let _ = app.update(Message::ContextMenuEntrySelected(0));
 
         assert!(!app.context_menu.is_open);
-        assert!(app.context_menu.entries.is_empty(), "entries cleared");
+        assert!(app.context_menu.items.is_empty(), "items cleared");
         assert_eq!(app.host.toast_queue.len(), 1);
+        let msg = &app.host.toast_queue[0].message;
+        assert!(msg.contains("Open Pane"), "got: {msg}");
         assert!(
-            app.host.toast_queue[0].message.contains("Open Pane"),
-            "got: {}",
-            app.host.toast_queue[0].message,
+            msg.contains("(stub)"),
+            "BaseLayer 'Open Pane' has no intent yet — toast should mark it stub",
         );
     }
 
@@ -3097,9 +3180,9 @@ mod tests {
         // BaseLayer entry 1 is "Switch graphlet" (disabled — no graphlets).
         let disabled_idx = app
             .context_menu
-            .entries
+            .items
             .iter()
-            .position(|e| e.disabled_reason.is_some())
+            .position(|i| i.entry.disabled_reason.is_some())
             .expect("BaseLayer has a disabled entry");
 
         let _ = app.update(Message::ContextMenuEntrySelected(disabled_idx));
@@ -3148,6 +3231,110 @@ mod tests {
         // context menu.
         let _ = app.update(Message::ContextMenuDismiss);
         assert!(!app.context_menu.is_open);
+    }
+
+    #[test]
+    fn context_menu_action_entry_dispatches_host_intent() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        // Convert the seeded Canvas pane to a Tile pane so the
+        // wired-action entries are available.
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .expect("pane present");
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+        // Find the "Pin" entry — it's wired to ActionId::NodePinToggle.
+        let pin_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.label == "Pin")
+            .expect("TilePane menu carries a Pin entry");
+        assert_eq!(app.host.runtime.dispatched_action_count, 0);
+
+        let _ = app.update(Message::ContextMenuEntrySelected(pin_idx));
+
+        assert!(!app.context_menu.is_open);
+        assert!(
+            app.host.pending_host_intents.is_empty(),
+            "post-select tick drained the intent",
+        );
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 1,
+            "runtime observed exactly one HostIntent::Action",
+        );
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::NodePinToggle),
+            "context-menu selection routed the wired ActionId",
+        );
+        // Toast should NOT carry the (stub) suffix since dispatch closed.
+        let msg = &app.host.toast_queue[0].message;
+        assert!(msg.contains("Pin") && !msg.contains("(stub)"), "got: {msg}");
+    }
+
+    #[test]
+    fn context_menu_destructive_entry_dispatches_tombstone() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        if let Some((_, meta)) = app.frame.split_state.iter_mut().next() {
+            meta.pane_type = PaneType::Tile;
+        }
+        let pane_id = app
+            .frame
+            .split_state
+            .iter()
+            .next()
+            .map(|(_, m)| m.pane_id)
+            .expect("pane present");
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane(pane_id),
+        });
+
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|i| i.entry.destructive)
+            .expect("TilePane menu carries a destructive Tombstone entry");
+
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::NodeMarkTombstone),
+        );
+    }
+
+    #[test]
+    fn context_menu_stub_entry_does_not_dispatch() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::BaseLayer,
+        });
+        // BaseLayer "Open Pane" is intent=None (stub-only).
+        let _ = app.update(Message::ContextMenuEntrySelected(0));
+
+        assert_eq!(
+            app.host.runtime.dispatched_action_count, 0,
+            "stub entries must not dispatch",
+        );
+        assert!(app.host.pending_host_intents.is_empty());
     }
 
     #[test]
