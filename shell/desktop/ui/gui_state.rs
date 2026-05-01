@@ -541,6 +541,22 @@ impl GraphshellRuntime {
                 let layout = self.graph_app.current_undo_checkpoint_layout_json();
                 let _ = self.graph_app.perform_redo(layout);
             }
+            ActionId::NodePinToggle => {
+                // Routes via GraphIntent::TogglePrimaryNodePin which
+                // reads `focused_selection().primary()`. When the
+                // dispatch came in via HostIntent::ActionOnNode the
+                // upstream arm already set focused_node_hint; that
+                // hint feeds into the focused-selection projection.
+                self.graph_app
+                    .apply_reducer_intents([crate::app::GraphIntent::TogglePrimaryNodePin]);
+            }
+            ActionId::NodeMarkTombstone => {
+                // Mirrors `GraphIntent::MarkTombstoneForSelected`. The
+                // ConfirmDialog gate (Slice 14) guards the destructive
+                // dispatch upstream, so reaching this arm means the
+                // user has already confirmed.
+                self.graph_app.mark_tombstone_for_selected();
+            }
             _ => {
                 // Unhandled action — dispatch counters recorded the
                 // call above. Per-action wiring lands incrementally.

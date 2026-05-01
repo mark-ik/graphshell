@@ -11,17 +11,19 @@
 //! 3. [`IcedApp`] *(this module)* — iced `Program`-shaped type iced's event
 //!    loop actually drives.
 //!
-//! **Scope (Slice 19 / Stage A+E)**: Slice 18 wired more per-action
-//! handlers. Slice 19 brings up the StatusBar slot from the
-//! composition skeleton spec §2 — a 20px row at the bottom of the
-//! Application column showing live runtime indicators: a green
-//! "ready" dot, the cumulative `dispatched_action_count`, the
-//! current `pending_host_intents` queue depth, and the
-//! `focused_node_hint` (or "—" when no node is focused). All four
-//! values read directly from runtime state — no new state shape
-//! introduced. The bar is the bottom edge of the Elm triad's view;
-//! per-target chrome (background-task indicators, sync status)
-//! lands when those subsystems expose runtime view-model data.
+//! **Scope (Slice 22 / Stage A+E)**: Slices 19-21 brought up the
+//! StatusBar, wired Tree Spine to live GraphTree data, and added
+//! per-tab right-click capture. Slice 22 extends the per-action
+//! dispatch table with two more handlers — `NodePinToggle` (routes
+//! to `GraphIntent::TogglePrimaryNodePin` via `apply_reducer_intents`)
+//! and `NodeMarkTombstone` (calls `mark_tombstone_for_selected`
+//! after the ConfirmDialog gate from Slice 14 has confirmed). Seven
+//! `ActionId`s now have real runtime behavior; the rest remain
+//! observable no-ops via the dispatch counters introduced in Slice 10.
+//!
+//! Note: AccessKit / UxProbes / diagnostics-channel emissions for
+//! these new surfaces are *not* yet wired — that's parallel
+//! observability work tracked separately.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -3390,6 +3392,59 @@ mod tests {
         }
 
         assert_eq!(app.host.runtime.dispatched_action_count, 2);
+    }
+
+    #[test]
+    fn node_pin_toggle_action_dispatches_and_routes_to_runtime() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        // ActionOnNode pre-focuses, then dispatches NodePinToggle which
+        // routes to GraphIntent::TogglePrimaryNodePin.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::ActionOnNode {
+                action_id: graphshell_core::actions::ActionId::NodePinToggle,
+                node_key,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(app.host.runtime.focused_node_hint, Some(node_key));
+        // The runtime ran TogglePrimaryNodePin; we don't assert on
+        // node.is_pinned because the focused-selection projection has
+        // its own preconditions. The dispatch reaching the runtime is
+        // what this slice ships.
+    }
+
+    #[test]
+    fn node_mark_tombstone_action_dispatches() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::NodeMarkTombstone,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert_eq!(app.host.runtime.dispatched_action_count, 1);
+        assert_eq!(
+            app.host.runtime.last_dispatched_action,
+            Some(graphshell_core::actions::ActionId::NodeMarkTombstone),
+        );
     }
 
     #[test]
