@@ -4268,6 +4268,7 @@ dependencies = [
 name = "graphshell-core"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
  "crossbeam-channel",
  "euclid",
  "futures-util",
