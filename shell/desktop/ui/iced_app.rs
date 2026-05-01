@@ -4475,6 +4475,106 @@ mod tests {
     }
 
     #[test]
+    fn open_settings_pane_action_creates_verso_settings_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let nodes_before = app.host.runtime.graph_app.domain_graph().nodes().count();
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::WorkbenchOpenSettingsPane,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        let nodes_after = app.host.runtime.graph_app.domain_graph().nodes().count();
+        assert_eq!(
+            nodes_after,
+            nodes_before + 1,
+            "settings pane action should add exactly one node",
+        );
+        assert!(
+            app.host
+                .runtime
+                .graph_app
+                .domain_graph()
+                .nodes()
+                .any(|(_, n)| n.url() == "verso://settings"),
+            "settings pane node should carry the canonical verso://settings address",
+        );
+    }
+
+    #[test]
+    fn open_hub_action_creates_verso_hub_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::PersistOpenHub,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert!(
+            app.host
+                .runtime
+                .graph_app
+                .domain_graph()
+                .nodes()
+                .any(|(_, n)| n.url() == "verso://hub"),
+        );
+    }
+
+    #[test]
+    fn open_history_manager_creates_verso_tool_history_node() {
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::PersistOpenHistoryManager,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert!(
+            app.host
+                .runtime
+                .graph_app
+                .domain_graph()
+                .nodes()
+                .any(|(_, n)| n.url() == "verso://tool/history"),
+        );
+    }
+
+    #[test]
+    fn open_settings_overlay_uses_same_verso_settings_address() {
+        // Slice 30 collapses pane + overlay onto the same address —
+        // the presentation distinction is downstream chrome, not a
+        // routing concern.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::Action {
+                action_id: graphshell_core::actions::ActionId::WorkbenchOpenSettingsOverlay,
+            },
+        );
+        app.tick_with_events(Vec::new());
+
+        assert!(
+            app.host
+                .runtime
+                .graph_app
+                .domain_graph()
+                .nodes()
+                .any(|(_, n)| n.url() == "verso://settings"),
+        );
+    }
+
+    #[test]
     fn graph_command_palette_action_routes_through_host_intercept() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);

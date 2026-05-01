@@ -518,6 +518,18 @@ impl GraphshellRuntime {
         }
     }
 
+    /// Open (or focus, if already present) a node at the given
+    /// `verso://...` address. Routes through the same
+    /// `add_node_and_sync` entry point the omnibar URL-submit and
+    /// `HostIntent::CreateNodeAtUrl` use, so URL semantics (protocol
+    /// resolution, tile activation, focus) match across surfaces.
+    /// Slice 30 helper for the settings / hub / history-manager
+    /// `ActionId` handlers.
+    fn open_verso_address(&mut self, url: &str) {
+        let pos = euclid::default::Point2D::new(0.0, 0.0);
+        let _ = self.graph_app.add_node_and_sync(url.to_string(), pos);
+    }
+
     /// Dispatch a single `ActionId`. Records the call on the runtime's
     /// dispatch counters (Slice 10) and runs the per-action handler
     /// (Slice 15). Shared by `HostIntent::Action` (no target) and
@@ -665,6 +677,27 @@ impl GraphshellRuntime {
                 if let Some(key) = self.graph_app.focused_selection().primary() {
                     self.graph_app.request_copy_node_title(key);
                 }
+            }
+
+            // ── verso:// settings / tool surfaces (Slice 30) ───────
+            // Each opens-or-creates a node at the canonical address.
+            // Tile lifecycle handles "already-open" detection
+            // (focuses the existing tile rather than duplicating);
+            // the runtime path is identical to the omnibar URL submit.
+            ActionId::WorkbenchOpenSettingsPane | ActionId::WorkbenchOpenSettingsOverlay => {
+                self.open_verso_address("verso://settings");
+            }
+            ActionId::PersistOpenHub => {
+                self.open_verso_address("verso://hub");
+            }
+            ActionId::PersistOpenHistoryManager => {
+                self.open_verso_address("verso://tool/history");
+            }
+            ActionId::GraphPhysicsConfig => {
+                self.open_verso_address("verso://settings/physics");
+            }
+            ActionId::FrameSettings => {
+                self.open_verso_address("verso://settings/frames");
             }
 
             _ => {
