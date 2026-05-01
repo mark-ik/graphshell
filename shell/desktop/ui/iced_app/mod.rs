@@ -962,6 +962,12 @@ impl IcedApp {
                 self.node_finder.is_open = false;
                 self.context_menu.is_open = true;
                 self.context_menu.target = target;
+                // The cursor cache is fed by every CursorMoved
+                // event; a missing entry only happens at startup
+                // before the user has moved the pointer, which is
+                // essentially impossible to reach via right-click
+                // in practice. Falling back to Point::ORIGIN keeps
+                // tests and pathological reentries deterministic.
                 self.context_menu.anchor =
                     self.host.cursor_position.unwrap_or(Point::ORIGIN);
                 self.context_menu.items = items_for_target(target);
@@ -1257,6 +1263,16 @@ impl IcedApp {
                     std::mem::swap(&mut self.frame, &mut target.state);
                     std::mem::swap(&mut self.frame_id, &mut target.id);
                     std::mem::swap(&mut self.frame_label, &mut target.label);
+                } else {
+                    // Slice 41: previously a silent no-op when no
+                    // inactive Frame existed at `index`. Surface so
+                    // the user sees why FrameSelect from a single-
+                    // Frame palette didn't switch.
+                    self.host.toast_queue.push(graphshell_runtime::ToastSpec {
+                        severity: ToastSeverity::Info,
+                        message: "No other Frames open — open one with FrameOpen first.".into(),
+                        duration: None,
+                    });
                 }
                 Task::none()
             }

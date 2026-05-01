@@ -448,9 +448,9 @@ pub(super) fn render_command_palette(app: &IcedApp) -> Element<'_, Message> {
 
     let results: Element<'_, Message> = if visible.is_empty() {
         let empty_label = if app.command_palette.query.is_empty() {
-            "No actions available."
+            "— No actions available"
         } else {
-            "No matching actions."
+            "— No matching actions"
         };
         container(text(empty_label).size(12))
             .padding(12)
@@ -595,9 +595,9 @@ pub(super) fn render_node_finder(app: &IcedApp) -> Element<'_, Message> {
 
     let results: Element<'_, Message> = if visible.is_empty() {
         let empty_label = if app.node_finder.query.is_empty() {
-            "No recently-active nodes yet."
+            "— No recently-active nodes yet"
         } else {
-            "No matching nodes."
+            "— No matching nodes"
         };
         container(text(empty_label).size(12))
             .padding(12)
@@ -1144,7 +1144,7 @@ pub(super) fn render_tree_spine_bucket(app: &IcedApp) -> Element<'_, Message> {
     let member_count = runtime.graph_tree.member_count();
     if member_count == 0 {
         return scrollable(
-            iced::widget::column![header, text("  ○ no members yet").size(11)].spacing(4),
+            iced::widget::column![header, text("— No nodes in this workbench").size(11)].spacing(4),
         )
         .height(Length::FillPortion(2))
         .into();
@@ -1215,7 +1215,7 @@ pub(super) fn render_swatches_bucket(app: &IcedApp) -> Element<'_, Message> {
     let nodes_count = app.host.runtime.graph_app.domain_graph().nodes().count();
     if nodes_count == 0 {
         return scrollable(
-            iced::widget::column![header, text("  — no recipes (graph is empty)").size(11)]
+            iced::widget::column![header, text("— No recipes yet (graph is empty)").size(11)]
                 .spacing(4),
         )
         .height(Length::FillPortion(1))
@@ -1319,7 +1319,7 @@ pub(super) fn render_activity_log_bucket(app: &IcedApp) -> Element<'_, Message> 
     let events = app.activity_log_recorder.snapshot();
     if events.is_empty() {
         return scrollable(
-            iced::widget::column![header, text("  — no activity yet").size(11)].spacing(4),
+            iced::widget::column![header, text("— No activity yet").size(11)].spacing(4),
         )
         .height(Length::FillPortion(1))
         .into();
@@ -1457,6 +1457,7 @@ pub(super) fn tree_spine_row<'a>(
 ///   underlying NodeKey index, or "—" when no node is focused)
 pub(super) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
     let dispatched = app.host.runtime.dispatched_action_count;
+    let opened = app.host.runtime.opened_node_count;
     let pending = app.host.pending_host_intents.len();
     let focused_label = app
         .host
@@ -1473,6 +1474,9 @@ pub(super) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
     });
     let ready = text("ready").size(11);
     let actions = text(format!("actions: {dispatched}")).size(11);
+    // Slice 41: surface opened_node_count alongside actions —
+    // previously only `dispatched_action_count` was visible.
+    let opens = text(format!("opens: {opened}")).size(11);
     let pending_text = text(format!("pending: {pending}")).size(11);
     let focused = text(format!("focused: {focused_label}")).size(11);
 
@@ -1482,6 +1486,8 @@ pub(super) fn render_status_bar(app: &IcedApp) -> Element<'_, Message> {
             ready,
             iced::widget::Space::new().width(Length::Fixed(8.0)),
             actions,
+            iced::widget::Space::new().width(Length::Fixed(8.0)),
+            opens,
             iced::widget::Space::new().width(Length::Fixed(8.0)),
             pending_text,
             iced::widget::Space::new().width(Length::Fixed(8.0)),

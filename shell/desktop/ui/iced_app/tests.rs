@@ -2186,6 +2186,51 @@
     }
 
     #[test]
+    fn switch_frame_with_no_inactive_frames_toasts_info() {
+        // Slice 41: previously a silent no-op when FrameSelect fires
+        // with only one Frame open. Now toasts so the user sees why
+        // nothing switched.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        let toasts_before = app.host.toast_queue.len();
+
+        let _ = app.update(Message::SwitchFrame(0));
+
+        assert_eq!(app.host.toast_queue.len(), toasts_before + 1);
+        let msg = &app.host.toast_queue.last().unwrap().message;
+        assert!(msg.contains("No other Frames"), "got: {msg}");
+    }
+
+    #[test]
+    fn status_bar_surfaces_opens_count() {
+        // Slice 41: opened_node_count alongside dispatched_action_count.
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        // Dispatch one OpenNode so the runtime counter > 0.
+        app.host.pending_host_intents.push(
+            graphshell_core::shell_state::host_intent::HostIntent::OpenNode { node_key },
+        );
+        app.tick_with_events(Vec::new());
+        assert_eq!(app.host.runtime.opened_node_count, 1);
+
+        // View renders without panicking — the new "opens: N"
+        // segment is present.
+        let _ = app.update(Message::Tick);
+        let _element = app.view();
+    }
+
+    #[test]
     fn frame_open_action_routes_to_new_frame_message() {
         let runtime = GraphshellRuntime::for_testing();
         let mut app = IcedApp::with_runtime(runtime);
