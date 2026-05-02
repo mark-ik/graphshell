@@ -94,7 +94,169 @@ between them is not principled.
 
 ---
 
-## 3. Conceptual architecture
+## 3. Decisions captured during the 2026-05-01 review
+
+The following decisions came out of the user review of the first draft
+of this proposal. They take precedence over earlier wording elsewhere
+in the doc; later sections were rewritten to match.
+
+### 3.1 Default to one-crate-with-modules; extract when merited
+
+**Rule.** When a directory of related code becomes a candidate for
+extraction, the default is to extract it as **one crate with one
+module per concern**, not as one crate per concern. Individual
+modules graduate to their own crate when there is a real reason —
+typically: an external (non-Graphshell) consumer wants only that
+module, or two existing Graphshell consumers want non-overlapping
+subsets, or the module's compile time has become independently
+load-bearing.
+
+**Why.** Splitting eagerly into per-concern crates produces Cargo.toml
+boilerplate, hides cycles inside re-export graphs, and frequently
+produces crate boundaries that don't match the conceptual ones.
+Module-level discipline inside one crate is enough to make the
+boundary visible (file/module names, `pub(crate)` discipline) without
+the overhead of separate Cargo manifests.
+
+**Applied.** §4 (Layer C — App services) and §5 Phase 5
+(`app/` decomposition) were both rewritten to one-crate defaults.
+Layer B (registers) keeps its per-registry split — see §3.3 for the
+distinct reasoning that justifies per-registry crates.
+
+### 3.2 Crate hierarchy reflects architectural hierarchy
+
+**Rule.** When the conceptual architecture says "X is part of Y,"
+the crate layout says so too — X is either a module inside Y's
+crate, or a sub-crate inside a directory named after Y. X is *not* a
+sibling crate of Y unless the architecture genuinely says they're
+peers.
+
+**Concrete consequence.** The signal bus is part of the *system layer*
+of Graphshell. The signal bus is therefore a module *inside*
+`graphshell-runtime` (the system-layer crate), not a peer crate
+`graphshell-signal-bus` next to it. The signal bus does not belong as
+a standalone sibling.
+
+**Concrete layout consequence.** Crates that share a conceptual
+parent live together under a directory:
+
+```text
+crates/
+  graph/              # graph domain crates
+    graph-canvas/
+    graph-tree/
+    graph-cartography/
+    graph-memory/
+  middlenet/          # protocol family
+    middlenet-core/
+    middlenet-render/
+    middlenet-adapters/
+    middlenet-engine/
+    middlenet-gopher/    # Slice 49b
+  graphshell/         # graphshell core + system + app + registers + hosts
+    graphshell-core/
+    graphshell-comms/
+    graphshell-runtime/    # the system layer; signal bus is a module inside
+    graphshell-app/        # one crate, modules per app concern
+    graphshell-services/   # one crate, modules per service
+    registrar/             # registers live here (see §3.3)
+      register-action/
+      register-canvas/
+      ...
+    hosts/
+      iced-host/
+      iced-graph-canvas-viewer/
+      iced-middlenet-viewer/
+      iced-wry-viewer/
+      iced-widgets/
+  verso/              # Servo fork
+    verso/
+    verso-host/
+```
+
+Cargo doesn't care about the directory nesting (members are
+listed explicitly in the root `Cargo.toml`), but humans do. The
+directory names are the architecture.
+
+### 3.3 What is a registry? — definition + smell tests
+
+The proposal originally listed ~20 candidate "registries" without
+defining the term. That risk is real: `registrar/` becomes a junk
+drawer for "things named with `register*.rs`" rather than an
+architectural seam. To prevent that, here is the definition each
+candidate is checked against before extraction.
+
+**A *registry* is**:
+
+1. **A keyed namespace.** Entries are addressed by stable `namespace:name`
+   keys (per the existing CLAUDE.md general code rule).
+2. **An entry trait or value type.** Every entry implements a known
+   trait or is a value of a known type. The registry's API is
+   parametric over that trait/type, not over a sum type that lists
+   every entry.
+3. **A lookup API.** The registry exposes
+   `lookup(key) -> Option<&Entry>` (or close analogues:
+   `entries() -> impl Iterator<Item = &Entry>`,
+   `dispatch(key, args) -> Result`, `try_resolve(key) -> Option`).
+4. **Late binding.** Entries are added at registration time (startup,
+   mod load, or feature gate), not hardcoded as enum variants.
+   Multiple call sites — and ideally external mods or feature-gated
+   modules — can register entries without modifying the registry's
+   own crate.
+
+**A registry is *not***:
+
+- **A dispatcher** that owns a fixed set of cases and switches on a
+  sum type. (`HostIntent` apply functions are dispatchers, not
+  registries.)
+- **A service** — a singleton with methods. (`PersistenceFacade` is a
+  service, not a registry.)
+- **A type module** — pure type definitions, no late-binding lookup.
+- **A domain integration** — code that wraps an external system
+  (`nostr_core.rs` may HOST a registry, but it is also probably the
+  nostr integration crate's body. It does not automatically belong in
+  `registrar/` just because it lives next to a `registries/` directory
+  today).
+- **A manifest or config loader** — even if it loads a list of named
+  things, it isn't a registry unless other code can register more.
+
+**Smell tests** to run on each candidate before extracting:
+
+- Does it have an explicit `register(key, entry)` (or
+  `register_*`) function that's called from multiple crates / feature
+  gates / mod loaders? → registry.
+- Are entries an open set (not enum-like)? → registry.
+- Could a third party add an entry without modifying the candidate
+  crate itself? → registry.
+- If most answers are no → it's not a registry; find its real home.
+
+**Action.** Slice 50 (the Phase 1 proof-of-concept) starts by
+auditing each of the ~20 candidates in §3.4 below against this
+definition and producing a short table of "registry / not-registry /
+registry plus other concerns / unsure" before any extraction begins.
+The table updates this proposal in place.
+
+### 3.4 Naming for the register family
+
+Folder name candidates considered:
+
+| Name | Pro | Con |
+|---|---|---|
+| `register/` | conversational; matches user's instinct as "the place where you register things" | reads as a verb / artifact at the same time |
+| `registrar/` | clear noun; names the role (the keeper of the registers); avoids singular/plural collision with "registry" | slightly bureaucratic |
+| `registers/` | matches "many registries" | awkward as a directory name |
+| `registry/` | conventional Rust pluralization-singular | direct collision with each subcrate also being a registry |
+
+**Recommended: `registrar/`**. The folder is the *role* (the
+maintainer of the registers); each subcrate inside is *a* registry.
+The naming makes the role distinct from the artifacts and discourages
+the "junk drawer of register-shaped things" failure mode by giving
+the folder its own specific meaning. `register/` is acceptable if
+brevity is preferred; the rest of the doc uses `registrar/`.
+
+---
+
+## 4. Conceptual architecture
 
 The proposal organises Graphshell into five conceptual layers, each
 with its own crate group. Numbers in parentheses are best-guess LOC for
@@ -118,84 +280,117 @@ between graph truth and host:
 - `crates/graphshell-comms` — comms primitives (newly added to
   workspace.members per Slice 49a)
 
-### Layer B — Register layer (NEW conceptual home)
+### Layer B — Registrar layer (NEW conceptual home)
 
-Every registry — action, agent, canvas, identity, knowledge, layout,
-lens, nostr_core, physics_profile, protocol, renderer, theme, workflow,
-viewer, etc. — moves into individual crates under `crates/register/`.
+This layer is the one place where the per-crate split (rather than
+one-crate-with-modules) actually earns its keep, because:
 
-Why per-registry crates instead of one `graphshell-registries`:
+- Each registry is a load-bearing extension seam — by definition
+  (§3.3), a registry's whole point is that other crates / features /
+  mods can register entries from outside without modifying the
+  registry's source. That outside reach is what "third party can
+  depend on this registry alone" means in practice.
+- A slim Graphshell build genuinely benefits from omitting registries
+  it doesn't need (e.g., a build without the nostr feature should not
+  pull in the nostr-related registry's deps).
+- The two-trees duplication (top-level `registries/` and
+  `shell/desktop/runtime/registries/`) is forced into reconciliation
+  by the act of extraction.
 
-- Each registry has a stable conceptual surface (a key namespace, an
-  entry trait, a lookup API). The trait surface fits naturally as a
-  crate boundary.
-- Per-registry crates make it explicit which registry depends on which.
-  Today, every registry can pull on every other; with crate borders, a
-  cycle becomes a visible error.
-- A slim Graphshell build can omit registries it doesn't need (e.g.,
-  the `nostr_core` registry only matters when nostr is active).
-- The duplication between top-level `registries/` and
-  `shell/desktop/runtime/registries/` becomes unsupportable: each
-  registry has exactly one crate.
+**However**, before any per-registry crate is created, each candidate
+must pass the smell tests in §3.3. Files in today's `registries/`
+trees were collected by directory placement, not by passing the
+definition. A real audit happens first.
 
-Proposed extraction list (one crate per registry):
+#### B.1 Audit table (Slice 50 deliverable)
 
-| Crate | Source today |
-|---|---|
-| `crates/register/register-action` | `shell/desktop/runtime/registries/action.rs` |
-| `crates/register/register-agent` | `shell/desktop/runtime/registries/agent.rs` |
-| `crates/register/register-canvas` | `shell/desktop/runtime/registries/canvas.rs` |
-| `crates/register/register-identity` | `shell/desktop/runtime/registries/identity.rs` |
-| `crates/register/register-knowledge` | `shell/desktop/runtime/registries/knowledge.rs` + `registries/atomic/knowledge.rs` (merged) |
-| `crates/register/register-layout` | `registries/domain/layout/` + `shell/desktop/runtime/registries/layout.rs` (merged) |
-| `crates/register/register-lens` | `registries/atomic/lens/` + `shell/desktop/runtime/registries/lens.rs` (merged) |
-| `crates/register/register-nostr` | `shell/desktop/runtime/registries/nostr_core.rs` |
-| `crates/register/register-physics-profile` | `shell/desktop/runtime/registries/physics_profile.rs` |
-| `crates/register/register-protocol` | `registries/atomic/protocol*.rs` + `shell/desktop/runtime/registries/protocol.rs` (merged) |
-| `crates/register/register-renderer` | `shell/desktop/runtime/registries/renderer.rs` |
-| `crates/register/register-theme` | `shell/desktop/runtime/registries/theme.rs` |
-| `crates/register/register-viewer` | `registries/viewers/*` + viewer registry primitives |
-| `crates/register/register-workbench-surface` | `shell/desktop/runtime/registries/workbench_surface*` |
-| `crates/register/register-workflow` | `shell/desktop/runtime/registries/workflow.rs` |
-| `crates/register/register-input` | `shell/desktop/runtime/registries/input.rs` |
-| `crates/register/register-index` | `shell/desktop/runtime/registries/index.rs` |
-| `crates/register/register-signal-routing` | `shell/desktop/runtime/registries/signal_routing.rs` (the signal-bus seam) |
-| `crates/register/register-mod-loader` | `registries/infrastructure/mod_*.rs` |
-| `crates/register/register-diagnostics` | `registries/atomic/diagnostics.rs` |
+The table below lists every candidate from today's two `registries/`
+trees, the §3.3 verdict, and the resulting destination. Verdict
+column is **TBD** until the audit runs in Slice 50; this section then
+updates in place.
 
-Open question: directory naming. `register/` (singular, per the user's
-phrasing) versus `registers/` versus `registry/`. Recommend `register/`
-to match the conversational shorthand.
+| Candidate (today's path) | Verdict (§3.3) | Destination |
+|---|---|---|
+| `shell/desktop/runtime/registries/action.rs` | TBD | `registrar/register-action/` if registry; else into `graphshell-runtime` as a dispatcher |
+| `shell/desktop/runtime/registries/agent.rs` | TBD | `registrar/register-agent/` if registry; else into `graphshell-app/agents/` |
+| `shell/desktop/runtime/registries/canvas.rs` | TBD | `registrar/register-canvas/` if registry; else fold into `graph-canvas` |
+| `shell/desktop/runtime/registries/identity.rs` | TBD | `registrar/register-identity/` if registry; else `graphshell-comms` |
+| `shell/desktop/runtime/registries/index.rs` | TBD | likely registry; `registrar/register-index/` |
+| `shell/desktop/runtime/registries/input.rs` | TBD | likely registry; `registrar/register-input/` |
+| `shell/desktop/runtime/registries/knowledge.rs` + `registries/atomic/knowledge.rs` | TBD | merge + `registrar/register-knowledge/` |
+| `shell/desktop/runtime/registries/layout.rs` + `registries/domain/layout/` | TBD | merge + `registrar/register-layout/` |
+| `shell/desktop/runtime/registries/lens.rs` + `registries/atomic/lens/` | TBD | merge + `registrar/register-lens/` |
+| `shell/desktop/runtime/registries/nostr_core.rs` | likely **NOT** a pure registry — looks like nostr integration that may host a registry | extract as `graphshell-nostr` integration crate; pull just the registry surface (if any) into `registrar/register-nostr-relays/` or similar |
+| `shell/desktop/runtime/registries/physics_profile.rs` | TBD | likely registry; `registrar/register-physics-profile/` |
+| `shell/desktop/runtime/registries/protocol.rs` + `registries/atomic/protocol*.rs` | TBD | merge + `registrar/register-protocol/` |
+| `shell/desktop/runtime/registries/renderer.rs` | TBD | `registrar/register-renderer/` if registry; else into `graphshell-runtime` or the renderer-host-refactor target |
+| `shell/desktop/runtime/registries/signal_routing.rs` + `shell/desktop/runtime/registry_signal_router.rs` | NOT a registry — it's the signal-bus seam | move as a module **inside** `graphshell-runtime`, per §3.2 (signal bus is part of the system layer, not a sibling) |
+| `shell/desktop/runtime/registries/theme.rs` | TBD | likely registry; `registrar/register-theme/` |
+| `shell/desktop/runtime/registries/workbench_surface*` | TBD | likely registry; `registrar/register-workbench-surface/` |
+| `shell/desktop/runtime/registries/workflow.rs` | TBD | likely registry; `registrar/register-workflow/` |
+| `registries/atomic/diagnostics.rs` | TBD | likely registry; `registrar/register-diagnostics/` |
+| `registries/atomic/viewer.rs` + `registries/atomic/viewer_provider.rs` + `registries/viewers/*` | TBD | merge + `registrar/register-viewer/` |
+| `registries/infrastructure/mod_activation.rs` + `mod_loader.rs` | TBD | likely registry; `registrar/register-mod-loader/` |
 
-### Layer C — App services (NEW)
+The "TBD" rows are not extraction blockers in aggregate — they're
+per-candidate calls that Slice 50 makes one row at a time. The two
+rows where the verdict is already in (`signal_routing.rs` and
+`nostr_core.rs`) illustrate what the audit catches.
 
-The current `services/` directory and parts of `app/` collapse into a
-small family of service crates:
+### Layer C — App services (NEW; one crate, modules per service)
 
-| Crate | Source today |
-|---|---|
-| `crates/graphshell-services-facts` | `services/facts/` |
-| `crates/graphshell-services-import` | `services/import/` |
-| `crates/graphshell-services-persistence` | `services/persistence/` |
-| `crates/graphshell-services-query` | `services/query/` |
-| `crates/graphshell-services-search` | `services/search.rs` |
+Per §3.1, the default for `services/` is one crate with one module
+per service:
 
-Or, if these turn out to share enough surface, a single
-`crates/graphshell-services` with one module per service. Decide once
-the first one has been extracted and the import fan-out is visible.
+```text
+crates/graphshell/graphshell-services/
+  src/
+    lib.rs        # re-exports + facade
+    facts/        # mod.rs, types
+    import/
+    persistence/
+    query/
+    search.rs
+```
 
-### Layer D — Signal bus (NEW, called out as its own thing)
+A given service module graduates to its own crate
+(`graphshell-services-{name}`) only when one of the §3.1 conditions
+fires: an external consumer wants only that module, two consumers
+want non-overlapping subsets, or its compile time becomes load-bearing.
+Until then, intra-crate `pub(crate)` plus module discipline is enough.
 
-The user explicitly named this. There are at least two signal-routing
-seams in the tree today:
+### Layer D — Signal bus (a module inside the system layer, not a peer)
+
+Per §3.2, the signal bus is part of the system layer of Graphshell.
+It is **a module inside `graphshell-runtime`**, not a sibling crate.
+
+Today's signal-routing files live at:
 
 - `shell/desktop/runtime/registry_signal_router.rs`
 - `shell/desktop/runtime/registries/signal_routing.rs`
 
-These collapse into `crates/graphshell-signal-bus` (or
-`crates/register/register-signal-routing` per Layer B), which both the
-runtime and the host depend on. Pulling it out makes the
-publish-subscribe contract a real interface instead of a convention.
+They consolidate into one module:
+
+```text
+crates/graphshell/graphshell-runtime/
+  src/
+    system/
+      signal_bus.rs    # the consolidated signal-routing surface
+      ...              # other system-layer concerns (caches, snapshots, ...)
+    lib.rs
+    ...
+```
+
+The runtime is the system layer; the signal bus is the module
+through which the system routes signals. Routing the signal bus
+through a sibling crate would invert the architecture (the system
+would depend on a peer-of-the-system to do its own routing). Don't
+do that.
+
+If a downstream crate ever wants only the signal-bus surface
+(without the rest of the runtime), the §3.1 graduation rule kicks
+in and we extract `graphshell-signal-bus` then. There is no such
+consumer today.
 
 ### Layer E — Hosts and host-bundled glue
 
@@ -241,89 +436,89 @@ becomes: select default host, wire features, run.
 
 ---
 
-## 4. Why per-registry crates (the headline reorg)
-
-The biggest single move in this proposal is splitting the registries.
-There are two principled options:
-
-**Option A**: one crate, one file per registry (today's directory
-layout, just promoted to its own crate). Cheap, low risk, but does not
-solve the duplication-between-trees problem and does not let downstream
-consumers depend on individual registries.
-
-**Option B (recommended)**: one crate per registry, organised under
-`crates/register/`. Every registry's trait + impl + tests live together;
-inter-registry dependencies become explicit Cargo edges; each registry
-is independently testable; slim Graphshell builds can omit registries
-they don't use; the two-trees duplication is forced into reconciliation
-by the act of extracting (you cannot have two crates with the same
-name).
-
-The cost of Option B is per-crate boilerplate (one Cargo.toml per
-registry) and the upfront work of resolving the two-trees overlap. Both
-are one-time costs.
-
-Recommendation: Option B.
-
----
-
 ## 5. Sequencing
 
 Big-bang extractions are bad. The proposed order:
 
-### Phase 1 — Trivial wins (Slice 50)
+### Phase 1 — Audit + first-registry proof-of-concept (Slice 50)
 
-- Reconcile the two `registries/` trees as a *documentation* exercise.
-  Identify which registry concept lives in which file across both
-  trees; update the doc with a definitive list.
-- Pick one isolated registry (probably `register-theme` or
-  `register-physics-profile` — both are small and have few external
-  callers) and extract it as the proof-of-concept. The middlenet-gopher
-  extraction (Slice 49b) is the template.
+Two tasks:
 
-### Phase 2 — Signal bus extraction (Slice 51)
+1. **Audit the candidates** in §B.1 against §3.3. Resolve every
+   "TBD" verdict to **registry**, **not-registry**, or
+   **registry-plus-other-concerns**. Update the §B.1 table in place.
+2. **Extract one** of the rows that audited as a clean registry — the
+   smallest with the fewest external callers. (Likely
+   `register-theme` or `register-physics-profile`; the audit will
+   confirm.) Use the middlenet-gopher extraction (Slice 49b) as the
+   template.
 
-- Pull the signal-routing surface out as `crates/graphshell-signal-bus`
-  (or `crates/register/register-signal-routing` if it fits cleanly
-  there). This is high leverage because the rest of the registry
-  extractions can depend on it cleanly instead of reaching into
-  internals.
+The audit is the gating step. Without it, the registrar folder
+becomes the junk drawer §3.3 warns against.
 
-### Phase 3 — Service extraction (Slices 52-53)
+### Phase 2 — Consolidate the signal bus (Slice 51)
 
-- Extract `crates/graphshell-services-search` first (the smallest single
-  file). Then `import`, `persistence`, `query`, `facts` as appetite
-  allows.
+Per §3.2 / Layer D, the signal-routing surface lands as a module
+**inside** `graphshell-runtime`'s `src/system/signal_bus.rs`, not as
+a peer crate. The two existing signal-routing files
+(`shell/desktop/runtime/registry_signal_router.rs` and
+`shell/desktop/runtime/registries/signal_routing.rs`) consolidate
+into that module. Other system-layer concerns
+(`caches.rs`, `protocol_probe.rs`, `snapshots/`, `tracing.rs`)
+follow as `system/` siblings in subsequent slices when they need to
+move.
 
-### Phase 4 — Registry sweep (Slices 54-60+)
+### Phase 3 — Service extraction (Slice 52)
 
-- Extract the remaining registries one at a time, using whatever
-  per-registry crate naming the Phase 1 proof-of-concept settled on.
-  Order: smallest first, dependency leaves before dependency roots.
+Extract `crates/graphshell/graphshell-services/` as **one crate with
+one module per service** (`facts`, `import`, `persistence`, `query`,
+`search`). Per §3.1, individual services do not get their own
+crate until a §3.1 graduation condition fires.
+
+### Phase 4 — Registry sweep (Slices 53-60+)
+
+Extract the remaining registries from §B.1, one per slice, using
+the Phase 1 template. Order: leaves before roots in the dependency
+graph (i.e., a registry that nothing else depends on first;
+registries with broad dependents last). Each slice updates §B.1's
+verdict + destination columns to **DONE**.
 
 ### Phase 5 — `app/` decomposition (Slices 61+)
 
-- Decompose `app/` (the largest remaining root-crate subsystem) into
-  conceptual modules:
-  - `crates/graphshell-graph-app` — graph_*.rs, arrangement_graph_bridge,
-    canvas_scene
-  - `crates/graphshell-workspace-routing` — routing, workspace_*.rs,
-    workbench_*.rs
-  - `crates/graphshell-persistence` — persistence_facade,
-    settings_persistence, startup_persistence, storage_interop
-  - `crates/graphshell-intent-system` — intent_phases, intents,
-    focus_selection, selection
-  - The rest stays in the binary as composition glue, or folds into
-    existing crates.
+Per §3.1, the default is **one `graphshell-app` crate with modules
+per concern**, extracted as a single move. The candidate modules:
+
+- `graph_app/` — `graph_*.rs`, `arrangement_graph_bridge`,
+  `canvas_scene`
+- `workspace_routing/` — `routing.rs`, `workspace_*.rs`,
+  `workbench_*.rs`
+- `persistence/` — `persistence_facade.rs`, `settings_persistence.rs`,
+  `startup_persistence.rs`, `storage_interop/`
+- `intent_system/` — `intent_phases.rs`, `intents.rs`,
+  `focus_selection.rs`, `selection.rs`
+- `agents/`, `history.rs`, `history_runtime.rs`, `ux_navigation.rs`,
+  `action_surface.rs` — UX-side concerns; group as
+  `app_ux/`
+- `runtime_lifecycle.rs`, `runtime_ports.rs` — runtime composition
+  glue; group as `composition/`
+
+A module graduates to its own `graphshell-app-{name}` crate per
+§3.1 if/when it earns it (likely candidates: `persistence`, since
+the storage layer is an obvious extension seam; `graph_app`, since
+graph-app glue is a candidate for outside reuse). Until then, intra-
+crate `pub(crate)` boundaries are sufficient.
 
 ### Phase 6 — Host moves (Slices 70+)
 
 - Move `crates/iced-*-viewer` and `crates/graphshell-iced-widgets` into
-  `crates/hosts/`. Cosmetic but clarifies the Cargo.toml at a glance.
-- Extract `shell/desktop/ui/iced_*` into `crates/hosts/iced-host`.
+  `crates/graphshell/hosts/` per the §3.2 directory layout. Cosmetic
+  but clarifies the Cargo.toml at a glance.
+- Extract `shell/desktop/ui/iced_*` into
+  `crates/graphshell/hosts/iced-host/`.
 - The egui-host residue (`shell/desktop/ui/gui*`,
   `shell/desktop/workbench/`, `shell/desktop/host/`) is the S6 deletion
-  target; do not extract it as its own crate.
+  target from the iced jump-ship plan; do not extract it as its own
+  crate.
 
 ### Phase 7 — `render/` decision (defer)
 
@@ -346,40 +541,37 @@ its target shape.
   Annoying for the reviewer, not blocking.
 - **Per-crate boilerplate.** Each new crate adds one Cargo.toml,
   one src/lib.rs (often just re-exports), and an entry in
-  workspace.members. Worth it for the ones that earn a crate; not
-  worth it for tiny ad-hoc helpers.
+  workspace.members. The §3.1 default (one crate with modules until
+  graduation) keeps this overhead bounded; the only place it's worth
+  paying eagerly is the registrar layer (§3.3), where the
+  extension-seam shape directly justifies the split.
 - **Public API surface accidentally widens.** Code that was
   `pub(crate)` in the root crate becomes `pub` in the extracted crate
   unless deliberately gated. Mitigation: extraction PRs explicitly call
   out which items become public; add `#[doc(hidden)]` for anything that
   shouldn't be a stable API.
-- **Naming scheme bikeshed.** `register/` vs `registers/` vs
-  `registry/`; `graphshell-services-*` vs single
-  `graphshell-services` with modules; `hosts/` vs no nesting. Decide
-  once at Phase 1 and stay consistent.
+- **Registrar becomes a junk drawer.** The §3.3 definition + smell
+  tests + Slice-50 audit are the mitigations. Without them, anything
+  named `register*.rs` or living next to a `registries/` directory
+  ends up in `registrar/` regardless of whether it's actually a
+  registry — the failure mode the user explicitly flagged in the
+  2026-05-01 review.
 
 ---
 
-## 7. Decision points the user should weigh in on
+## 7. Decision log (resolved 2026-05-01)
 
-Before extraction work starts, three questions need answers:
+The first draft of this proposal listed three open decision points.
+All three were resolved in the 2026-05-01 user review and are
+captured in §3.1 / §3.3 / §3.4. Repeated here as a single index:
 
-1. **Directory naming.** `register/` (singular, conversational) or
-   `registers/` (plural, conventional Rust pluralization) or
-   `registry/` (consistent with the existing
-   `RegistrationRegister` / `register*.rs` filenames inside the
-   runtime)? The proposal recommends `register/`.
-2. **One service crate or many?** `graphshell-services` with one module
-   per service, or `graphshell-services-{facts,import,persistence,
-   query,search}` as separate crates? The proposal recommends starting
-   with one crate (search) extracted as its own, decide after.
-3. **Target shape for `app/`.** The decomposition in Phase 5 lists
-   five candidate crates from one directory. Is that the right cut?
-   Or should `app/` collapse into fewer (e.g., one
-   `graphshell-app` crate with strict module discipline)? The
-   proposal recommends the multi-crate cut because it forces the
-   conceptual boundaries to be real, but reasonable people can prefer
-   the one-crate version.
+| Decision | Resolution | Captured in |
+|---|---|---|
+| Folder name for the registry-of-registries | `registrar/` (recommended) — names the *role* and avoids singular/plural collision; `register/` acceptable if brevity wins | §3.4 |
+| One service crate or per-service crates | One crate with modules (default per §3.1); split when graduation conditions fire | §3.1, Layer C |
+| `app/` cut shape | One crate with modules (default per §3.1); split when graduation conditions fire | §3.1, §5 Phase 5 |
+| Where the signal bus lives | A module **inside** `graphshell-runtime`'s `system/`, not a sibling crate | §3.2, Layer D |
+| What counts as a registry | §3.3 definition + smell tests; Slice 50 audits each candidate | §3.3 |
 
 ---
 
