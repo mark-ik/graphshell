@@ -1,0 +1,11 @@
+[package]
+name = "register-protocol"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+http = "1.4"
+tower = "0.5"
+
+[lib]
+path = "src/lib.rs"

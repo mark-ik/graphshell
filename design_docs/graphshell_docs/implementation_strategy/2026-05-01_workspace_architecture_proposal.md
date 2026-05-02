@@ -302,40 +302,71 @@ must pass the smell tests in §3.3. Files in today's `registries/`
 trees were collected by directory placement, not by passing the
 definition. A real audit happens first.
 
-#### B.1 Audit table (Slice 50 deliverable)
+#### B.1 Audit table (Slice 50, completed 2026-05-01)
 
-The table below lists every candidate from today's two `registries/`
-trees, the §3.3 verdict, and the resulting destination. Verdict
-column is **TBD** until the audit runs in Slice 50; this section then
-updates in place.
+Audit method: each candidate scored against the four §3.3 criteria
+(keyed namespace, entry trait/value, lookup API, late binding for
+extension entries). The audit caught **substantially more
+non-registries than expected** — roughly half of the shell-side
+"registries" are wrapper state, attachment tables, or dispatchers
+that share the directory name but not the architectural role. The
+canonical registries cluster in `registries/atomic/` and
+`registries/domain/`; the shell-side files are mostly app/runtime
+integration around them.
 
 | Candidate (today's path) | Verdict (§3.3) | Destination |
 |---|---|---|
-| `shell/desktop/runtime/registries/action.rs` | TBD | `registrar/register-action/` if registry; else into `graphshell-runtime` as a dispatcher |
-| `shell/desktop/runtime/registries/agent.rs` | TBD | `registrar/register-agent/` if registry; else into `graphshell-app/agents/` |
-| `shell/desktop/runtime/registries/canvas.rs` | TBD | `registrar/register-canvas/` if registry; else fold into `graph-canvas` |
-| `shell/desktop/runtime/registries/identity.rs` | TBD | `registrar/register-identity/` if registry; else `graphshell-comms` |
-| `shell/desktop/runtime/registries/index.rs` | TBD | likely registry; `registrar/register-index/` |
-| `shell/desktop/runtime/registries/input.rs` | TBD | likely registry; `registrar/register-input/` |
-| `shell/desktop/runtime/registries/knowledge.rs` + `registries/atomic/knowledge.rs` | TBD | merge + `registrar/register-knowledge/` |
-| `shell/desktop/runtime/registries/layout.rs` + `registries/domain/layout/` | TBD | merge + `registrar/register-layout/` |
-| `shell/desktop/runtime/registries/lens.rs` + `registries/atomic/lens/` | TBD | merge + `registrar/register-lens/` |
-| `shell/desktop/runtime/registries/nostr_core.rs` | likely **NOT** a pure registry — looks like nostr integration that may host a registry | extract as `graphshell-nostr` integration crate; pull just the registry surface (if any) into `registrar/register-nostr-relays/` or similar |
-| `shell/desktop/runtime/registries/physics_profile.rs` | TBD | likely registry; `registrar/register-physics-profile/` |
-| `shell/desktop/runtime/registries/protocol.rs` + `registries/atomic/protocol*.rs` | TBD | merge + `registrar/register-protocol/` |
-| `shell/desktop/runtime/registries/renderer.rs` | TBD | `registrar/register-renderer/` if registry; else into `graphshell-runtime` or the renderer-host-refactor target |
-| `shell/desktop/runtime/registries/signal_routing.rs` + `shell/desktop/runtime/registry_signal_router.rs` | NOT a registry — it's the signal-bus seam | move as a module **inside** `graphshell-runtime`, per §3.2 (signal bus is part of the system layer, not a sibling) |
-| `shell/desktop/runtime/registries/theme.rs` | TBD | likely registry; `registrar/register-theme/` |
-| `shell/desktop/runtime/registries/workbench_surface*` | TBD | likely registry; `registrar/register-workbench-surface/` |
-| `shell/desktop/runtime/registries/workflow.rs` | TBD | likely registry; `registrar/register-workflow/` |
-| `registries/atomic/diagnostics.rs` | TBD | likely registry; `registrar/register-diagnostics/` |
-| `registries/atomic/viewer.rs` + `registries/atomic/viewer_provider.rs` + `registries/viewers/*` | TBD | merge + `registrar/register-viewer/` |
-| `registries/infrastructure/mod_activation.rs` + `mod_loader.rs` | TBD | likely registry; `registrar/register-mod-loader/` |
+| `shell/desktop/runtime/registries/action.rs` (2825 LOC) | **REGISTRY** | `crates/graphshell/registrar/register-action/` (huge — likely needs internal decomposition during extraction) |
+| `shell/desktop/runtime/registries/agent.rs` (195 LOC) | **REGISTRY** (`Agent` trait + factory + descriptor + `agent:*` keys + `register()` API) | `registrar/register-agent/` |
+| `shell/desktop/runtime/registries/canvas.rs` (116 LOC) | **NOT** — "active canvas profile selector" state, delegates lookup to `registries/domain/layout/canvas.rs` | folds into `graphshell-runtime/system/` (active-state); the canonical canvas-profile registry is `registries/domain/layout/canvas.rs` |
+| `shell/desktop/runtime/registries/identity.rs` (1200 LOC) | **REGISTRY** (`register_*_persona` + `resolve_user_identity_id`) | `registrar/register-identity/` |
+| `shell/desktop/runtime/registries/index.rs` (751 LOC) | **REGISTRY** (`register_provider`) | `registrar/register-index/` |
+| `shell/desktop/runtime/registries/input.rs` (1463 LOC) | **REGISTRY** (`register_binding` + `resolve_binding_id`) | `registrar/register-input/` |
+| `shell/desktop/runtime/registries/knowledge.rs` (407 LOC) | **NOT** — re-exports `KnowledgeRegistry` from `registries/atomic/knowledge.rs` and adds `reconcile_semantics` (app logic) | the registry itself moves with `registries/atomic/knowledge.rs` to `registrar/register-knowledge/`; `reconcile_semantics` and the `SemanticReconcileReport` shape land in `graphshell-app/` |
+| `shell/desktop/runtime/registries/layout.rs` (145 LOC) | **REGISTRY** (small but registry-shaped, 4 register / 2 lookup / 2 dyn) | merge with `registries/domain/layout/profile_registry.rs` → `registrar/register-layout/` |
+| `shell/desktop/runtime/registries/lens.rs` (3 LOC) | **NOT** — re-exports only | delete; canonical is `registries/atomic/lens/registry.rs` → `registrar/register-lens/` |
+| `shell/desktop/runtime/registries/nostr_core.rs` (large; contains `NostrCoreRegistry`) | **NOT** a pure registry — primarily nostr integration that wraps a few registry-shaped sub-tables (relays, permissions) | extract as `crates/graphshell/graphshell-nostr` integration crate; clean registry sub-surfaces (relay set, permission grants) optionally extracted as `registrar/register-nostr-relays/` etc. once the integration extract is done |
+| `shell/desktop/runtime/registries/physics_profile.rs` (92 LOC) | **NOT** — "active profile selector" state delegating to `registries/atomic/lens/physics.rs` | folds into `graphshell-runtime/system/` (active state); the canonical physics-profile registry is `registries/atomic/lens/physics.rs` and travels with `register-lens/` |
+| `shell/desktop/runtime/registries/protocol.rs` (378 LOC) | **NOT** — protocol resolver/dispatcher using `protocols::registry as scaffold` | folds into `graphshell-runtime/system/` or `graphshell-app/`; the canonical `ProtocolContractRegistry` is in `registries/atomic/protocol.rs` → `registrar/register-protocol/` |
+| `shell/desktop/runtime/registries/renderer.rs` (162 LOC) | **NOT** — bidirectional `pane ↔ renderer` attachment table; no late-bound extension entries (just runtime relationships) | folds into `graphshell-runtime/system/` as `pane_renderer_attachments` runtime state |
+| `shell/desktop/runtime/registries/signal_routing.rs` + `shell/desktop/runtime/registry_signal_router.rs` | **NOT** — signal-bus seam | inside `graphshell-runtime/system/signal_bus.rs` per §3.2 |
+| `shell/desktop/runtime/registries/theme.rs` (640 LOC) | **REGISTRY** (`register_theme` + `unregister_theme` + `resolve_theme` + `themes: HashMap<String, ThemeTokenSet>` + `theme:*` keys) | `registrar/register-theme/` — **chosen as the Slice 50 proof-of-concept** |
+| `shell/desktop/runtime/registries/workbench_surface*` | **REGISTRY** (`resolve_*` for layout/interaction/focus/profile, profile-keyed) | `registrar/register-workbench-surface/` |
+| `shell/desktop/runtime/registries/workflow.rs` (340 LOC) | **REGISTRY** (`WorkflowRegistry` + `resolve_workflow`) | `registrar/register-workflow/` |
+| `registries/atomic/diagnostics.rs` (2425 LOC) | **REGISTRY** (`channels` / `configs` / `invariants` HashMaps + descriptor-literal registration; the channel catalog accounts for most of the LOC) | `registrar/register-diagnostics/` |
+| `registries/atomic/knowledge.rs` (455 LOC) | **REGISTRY** (`KnowledgeRegistry` struct; the actual registry surface) | `registrar/register-knowledge/` (the shell-side reconcile_semantics moves to graphshell-app per the row above) |
+| `registries/atomic/protocol.rs` (108 LOC) | **REGISTRY** (`ProtocolContractRegistry` + `register_scheme`) | `registrar/register-protocol/` |
+| `registries/atomic/protocol_provider.rs` (52 LOC) | **REGISTRY** (provider registration) | `registrar/register-protocol/` (sibling to protocol.rs in same crate) |
+| `registries/atomic/lens/registry.rs` (314 LOC) + `lens/{layout,physics,theme}.rs` | **REGISTRY** (`LensRegistry` + `RegisteredLens` + entry types) | `registrar/register-lens/` (with sub-modules per lens subsystem) |
+| `registries/atomic/viewer.rs` (952 LOC) + `viewer_provider.rs` (52 LOC) + `registries/viewers/*` (audio/directory/image/middlenet/pdf/plaintext) | **REGISTRY** (viewer trait + register pattern); each `viewers/*.rs` file is an *entry* IN the viewer registry, not a separate registry | `registrar/register-viewer/` (viewer entries become sub-modules: `register-viewer/src/entries/{audio,directory,image,middlenet,pdf,plaintext}.rs`) |
+| `registries/domain/layout/canvas.rs` + `profile_registry.rs` + `viewer_surface.rs` + `workbench_surface.rs` | **REGISTRY** (profile registries) | the layout-profile registries fold into `registrar/register-layout/`; viewer-surface and workbench-surface profile registries pair with their respective registers |
+| `registries/infrastructure/mod_activation.rs` + `mod_loader.rs` | **REGISTRY** (mod registration is the canonical extension seam) | `registrar/register-mod-loader/` |
 
-The "TBD" rows are not extraction blockers in aggregate — they're
-per-candidate calls that Slice 50 makes one row at a time. The two
-rows where the verdict is already in (`signal_routing.rs` and
-`nostr_core.rs`) illustrate what the audit catches.
+**Summary of surprises**:
+
+- **Five "registries" are not registries**: `canvas.rs`,
+  `physics_profile.rs`, `lens.rs` (3-LOC re-export), `renderer.rs`,
+  `protocol.rs`, plus the previously-audited `signal_routing.rs`.
+  They're either thin "active state" selectors or runtime
+  attachment tables. They fold into `graphshell-runtime/system/`,
+  not `registrar/`.
+- **Two "registries" are app integration**: `knowledge.rs` and
+  `nostr_core.rs`. Each contains either a thin registry wrapper
+  (knowledge) or an embedded registry surface inside a larger
+  domain integration (nostr). The audit splits these.
+- **The canonical registries cluster in `registries/atomic/` and
+  `registries/domain/`**, not under `shell/desktop/runtime/`. The
+  shell-side runtime registries are mostly the *runtime
+  composition* on top — wrappers, state, dispatchers, and one or
+  two genuine registries that grew there organically (action,
+  agent, identity, input, theme, workflow, workbench_surface,
+  index).
+- **Final registrar count**: ~12 registries (action, agent,
+  diagnostics, identity, index, input, knowledge, layout, lens,
+  mod-loader, protocol, theme, viewer, workbench-surface,
+  workflow), down from the ~20 candidates the first draft listed.
+  About 8 candidates fold elsewhere (mostly into
+  `graphshell-runtime/system/`).
 
 ### Layer C — App services (NEW; one crate, modules per service)
 
