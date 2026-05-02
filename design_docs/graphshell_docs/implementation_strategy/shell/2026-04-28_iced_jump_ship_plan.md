@@ -35,6 +35,71 @@ preserved. Iced built to a refined UX target, not to egui parity.
 
 ---
 
+## Status (2026-05-01) — what's landed since the plan was written
+
+Slices 2 through 48 have landed since this plan was written on
+2026-04-28. The high-level status:
+
+- **S0 — Cargo gate**: ✅ Landed 2026-04-28 (pre-plan).
+- **S1 — Freeze egui**: 🟡 Partial. The egui-host paths still
+  compile under `--features egui-host`; a hard CI gate against new
+  files in `gui*` / `workbench` paths has not landed. Some
+  egui-shaped build roots were retired in commit `314dc093`
+  ("retire egui and GL compat build roots"); the
+  `shell::desktop::host` directory itself is still in tree and is
+  S6 territory.
+- **S2 — UX target document**: ✅ Sub-deliverables landed —
+  `iced_omnibar_spec.md`, `iced_command_palette_spec.md`,
+  `iced_browser_amenities_spec.md`, `iced_node_finder_spec.md`,
+  `iced_composition_skeleton_spec.md`, `iced_agent_pane_spec.md`.
+  TERMINOLOGY.md correction pass landed in the 2026-04-29
+  canonical refactor (commit `b036ce31`).
+- **S3 — Iced host runtime closure (Stage A)**: ✅ All 24
+  `todo(m5)` markers in `shell::desktop::ui::iced_host_ports.rs`
+  resolved (zero remaining as of 2026-05-01). All five `HostPort`
+  traits have working impls. The iced binary builds and opens with
+  the Shell composition skeleton.
+- **S4 — Iced surfaces to UX target**: 🟡 Significant progress.
+  Omnibar, Command Palette, Node Finder, Context Menu, ConfirmDialog,
+  NodeCreate, FrameRename, Frame switcher, three Navigator buckets
+  (Tree Spine, Swatches, Activity Log), StatusBar, settings panes,
+  drop-zone hint, and per-pane camera cache all landed across
+  Slices 2–48. Still pending: history/bookmarks/find/downloads/
+  devtools surface implementations.
+- **S5 — Graphlet projection plumbing**: 🟡 Slice 29 ("real graphlet
+  projection in tile panes") landed the milestone; the rest of the S5
+  checklist (canvas pane, base layer reveal, multi-window) is still
+  pending.
+- **S6 — Delete egui**: ❌ Not started. Egui-host paths still
+  compile and are functional fallback.
+
+The iced scaffold has progressed from "mid-Stage A" (the §12.5
+description as written) to **Stage A done, Stage B + C in active
+slice work, Stage D / E / F still pending**. See updated §12.5
+below.
+
+Two cross-cutting infrastructure additions worth noting because they
+unlock further surface work:
+
+- **UX observability + probes** (Slices 23–25, 48): portable
+  `UxEvent` / `UxObserver` / `UxProbe` taxonomy, four probes
+  covering modal supersession, open/dismiss balance, productive
+  selection, and destructive-action gating. See §4.10 for surface
+  coverage.
+- **Animation primitives** (Slice 38): `animation::Animation` /
+  `ease_out_cubic` / `pulse` shipped in
+  `crates/graphshell-iced-widgets/src/animation.rs`. In use today
+  by the drop-zone pulse (Slice 38) and the modal fade-in pattern
+  (Slices 42 / 47, all five `gs::Modal`-backed surfaces).
+
+Key open gaps (from §11 still applicable): G1 (six-track focus
+reconciliation), G3 (Navigator breadcrumb shape), G5 / G6 / G7
+(`WebViewSurface` / `BackendTextureToken` / Servo wgpu), G8 (IME),
+G9 / G16 (AccessKit / Graph Reader), G10 (shutdown persistence
+wiring), G15 (downloads progress UI), G18 (permission prompts).
+
+---
+
 ## 0. Reconciliation note (2026-04-29) — terminology refactor and host-neutral necessities
 
 The GPUI research lane closed with two outputs that fold back into this plan:
@@ -1017,7 +1082,7 @@ Checklist:
 block slice work. The TERMINOLOGY.md correction pass is the
 remaining prerequisite.
 
-### S3 — Iced host runtime closure
+### S3 — Iced host runtime closure ✅ LANDED (Stage A done condition met; AccessKit bridge stubbed pending G9)
 
 **Done condition**: the 24 `todo(m5)` markers in
 `shell::desktop::ui::iced_host_ports.rs` are all resolved with
@@ -1026,22 +1091,28 @@ real implementations; `cargo build --no-default-features
 
 Checklist:
 
-- [ ] Implement `HostInputPort` event translation
-  (winit → `HostEvent`)
-- [ ] Implement `HostSurfacePort` register / unregister / retire /
-  present using iced's wgpu device
-- [ ] Implement `HostClipboardPort` via `arboard` (same as egui)
-- [ ] Implement `HostToastPort` rendering iced toasts from the
-  view-model toast queue
-- [ ] Implement `HostAccessibilityPort` via `accesskit` direct
-  (no egui-winit accesskit bridge)
-- [ ] Drop egui crates from the dep graph for the iced-only build
-  (already true post-S0; verify post-S3 still holds)
-- [ ] First receipt: `--features iced-host,wry --no-default-features`
-  compiles and produces a binary that opens an empty window with
-  the Shell composition skeleton
+- [x] Implement `HostInputPort` event translation
+  (winit → `HostEvent`) — `iced_host_ports.rs` line 98
+- [x] Implement `HostSurfacePort` register / unregister / retire /
+  present using iced's wgpu device — `iced_host_ports.rs` line 143
+- [x] Implement `HostClipboardPort` via `arboard` — `iced_host_ports.rs`
+  line 276
+- [x] Implement `HostToastPort` enqueuing into the host's
+  `toast_queue` — `iced_host_ports.rs` line 298. Toast rendering in
+  the view layer ships via `render_toast_stack`
+  (`view/chrome.rs`); was inline in iced_app pre-Slice-40
+  decomposition.
+- [x] Implement `HostAccessibilityPort` (stub — `iced_host_ports.rs`
+  line 312, `request_focus` is currently a no-op). The real iced
+  AccessKit bridge is tracked separately under G9; the stub
+  satisfies the trait so Stage A compiles.
+- [x] Drop egui crates from the dep graph for the iced-only build
+  (verified post-S3: `--features iced-host,wry` builds without egui)
+- [x] First receipt: `--features iced-host,wry --no-default-features`
+  compiles and produces a binary that opens with the Shell
+  composition skeleton
 
-### S4 — Iced surfaces to UX target
+### S4 — Iced surfaces to UX target 🟡 IN PROGRESS
 
 **Done condition**: each surface in §4.6 has a real iced
 implementation backed by a portable runtime service.
@@ -1049,58 +1120,91 @@ implementation backed by a portable runtime service.
 Each surface is a sub-slice. Order picks itself: do the ones whose
 runtime services are most portable already.
 
-- [ ] **Omnibar + command palette** — `command_palette_state`
-  exists in `graphshell-core`; this is render + input wiring only
+Landed 2026-04-29 → 2026-05-01:
+
+- [x] **Omnibar** — Slice 2 (focus hotkey Ctrl+L, URL-shape
+  detection in helpers, OmnibarSubmit routing — non-URL drafts route
+  to NodeFinder via Slice 11's `NodeFinderOrigin::OmnibarRoute`)
+- [x] **Command Palette** — Slices 6 (modal), 7 (real result rows +
+  arrow-key nav), 9 (canonical ActionRegistry binding), 10
+  (HostIntent::Action plumbing), 28 (extended dispatch table), 42
+  (fade-in demonstrator), 47 (extended fade-in to all modals)
+- [x] **Node Finder** — Slices 6 (modal), 7 (arrow-key nav), 11
+  (live runtime graph node binding), 12 (OpenNode HostIntent
+  dispatch through runtime)
+- [x] **Context Menu** — Slices 5, 8, 13, 14, 17, 21 (right-click
+  hit-test on canvas + tile panes + base layer, gated destructive
+  intents via ConfirmDialog)
+- [x] **NodeCreate modal** — Slice 32 (URL input for NodeNew family)
+- [x] **FrameRename modal** — Slice 34
+- [x] **Workbench tile rendering** — Slices 29, 31, 35, 38
+  (real graphlet projection, Frame composition, per-pane camera
+  cache, drop-zone hint)
+- [x] **Tile chrome** — `gs::TileTabs` widget (part of the
+  Slice 2-4 iced-host bundle, commit `5280ddde`); tile-tab
+  right-click hit-test (Slice 21)
+- [x] **Frame switching** — Slice 31 (`render_frame_switcher`,
+  multi-Frame composition with active + inactive frames)
+- [x] **Settings panes** — Slices 30, 39
+  (`verso://settings/<section>` routing + inner-panel content)
+- [x] **Navigator Tree Spine bucket** — Slice 20
+- [x] **Navigator Swatches bucket** — Slice 33
+- [x] **Navigator Activity Log bucket** — Slices 23, 27
+  (UxObservability + bounded RecordingObserver projection)
+- [x] **StatusBar slot** — Slice 19, extended Slice 41
+- [x] **Modal fade-in** — Slices 38 (animation primitives), 42
+  (Palette demonstrator), 47 (extended to all five
+  `gs::Modal`-backed surfaces)
+
+Still pending:
+
 - [ ] **Graph canvas** — `iced_graph_canvas.rs` is a starting
   point; promote it to a real `CanvasBackend<NodeKey>` impl
-  consuming `ProjectedScene`
-- [ ] **Workbench tile rendering** — read `LayoutResult` from
-  `GraphTree::compute_layout()`; render `(NodeKey, Rect)`
-  iter directly. No `egui_tiles::Tree` touched ever
-- [ ] **Tile chrome** (close button, drag handle, lifecycle
-  badge) — emits `WorkbenchIntent`s
-- [ ] **Frame switching** — frames are a runtime concept already;
-  iced renders the frame switcher widget
-- [ ] **Settings panes** — `verso://settings/<section>` already
-  routes; iced renders the inner panel
-- [ ] **History view** — new portable service in
-  `graphshell-runtime` (or thin wrapper over existing graph
-  edges per §4.6); iced renders
+  consuming `ProjectedScene` (the Stage C move per §12.5)
+- [ ] **History view** — Activity Log bucket covers part of this;
+  the full edge-history projection is a separate runtime service
 - [ ] **Bookmarks** — promote graphlet save/load; iced renders
 - [ ] **Find-in-page / find-in-graph** — Shell command +
   per-viewer search delegate
 - [ ] **Downloads** — `verso://tool/downloads` subsystem pane
-- [ ] **Devtools** — Graphshell-level inspector (`ux-probes`
-  consumer); Servo devtools remain reachable for Servo content
+  (G15)
+- [ ] **Devtools / Diagnostics Inspector** — Slice 26 wired the
+  `UxEvent → diagnostics channel` bridge; the iced Diagnostics
+  Inspector tool pane itself is unimplemented (G22)
 
-### S5 — Graphlet projection plumbing
+### S5 — Graphlet projection plumbing 🟡 IN PROGRESS
 
-**Done condition**: each OS window hosts a FrameTree (Shell-owned);
+**Done condition**: each OS window hosts a Frame (Shell-owned);
 tile panes render active nodes' tiles; canvas panes render a
 force-directed graph canvas; inactive nodes are accessible via
-the Navigator sidebar but not auto-opened; frame splits are
-renderable and adjustable; closing all Panes reveals the canvas
-base layer.
+the Navigator sidebar but not auto-opened; Splits are renderable
+and adjustable; closing all Panes reveals the canvas base layer.
 
 This slice materializes §4.4 and §4.5.
 
 Checklist:
 
-- [ ] Define the runtime data flow: `Graph` → `Navigator
+- [x] Define the runtime data flow: `Graph` → `Navigator
   projection pipeline` → `LayoutResult` (active nodes only) →
-  iced render via FrameTree Pane
+  iced render via Frame's Pane (Slice 29 milestone — real
+  graphlet projection in tile panes)
+- [x] Implement Frame's split-tree render: H/V Splits with
+  adjustable proportions; each leaf is a Pane (tile or canvas
+  type) — Slice 2-4 bundle (commit `5280ddde`), via iced
+  `pane_grid::State<Pane>`. Multi-Frame composition added in
+  Slice 31.
+- [x] Implement Navigator sidebar: structured list of focused
+  pane's graphlet (Tree Spine bucket, Slice 20). Activate /
+  Deactivate toggle pending domain hooks
 - [ ] Replace any tile-group state that exists today as a
   free-standing structure with a derived view of the active
   graphlet projection
-- [ ] Implement FrameTree render: H/V splits with adjustable
-  proportions; each leaf is a Pane (tile or canvas type)
-- [ ] Implement Navigator sidebar: structured list of focused
-  pane's graphlet (all nodes, active and inactive); toggle
-  activation from the list
 - [ ] Implement canvas pane: force-directed canvas scoped to a
-  graphlet, the full graph, or a query result
+  graphlet, the full graph, or a query result (the Stage C
+  promotion of `iced_graph_canvas.rs` to a real
+  `CanvasBackend<NodeKey>` lands here)
 - [ ] Implement canvas base layer: Shell renders graph canvas
-  when FrameTree has no open Panes
+  when Frame's split tree has no open Panes
 - [ ] Demonstrate: closing a tile deactivates the node (Active →
   Inactive); node and graphlet membership unchanged; node does
   not auto-open on next graphlet load
@@ -1109,7 +1213,7 @@ Checklist:
 - [ ] Demonstrate: switching graphlets (setting a new `GraphletId`
   on a Pane) switches the tile group without losing graph state
 - [ ] Demonstrate: opening a second OS window creates a new
-  independent FrameTree; the original window’s state is unaffected
+  independent Frame; the original window's state is unaffected
 - [ ] Demonstrate: closing all Panes in a window reveals the
   canvas base layer for the current `GraphId`
 
@@ -1656,17 +1760,40 @@ The stages are an orthogonal lens on the same work. Reading §6
 slice-by-slice tells you *what to build*; reading §12 stage-by-stage
 tells you *how it should look once built*. Both are necessary.
 
-### 12.5 Where the scaffold lands today
+### 12.5 Where the scaffold lands today (updated 2026-05-01)
 
-The scaffold is mid-Stage A. The 24 `todo(m5)` markers in
-`shell::desktop::ui::iced_host_ports.rs` are the Stage A closure.
-`iced_graph_canvas.rs` is described in S4 as "a starting point;
-promote it to a real `CanvasBackend<NodeKey>` impl consuming
-`ProjectedScene`" — that promotion *is* the Stage C move.
+**Stage A — DONE.** All 24 `todo(m5)` markers in
+`shell::desktop::ui::iced_host_ports.rs` resolved (zero remaining as
+of 2026-05-01). All five `HostPort` impls live in
+`iced_host_ports.rs`. The `--features iced-host,wry` build compiles
+and runs.
 
-Stages B (pane_grid for FrameTree), D (WebViewSurface widget), E
-(AccessKit + IME), and F (Theme consolidation) are S4 / S5 work that
-hasn't started.
+**Stage B — DONE.** `pane_grid::State<Pane>` was wired as the
+Frame's split-tree authority in the Slice 2-4 bundle (commit
+`5280ddde`). Slices 35 / 36 / 38 layered per-pane state (camera
+cache, drop-zone hint, animated banner during drag). Slice 31
+added multi-Frame composition (Frame switcher renders the active +
+inactive Frames as a small chrome row). The multi-OS-window scope
+question (Q4 / G11) is still open.
+
+**Stage C — IN PROGRESS.** The shape of canvas-pane Program::State
+is established; per-pane camera caches (Slice 35) are the first
+example of canvas-instance-local state living off the
+`Application`. The `iced_graph_canvas.rs` "starting point" still
+needs to be promoted to a real `CanvasBackend<NodeKey>` impl
+consuming `ProjectedScene` — that promotion remains the headline
+S4 / Stage C move.
+
+**Stage D — NOT STARTED.** `WebViewSurface` widget design is open
+(G5 / G6 / G7).
+
+**Stage E — NOT STARTED.** AccessKit and IME integration both
+deferred (G8 / G9).
+
+**Stage F — NOT STARTED.** Slice 37 consolidated theme tokens
+inside `graphshell-iced-widgets`, but a top-level
+`iced::Theme` extension and settings-driven theme switching remain
+unimplemented.
 
 ### 12.6 Relationship to §5 anti-patterns
 
