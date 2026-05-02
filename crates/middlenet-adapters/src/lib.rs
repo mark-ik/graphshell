@@ -6,6 +6,12 @@ use middlenet_core::document::{DocumentDelta, LinkTarget, SemanticBlock, Semanti
 use middlenet_core::source::{MiddleNetContentKind, MiddleNetSource};
 use serde::Deserialize;
 
+// Slice 49b: gophermap parsing moved to its own crate as the
+// proof-of-concept for per-protocol middlenet split. Re-exported
+// here so existing callers (and the `adapt` dispatcher below)
+// continue to work unchanged.
+pub use middlenet_gopher::parse_gophermap;
+
 pub fn adapt(source: &MiddleNetSource, body: &str) -> Result<SemanticDocument, String> {
     match source.content_kind {
         MiddleNetContentKind::GeminiText => Ok(SemanticDocument::from_gemini(body)),
@@ -25,70 +31,6 @@ pub fn adapt(source: &MiddleNetSource, body: &str) -> Result<SemanticDocument, S
 
 pub fn adapt_streaming(source: &MiddleNetSource, body: &str) -> Result<Vec<DocumentDelta>, String> {
     adapt(source, body).map(|document| vec![DocumentDelta::Replace(document)])
-}
-
-pub fn parse_gophermap(source: &MiddleNetSource, body: &str) -> SemanticDocument {
-    let mut blocks = Vec::new();
-
-    for line in body.lines() {
-        let line = line.trim_end_matches('\r');
-        if line == "." {
-            break;
-        }
-        if line.is_empty() {
-            blocks.push(SemanticBlock::Rule);
-            continue;
-        }
-
-        let mut characters = line.chars();
-        let Some(item_type) = characters.next() else {
-            continue;
-        };
-        let remainder = characters.as_str();
-        let mut parts = remainder.split('\t');
-        let display = parts.next().unwrap_or_default().trim().to_string();
-        let selector = parts.next().unwrap_or_default().trim();
-        let host = parts.next().unwrap_or_default().trim();
-        let port = parts.next().unwrap_or_default().trim();
-
-        match item_type {
-            'i' => {
-                if display.is_empty() {
-                    blocks.push(SemanticBlock::Rule);
-                } else {
-                    blocks.push(SemanticBlock::Paragraph(display));
-                }
-            }
-            '0' | '1' | '7' | 'h' => {
-                let href = if host.eq_ignore_ascii_case("fake") || selector.is_empty() {
-                    selector.to_string()
-                } else {
-                    let normalized_selector = if selector.starts_with('/') {
-                        selector.to_string()
-                    } else {
-                        format!("/{selector}")
-                    };
-                    let port_suffix = match port.parse::<u16>() {
-                        Ok(70) | Err(_) => String::new(),
-                        Ok(value) => format!(":{value}"),
-                    };
-                    format!("gopher://{host}{port_suffix}{normalized_selector}")
-                };
-                blocks.push(SemanticBlock::Link {
-                    text: display,
-                    target: LinkTarget::new(href),
-                });
-            }
-            '3' => blocks.push(SemanticBlock::Quote(display)),
-            _ => {
-                if !display.is_empty() {
-                    blocks.push(SemanticBlock::Paragraph(display));
-                }
-            }
-        }
-    }
-
-    SemanticDocument::from_blocks(source, blocks)
 }
 
 pub fn parse_markdown(source: &MiddleNetSource, body: &str) -> SemanticDocument {
@@ -603,13 +545,19 @@ fn strip_markup(text: &str) -> String {
 mod tests {
     use super::*;
 
+    // Note: gophermap parser tests live in `middlenet-gopher` after
+    // the Slice 49b extraction. The dispatcher-level test
+    // `adapt_dispatches_gopher_to_semantic_links` below verifies the
+    // re-export path still works.
+
     #[test]
-    fn gophermap_links_become_semantic_links() {
+    fn adapt_dispatches_gopher_to_semantic_links() {
         let source = MiddleNetSource::new(MiddleNetContentKind::GopherMap);
-        let document = parse_gophermap(
+        let document = adapt(
             &source,
             "iWelcome\tfake\tfake\t70\r\n1Docs\t/docs\texample.com\t70\r\n.\r\n",
-        );
+        )
+        .expect("gopher adapt succeeds");
 
         assert!(matches!(
             document.blocks.get(1),

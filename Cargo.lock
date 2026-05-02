@@ -6849,6 +6849,7 @@ name = "middlenet-adapters"
 version = "0.0.1"
 dependencies = [
  "middlenet-core",
+ "middlenet-gopher",
  "roxmltree 0.21.1",
  "serde",
  "serde_json",
@@ -6869,6 +6870,13 @@ dependencies = [
  "middlenet-core",
  "middlenet-render",
  "serde",
+]
+
+[[package]]
+name = "middlenet-gopher"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
 ]
 
 [[package]]
