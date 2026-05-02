@@ -809,6 +809,18 @@ impl IcedApp {
                     self.command_palette.query.clear();
                     self.command_palette.focused_index = None;
                     self.modal_opened_at = None;
+                    // Slice 48: emit the Confirmed dismissal so probes
+                    // (PaletteConfirmedProductiveProbe,
+                    // OpenDismissBalanceProbe) see this close path.
+                    // Without this, the palette's Opened event would
+                    // remain unmatched until the next supersession.
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface: graphshell_core::ux_observability::SurfaceId::CommandPalette,
+                            reason: graphshell_core::ux_observability::DismissReason::Confirmed,
+                        },
+                    );
                     self.host.toast_queue.push(graphshell_runtime::ToastSpec {
                         severity: ToastSeverity::Info,
                         message: format!("action: {label} [{key}]"),
@@ -817,6 +829,18 @@ impl IcedApp {
                     // Host-side intercepts: turn the ActionId into
                     // an iced Message rather than a runtime intent.
                     if let Some(host_msg) = host_routed_action(action_id) {
+                        // Slice 48: host-routed actions skip the
+                        // runtime tick that normally emits
+                        // ActionDispatched. Emit it here so probes and
+                        // observers see the same event shape regardless
+                        // of routing path.
+                        emit_ux_event(
+                            self,
+                            graphshell_core::ux_observability::UxEvent::ActionDispatched {
+                                action_id,
+                                target: None,
+                            },
+                        );
                         return Task::done(host_msg);
                     }
                     // Runtime path.
@@ -927,6 +951,23 @@ impl IcedApp {
                     (r.node_key, r.title.clone(), r.address.clone())
                 });
                 if let Some((node_key, title, address)) = acked {
+                    self.node_finder.is_open = false;
+                    self.node_finder.query.clear();
+                    self.node_finder.focused_index = None;
+                    self.modal_opened_at = None;
+                    // Slice 48: emit the Confirmed dismissal so probes
+                    // (NodeFinderConfirmedProductiveProbe,
+                    // OpenDismissBalanceProbe) see this close path.
+                    // Emitting BEFORE pushing the intent keeps the
+                    // probe's "next event must be productive"
+                    // sequencing tight: Dismissed → OpenNodeDispatched.
+                    emit_ux_event(
+                        self,
+                        graphshell_core::ux_observability::UxEvent::SurfaceDismissed {
+                            surface: graphshell_core::ux_observability::SurfaceId::NodeFinder,
+                            reason: graphshell_core::ux_observability::DismissReason::Confirmed,
+                        },
+                    );
                     self.host.pending_host_intents.push(
                         graphshell_core::shell_state::host_intent::HostIntent::OpenNode {
                             node_key,
@@ -937,10 +978,6 @@ impl IcedApp {
                         message: format!("open: {title} ({address})"),
                         duration: None,
                     });
-                    self.node_finder.is_open = false;
-                    self.node_finder.query.clear();
-                    self.node_finder.focused_index = None;
-                    self.modal_opened_at = None;
                     // Drive a tick so the runtime drains the intent
                     // immediately and observers see the focus change.
                     self.tick_with_events(Vec::new());

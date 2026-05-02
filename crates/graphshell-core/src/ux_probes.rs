@@ -19,28 +19,45 @@
 //! wire a probe in production to surface violations as soft warnings
 //! through the diagnostics channel registry.
 //!
-//! ## Slice 25 ships two canonical probes
+//! ## Canonical probes
 //!
-//! - [`MutualExclusionProbe`] — at most one of the modal-like
+//! - [`MutualExclusionProbe`] (Slice 25) — at most one of the modal-like
 //!   surfaces (Command Palette / Node Finder / Context Menu /
 //!   Confirm Dialog) is open at a time. The dismissal-before-open
 //!   sequencing the iced host emits during supersession satisfies
 //!   this invariant; any host that opens a second modal without
 //!   first dismissing the prior one trips the probe.
-//! - [`OpenDismissBalanceProbe`] — every `SurfaceOpened` event is
-//!   eventually paired with a matching `SurfaceDismissed`. Used to
-//!   catch surface leaks where a dismissal path is forgotten.
+//! - [`OpenDismissBalanceProbe`] (Slice 25) — every `SurfaceOpened`
+//!   event is eventually paired with a matching `SurfaceDismissed`.
+//!   Used to catch surface leaks where a dismissal path is forgotten.
+//! - [`ProductiveSelectionProbe`] (Slice 48) — every Confirmed
+//!   dismissal of a configured surface must be followed by a
+//!   "productive" event (action dispatch, open-node dispatch, or a
+//!   specific successor surface opening). Covers the §4.10 guarantees
+//!   that selection-shaped surfaces emit explicit intents on
+//!   confirmation. The probe is parameterised by a list of
+//!   [`ProductiveRule`]s so callers can express "Palette Confirmed →
+//!   ActionDispatched" alongside "NodeFinder Confirmed →
+//!   OpenNodeDispatched" in a single probe.
+//! - [`DestructiveActionGateProbe`] (Slice 48) — every
+//!   [`UxEvent::ActionDispatched`] for a configured-destructive
+//!   `ActionId` must be preceded (as the most-recent ConfirmDialog
+//!   event) by a Confirmed dismissal of `ConfirmDialog`. Covers the
+//!   §4.10 guarantee that destructive actions (Tombstone, Remove
+//!   edge, ...) always carry a confirmation step.
 //!
 //! ## Extensibility
 //!
 //! Adding a probe is implementing [`UxProbe`] in any crate (no need
-//! to land it in core). The two ship in core because they're
-//! generally useful and have no host-specific data dependencies.
+//! to land it in core). The probes that ship in core do so because
+//! they're generally useful and have no host-specific data
+//! dependencies.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::ux_observability::{SurfaceId, UxEvent, UxObserver};
+use crate::actions::ActionId;
+use crate::ux_observability::{DismissReason, SurfaceId, UxEvent, UxObserver};
 
 /// One rule violation reported by a probe.
 #[derive(Debug, Clone, PartialEq)]
@@ -263,6 +280,252 @@ impl UxProbe for OpenDismissBalanceProbe {
 }
 
 // ---------------------------------------------------------------------------
+// ProductiveSelectionProbe — Confirmed dismissal must produce an outcome
+// ---------------------------------------------------------------------------
+
+/// One outcome that satisfies a [`ProductiveRule`]. A rule is satisfied
+/// when the next event after the configured surface's Confirmed dismissal
+/// matches any of its outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductiveOutcome {
+    /// Any [`UxEvent::ActionDispatched`] satisfies the rule. Use for
+    /// surfaces whose only effect is dispatching a `HostIntent::Action`
+    /// (Command Palette, Confirm Dialog).
+    AnyAction,
+    /// A [`UxEvent::SurfaceOpened`] for `surface` satisfies the rule.
+    /// Use for surfaces that route to a successor modal (Context Menu's
+    /// destructive path opens ConfirmDialog; Command Palette host-routed
+    /// actions open NodeCreate / FrameRename).
+    Open(SurfaceId),
+    /// Any [`UxEvent::OpenNodeDispatched`] satisfies the rule. Use for
+    /// surfaces whose effect is opening a node (Node Finder).
+    OpenNode,
+}
+
+/// Pairs a surface with the set of outcomes that count as productive
+/// when that surface emits a Confirmed dismissal.
+#[derive(Debug, Clone)]
+pub struct ProductiveRule {
+    pub surface: SurfaceId,
+    pub outcomes: Vec<ProductiveOutcome>,
+}
+
+impl ProductiveRule {
+    pub fn new(surface: SurfaceId, outcomes: Vec<ProductiveOutcome>) -> Self {
+        Self { surface, outcomes }
+    }
+}
+
+/// Asserts that every Confirmed dismissal of a configured surface is
+/// followed (as the very next observable event) by a matching
+/// [`ProductiveOutcome`]. The strictness of "very next event" relies
+/// on the host emitting Dismissed → productive in the same update arm,
+/// which the iced host satisfies for all five gs::Modal-backed surfaces.
+///
+/// Cancelled / Superseded / Programmatic dismissals are ignored —
+/// only Confirmed dismissals carry the productive expectation.
+pub struct ProductiveSelectionProbe {
+    rules: Vec<ProductiveRule>,
+    pending: Mutex<Option<Pending>>,
+    failures: Mutex<Vec<ProbeFailure>>,
+}
+
+struct Pending {
+    rule_idx: usize,
+    triggering_event: UxEvent,
+}
+
+impl ProductiveSelectionProbe {
+    pub fn new(rules: Vec<ProductiveRule>) -> Self {
+        Self {
+            rules,
+            pending: Mutex::new(None),
+            failures: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Default rule set wiring the four selection-shaped surfaces the
+    /// iced host emits today: Command Palette and Confirm Dialog
+    /// confirm via `ActionDispatched`; Node Finder via
+    /// `OpenNodeDispatched`; Context Menu via either `ActionDispatched`
+    /// (immediate path) or `SurfaceOpened { ConfirmDialog }`
+    /// (destructive gate path).
+    pub fn iced_default() -> Self {
+        Self::new(vec![
+            ProductiveRule::new(
+                SurfaceId::CommandPalette,
+                vec![
+                    ProductiveOutcome::AnyAction,
+                    ProductiveOutcome::Open(SurfaceId::NodeCreate),
+                    ProductiveOutcome::Open(SurfaceId::FrameRename),
+                    ProductiveOutcome::Open(SurfaceId::CommandPalette),
+                ],
+            ),
+            ProductiveRule::new(
+                SurfaceId::NodeFinder,
+                vec![ProductiveOutcome::OpenNode],
+            ),
+            ProductiveRule::new(
+                SurfaceId::ConfirmDialog,
+                vec![ProductiveOutcome::AnyAction],
+            ),
+            ProductiveRule::new(
+                SurfaceId::ContextMenu,
+                vec![
+                    ProductiveOutcome::AnyAction,
+                    ProductiveOutcome::Open(SurfaceId::ConfirmDialog),
+                ],
+            ),
+        ])
+    }
+
+    fn outcome_matches(outcome: ProductiveOutcome, event: &UxEvent) -> bool {
+        match (outcome, event) {
+            (ProductiveOutcome::AnyAction, UxEvent::ActionDispatched { .. }) => true,
+            (ProductiveOutcome::OpenNode, UxEvent::OpenNodeDispatched { .. }) => true,
+            (
+                ProductiveOutcome::Open(target),
+                UxEvent::SurfaceOpened { surface },
+            ) => target == *surface,
+            _ => false,
+        }
+    }
+}
+
+impl UxProbe for ProductiveSelectionProbe {
+    fn name(&self) -> &'static str {
+        "productive_selection"
+    }
+
+    fn observe(&self, event: &UxEvent) {
+        // First: if a productive expectation is pending, check whether
+        // *this* event satisfies it. If so, clear the pending slot. If
+        // not, record a failure (the dismissal was unproductive).
+        let mut pending = self.pending.lock().unwrap();
+        if let Some(p) = pending.as_ref() {
+            let rule = &self.rules[p.rule_idx];
+            let satisfied = rule
+                .outcomes
+                .iter()
+                .any(|o| Self::outcome_matches(*o, event));
+            if satisfied {
+                *pending = None;
+            } else {
+                self.failures.lock().unwrap().push(ProbeFailure {
+                    probe_name: self.name(),
+                    description: format!(
+                        "{:?} Confirmed dismissal not followed by a productive \
+                         event (saw {:?} instead of {:?})",
+                        rule.surface, event, rule.outcomes
+                    ),
+                    triggering_event: p.triggering_event.clone(),
+                });
+                *pending = None;
+            }
+        }
+
+        // Second: if this event is a Confirmed dismissal of a configured
+        // surface, arm a new expectation for the next event.
+        if let UxEvent::SurfaceDismissed {
+            surface,
+            reason: DismissReason::Confirmed,
+        } = event
+        {
+            if let Some(rule_idx) = self.rules.iter().position(|r| r.surface == *surface) {
+                *pending = Some(Pending {
+                    rule_idx,
+                    triggering_event: event.clone(),
+                });
+            }
+        }
+    }
+
+    fn drain_failures(&self) -> Vec<ProbeFailure> {
+        std::mem::take(&mut *self.failures.lock().unwrap())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DestructiveActionGateProbe — destructive ActionDispatched needs ConfirmDialog
+// ---------------------------------------------------------------------------
+
+/// Asserts that every [`UxEvent::ActionDispatched`] for a destructive
+/// `ActionId` is preceded (as the most recent ConfirmDialog event) by
+/// a `ConfirmDialog` Confirmed dismissal. Covers the §4.10 guarantee
+/// that destructive actions (Tombstone, Remove edge, ...) always carry
+/// a confirmation step.
+///
+/// The probe is parameterised by the list of `ActionId`s the caller
+/// considers destructive. Today the iced host marks `NodeMarkTombstone`
+/// destructive in `items_for_target`; future destructive actions are
+/// added by extending this list (and the corresponding
+/// `ContextMenuEntry::destructive()` flag).
+pub struct DestructiveActionGateProbe {
+    destructive: Vec<ActionId>,
+    /// True if the most recent ConfirmDialog event was a Confirmed
+    /// dismissal. Cleared by Cancelled / Superseded dismissals or by
+    /// any subsequent ActionDispatched (the grant is consumed).
+    confirm_grant: Mutex<bool>,
+    failures: Mutex<Vec<ProbeFailure>>,
+}
+
+impl DestructiveActionGateProbe {
+    pub fn new(destructive: Vec<ActionId>) -> Self {
+        Self {
+            destructive,
+            confirm_grant: Mutex::new(false),
+            failures: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Default wiring with the iced host's currently-known destructive
+    /// actions. Extend this list as new destructive actions land.
+    pub fn iced_default() -> Self {
+        Self::new(vec![ActionId::NodeMarkTombstone])
+    }
+}
+
+impl UxProbe for DestructiveActionGateProbe {
+    fn name(&self) -> &'static str {
+        "destructive_action_gate"
+    }
+
+    fn observe(&self, event: &UxEvent) {
+        match event {
+            UxEvent::SurfaceDismissed {
+                surface: SurfaceId::ConfirmDialog,
+                reason,
+            } => {
+                let mut grant = self.confirm_grant.lock().unwrap();
+                *grant = matches!(reason, DismissReason::Confirmed);
+            }
+            UxEvent::ActionDispatched { action_id, .. } => {
+                let mut grant = self.confirm_grant.lock().unwrap();
+                if self.destructive.contains(action_id) && !*grant {
+                    self.failures.lock().unwrap().push(ProbeFailure {
+                        probe_name: self.name(),
+                        description: format!(
+                            "destructive action {:?} dispatched without a \
+                             preceding ConfirmDialog Confirmed dismissal",
+                            action_id
+                        ),
+                        triggering_event: event.clone(),
+                    });
+                }
+                // Either way, consume the grant. A lingering grant must
+                // not authorise a later, unrelated destructive dispatch.
+                *grant = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn drain_failures(&self) -> Vec<ProbeFailure> {
+        std::mem::take(&mut *self.failures.lock().unwrap())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -397,5 +660,243 @@ mod tests {
         // Forgot the dismissal — pending_opens reports it.
         let pending = probe.pending_opens();
         assert_eq!(pending.get(&SurfaceId::CommandPalette), Some(&1));
+    }
+
+    // ProductiveSelectionProbe ----------------------------------------------
+
+    #[test]
+    fn productive_selection_palette_with_action_dispatch_passes() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceOpened {
+            surface: SurfaceId::CommandPalette,
+        });
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::CommandPalette,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::GraphTogglePhysics,
+            target: None,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn productive_selection_palette_routed_to_node_create_passes() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        // Palette confirms a host-routed action that opens NodeCreate.
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::CommandPalette,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::SurfaceOpened {
+            surface: SurfaceId::NodeCreate,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn productive_selection_finder_must_emit_open_node() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::NodeFinder,
+            reason: DismissReason::Confirmed,
+        });
+        // ActionDispatched is NOT a productive outcome for NodeFinder —
+        // only OpenNodeDispatched satisfies the rule.
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::GraphTogglePhysics,
+            target: None,
+        });
+
+        let failures = probe.drain_failures();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].description.contains("NodeFinder"));
+    }
+
+    #[test]
+    fn productive_selection_finder_with_open_node_passes() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        let dummy = crate::graph::NodeKey::new(0);
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::NodeFinder,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::OpenNodeDispatched { node_key: dummy });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn productive_selection_ignores_cancelled_dismissals() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        // Cancelled dismissals carry no productive expectation — the user
+        // chose not to act and the probe must not flag.
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::CommandPalette,
+            reason: DismissReason::Cancelled,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn productive_selection_context_menu_destructive_path_passes() {
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::ContextMenu,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::SurfaceOpened {
+            surface: SurfaceId::ConfirmDialog,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    // DestructiveActionGateProbe -------------------------------------------
+
+    #[test]
+    fn destructive_gate_passes_when_confirm_dialog_grants() {
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        // Standard destructive flow: ConfirmDialog Confirmed → destructive
+        // action dispatched.
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::ConfirmDialog,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn destructive_gate_flags_unconfirmed_destructive() {
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        // Destructive action fires without any preceding ConfirmDialog.
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+
+        let failures = probe.drain_failures();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].description.contains("NodeMarkTombstone"));
+    }
+
+    #[test]
+    fn destructive_gate_consumes_grant_after_one_destructive() {
+        // A confirmation grants ONE destructive dispatch, not many. A
+        // second destructive without re-confirmation must trip the probe.
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::ConfirmDialog,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+        // First passed; second fires without a fresh confirm.
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+
+        let failures = probe.drain_failures();
+        assert_eq!(failures.len(), 1);
+    }
+
+    #[test]
+    fn destructive_gate_cancelled_confirm_does_not_grant() {
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::ConfirmDialog,
+            reason: DismissReason::Cancelled,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+
+        let failures = probe.drain_failures();
+        assert_eq!(failures.len(), 1);
+    }
+
+    #[test]
+    fn destructive_gate_ignores_non_destructive_actions() {
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        // Non-destructive action without a confirm — fine.
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::GraphTogglePhysics,
+            target: None,
+        });
+
+        assert!(probe.drain_failures().is_empty());
+    }
+
+    #[test]
+    fn destructive_gate_intervening_action_consumes_grant() {
+        // ConfirmDialog Confirmed grants the very next destructive
+        // dispatch. A non-destructive ActionDispatched between confirm
+        // and the destructive consumes the grant defensively, so the
+        // destructive that follows trips the probe.
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        let mut observers = UxObservers::new();
+        observers.register(probe_as_observer(Arc::clone(&probe) as Arc<dyn UxProbe>));
+
+        observers.emit(UxEvent::SurfaceDismissed {
+            surface: SurfaceId::ConfirmDialog,
+            reason: DismissReason::Confirmed,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::GraphTogglePhysics,
+            target: None,
+        });
+        observers.emit(UxEvent::ActionDispatched {
+            action_id: ActionId::NodeMarkTombstone,
+            target: None,
+        });
+
+        let failures = probe.drain_failures();
+        assert_eq!(failures.len(), 1);
     }
 }

@@ -761,16 +761,54 @@ with its guarantee, the guarantee wins or the change is rejected.
 `MutualExclusionProbe` (covers the "modal supersession" invariant
 shared across Command Palette / Node Finder / Context Menu /
 Confirm Dialog / Node Create / Frame Rename) and
-`OpenDismissBalanceProbe` (catches dismissal leaks). Most per-surface
-guarantees in the table above lack a direct probe today — adding
-each is a small follow-up slice (one struct that observes the
-relevant `UxEvent` shape and asserts the named invariant against
-runtime state). The sequencing is not a blocker: the
-modal-supersession probe is the most-violated invariant in practice,
-and the others (graph-truth-unchanged, click-doesn't-mutate, etc.)
-are easier to verify because the surfaces that mutate go through
-`HostIntent::Action` / `ActionOnNode` which the dispatch counters
-already observe.
+`OpenDismissBalanceProbe` (catches dismissal leaks).
+
+**2026-05-01 update — Slice 48** ships two more probes that close
+the four most-load-bearing per-surface gaps:
+
+- `ProductiveSelectionProbe` — every Confirmed dismissal of a
+  configured surface must be followed (as the very next observable
+  event) by a "productive" outcome. The
+  `ProductiveSelectionProbe::iced_default()` rule set covers:
+  - **Command Palette** Confirmed → `ActionDispatched` *or*
+    `SurfaceOpened { NodeCreate / FrameRename / CommandPalette }`
+    (the host-routed action targets). Validates §4.10 row 9.
+  - **Node Finder** Confirmed → `OpenNodeDispatched`. Validates §4.10
+    row 8 ("Activation emits a single `WorkbenchIntent::OpenNode` per
+    selection").
+  - **Confirm Dialog** Confirmed → `ActionDispatched`. Validates that
+    confirmed destructive intents always reach the runtime.
+  - **Context Menu** Confirmed → `ActionDispatched` *or*
+    `SurfaceOpened { ConfirmDialog }`. Validates §4.10 row 10
+    (immediate dispatch *or* destructive gate).
+- `DestructiveActionGateProbe` — every `ActionDispatched` for a
+  configured-destructive `ActionId` (today: `NodeMarkTombstone`)
+  must be preceded by a `ConfirmDialog` Confirmed dismissal as the
+  most-recent ConfirmDialog event. The grant is consumed by the
+  next `ActionDispatched`, so a single Confirmed grants exactly one
+  destructive dispatch. Validates the §4.10 destructive-confirmation
+  guarantee shared across Tile Pane (row 1), Tree Spine (row 4),
+  and Context Menu (row 10).
+
+Slice 48 also fixed two correctness bugs uncovered while wiring the
+probes: `PaletteActionSelected` and `NodeFinderResultSelected` were
+closing their modals without emitting `SurfaceDismissed` events,
+breaking `OpenDismissBalanceProbe` for those close paths. The host
+also now emits a host-side `ActionDispatched` event for palette
+host-routed actions (`FrameOpen`, `FrameDelete`, `FrameSelect`,
+`NodeNew`, etc.) so the productive-selection invariant holds for
+those actions too — they previously emitted nothing because they
+bypass the runtime tick that normally produces the event.
+
+The remaining §4.10 surfaces (Omnibar, StatusBar, NavigatorHost,
+TilePane, CanvasPane, BaseLayer, Frame switcher, Settings panes,
+Tool panes, WebViewSurface) don't emit `SurfaceOpened` /
+`SurfaceDismissed` events today because they're always-present or
+their lifecycle is owned by the embedding subsystem, not chrome. The
+guarantees that *can* be probed via `UxEvent` are now covered; the
+others would require enriching the event taxonomy (e.g., a
+`GraphTruthMutated` event) and are deferred until a violation
+actually surfaces.
 
 ---
 

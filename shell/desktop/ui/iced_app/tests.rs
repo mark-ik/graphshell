@@ -1216,6 +1216,165 @@
     }
 
     #[test]
+    fn iced_palette_action_satisfies_productive_selection_probe() {
+        use graphshell_core::ux_probes::{
+            ProductiveSelectionProbe, UxProbe, probe_as_observer,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&probe) as Arc<dyn UxProbe>,
+        ));
+
+        // Open palette and pick a runtime-routed action — should
+        // produce Dismissed{Confirmed} → ActionDispatched.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let runtime_idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| {
+                a.is_available
+                    && a.action_id == graphshell_core::actions::ActionId::GraphTogglePhysics
+            })
+            .expect("GraphTogglePhysics in registry");
+        let _ = app.update(Message::PaletteActionSelected(runtime_idx));
+
+        let failures = probe.drain_failures();
+        assert!(
+            failures.is_empty(),
+            "palette runtime path tripped productive_selection: {failures:?}",
+        );
+    }
+
+    #[test]
+    fn iced_palette_host_routed_action_satisfies_productive_selection_probe() {
+        use graphshell_core::ux_probes::{
+            ProductiveSelectionProbe, UxProbe, probe_as_observer,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&probe) as Arc<dyn UxProbe>,
+        ));
+
+        // Pick a host-routed action that opens NodeCreate. Slice 48
+        // emits ActionDispatched at the host level so the probe sees a
+        // productive event even though the runtime never dispatches.
+        let _ = app.update(Message::PaletteOpen {
+            origin: PaletteOrigin::KeyboardShortcut,
+        });
+        let host_routed_idx = app
+            .command_palette
+            .all_actions
+            .iter()
+            .position(|a| {
+                a.is_available && a.action_id == graphshell_core::actions::ActionId::NodeNew
+            })
+            .expect("NodeNew in registry");
+        let task = app.update(Message::PaletteActionSelected(host_routed_idx));
+        // Drain the Task::done(NodeCreateOpen) the host returned.
+        let _ = task;
+        let _ = app.update(Message::NodeCreateOpen);
+
+        let failures = probe.drain_failures();
+        assert!(
+            failures.is_empty(),
+            "palette host-routed path tripped productive_selection: {failures:?}",
+        );
+    }
+
+    #[test]
+    fn iced_node_finder_selection_satisfies_productive_selection_probe() {
+        use graphshell_core::ux_probes::{
+            ProductiveSelectionProbe, UxProbe, probe_as_observer,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+
+        let probe = Arc::new(ProductiveSelectionProbe::iced_default());
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&probe) as Arc<dyn UxProbe>,
+        ));
+
+        let _ = app.update(Message::NodeFinderOpen {
+            origin: NodeFinderOrigin::KeyboardShortcut,
+        });
+        let _ = app.update(Message::NodeFinderResultSelected(0));
+
+        let failures = probe.drain_failures();
+        assert!(
+            failures.is_empty(),
+            "finder selection tripped productive_selection: {failures:?}",
+        );
+    }
+
+    #[test]
+    fn iced_destructive_context_menu_satisfies_destructive_gate_probe() {
+        use graphshell_core::ux_probes::{
+            DestructiveActionGateProbe, UxProbe, probe_as_observer,
+        };
+        use std::sync::Arc;
+
+        let runtime = GraphshellRuntime::for_testing();
+        let mut app = IcedApp::with_runtime(runtime);
+        seed_test_nodes(&mut app, 1);
+        let node_key = app
+            .host
+            .runtime
+            .graph_app
+            .domain_graph()
+            .nodes()
+            .next()
+            .map(|(k, _)| k)
+            .unwrap();
+
+        let probe = Arc::new(DestructiveActionGateProbe::iced_default());
+        app.host.runtime.ux_observers.register(probe_as_observer(
+            Arc::clone(&probe) as Arc<dyn UxProbe>,
+        ));
+
+        // Open a context menu against a tile pane (which surfaces the
+        // Tombstone destructive entry), confirm Tombstone, then confirm
+        // the gate dialog. Probe verifies the dispatch is gated.
+        let _ = app.update(Message::ContextMenuOpen {
+            target: ContextMenuTarget::TilePane {
+                pane_id: PaneId(0),
+                node_key: Some(node_key),
+            },
+        });
+        let tombstone_idx = app
+            .context_menu
+            .items
+            .iter()
+            .position(|item| item.entry.label == "Tombstone")
+            .expect("Tombstone entry present on TilePane menu");
+        let _ = app.update(Message::ContextMenuEntrySelected(tombstone_idx));
+        // ConfirmDialog should now be open with the parked intent.
+        assert!(app.confirm_dialog.is_open);
+        let _ = app.update(Message::ConfirmDialogConfirm);
+
+        let failures = probe.drain_failures();
+        assert!(
+            failures.is_empty(),
+            "destructive flow tripped destructive_action_gate: {failures:?}",
+        );
+    }
+
+    #[test]
     fn open_node_dispatch_emits_open_node_event() {
         use graphshell_core::ux_observability::UxEvent;
         let runtime = GraphshellRuntime::for_testing();
