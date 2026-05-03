@@ -1,0 +1,10 @@
+[package]
+name = "register-diagnostics"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+log = "0.4.29"
+
+[lib]
+path = "src/lib.rs"
