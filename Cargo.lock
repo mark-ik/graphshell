@@ -4207,6 +4207,7 @@ dependencies = [
  "register-input",
  "register-knowledge",
  "register-layout",
+ "register-lens",
  "register-protocol",
  "reqwest",
  "rkyv",
@@ -9959,6 +9960,16 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "register-lens"
+version = "0.0.1"
+dependencies = [
+ "graph-canvas",
+ "graphshell-core",
+ "petgraph 0.8.3",
+ "serde",
 ]
 
 [[package]]

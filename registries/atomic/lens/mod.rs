@@ -1,7 +1,10 @@
-mod layout;
-mod physics;
-mod registry;
-mod theme;
+// Slice 66: lens body moved to register-lens crate. Re-export
+// everything at the same paths so existing call sites continue to
+// work unchanged.
+pub(crate) mod layout;
+pub(crate) mod physics;
+pub(crate) mod registry;
+pub(crate) mod theme;
 
 pub(crate) use layout::LayoutMode;
 #[allow(unused_imports)]
