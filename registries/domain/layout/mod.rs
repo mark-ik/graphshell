@@ -1,84 +1,20 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+// Slice 55: canvas / profile_registry / workbench_surface and the
+// conformance vocabulary moved to register-layout. viewer_surface stays
+// in tree (depends on viewer registry, not yet extracted).
+// LayoutDomainRegistry stays in tree as the shell-side aggregator.
+
 pub(crate) mod canvas;
 pub(crate) mod profile_registry;
 pub(crate) mod viewer_surface;
 pub(crate) mod workbench_surface;
 
-/// Conformance level for a surface capability declaration.
-///
-/// Used by `CapabilityDeclaration` to declare whether a surface or profile
-/// fully, partially, or does not implement a cross-cutting guarantee. Partial
-/// conformance must carry a `reason`.
-///
-/// Populated at registry registration time; read by subsystem diagnostics and
-/// validation to drive degraded-path warnings and conformance audit trails.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum ConformanceLevel {
-    /// Guarantee fully satisfied by this surface/profile.
-    Full,
-    /// Guarantee partially satisfied; `reason` must describe the gap.
-    Partial,
-    /// Guarantee not provided by this surface/profile.
-    None,
-}
-
-/// Conformance declaration for a surface or viewer subsystem.
-///
-/// Registered alongside the owning profile to allow diagnostics to audit
-/// conformance without reaching into runtime rendering code.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CapabilityDeclaration {
-    pub(crate) level: ConformanceLevel,
-    /// Required when `level` is `Partial` or `None`; describes the gap or
-    /// degraded path.
-    pub(crate) reason: Option<String>,
-}
-
-impl CapabilityDeclaration {
-    pub(crate) fn full() -> Self {
-        Self {
-            level: ConformanceLevel::Full,
-            reason: None,
-        }
-    }
-
-    pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::Partial,
-            reason: Some(reason.into()),
-        }
-    }
-
-    pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::None,
-            reason: Some(reason.into()),
-        }
-    }
-}
-
-/// Folded subsystem conformance declarations carried by surface descriptors.
-///
-/// This keeps subsystem declarations typed and colocated with the owning
-/// surface profile while allowing runtime/diagnostics code to inspect one field
-/// instead of ad hoc per-subsystem plumbing.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SurfaceSubsystemCapabilities {
-    pub(crate) accessibility: CapabilityDeclaration,
-    pub(crate) security: CapabilityDeclaration,
-    pub(crate) storage: CapabilityDeclaration,
-    pub(crate) history: CapabilityDeclaration,
-}
-
-impl SurfaceSubsystemCapabilities {
-    pub(crate) fn full() -> Self {
-        Self {
-            accessibility: CapabilityDeclaration::full(),
-            security: CapabilityDeclaration::full(),
-            storage: CapabilityDeclaration::full(),
-            history: CapabilityDeclaration::full(),
-        }
-    }
-}
+// Re-export the conformance vocabulary from register-layout so call sites
+// using `crate::registries::domain::layout::ConformanceLevel` etc. resolve unchanged.
+pub(crate) use register_layout::{CapabilityDeclaration, ConformanceLevel, SurfaceSubsystemCapabilities};
 
 use canvas::CanvasRegistry;
 use viewer_surface::ViewerSurfaceRegistry;

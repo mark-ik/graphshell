@@ -4206,6 +4206,7 @@ dependencies = [
  "register-diagnostics",
  "register-input",
  "register-knowledge",
+ "register-layout",
  "register-protocol",
  "reqwest",
  "rkyv",
@@ -9859,6 +9860,14 @@ dependencies = [
  "graphshell-core",
  "nucleo",
  "parking_lot",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "register-layout"
+version = "0.0.1"
+dependencies = [
  "serde",
  "serde_json",
 ]

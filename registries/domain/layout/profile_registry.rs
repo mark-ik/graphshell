@@ -1,69 +1,9 @@
-use std::collections::HashMap;
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct ProfileResolution<T> {
-    pub(crate) requested_id: String,
-    pub(crate) resolved_id: String,
-    pub(crate) matched: bool,
-    pub(crate) fallback_used: bool,
-    pub(crate) profile: T,
-}
+// Slice 55: this module is now a re-export shim. The body moved to
+// the register-layout crate per the workspace architecture proposal.
+// New code should depend on register-layout directly.
 
-pub(crate) struct ProfileRegistry<T> {
-    profiles: HashMap<String, T>,
-    fallback_id: String,
-}
-
-impl<T> ProfileRegistry<T>
-where
-    T: Clone,
-{
-    pub(crate) fn new(fallback_id: &str) -> Self {
-        Self {
-            profiles: HashMap::new(),
-            fallback_id: fallback_id.to_string(),
-        }
-    }
-
-    pub(crate) fn register(&mut self, profile_id: &str, profile: T) {
-        self.profiles
-            .insert(profile_id.to_ascii_lowercase(), profile);
-    }
-
-    pub(crate) fn resolve(&self, profile_id: &str, fallback_name: &str) -> ProfileResolution<T> {
-        let requested = profile_id.trim().to_ascii_lowercase();
-        let fallback = self
-            .profiles
-            .get(&self.fallback_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("{fallback_name} fallback profile must exist"));
-
-        if requested.is_empty() {
-            return ProfileResolution {
-                requested_id: requested,
-                resolved_id: self.fallback_id.clone(),
-                matched: false,
-                fallback_used: true,
-                profile: fallback,
-            };
-        }
-
-        if let Some(profile) = self.profiles.get(&requested).cloned() {
-            return ProfileResolution {
-                requested_id: requested.clone(),
-                resolved_id: requested,
-                matched: true,
-                fallback_used: false,
-                profile,
-            };
-        }
-
-        ProfileResolution {
-            requested_id: requested,
-            resolved_id: self.fallback_id.clone(),
-            matched: false,
-            fallback_used: true,
-            profile: fallback,
-        }
-    }
-}
+pub(crate) use register_layout::profile_registry::*;

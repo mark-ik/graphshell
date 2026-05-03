@@ -26,6 +26,7 @@ members = [
     "crates/middlenet-engine",
     "crates/registrar/register-diagnostics",
     "crates/registrar/register-input",
+    "crates/registrar/register-layout",
     "crates/registrar/register-knowledge",
     "crates/registrar/register-protocol",
     "crates/iced-middlenet-viewer",
@@ -113,6 +114,7 @@ graphshell-runtime = { path = "crates/graphshell-runtime" }
 register-diagnostics = { path = "crates/registrar/register-diagnostics" }
 register-input = { path = "crates/registrar/register-input" }
 register-knowledge = { path = "crates/registrar/register-knowledge" }
+register-layout = { path = "crates/registrar/register-layout" }
 register-protocol = { path = "crates/registrar/register-protocol" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }
