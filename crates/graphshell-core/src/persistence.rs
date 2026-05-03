@@ -560,3 +560,52 @@ pub struct GraphSnapshot {
     pub import_records: Vec<ImportRecord>,
     pub timestamp_secs: u64,
 }
+
+// ---------------------------------------------------------------------------
+// Node audit event taxonomy (Slice 63 — promoted from
+// `services/persistence/types.rs`)
+// ---------------------------------------------------------------------------
+
+/// The kind of node metadata or lifecycle event recorded in an audit log entry.
+///
+/// Each variant carries only the new value (not the old one). The sequence of
+/// audit events in the WAL provides the full history; diffing adjacent entries
+/// to recover the "from" value is a query-time operation.
+///
+/// Promoted to graphshell-core in Slice 63 so it can travel with the rest
+/// of the persistence type taxonomy and be referenced by the (eventually
+/// portable) `GraphMutation` / `GraphIntent` enums without needing the
+/// shell-side `services/persistence` module in scope.
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[rkyv(derive(Debug))]
+pub enum NodeAuditEventKind {
+    /// Node title was changed. Records the new title.
+    TitleChanged { new_title: String },
+    /// A tag was added to the node.
+    Tagged { tag: String },
+    /// A tag was removed from the node.
+    Untagged { tag: String },
+    /// Node was pinned.
+    Pinned,
+    /// Node was unpinned.
+    Unpinned,
+    /// Node URL was changed out-of-band (not via NavigateNode navigation).
+    /// Used when a node's URL is set directly rather than through navigation.
+    UrlChanged { new_url: String },
+    /// A viewer or workflow recorded a notable node-scoped action.
+    ActionRecorded { action: String, detail: String },
+    /// Node was tombstoned (soft-deleted).
+    Tombstoned,
+    /// Node was restored from tombstone state.
+    Restored,
+}

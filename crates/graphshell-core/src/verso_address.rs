@@ -24,6 +24,7 @@ pub const GRAPH_SCHEME_PREFIX: &str = "graph://";
 pub const NODE_SCHEME_PREFIX: &str = "node://";
 pub const NOTES_SCHEME_PREFIX: &str = "notes://";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VersoAddress {
     Settings(GraphshellSettingsPath),
     Frame(String),
