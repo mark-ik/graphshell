@@ -368,6 +368,52 @@ integration around them.
   About 8 candidates fold elsewhere (mostly into
   `graphshell-runtime/system/`).
 
+#### B.2 Pre-extraction blockers (Slices 50-53 findings)
+
+After Slices 50-52 landed cleanly (`register-protocol`, `register-knowledge`,
+plus the `Color32` promotion to `graphshell-core`), Slice 53 attempted
+`register-mod-loader` and discovered that the dep scan based on `^use`
+declarations missed embedded `crate::*` references inside fn bodies,
+plus external-crate deps (`inventory`, `serde`) that were also unscored.
+
+A more thorough audit of the remaining registry candidates revealed
+a pattern: **every remaining canonical-side registry has at least
+one in-tree blocker** that needs a pre-cleanup slice before the
+extraction is mechanical. The blockers cluster into four buckets:
+
+| Blocker | Affects | Pre-cleanup needed |
+|---|---|---|
+| **`CHANNEL_*` constant catalog** — 253 channel-name `pub(crate) const` items live in `shell/desktop/runtime/registries/mod.rs` (lines 213-581) but are referenced by `registries/atomic/diagnostics.rs` and the runtime body of `registries/infrastructure/mod_loader.rs` (via `use crate::shell::desktop::runtime::registries::CHANNEL_*` inside fn bodies) | diagnostics, mod-loader, action, agent, identity, input, theme, workflow, workbench-surface | promote the `CHANNEL_*` catalog (the channel-name strings + descriptor literals together) into `register-diagnostics` as the keystone; shell-side mod.rs gets `pub(crate) use register_diagnostics::channels::*;` |
+| **`crate::util::VersoAddress`** — a portable URI-parsing enum + companion address types in the root crate's `util.rs` (582 LOC, only `egui::Pos2` blocks it from being trivially portable; the rest is `euclid` + std) | viewer (and downstream: viewers/* entries, register-layout's viewer_surface sub-module) | promote `VersoAddress`, `GraphAddress`, `NodeAddress`, `NoteAddress`, `GraphshellSettingsPath` to `graphshell-core::address` (the `CoordBridge` egui-glue trait stays in util.rs) |
+| **`crate::graph::physics::*` + `crate::graph::scene_runtime::*`** — physics tuning types and scene-collision policy types live in the root crate's `graph/` directory, depended on by `registries/atomic/lens/physics.rs` | lens (whole tree) | promote the physics tuning + scene-collision types to `graph-canvas` (where the rest of the physics surface lives) or to a new `graph-physics-config` crate |
+| **`crate::services::persistence::types::NodeAuditEventKind`** — audit event type used by `registries/viewers/middlenet.rs` for its persistence integration | viewers/middlenet | promote the audit-event taxonomy out of `services/persistence/` into a portable types crate (likely `graphshell-core::persistence` or a new `graphshell-persistence-types`) |
+
+**Strategic options going forward**:
+
+1. **Keystone-first** — take on the `CHANNEL_*` catalog as the next
+   slice. Largest single move (~370 lines of constants + 2425 lines
+   of descriptor file = ~2800 lines moved together) but unblocks
+   the most registries (8 of the remaining 12 candidates). This is
+   the high-leverage move.
+2. **Drip-feed pre-cleanups** — promote `VersoAddress` first
+   (smallest, ~50 LOC moved), then extract `register-viewer` (with
+   viewers/middlenet still blocked by services::persistence).
+   Smaller per-slice scope but slower aggregate progress.
+3. **Pause and consolidate** — accept the four cleanly-extracted
+   crates (`graphshell-comms` membership fix, `middlenet-gopher`,
+   `register-protocol`, `register-knowledge`) as the registrar
+   bring-up's first proof-of-concept layer; defer further
+   extractions until the broader cleanup pass on `app/`,
+   `services/`, and the shell-side runtime is sequenced.
+
+The proposal originally assumed canonical-side registries (in
+`registries/atomic/` and `registries/domain/`) would be largely
+self-contained primitives. Slice 53's failed attempt showed that
+assumption was wrong — even the canonical files reach into the root
+crate for channel constants, address parsing, physics types, and
+audit-event taxonomies. The registrar sweep is therefore gated on
+those promotions, not on registry-shaped audits alone.
+
 ### Layer C — App services (NEW; one crate, modules per service)
 
 Per §3.1, the default for `services/` is one crate with one module
