@@ -146,6 +146,54 @@ impl ToolPaneState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Slice 64 — workbench types portable
+// ---------------------------------------------------------------------------
+
+/// Pane chrome / mobility classification. Drives chrome rendering
+/// (full / reduced / chromeless) and tile-tree mobility (whether
+/// the pane participates in normal split moves).
+///
+/// Promoted to graphshell-core in Slice 64 from
+/// `shell/desktop/workbench/pane_model.rs` so the intent vocabulary
+/// (`AppCommand`) can reference it without dragging the workbench
+/// module into portable code.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
+pub enum PanePresentationMode {
+    /// Full tile chrome with normal tile-tree mobility.
+    #[default]
+    Tiled,
+    /// Reduced chrome with position-locked interaction.
+    Docked,
+    /// Chromeless overlay presentation used by ephemeral panes before
+    /// promotion.
+    Floating,
+    /// Content-only presentation; reserved for future use.
+    Fullscreen,
+}
+
+/// Placement context for promoting a floating pane into the tile tree.
+/// Promoted to graphshell-core in Slice 64.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FloatingPaneTargetTileContext {
+    TabGroup,
+    Split,
+    BareGraph,
+}
+
+/// Direction for pane split operations. Promoted to graphshell-core
+/// in Slice 64. (Note: `crates/graph-tree::member::SplitDirection`
+/// and `crates/registrar/register-layout::workbench_surface::SplitDirection`
+/// are separate types in their respective domains; this is the
+/// pane-mutation enum.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitDirection {
+    Horizontal,
+    Vertical,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

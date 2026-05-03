@@ -42,28 +42,10 @@ pub(crate) use graphshell_core::pane::PaneId;
 /// Presentation/chrome mode for a workbench pane.
 ///
 /// This is workbench-owned UI state and does not change graph identity.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
-pub(crate) enum PanePresentationMode {
-    /// Full tile chrome with normal tile-tree mobility.
-    #[default]
-    Tiled,
-    /// Reduced chrome with position-locked interaction.
-    Docked,
-    /// Chromeless overlay presentation used by ephemeral panes before promotion.
-    Floating,
-    /// Content-only presentation; reserved for future use.
-    Fullscreen,
-}
-
-/// Placement context for promoting a floating pane into the tile tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) enum FloatingPaneTargetTileContext {
-    TabGroup,
-    Split,
-    BareGraph,
-}
+// Slice 64: PanePresentationMode + FloatingPaneTargetTileContext
+// promoted to graphshell_core::pane. Re-exported here so existing
+// in-tree call sites continue to import via this path unchanged.
+pub(crate) use graphshell_core::pane::{FloatingPaneTargetTileContext, PanePresentationMode};
 
 /// Opaque viewer backend identifier.
 ///
@@ -449,12 +431,10 @@ impl PaneViewState {
     }
 }
 
-/// Direction for pane split operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SplitDirection {
-    Horizontal,
-    Vertical,
-}
+// Slice 64: SplitDirection promoted to graphshell_core::pane.
+// Re-exported here so existing in-tree call sites continue to
+// import via this path unchanged.
+pub(crate) use graphshell_core::pane::SplitDirection;
 
 #[cfg(test)]
 mod tests {
