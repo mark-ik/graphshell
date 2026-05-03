@@ -18,5 +18,10 @@
 
 pub mod channels;
 pub mod descriptor;
+pub mod emit;
 
 pub use descriptor::*;
+pub use emit::{
+    emit_event, emit_span_duration, install_global_sender, DiagnosticEvent, SpanPhase,
+    StructuredPayloadField,
+};
