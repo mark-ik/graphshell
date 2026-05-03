@@ -6854,10 +6854,10 @@ name = "middlenet-adapters"
 version = "0.0.1"
 dependencies = [
  "middlenet-core",
+ "middlenet-feed",
  "middlenet-gopher",
- "roxmltree 0.21.1",
- "serde",
- "serde_json",
+ "middlenet-markdown",
+ "middlenet-plain-text",
 ]
 
 [[package]]
@@ -6878,7 +6878,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "middlenet-feed"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+ "roxmltree 0.21.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "middlenet-gopher"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-markdown"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-plain-text"
 version = "0.0.1"
 dependencies = [
  "middlenet-core",
