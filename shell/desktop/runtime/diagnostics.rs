@@ -172,6 +172,100 @@ pub(crate) fn install_global_sender(sender: Sender<DiagnosticEvent>) {
             *slot.borrow_mut() = Some(sender.clone());
         });
     }
+
+    // Slice 62: install the register-diagnostics forwarder bridge
+    // alongside the shell-side global so events emitted by extracted
+    // registry crates (register-diagnostics::emit_event) flow into
+    // the same shell-side ring buffer. The bridge installs lazily
+    // once per program lifetime via OnceLock.
+    install_register_diagnostics_bridge();
+}
+
+static REGISTER_DIAGNOSTICS_BRIDGE_INSTALLED: OnceLock<()> = OnceLock::new();
+
+/// Install the register-diagnostics → shell-side bridge. Spawns a
+/// forwarder thread that translates each
+/// `register_diagnostics::DiagnosticEvent` into the shell-side
+/// `DiagnosticEvent` and re-emits it through the shell-side global
+/// sender. Idempotent; subsequent calls no-op.
+fn install_register_diagnostics_bridge() {
+    REGISTER_DIAGNOSTICS_BRIDGE_INSTALLED.get_or_init(|| {
+        let (registry_tx, registry_rx) = std::sync::mpsc::channel();
+        register_diagnostics::install_global_sender(registry_tx);
+        std::thread::spawn(move || {
+            while let Ok(event) = registry_rx.recv() {
+                emit_event(translate_register_diagnostics_event(event));
+            }
+        });
+    });
+}
+
+/// Translate a `register_diagnostics::DiagnosticEvent` into the
+/// shell-side `DiagnosticEvent`. Variant shapes are identical
+/// because the portable subset was carved out of the shell-side
+/// taxonomy in Slice 59.
+fn translate_register_diagnostics_event(
+    event: register_diagnostics::DiagnosticEvent,
+) -> DiagnosticEvent {
+    use register_diagnostics::DiagnosticEvent as RegEvent;
+    match event {
+        RegEvent::Span {
+            name,
+            phase,
+            duration_us,
+        } => DiagnosticEvent::Span {
+            name,
+            phase: match phase {
+                register_diagnostics::SpanPhase::Enter => SpanPhase::Enter,
+                register_diagnostics::SpanPhase::Exit => SpanPhase::Exit,
+            },
+            duration_us,
+        },
+        RegEvent::MessageSent {
+            channel_id,
+            byte_len,
+        } => DiagnosticEvent::MessageSent {
+            channel_id,
+            byte_len,
+        },
+        RegEvent::MessageSentStructured {
+            channel_id,
+            byte_len,
+            fields,
+        } => DiagnosticEvent::MessageSentStructured {
+            channel_id,
+            byte_len,
+            fields: fields
+                .into_iter()
+                .map(|f| StructuredPayloadField {
+                    name: f.name,
+                    value: f.value,
+                })
+                .collect(),
+        },
+        RegEvent::MessageReceived {
+            channel_id,
+            latency_us,
+        } => DiagnosticEvent::MessageReceived {
+            channel_id,
+            latency_us,
+        },
+        RegEvent::MessageReceivedStructured {
+            channel_id,
+            latency_us,
+            fields,
+        } => DiagnosticEvent::MessageReceivedStructured {
+            channel_id,
+            latency_us,
+            fields: fields
+                .into_iter()
+                .map(|f| StructuredPayloadField {
+                    name: f.name,
+                    value: f.value,
+                })
+                .collect(),
+        },
+    }
 }
 
 pub(crate) fn emit_event(event: DiagnosticEvent) {
