@@ -23,6 +23,7 @@ pub mod content;
 pub mod geometry;
 pub mod graph;
 pub mod host_event;
+pub mod intents;
 pub mod overlay;
 pub mod pane;
 pub mod persistence;

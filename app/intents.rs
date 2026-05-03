@@ -19,44 +19,11 @@ use crate::shell::desktop::workbench::pane_model::{
     FloatingPaneTargetTileContext, PaneId, PanePresentationMode,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BrowserCommand {
-    Back,
-    Forward,
-    Reload,
-    StopLoad,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    Close,
-}
-
-impl BrowserCommand {
-    pub(crate) fn diagnostic_label(self) -> &'static str {
-        match self {
-            BrowserCommand::Back => "back",
-            BrowserCommand::Forward => "forward",
-            BrowserCommand::Reload => "reload",
-            BrowserCommand::StopLoad => "stop_load",
-            BrowserCommand::ZoomIn => "zoom_in",
-            BrowserCommand::ZoomOut => "zoom_out",
-            BrowserCommand::ZoomReset => "zoom_reset",
-            BrowserCommand::Close => "close",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BrowserCommandTarget {
-    FocusedInput,
-    ChromeProjection { fallback_node: Option<NodeKey> },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeUserStylesheetSpec {
-    pub path: PathBuf,
-    pub source: String,
-}
+// Slice 57: BrowserCommand + BrowserCommandTarget +
+// RuntimeUserStylesheetSpec promoted to graphshell_core::intents
+// (the wedge of the larger intent-vocabulary promotion). Re-exported
+// here so the 83+ external call sites continue to work unchanged.
+pub use graphshell_core::intents::{BrowserCommand, BrowserCommandTarget, RuntimeUserStylesheetSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeStatusNoticeRequest {

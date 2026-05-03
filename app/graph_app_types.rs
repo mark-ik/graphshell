@@ -150,18 +150,9 @@ pub struct GraphSearchRequest {
     pub toast_message: Option<String>,
 }
 
-/// Deterministic mutation intent boundary for graph state updates.
-#[derive(Debug, Clone)]
-pub enum EdgeCommand {
-    ConnectSelectedPair,
-    ConnectPair { from: NodeKey, to: NodeKey },
-    ConnectBothDirections,
-    ConnectBothDirectionsPair { a: NodeKey, b: NodeKey },
-    RemoveUserEdge,
-    RemoveUserEdgePair { a: NodeKey, b: NodeKey },
-    PinSelected,
-    UnpinSelected,
-}
+// Slice 57: EdgeCommand promoted to graphshell_core::intents.
+// Re-exported so existing call sites continue to work unchanged.
+pub use graphshell_core::intents::EdgeCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingTileOpenMode {
