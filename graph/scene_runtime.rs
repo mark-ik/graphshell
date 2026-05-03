@@ -125,32 +125,10 @@ impl SceneRegionRuntime {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct SceneCollisionPolicy {
-    pub(crate) node_separation_enabled: bool,
-    pub(crate) viewport_containment_enabled: bool,
-    pub(crate) node_padding: f32,
-    pub(crate) region_effect_scale: f32,
-    pub(crate) containment_response_scale: f32,
-}
-
-impl SceneCollisionPolicy {
-    pub(crate) fn enabled(self) -> bool {
-        self.node_separation_enabled || self.viewport_containment_enabled
-    }
-}
-
-impl Default for SceneCollisionPolicy {
-    fn default() -> Self {
-        Self {
-            node_separation_enabled: false,
-            viewport_containment_enabled: false,
-            node_padding: DEFAULT_NODE_PADDING,
-            region_effect_scale: 1.0,
-            containment_response_scale: 1.0,
-        }
-    }
-}
+// Slice 65: SceneCollisionPolicy promoted to
+// graph_canvas::physics_config. Re-exported here so existing
+// in-tree call sites continue to import via this path unchanged.
+pub(crate) use graph_canvas::physics_config::SceneCollisionPolicy;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct GraphViewSceneRuntime {

@@ -145,117 +145,20 @@ fn pinned_set(app: &GraphBrowserApp) -> std::collections::HashSet<NodeKey> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct GraphPhysicsTuning {
-    pub(crate) repulsion_strength: f32,
-    pub(crate) attraction_strength: f32,
-    pub(crate) gravity_strength: f32,
-    pub(crate) damping: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DegreeRepulsionConfig {
-    pub radius_px: f32,
-    pub strength: f32,
-}
-
-impl DegreeRepulsionConfig {
-    pub const fn mild() -> Self {
-        Self {
-            radius_px: 220.0,
-            strength: 4.0,
-        }
-    }
-
-    pub const fn medium() -> Self {
-        Self {
-            radius_px: 220.0,
-            strength: 8.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainClusteringConfig {
-    pub strength: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SemanticClusteringConfig {
-    pub strength: f32,
-    pub similarity_floor: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HubPullConfig {
-    pub radius_px: f32,
-    pub strength: f32,
-    pub degree_floor: usize,
-}
-
-impl Default for HubPullConfig {
-    fn default() -> Self {
-        Self {
-            radius_px: 260.0,
-            strength: 0.05,
-            degree_floor: 3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct GraphPhysicsExtensionConfig {
-    pub(crate) degree_repulsion: Option<DegreeRepulsionConfig>,
-    pub(crate) domain_clustering: Option<DomainClusteringConfig>,
-    pub(crate) semantic_clustering: Option<SemanticClusteringConfig>,
-    pub(crate) hub_pull: Option<HubPullConfig>,
-    /// Enable frame-affinity soft-attraction post-physics force.
-    ///
-    /// Derived from `CanvasRegistry.zones_enabled` at call site.  Defaults
-    /// `false`; wired to the registry gate once `lane:layout-semantics` is
-    /// fully executed.
-    pub(crate) frame_affinity_enabled: bool,
-}
-
-impl GraphPhysicsExtensionConfig {
-    pub(crate) fn any_enabled(self) -> bool {
-        self.degree_repulsion.is_some()
-            || self.domain_clustering.is_some()
-            || self.semantic_clustering.is_some()
-            || self.hub_pull.is_some()
-            || self.frame_affinity_enabled
-    }
-}
-
-impl Default for GraphPhysicsTuning {
-    fn default() -> Self {
-        Self {
-            repulsion_strength: 0.28,
-            attraction_strength: 0.22,
-            gravity_strength: 0.18,
-            damping: 0.55,
-        }
-    }
-}
-
-pub(crate) fn apply_graph_physics_tuning(
-    state: &mut GraphPhysicsState,
-    tuning: GraphPhysicsTuning,
-) {
-    state.c_repulse = tuning.repulsion_strength;
-    state.c_attract = tuning.attraction_strength;
-    state.damping = tuning.damping;
-    state.c_gravity = tuning.gravity_strength;
-}
-
-pub(crate) fn default_graph_physics_state() -> GraphPhysicsState {
-    let mut state = GraphPhysicsState::default();
-    apply_graph_physics_tuning(&mut state, GraphPhysicsTuning::default());
-    state.k_scale = 0.42;
-    state.dt = 0.03;
-    state.max_step = 3.0;
-    state
-}
+// Slice 65: physics tuning + extension config types and the
+// pure-data helpers (apply_graph_physics_tuning,
+// default_graph_physics_state) promoted to
+// graph_canvas::physics_config. Re-exported here so existing
+// in-tree call sites continue to import via this path unchanged.
+// The app-mutating fns (apply_graph_physics_extensions,
+// apply_hub_pull_forces, apply_frame_affinity_force, etc.) below
+// stay in tree because they take &mut GraphBrowserApp and run
+// per-frame physics integration against host state.
+pub(crate) use graph_canvas::physics_config::{
+    apply_graph_physics_tuning, default_graph_physics_state,
+    DegreeRepulsionConfig, DomainClusteringConfig, GraphPhysicsExtensionConfig,
+    GraphPhysicsTuning, HubPullConfig, SemanticClusteringConfig,
+};
 
 pub(crate) fn apply_graph_physics_extensions(
     app: &mut GraphBrowserApp,

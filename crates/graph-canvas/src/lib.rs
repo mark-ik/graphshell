@@ -29,6 +29,7 @@ pub mod lod;
 pub mod navigation;
 pub mod node_style;
 pub mod packet;
+pub mod physics_config;
 pub mod projection;
 pub mod scene;
 pub mod scene_composition;
