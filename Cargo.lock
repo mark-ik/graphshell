@@ -4204,6 +4204,7 @@ dependencies = [
  "rcgen",
  "redb",
  "register-diagnostics",
+ "register-input",
  "register-knowledge",
  "register-protocol",
  "reqwest",
@@ -9842,6 +9843,13 @@ name = "register-diagnostics"
 version = "0.0.1"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "register-input"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

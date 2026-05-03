@@ -1,0 +1,10 @@
+[package]
+name = "register-input"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+
+[lib]
+path = "src/lib.rs"
