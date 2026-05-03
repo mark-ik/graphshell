@@ -34,4 +34,5 @@ pub mod types;
 pub mod ux_diagnostics;
 pub mod ux_observability;
 pub mod ux_probes;
+pub mod verso_address;
 pub mod viewer_host;
