@@ -17,6 +17,32 @@ pub enum MiddleNetContentKind {
     Atom,
     JsonFeed,
     PlainText,
+    /// Spartan protocol (spartan://) — gemini-shaped text with a
+    /// simpler, prompt-driven request/response. See
+    /// `crates/middlenet-spartan` (Slice 61 scaffold).
+    SpartanText,
+    /// Nex protocol (nex://) — minimal small-web protocol: directory
+    /// listings + plain text. See `crates/middlenet-nex` (Slice 61
+    /// scaffold).
+    NexDirectory,
+    /// Titan protocol (titan://) — write companion to gemini.
+    /// Submission body is gemtext-shaped; the request envelope is
+    /// titan-specific. See `crates/middlenet-titan` (Slice 61
+    /// scaffold).
+    TitanWrite,
+    /// Scroll protocol — newer small-web protocol with binary
+    /// metadata + text. See `crates/middlenet-scroll` (Slice 61
+    /// scaffold).
+    ScrollDocument,
+    /// Guppy protocol — UDP-based small-web protocol with chunked
+    /// request/response. See `crates/middlenet-guppy` (Slice 61
+    /// scaffold).
+    GuppyText,
+    /// Misfin (misfin://) — gemini-shaped peer-to-peer email.
+    /// Body is gemtext; envelope carries sender/recipient/timestamp.
+    /// See `crates/middlenet-misfin` (Slice 61 scaffold; eventual
+    /// real impl wires through `graphshell-comms::misfin`).
+    MisfinMessage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +128,12 @@ impl MiddleNetContentKind {
             MiddleNetContentKind::Atom => "Atom",
             MiddleNetContentKind::JsonFeed => "JSON Feed",
             MiddleNetContentKind::PlainText => "Plain text",
+            MiddleNetContentKind::SpartanText => "Spartan",
+            MiddleNetContentKind::NexDirectory => "Nex",
+            MiddleNetContentKind::TitanWrite => "Titan",
+            MiddleNetContentKind::ScrollDocument => "Scroll",
+            MiddleNetContentKind::GuppyText => "Guppy",
+            MiddleNetContentKind::MisfinMessage => "Misfin",
         }
     }
 }
@@ -124,9 +156,15 @@ fn content_kind_from_mime(mime: &str) -> Option<MiddleNetContentKind> {
 
 fn content_kind_from_scheme(scheme: &str) -> Option<MiddleNetContentKind> {
     match scheme {
-        "gemini" | "titan" | "spartan" | "misfin" => Some(MiddleNetContentKind::GeminiText),
+        "gemini" => Some(MiddleNetContentKind::GeminiText),
         "gopher" => Some(MiddleNetContentKind::GopherMap),
         "finger" => Some(MiddleNetContentKind::FingerText),
+        "spartan" => Some(MiddleNetContentKind::SpartanText),
+        "nex" => Some(MiddleNetContentKind::NexDirectory),
+        "titan" => Some(MiddleNetContentKind::TitanWrite),
+        "scroll" => Some(MiddleNetContentKind::ScrollDocument),
+        "guppy" => Some(MiddleNetContentKind::GuppyText),
+        "misfin" => Some(MiddleNetContentKind::MisfinMessage),
         _ => None,
     }
 }
@@ -179,9 +217,12 @@ mod tests {
             .expect("markdown source should resolve");
         assert_eq!(markdown.content_kind, MiddleNetContentKind::Markdown);
 
+        // Slice 61: titan resolves to its own content kind now that
+        // middlenet-titan exists as a scaffold crate. Pre-Slice-61
+        // it was lumped under GeminiText.
         let titan = MiddleNetSource::detect("titan://capsule.example/edit/page", None)
             .expect("titan source should resolve");
-        assert_eq!(titan.content_kind, MiddleNetContentKind::GeminiText);
+        assert_eq!(titan.content_kind, MiddleNetContentKind::TitanWrite);
 
         let json_feed = MiddleNetSource::detect(
             "https://example.com/feed.jsonfeed",

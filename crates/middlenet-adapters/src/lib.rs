@@ -6,10 +6,22 @@
 //! body to the appropriate per-protocol parser. The parsers
 //! themselves live in their own crates per the Slice 49b template:
 //!
+//! Real parsers:
+//! - [`middlenet_gemini::parse_gemini`] (Slice 61)
 //! - [`middlenet_gopher::parse_gophermap`] (Slice 49b)
+//! - [`middlenet_finger::parse_finger`] (Slice 61)
 //! - [`middlenet_markdown::parse_markdown`] (Slice 60)
 //! - [`middlenet_plain_text::parse_plain_text`] (Slice 60)
 //! - [`middlenet_feed::parse_feed`] (Slice 60 — RSS / Atom / JSON Feed)
+//!
+//! Scaffolds (return `Err` for now; crates exist to reserve the
+//! namespace and hold the parser signature):
+//! - [`middlenet_spartan::parse_spartan`] (Slice 61)
+//! - [`middlenet_nex::parse_nex`] (Slice 61)
+//! - [`middlenet_titan::parse_titan`] (Slice 61)
+//! - [`middlenet_scroll::parse_scroll`] (Slice 61)
+//! - [`middlenet_guppy::parse_guppy`] (Slice 61)
+//! - [`middlenet_misfin::parse_misfin`] (Slice 61)
 //!
 //! This crate keeps the dispatcher (`adapt`, `adapt_streaming`) and
 //! re-exports each parser so existing call sites that import via
@@ -20,21 +32,34 @@ use middlenet_core::document::{DocumentDelta, SemanticDocument};
 use middlenet_core::source::{MiddleNetContentKind, MiddleNetSource};
 
 pub use middlenet_feed::parse_feed;
+pub use middlenet_finger::parse_finger;
+pub use middlenet_gemini::{parse_gemini, serialize_gemini};
 pub use middlenet_gopher::parse_gophermap;
+pub use middlenet_guppy::parse_guppy;
 pub use middlenet_markdown::parse_markdown;
+pub use middlenet_misfin::parse_misfin;
+pub use middlenet_nex::parse_nex;
 pub use middlenet_plain_text::parse_plain_text;
+pub use middlenet_scroll::parse_scroll;
+pub use middlenet_spartan::parse_spartan;
+pub use middlenet_titan::parse_titan;
 
 pub fn adapt(source: &MiddleNetSource, body: &str) -> Result<SemanticDocument, String> {
     match source.content_kind {
-        MiddleNetContentKind::GeminiText => Ok(SemanticDocument::from_gemini(body)),
+        MiddleNetContentKind::GeminiText => Ok(parse_gemini(source, body)),
         MiddleNetContentKind::GopherMap => Ok(parse_gophermap(source, body)),
-        MiddleNetContentKind::FingerText | MiddleNetContentKind::PlainText => {
-            Ok(parse_plain_text(source, body))
-        }
+        MiddleNetContentKind::FingerText => Ok(parse_finger(source, body)),
+        MiddleNetContentKind::PlainText => Ok(parse_plain_text(source, body)),
         MiddleNetContentKind::Markdown => Ok(parse_markdown(source, body)),
         MiddleNetContentKind::Rss | MiddleNetContentKind::Atom | MiddleNetContentKind::JsonFeed => {
             parse_feed(source, body)
         }
+        MiddleNetContentKind::SpartanText => parse_spartan(source, body),
+        MiddleNetContentKind::NexDirectory => parse_nex(source, body),
+        MiddleNetContentKind::TitanWrite => parse_titan(source, body),
+        MiddleNetContentKind::ScrollDocument => parse_scroll(source, body),
+        MiddleNetContentKind::GuppyText => parse_guppy(source, body),
+        MiddleNetContentKind::MisfinMessage => parse_misfin(source, body),
         MiddleNetContentKind::Html => {
             Err("HTML adaptation is still delegated to the existing web viewers.".to_string())
         }

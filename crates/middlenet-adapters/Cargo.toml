@@ -6,9 +6,17 @@ edition = "2024"
 [dependencies]
 middlenet-core = { path = "../middlenet-core" }
 middlenet-feed = { path = "../middlenet-feed" }
+middlenet-finger = { path = "../middlenet-finger" }
+middlenet-gemini = { path = "../middlenet-gemini" }
 middlenet-gopher = { path = "../middlenet-gopher" }
+middlenet-guppy = { path = "../middlenet-guppy" }
 middlenet-markdown = { path = "../middlenet-markdown" }
+middlenet-misfin = { path = "../middlenet-misfin" }
+middlenet-nex = { path = "../middlenet-nex" }
 middlenet-plain-text = { path = "../middlenet-plain-text" }
+middlenet-scroll = { path = "../middlenet-scroll" }
+middlenet-spartan = { path = "../middlenet-spartan" }
+middlenet-titan = { path = "../middlenet-titan" }
 
 [lib]
 path = "src/lib.rs"

@@ -6855,9 +6855,17 @@ version = "0.0.1"
 dependencies = [
  "middlenet-core",
  "middlenet-feed",
+ "middlenet-finger",
+ "middlenet-gemini",
  "middlenet-gopher",
+ "middlenet-guppy",
  "middlenet-markdown",
+ "middlenet-misfin",
+ "middlenet-nex",
  "middlenet-plain-text",
+ "middlenet-scroll",
+ "middlenet-spartan",
+ "middlenet-titan",
 ]
 
 [[package]]
@@ -6888,6 +6896,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "middlenet-finger"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+ "middlenet-plain-text",
+]
+
+[[package]]
+name = "middlenet-gemini"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
 name = "middlenet-gopher"
 version = "0.0.1"
 dependencies = [
@@ -6895,7 +6918,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "middlenet-guppy"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
 name = "middlenet-markdown"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-misfin"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-nex"
 version = "0.0.1"
 dependencies = [
  "middlenet-core",
@@ -6914,6 +6958,27 @@ version = "0.0.1"
 dependencies = [
  "middlenet-core",
  "serde",
+]
+
+[[package]]
+name = "middlenet-scroll"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-spartan"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
+]
+
+[[package]]
+name = "middlenet-titan"
+version = "0.0.1"
+dependencies = [
+ "middlenet-core",
 ]
 
 [[package]]

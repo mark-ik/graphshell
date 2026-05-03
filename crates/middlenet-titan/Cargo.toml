@@ -1,0 +1,10 @@
+[package]
+name = "middlenet-titan"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+middlenet-core = { path = "../middlenet-core" }
+
+[lib]
+path = "src/lib.rs"

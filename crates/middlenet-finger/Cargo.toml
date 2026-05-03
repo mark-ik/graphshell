@@ -1,0 +1,11 @@
+[package]
+name = "middlenet-finger"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+middlenet-core = { path = "../middlenet-core" }
+middlenet-plain-text = { path = "../middlenet-plain-text" }
+
+[lib]
+path = "src/lib.rs"
