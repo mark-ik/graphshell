@@ -1,4 +1,4 @@
-use crate::shell::desktop::runtime::registries::theme::Color32;
+use graphshell_core::color::Color32;
 
 use crate::registries::atomic::lens::{
     PhysicsProfileResolution, THEME_ID_DARK, THEME_ID_LIGHT, ThemeResolution,

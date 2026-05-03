@@ -1,46 +1,14 @@
 use std::collections::HashMap;
 
+// Slice 52: portable Color32 moved to graphshell_core::color::Color32.
+// Re-exported here so existing call sites that import via this path
+// (egui-host code in particular) continue to work unchanged. The
+// egui-host build still aliases to egui::Color32 — that integration
+// is preserved while egui remains in tree (per iced jump-ship plan §S1).
 #[cfg(feature = "egui-host")]
 pub(crate) use egui::Color32;
 #[cfg(not(feature = "egui-host"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Color32([u8; 4]);
-
-#[cfg(not(feature = "egui-host"))]
-impl Color32 {
-    pub(crate) const BLACK: Self = Self([0, 0, 0, 255]);
-    pub(crate) const GRAY: Self = Self([128, 128, 128, 255]);
-    pub(crate) const TRANSPARENT: Self = Self([0, 0, 0, 0]);
-    pub(crate) const WHITE: Self = Self([255, 255, 255, 255]);
-
-    pub(crate) const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        Self([r, g, b, 255])
-    }
-
-    pub(crate) const fn from_rgba_unmultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self([r, g, b, a])
-    }
-
-    pub(crate) const fn from_gray(value: u8) -> Self {
-        Self([value, value, value, 255])
-    }
-
-    pub(crate) const fn r(self) -> u8 {
-        self.0[0]
-    }
-
-    pub(crate) const fn g(self) -> u8 {
-        self.0[1]
-    }
-
-    pub(crate) const fn b(self) -> u8 {
-        self.0[2]
-    }
-
-    pub(crate) const fn to_array(self) -> [u8; 4] {
-        self.0
-    }
-}
+pub(crate) use graphshell_core::color::Color32;
 
 use crate::graph::edge_style_registry::{
     EdgeAccessibilityMode, ThemeAccessibilitySupport, ThemeContract, ThemeEdgeTokens,
