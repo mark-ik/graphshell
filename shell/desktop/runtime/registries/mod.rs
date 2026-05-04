@@ -1030,7 +1030,16 @@ impl RegistryRuntime {
             workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
-            mod_registry: Mutex::new(ModRegistry::new()),
+            mod_registry: Mutex::new(
+                // Slice 68: inject the host's wasm runtime via the
+                // WasmModRuntime trait. ModRegistry without this would
+                // skip wasm activation; with it, wasm mods route
+                // through crate::mods::wasm::activate_mod_headless via
+                // the trait impl.
+                ModRegistry::new().with_wasm_runtime(std::sync::Arc::new(
+                    crate::mods::wasm::GraphshellWasmRuntime,
+                )),
+            ),
             theme_follows_system: std::sync::atomic::AtomicBool::new(true),
         }
     }

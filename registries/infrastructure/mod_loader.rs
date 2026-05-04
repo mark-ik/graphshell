@@ -364,9 +364,33 @@ pub(crate) fn resolve_mod_load_order(
     Ok(ordered)
 }
 
+/// DI seam for the WASM mod runtime. The mod loader needs to
+/// activate / deactivate WASM mods but the actual runtime
+/// (wasmtime, wasmer, etc.) is host-side. This trait lets the
+/// host inject the runtime as a dependency at registry construction
+/// time, so the loader stays portable.
+///
+/// Slice 68. The default is `None` — a `ModRegistry` constructed
+/// without a runtime can still discover + parse manifests, but
+/// `load_all` returns an activation error for `ModType::Wasm` mods.
+/// Hosts that support WASM call [`ModRegistry::with_wasm_runtime`]
+/// at construction.
+pub(crate) trait WasmModRuntime: Send + Sync {
+    /// Activate a WASM mod. The runtime owns instantiation, WASI
+    /// wiring, and any per-mod sandbox state.
+    fn activate(
+        &self,
+        manifest: &ModManifest,
+        source: &WasmModSource,
+    ) -> Result<(), String>;
+    /// Deactivate a previously-activated WASM mod by ID. Called on
+    /// rollback (activation failed midway through a load batch) and
+    /// on explicit unload.
+    fn deactivate(&self, mod_id: &str) -> Result<(), String>;
+}
+
 /// Runtime registry managing mod lifecycle and status.
 /// Handles discovery, dependency resolution, and activation of both native and WASM mods.
-#[derive(Debug)]
 pub(crate) struct ModRegistry {
     /// All discovered mods (native + future WASM)
     manifests: HashMap<String, ModManifest>,
@@ -380,6 +404,9 @@ pub(crate) struct ModRegistry {
     disabled_mod_ids: HashSet<String>,
     /// Registry surface extensions installed by each active mod.
     extension_records: HashMap<String, Vec<ModExtensionRecord>>,
+    /// Host-injected WASM runtime. `None` builds skip wasm
+    /// activation (manifests still parse). Slice 68.
+    wasm_runtime: Option<std::sync::Arc<dyn WasmModRuntime>>,
 }
 
 static ACTIVE_CAPABILITIES: OnceLock<HashSet<String>> = OnceLock::new();
@@ -474,7 +501,19 @@ impl ModRegistry {
             wasm_sources: HashMap::new(),
             disabled_mod_ids: disabled_mod_ids.clone(),
             extension_records: HashMap::new(),
+            wasm_runtime: None,
         }
+    }
+
+    /// Builder-style setter for the host's WASM runtime. Without
+    /// it, `load_all` skips activation for `ModType::Wasm` mods (the
+    /// manifests are still parsed and tracked). Slice 68.
+    pub(crate) fn with_wasm_runtime(
+        mut self,
+        runtime: std::sync::Arc<dyn WasmModRuntime>,
+    ) -> Self {
+        self.wasm_runtime = Some(runtime);
+        self
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -550,7 +589,13 @@ impl ModRegistry {
 
     /// Load all mods in dependency order.
     /// Emits lifecycle diagnostics for each mod.
+    ///
+    /// Slice 68: WASM activation routes through the registry's
+    /// host-injected [`WasmModRuntime`]. Builds without a runtime
+    /// (`with_wasm_runtime` never called) skip wasm activation and
+    /// log a warning per affected mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
+        let wasm_runtime = self.wasm_runtime.clone();
         self.load_all_with_extensions(
             |manifest, wasm_source| match manifest.mod_type {
                 ModType::Native => {
@@ -565,7 +610,14 @@ impl ModRegistry {
                             manifest.mod_id
                         ))
                     })?;
-                    crate::mods::wasm::activate_mod_headless(manifest, source)
+                    let Some(runtime) = wasm_runtime.as_ref() else {
+                        return Err(ModActivationError::failed(format!(
+                            "no WasmModRuntime injected; skipping wasm mod '{}'",
+                            manifest.mod_id
+                        )));
+                    };
+                    runtime
+                        .activate(manifest, source)
                         .map_err(ModActivationError::failed)?;
                     Ok(vec![ModExtensionRecord::WasmRuntime {
                         mod_id: manifest.mod_id.clone(),
@@ -574,7 +626,11 @@ impl ModRegistry {
             },
             |record| match record {
                 ModExtensionRecord::WasmRuntime { mod_id } => {
-                    crate::mods::wasm::deactivate_mod_headless(&mod_id)
+                    if let Some(runtime) = wasm_runtime.as_ref() {
+                        runtime.deactivate(&mod_id)
+                    } else {
+                        Ok(())
+                    }
                 }
                 ModExtensionRecord::ProtocolScheme { .. }
                 | ModExtensionRecord::ViewerMime { .. }

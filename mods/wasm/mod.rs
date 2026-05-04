@@ -470,3 +470,28 @@ mod tests {
         assert!(error.contains("denies capability"));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Slice 68 — WasmModRuntime trait impl (DI for register-mod-loader)
+// ---------------------------------------------------------------------------
+
+/// Host-side bridge that adapts the existing `activate_mod_headless` /
+/// `deactivate_mod_headless` free fns to the
+/// [`WasmModRuntime`](crate::registries::infrastructure::mod_loader::WasmModRuntime)
+/// trait so `ModRegistry` can dispatch through DI rather than calling
+/// the host module directly.
+pub(crate) struct GraphshellWasmRuntime;
+
+impl crate::registries::infrastructure::mod_loader::WasmModRuntime for GraphshellWasmRuntime {
+    fn activate(
+        &self,
+        manifest: &ModManifest,
+        source: &WasmModSource,
+    ) -> Result<(), String> {
+        activate_mod_headless(manifest, source)
+    }
+
+    fn deactivate(&self, mod_id: &str) -> Result<(), String> {
+        deactivate_mod_headless(mod_id)
+    }
+}
