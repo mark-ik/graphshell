@@ -389,6 +389,22 @@ pub(crate) trait WasmModRuntime: Send + Sync {
     fn deactivate(&self, mod_id: &str) -> Result<(), String>;
 }
 
+/// DI seam for the native mod runtime. Native mods are functions
+/// compiled into the binary (e.g. `crate::mods::native::nostrcore::activate`)
+/// — the activation table is intrinsically host-side. This trait
+/// lets the host expose the dispatch entrypoint (`activate(mod_id)`)
+/// without the mod loader needing to know which native mods are
+/// linked in.
+///
+/// Slice 68b. Like [`WasmModRuntime`], the default is `None` and
+/// `load_all` returns an activation error for `ModType::Native`
+/// mods until the host calls [`ModRegistry::with_native_runtime`].
+pub(crate) trait NativeModRuntime: Send + Sync {
+    /// Activate a native mod by ID. The host's activation table
+    /// looks up the mod_id and dispatches to the mod's `activate` fn.
+    fn activate(&self, mod_id: &str) -> Result<(), String>;
+}
+
 /// Runtime registry managing mod lifecycle and status.
 /// Handles discovery, dependency resolution, and activation of both native and WASM mods.
 pub(crate) struct ModRegistry {
@@ -405,8 +421,11 @@ pub(crate) struct ModRegistry {
     /// Registry surface extensions installed by each active mod.
     extension_records: HashMap<String, Vec<ModExtensionRecord>>,
     /// Host-injected WASM runtime. `None` builds skip wasm
-    /// activation (manifests still parse). Slice 68.
+    /// activation (manifests still parse). Slice 68a.
     wasm_runtime: Option<std::sync::Arc<dyn WasmModRuntime>>,
+    /// Host-injected native runtime. `None` builds skip native
+    /// activation (manifests still parse). Slice 68b.
+    native_runtime: Option<std::sync::Arc<dyn NativeModRuntime>>,
 }
 
 static ACTIVE_CAPABILITIES: OnceLock<HashSet<String>> = OnceLock::new();
@@ -502,17 +521,30 @@ impl ModRegistry {
             disabled_mod_ids: disabled_mod_ids.clone(),
             extension_records: HashMap::new(),
             wasm_runtime: None,
+            native_runtime: None,
         }
     }
 
     /// Builder-style setter for the host's WASM runtime. Without
-    /// it, `load_all` skips activation for `ModType::Wasm` mods (the
-    /// manifests are still parsed and tracked). Slice 68.
+    /// it, `load_all` errors out activation for `ModType::Wasm` mods
+    /// (the manifests are still parsed and tracked). Slice 68a.
     pub(crate) fn with_wasm_runtime(
         mut self,
         runtime: std::sync::Arc<dyn WasmModRuntime>,
     ) -> Self {
         self.wasm_runtime = Some(runtime);
+        self
+    }
+
+    /// Builder-style setter for the host's native runtime. Without
+    /// it, `load_all` errors out activation for `ModType::Native`
+    /// mods (the manifests are still parsed and tracked).
+    /// Slice 68b.
+    pub(crate) fn with_native_runtime(
+        mut self,
+        runtime: std::sync::Arc<dyn NativeModRuntime>,
+    ) -> Self {
+        self.native_runtime = Some(runtime);
         self
     }
 
@@ -596,10 +628,11 @@ impl ModRegistry {
     /// log a warning per affected mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
         let wasm_runtime = self.wasm_runtime.clone();
+        let native_runtime = self.native_runtime.clone();
         self.load_all_with_extensions(
             |manifest, wasm_source| match manifest.mod_type {
                 ModType::Native => {
-                    Self::activate_native_mod(&manifest.mod_id)
+                    Self::activate_native_mod(native_runtime.as_ref(), &manifest.mod_id)
                         .map_err(ModActivationError::failed)?;
                     Ok(Vec::new())
                 }
@@ -805,11 +838,25 @@ impl ModRegistry {
         Ok(())
     }
 
-    /// Activate a native mod by dispatching to its activation function.
-    /// Phase 2.2/2.3: Calls the mod's activation hook to register capabilities.
-    fn activate_native_mod(mod_id: &str) -> Result<(), String> {
-        let activations = super::NativeModActivations::new();
-        activations.activate(mod_id)
+    /// Activate a native mod by dispatching through the host-injected
+    /// [`NativeModRuntime`]. Pre-Slice-68b this called
+    /// `super::NativeModActivations::new()` directly (which hardcoded
+    /// `crate::mods::native::*::activate` function pointers); the
+    /// indirection lets the mod loader extract to its own crate.
+    ///
+    /// The `None` case returns `Ok(())` — matches the pre-Slice-68b
+    /// behaviour where `NativeModActivations::activate` silently
+    /// no-op'd for unknown mod IDs. This keeps tests that don't
+    /// inject a runtime working (they use synthetic mod IDs that
+    /// no real activation hook would match).
+    fn activate_native_mod(
+        runtime: Option<&std::sync::Arc<dyn NativeModRuntime>>,
+        mod_id: &str,
+    ) -> Result<(), String> {
+        match runtime {
+            Some(runtime) => runtime.activate(mod_id),
+            None => Ok(()),
+        }
     }
 
     fn active_dependents_of(&self, mod_id: &str) -> Vec<String> {
