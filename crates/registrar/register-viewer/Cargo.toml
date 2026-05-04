@@ -1,0 +1,17 @@
+[package]
+name = "register-viewer"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+graphshell-core = { path = "../../graphshell-core" }
+register-layout = { path = "../register-layout" }
+infer = "0.19"
+serde = { version = "1.0.228", features = ["derive"] }
+url = "2.5"
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[lib]
+path = "src/lib.rs"

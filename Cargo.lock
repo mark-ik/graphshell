@@ -4209,6 +4209,7 @@ dependencies = [
  "register-layout",
  "register-lens",
  "register-protocol",
+ "register-viewer",
  "reqwest",
  "rkyv",
  "rodio",
@@ -9978,6 +9979,18 @@ version = "0.0.1"
 dependencies = [
  "http 1.4.0",
  "tower",
+]
+
+[[package]]
+name = "register-viewer"
+version = "0.0.1"
+dependencies = [
+ "graphshell-core",
+ "infer",
+ "register-layout",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

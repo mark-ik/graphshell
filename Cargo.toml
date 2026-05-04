@@ -40,6 +40,7 @@ members = [
     "crates/registrar/register-layout",
     "crates/registrar/register-knowledge",
     "crates/registrar/register-lens",
+    "crates/registrar/register-viewer",
     "crates/registrar/register-protocol",
     "crates/iced-middlenet-viewer",
     "crates/iced-graph-canvas-viewer",
@@ -129,6 +130,7 @@ register-knowledge = { path = "crates/registrar/register-knowledge" }
 register-layout = { path = "crates/registrar/register-layout" }
 register-lens = { path = "crates/registrar/register-lens" }
 register-protocol = { path = "crates/registrar/register-protocol" }
+register-viewer = { path = "crates/registrar/register-viewer" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }
 backon = "1"
