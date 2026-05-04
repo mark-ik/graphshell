@@ -4208,6 +4208,7 @@ dependencies = [
  "register-knowledge",
  "register-layout",
  "register-lens",
+ "register-mod-loader",
  "register-protocol",
  "register-viewer",
  "reqwest",
@@ -9971,6 +9972,18 @@ dependencies = [
  "graphshell-core",
  "petgraph 0.8.3",
  "serde",
+]
+
+[[package]]
+name = "register-mod-loader"
+version = "0.0.1"
+dependencies = [
+ "inventory",
+ "register-diagnostics",
+ "register-viewer",
+ "serde",
+ "tempfile",
+ "toml 0.8.2",
 ]
 
 [[package]]

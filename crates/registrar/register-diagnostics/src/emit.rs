@@ -79,56 +79,56 @@ pub enum DiagnosticEvent {
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
 
-#[cfg(test)]
 thread_local! {
-    static TEST_DIAGNOSTICS_TX: std::cell::RefCell<Option<Sender<DiagnosticEvent>>> =
-        std::cell::RefCell::new(None);
+    /// Per-thread sender override. Writes via `install_global_sender`;
+    /// `emit_event` checks this first and falls back to the global
+    /// `OnceLock` when absent. Lets each test inject its own sender
+    /// (the OnceLock is one-shot, so multi-test isolation needs a
+    /// per-thread channel). Production code that only calls
+    /// `install_global_sender` once at startup writes both the
+    /// thread-local (for the calling thread) and the global (for all
+    /// other threads).
+    ///
+    /// Slice 68c-fix: was `#[cfg(test)]`-gated so it only activated
+    /// for register-diagnostics' own tests. Cross-crate callers
+    /// (register-mod-loader tests) bypassed it and saw OnceLock
+    /// staleness across tests. The gate was removed; the thread-local
+    /// state is a few bytes per thread and benign in production.
+    static THREAD_LOCAL_DIAGNOSTICS_TX: std::cell::RefCell<Option<Sender<DiagnosticEvent>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-/// Install the global sender. Called once at host startup. Subsequent
-/// calls are no-ops (OnceLock semantics). Test scaffolding has its
-/// own thread-local override that takes precedence.
+/// Install the global sender. Hosts call this once at startup. Tests
+/// call it per-test to set up isolated channels — the per-thread
+/// override (see [`THREAD_LOCAL_DIAGNOSTICS_TX`]) makes per-test
+/// isolation work despite the global being a one-shot `OnceLock`.
 pub fn install_global_sender(sender: Sender<DiagnosticEvent>) {
     let _ = GLOBAL_DIAGNOSTICS_TX.set(sender.clone());
-
-    #[cfg(test)]
-    {
-        TEST_DIAGNOSTICS_TX.with(|slot| {
-            *slot.borrow_mut() = Some(sender.clone());
-        });
-    }
+    THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
+        *slot.borrow_mut() = Some(sender);
+    });
 }
 
-/// Emit a diagnostic event. If no global sender is installed yet,
-/// the event is dropped silently (this is the same behavior as the
-/// shell-side runtime — emits before startup are tolerated).
+/// Emit a diagnostic event. Routes to the per-thread sender override
+/// if set, else to the global sender if installed, else drops
+/// silently (matches the shell-side runtime's pre-startup tolerance).
 pub fn emit_event(event: DiagnosticEvent) {
-    #[cfg(test)]
-    {
-        let mut event = Some(event);
-        let mut handled = false;
-        TEST_DIAGNOSTICS_TX.with(|slot| {
-            if let Some(tx) = slot.borrow().as_ref() {
-                if let Some(payload) = event.take() {
-                    let _ = tx.send(payload);
-                }
-                handled = true;
-            }
-        });
-        if handled {
-            return;
-        }
-        if let Some(tx) = GLOBAL_DIAGNOSTICS_TX.get() {
+    let mut event = Some(event);
+    let mut handled = false;
+    THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
+        if let Some(tx) = slot.borrow().as_ref() {
             if let Some(payload) = event.take() {
                 let _ = tx.send(payload);
             }
+            handled = true;
         }
+    });
+    if handled {
+        return;
     }
-
-    #[cfg(not(test))]
-    {
-        if let Some(tx) = GLOBAL_DIAGNOSTICS_TX.get() {
-            let _ = tx.send(event);
+    if let Some(tx) = GLOBAL_DIAGNOSTICS_TX.get() {
+        if let Some(payload) = event.take() {
+            let _ = tx.send(payload);
         }
     }
 }
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn emit_routes_to_thread_local_sender() {
         let (tx, rx) = mpsc::channel();
-        TEST_DIAGNOSTICS_TX.with(|slot| {
+        THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
             *slot.borrow_mut() = Some(tx);
         });
 
@@ -180,7 +180,7 @@ mod tests {
         }
 
         // Cleanup.
-        TEST_DIAGNOSTICS_TX.with(|slot| {
+        THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
             *slot.borrow_mut() = None;
         });
     }
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn emit_span_duration_helper_produces_exit_span() {
         let (tx, rx) = mpsc::channel();
-        TEST_DIAGNOSTICS_TX.with(|slot| {
+        THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
             *slot.borrow_mut() = Some(tx);
         });
 
@@ -208,7 +208,7 @@ mod tests {
             _ => panic!("wrong variant"),
         }
 
-        TEST_DIAGNOSTICS_TX.with(|slot| {
+        THREAD_LOCAL_DIAGNOSTICS_TX.with(|slot| {
             *slot.borrow_mut() = None;
         });
     }

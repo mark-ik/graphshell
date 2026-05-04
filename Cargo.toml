@@ -40,6 +40,7 @@ members = [
     "crates/registrar/register-layout",
     "crates/registrar/register-knowledge",
     "crates/registrar/register-lens",
+    "crates/registrar/register-mod-loader",
     "crates/registrar/register-viewer",
     "crates/registrar/register-protocol",
     "crates/iced-middlenet-viewer",
@@ -88,7 +89,7 @@ ux-semantics = []
 ux-probes = ["ux-semantics"]
 ux-bridge = ["ux-semantics"]
 webdriver = ["dep:webdriver_server"]
-test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils"]
+test-utils = ["ux-probes", "ux-bridge", "graphshell-core/test-utils", "register-mod-loader/test-utils"]
 # Legacy marker retained so existing `#[cfg(feature = "egui-host")]`
 # gates remain syntactically recognized while the egui stack itself
 # stays removed from the dependency graph.
@@ -129,6 +130,7 @@ register-input = { path = "crates/registrar/register-input" }
 register-knowledge = { path = "crates/registrar/register-knowledge" }
 register-layout = { path = "crates/registrar/register-layout" }
 register-lens = { path = "crates/registrar/register-lens" }
+register-mod-loader = { path = "crates/registrar/register-mod-loader" }
 register-protocol = { path = "crates/registrar/register-protocol" }
 register-viewer = { path = "crates/registrar/register-viewer" }
 accesskit = { version = "0.24.0", features = ["serde"] }
