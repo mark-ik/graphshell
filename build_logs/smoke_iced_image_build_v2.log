@@ -1,0 +1,120 @@
+    Updating crates.io index
+     Locking 2 packages to latest Rust 1.92.0 compatible versions
+      Adding kamadak-exif v0.6.1
+      Adding mutate_once v0.1.2
+   Compiling naga v29.0.1
+   Compiling rayon v1.12.0
+   Compiling euclid v0.22.14
+   Compiling as-slice v0.2.1
+   Compiling aligned v0.4.3
+   Compiling av1-grain v0.2.5
+   Compiling iced_core v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\core)
+   Compiling exr v1.74.0
+   Compiling mutate_once v0.1.2
+   Compiling kurbo v0.13.0
+   Compiling tiny-skia v0.11.4
+   Compiling kurbo v0.10.4
+   Compiling kamadak-exif v0.6.1
+   Compiling guillotiere v0.7.0
+   Compiling etagere v0.2.15
+   Compiling guillotiere v0.6.2
+   Compiling peniko v0.6.0
+   Compiling vello_encoding v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling iced_futures v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\futures)
+   Compiling iced_debug v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\debug)
+   Compiling iced_runtime v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\runtime)
+   Compiling av-scenechange v0.14.1
+   Compiling maybe-rayon v0.1.1
+   Compiling rav1e v0.8.1
+   Compiling vello_shaders v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling ravif v0.13.0
+   Compiling wgpu-naga-bridge v29.0.1
+   Compiling wgpu-hal v29.0.1
+   Compiling image v0.25.10
+   Compiling wgpu-core-deps-windows-linux-android v29.0.0
+   Compiling wgpu-core v29.0.1
+   Compiling iced_graphics v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\graphics)
+   Compiling arboard v3.6.1
+   Compiling iced_tiny_skia v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\tiny_skia)
+   Compiling iced_program v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\program)
+   Compiling iced_winit v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\winit)
+   Compiling wgpu v29.0.1
+   Compiling cryoglyph v0.1.0 (C:\Users\mark_\Code\repos\graphshell\vendor\cryoglyph)
+   Compiling netrender_device v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender_device)
+   Compiling vello v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling iced_wgpu v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\wgpu)
+   Compiling netrender v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender)
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:347:21
+    |
+347 |             fragment[dst + PIXEL * pad_w..dst + PIXEL * pad_w + stride]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:352:25
+    |
+352 |                 fragment[dst + PIXEL * i..dst + PIXEL * (i + 1)]
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:356:21
+    |
+356 |                     [dst + stride + PIXEL * (pad_w + i)..dst + stride + PIXEL * (pad_w + i + 1)]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:369:21
+    |
+369 |             fragment[dst_top + PIXEL * pad_w..dst_top + PIXEL * (pad_w + w)]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:373:21
+    |
+373 |             fragment[dst_bottom + PIXEL * pad_w..dst_bottom + PIXEL * (pad_w + w)]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:379:25
+    |
+379 |                 fragment[dst_top + PIXEL * i..dst_top + PIXEL * (i + 1)]
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:383:25
+    |
+383 |                 fragment[dst_top + PIXEL * (w + pad_w + i)..dst_top + PIXEL * (w + pad_w + i + 1)]
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:387:25
+    |
+387 |                 fragment[dst_bottom + PIXEL * i..dst_bottom + PIXEL * (i + 1)]
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0608]: cannot index into a value of type `BufferViewMut`
+   --> vendor\iced\wgpu\src\image\atlas.rs:391:25
+    |
+391 |                   fragment[dst_bottom + PIXEL * (w + pad_w + i)
+    |  _________________________^
+392 | |                     ..dst_bottom + PIXEL * (w + pad_w + i + 1)]
+    | |_______________________________________________________________^
+
+error[E0308]: mismatched types
+  --> vendor\iced\wgpu\src\image\mod.rs:96:35
+   |
+96 |             bind_group_layouts: &[&constant_layout, &texture_layout],
+   |                                   ^^^^^^^^^^^^^^^^ expected `Option<&BindGroupLayout>`, found `&BindGroupLayout`
+   |
+   = note:   expected enum `Option<&wgpu::BindGroupLayout>`
+           found reference `&wgpu::BindGroupLayout`
+help: try wrapping the expression in `Some`
+   |
+96 |             bind_group_layouts: &[Some(&constant_layout), &texture_layout],
+   |                                   +++++                +
+
+Some errors have detailed explanations: E0308, E0608.
+For more information about an error, try `rustc --explain E0308`.
+   Compiling netrender_text v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender_text)
+error: could not compile `iced_wgpu` (lib) due to 10 previous errors
+warning: build failed, waiting for other jobs to finish...

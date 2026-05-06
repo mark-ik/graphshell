@@ -10,7 +10,7 @@ use crate::app::workbench_layout_policy::evaluate_layout_policy_report;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::ux_tree::UxTreeSnapshot;
 
-use super::arrangement_graph_bridge::ArrangementSnapshot;
+use super::composition::arrangement_graph_bridge::ArrangementSnapshot;
 #[cfg(feature = "egui-host")]
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 

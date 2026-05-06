@@ -1,0 +1,120 @@
+
+warning: unused import: `WorkbenchIntent`
+   --> shell\desktop\runtime\registries\mod.rs:136:5
+    |
+136 |     WorkbenchIntent,
+    |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> shell\desktop\ui\gui_state.rs:6:5
+  |
+6 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::viewer_host::ViewerSurfaceHost`
+  --> shell\desktop\ui\gui_state.rs:32:5
+   |
+32 | use graphshell_core::viewer_host::ViewerSurfaceHost;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToolbarEditable`
+  --> shell\desktop\ui\gui_state.rs:62:19
+   |
+62 |     ToolbarDraft, ToolbarEditable, ToolbarState,
+   |                   ^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::FocusAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:143:16
+    |
+143 | pub(crate) use graphshell_core::shell_state::authorities::FocusAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::CommandAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:266:16
+    |
+266 | pub(crate) use graphshell_core::shell_state::authorities::CommandAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AtomicU64` and `Ordering`
+  --> shell\desktop\ui\iced_app\mod.rs:80:25
+   |
+80 | use std::sync::atomic::{AtomicU64, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `ContextMenuEntry`
+  --> shell\desktop\ui\iced_app\mod.rs:88:44
+   |
+88 | use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, animation, tokens};
+   |                                            ^^^^^^^^^^^^^^^^
+
+warning: unused import: `euclid::default::Vector2D`
+  --> shell\desktop\ui\iced_app\state.rs:14:5
+   |
+14 | use euclid::default::Vector2D;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GraphCanvasState`
+  --> shell\desktop\ui\iced_graph_canvas.rs:26:45
+   |
+26 |     GraphCanvasMessage, GraphCanvasProgram, GraphCanvasState,
+   |                                             ^^^^^^^^^^^^^^^^
+
+warning: unused import: `IcedTextureHandle`
+  --> shell\desktop\ui\iced_host.rs:25:80
+   |
+25 | use crate::shell::desktop::ui::iced_host_ports::{CachedTexture, IcedHostPorts, IcedTextureHandle};
+   |                                                                                ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashSet`
+  --> shell\desktop\workbench\ux_tree_source.rs:34:5
+   |
+34 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `GRAPHSHELL_SCHEME_PREFIX`, `GRAPH_SCHEME_PREFIX`, `NODE_SCHEME_PREFIX`, `NOTES_SCHEME_PREFIX`, `VERSO_SCHEME_PREFIX`, and `truncate_with_ellipsis`
+  --> util.rs:22:5
+   |
+22 |     GRAPHSHELL_SCHEME_PREFIX, GRAPH_SCHEME_PREFIX, GraphAddress, GraphshellSettingsPath,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+23 |     NODE_SCHEME_PREFIX, NOTES_SCHEME_PREFIX, NodeAddress, NoteAddress, VERSO_SCHEME_PREFIX,
+   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^
+24 |     VersoAddress, VersoViewTarget, truncate_with_ellipsis,
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CompactCode` and `UdcEntry`
+  --> registries\atomic\knowledge.rs:14:5
+   |
+14 |     CompactCode, KnowledgeRegistry, SemanticClassVector, TagValidationResult, UdcEntry,
+   |     ^^^^^^^^^^^                                                               ^^^^^^^^
+
+warning: unused imports: `ContentStream`, `ProtocolContractResolution`, `ProtocolError`, and `ProtocolHandler`
+  --> registries\atomic\protocol.rs:16:5
+   |
+16 |     ContentStream, ProtocolContractRegistry, ProtocolContractResolution, ProtocolError,
+   |     ^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+17 |     ProtocolHandler,
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `ProtocolHandlerProvider`
+  --> registries\atomic\protocol_provider.rs:14:36
+   |
+14 | pub(crate) use register_protocol::{ProtocolHandlerProvider, ProtocolHandlerProviders};
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> registries\atomic\viewer.rs:13:5
+   |
+13 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `VIEWER_ID_FALLBACK`, `ViewerDescriptor`, and `ViewerHandler`
+  --> registries\atomic\viewer.rs:18:23
+   |
+18 |     ViewerCapability, ViewerDescriptor, ViewerHandler, ViewerRegistry, ViewerRenderMode,
+   |                       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+19 |     ViewerSelection, ViewerSubsystemCapabilities, VIEWER_ID_FALLBACK,
+   |                                                   ^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0412`.
+warning: `graphshell` (lib) generated 20 warnings
+error: could not compile `graphshell` (lib) due to 2 previous errors; 20 warnings emitted

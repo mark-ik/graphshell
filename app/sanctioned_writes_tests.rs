@@ -139,7 +139,7 @@ const SET_NODE_HISTORY_ALLOWED_FILES: &[&str] = &[
 const NODE_REPLACE_HISTORY_ALLOWED_FILES: &[&str] = &[
     "crates/graphshell-core/src/graph/mod.rs",
     "graph_app_tests.rs",
-    "app/clip_capture.rs",
+    "app/app_ux/clip_capture.rs",
     "render/panels.rs",
     "shell/desktop/ui/workbench_host.rs",
     "shell/desktop/runtime/registries/index.rs",
@@ -185,13 +185,16 @@ fn no_unsanctioned_node_replace_history_state_writes() {
 // ── §12.1 — Arrangement-to-graph bridge sole-writer ─────────────────────────
 
 /// Allowlist shared by both arrangement-helper guards. The two helpers live
-/// in `app/graph_mutations.rs` (definition + internal composition) and are
-/// only reached from `app/arrangement_graph_bridge.rs` on the production
-/// path. A new file here means a new caller is entering the bridge \u2014
+/// in `app/graph_runtime/graph_mutations.rs` (definition + internal
+/// composition) and are only reached from
+/// `app/composition/arrangement_graph_bridge.rs` on the production path.
+/// A new file here means a new caller is entering the bridge \u2014
 /// either re-route through `GraphBrowserApp::apply_arrangement_snapshot` or
 /// justify the new bypass.
-const ARRANGEMENT_HELPER_ALLOWED_FILES: &[&str] =
-    &["app/graph_mutations.rs", "app/arrangement_graph_bridge.rs"];
+const ARRANGEMENT_HELPER_ALLOWED_FILES: &[&str] = &[
+    "app/graph_runtime/graph_mutations.rs",
+    "app/composition/arrangement_graph_bridge.rs",
+];
 
 #[test]
 fn no_unsanctioned_add_arrangement_relation_calls() {

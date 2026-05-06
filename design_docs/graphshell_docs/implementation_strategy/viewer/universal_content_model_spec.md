@@ -213,7 +213,24 @@ The following viewer backends are defined for non-HTTP content. Each is an `Embe
 | `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in the clip-address family defined by the clipping spec; canonical clip namespace pending resolution |
 | `FallbackViewer` | anything unmatched | n/a | Placeholder surface; shows address, detected MIME, and "No viewer available" message |
 
-**Invariant**: All non-web viewers use `TileRenderMode::EmbeddedHost`. No non-web viewer may use `NativeOverlay` or `CompositedTexture`.
+**Invariant** (current; under retirement): All non-web viewers use
+`TileRenderMode::EmbeddedHost`. No non-web viewer may use
+`NativeOverlay` or `CompositedTexture`.
+
+**Retirement note (2026-05-04)**: This invariant inverts under the
+[2026-04-30 renderer plan §4.4](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md).
+Post-retirement, non-web viewers split:
+
+- **Tool/diagnostic-shaped non-web viewers** (settings, metadata, fallback,
+  directory) become plain iced widget trees with no `TileRenderMode` tag.
+- **GPU-textured non-web viewers** (image, video, future PDF) use
+  `CompositedTexture`.
+- **Document-shaped non-web viewers** (markdown, gemini, plaintext via the
+  middlenet stack) — destination depends on the Netrender outcome (renderer
+  plan's 2026-05-04 status note); HOLD until one Netrender path lands.
+
+Serde aliases for `EmbeddedEgui`/`EmbeddedHost` payloads are preserved for
+one release cycle past the variant's removal.
 
 ### 6.1 PlaintextViewer
 

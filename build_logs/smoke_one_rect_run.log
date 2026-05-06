@@ -1,0 +1,5 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running `target\debug\examples\smoke_one_rect.exe`
+smoke_one_rect: wrote C:\Users\mark_\Code\repos\graphshell\crates\middlenet-netrender-bridge\examples\output\smoke_one_rect.png
+  expected: 320x200 image, slate background, teal inset rect
+  scene pushed 2 primitives; render_vello returned without error

@@ -413,12 +413,12 @@ fn graph_surface_select_all_mode_from_input(
     ctx.input(|input| {
         if crate::input::graph_view_action_binding_pressed(
             input,
-            crate::shell::desktop::runtime::registries::input::action_id::graph::SELECT_VISIBLE,
+            register_input::action_id::graph::SELECT_VISIBLE,
         ) {
             Some(GraphSurfaceSelectAllMode::Visible)
         } else if crate::input::graph_view_action_binding_pressed(
             input,
-            crate::shell::desktop::runtime::registries::input::action_id::graph::SELECT_ALL,
+            register_input::action_id::graph::SELECT_ALL,
         ) {
             Some(GraphSurfaceSelectAllMode::All)
         } else {

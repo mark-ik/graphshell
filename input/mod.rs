@@ -12,7 +12,7 @@ use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
 };
 #[cfg(feature = "egui-host")]
-use crate::shell::desktop::runtime::registries::input::{InputBinding, action_id};
+use register_input::{InputBinding, action_id};
 #[cfg(feature = "egui-host")]
 use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -67,7 +67,7 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
     match binding {
         InputBinding::Key { modifiers, keycode } => {
             let active_modifiers =
-                crate::shell::desktop::runtime::registries::input::ModifierMask::from_egui(
+                register_input::ModifierMask::from_egui(
                     &input.modifiers,
                 );
             if active_modifiers != *modifiers {
@@ -75,50 +75,50 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
             }
 
             match keycode {
-                crate::shell::desktop::runtime::registries::input::Keycode::Named(named) => {
+                register_input::Keycode::Named(named) => {
                     let expected = match named {
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Enter => {
+                        register_input::NamedKey::Enter => {
                             Key::Enter
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::ArrowLeft => {
+                        register_input::NamedKey::ArrowLeft => {
                             Key::ArrowLeft
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::ArrowRight => {
+                        register_input::NamedKey::ArrowRight => {
                             Key::ArrowRight
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F5 => Key::F5,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F1 => Key::F1,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F2 => Key::F2,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F3 => Key::F3,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F6 => Key::F6,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F7 => Key::F7,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::F9 => Key::F9,
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Home => {
+                        register_input::NamedKey::F5 => Key::F5,
+                        register_input::NamedKey::F1 => Key::F1,
+                        register_input::NamedKey::F2 => Key::F2,
+                        register_input::NamedKey::F3 => Key::F3,
+                        register_input::NamedKey::F6 => Key::F6,
+                        register_input::NamedKey::F7 => Key::F7,
+                        register_input::NamedKey::F9 => Key::F9,
+                        register_input::NamedKey::Home => {
                             Key::Home
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Escape => {
+                        register_input::NamedKey::Escape => {
                             Key::Escape
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Delete => {
+                        register_input::NamedKey::Delete => {
                             Key::Delete
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Backspace => {
+                        register_input::NamedKey::Backspace => {
                             Key::Backspace
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Plus => {
+                        register_input::NamedKey::Plus => {
                             Key::Plus
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Minus => {
+                        register_input::NamedKey::Minus => {
                             Key::Minus
                         }
-                        crate::shell::desktop::runtime::registries::input::NamedKey::Num0 => {
+                        register_input::NamedKey::Num0 => {
                             Key::Num0
                         }
                     };
                     input.key_pressed(expected)
                         || (expected == Key::Plus && input.key_pressed(Key::Equals))
                 }
-                crate::shell::desktop::runtime::registries::input::Keycode::Char(ch) => {
+                register_input::Keycode::Char(ch) => {
                     let expected = match ch.to_ascii_lowercase() {
                         'a' => Key::A,
                         'c' => Key::C,
@@ -151,7 +151,7 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
 fn action_binding_pressed(
     input: &egui::InputState,
     action_id: &str,
-    bindings: &[crate::shell::desktop::runtime::registries::input::InputActionBindingDescriptor],
+    bindings: &[register_input::InputActionBindingDescriptor],
 ) -> bool {
     bindings
         .iter()

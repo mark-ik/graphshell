@@ -84,7 +84,7 @@ impl super::GraphBrowserApp {
     fn semantic_navigation_runtime_for_node(
         &self,
         key: super::NodeKey,
-    ) -> Option<super::workspace_state::SemanticNavigationNodeRuntime> {
+    ) -> Option<super::SemanticNavigationNodeRuntime> {
         let node = self.workspace.domain.graph.get_node(key)?;
         let summary = node.history_semantic_summary();
         let branch = node.history_branch_projection();
@@ -102,7 +102,7 @@ impl super::GraphBrowserApp {
             .iter()
             .map(|visit| visit.alternate_children.len())
             .sum();
-        Some(super::workspace_state::SemanticNavigationNodeRuntime {
+        Some(super::SemanticNavigationNodeRuntime {
             node_id: node.id,
             current_url: summary.current_url,
             last_visit_at_ms,
@@ -186,7 +186,7 @@ impl super::GraphBrowserApp {
         limit: usize,
     ) -> Vec<(
         super::NodeKey,
-        super::workspace_state::SemanticNavigationNodeRuntime,
+        super::SemanticNavigationNodeRuntime,
     )> {
         let mut rows = self
             .workspace
@@ -222,7 +222,7 @@ impl super::GraphBrowserApp {
     pub fn semantic_navigation_runtime_for_node_key(
         &self,
         key: super::NodeKey,
-    ) -> Option<&super::workspace_state::SemanticNavigationNodeRuntime> {
+    ) -> Option<&super::SemanticNavigationNodeRuntime> {
         self.workspace
             .graph_runtime
             .semantic_navigation
@@ -231,7 +231,7 @@ impl super::GraphBrowserApp {
     }
 
     pub fn semantic_navigation_attention_score(
-        runtime: &super::workspace_state::SemanticNavigationNodeRuntime,
+        runtime: &super::SemanticNavigationNodeRuntime,
     ) -> usize {
         runtime.visit_count
             + runtime.branch_points.saturating_mul(2)
@@ -243,7 +243,7 @@ impl super::GraphBrowserApp {
         limit: usize,
     ) -> Vec<(
         super::NodeKey,
-        super::workspace_state::SemanticNavigationNodeRuntime,
+        super::SemanticNavigationNodeRuntime,
         usize,
     )> {
         let mut rows = self

@@ -93,7 +93,10 @@ impl Pipeline {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("iced_wgpu::image pipeline layout"),
-            bind_group_layouts: &[&constant_layout, &texture_layout],
+            // wgpu 29 changed bind_group_layouts to `&[Option<&BindGroupLayout>]`.
+            // Bit-rot patch (2026-05-04) for the iced image feature, which
+            // graphshell main doesn't enable so this had drifted.
+            bind_group_layouts: &[Some(&constant_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
 

@@ -1,0 +1,467 @@
+warning: unused import: `crate::layout::SplitBoundary`
+   --> crates\graph-tree\src\tree.rs:228:13
+    |
+228 |         use crate::layout::SplitBoundary;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::layout::SplitBoundary`
+   --> crates\graph-tree\src\tree.rs:291:13
+    |
+291 |         use crate::layout::SplitBoundary;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `graph-tree` (lib) generated 2 warnings (run `cargo fix --lib -p graph-tree` to apply 2 suggestions)
+warning: unused import: `HashSet`
+  --> crates\graph-canvas\src\layout\static_layouts.rs:19:33
+   |
+19 | use std::collections::{HashMap, HashSet, VecDeque};
+   |                                 ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graph-canvas` (lib) generated 1 warning (run `cargo fix --lib -p graph-canvas` to apply 1 suggestion)
+warning: method `matches_text` is never used
+  --> crates\graphshell-core\src\graph\filter.rs:52:8
+   |
+51 | impl FacetScalar {
+   | ---------------- method in this implementation
+52 |     fn matches_text(&self, text: &str) -> bool {
+   |        ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graphshell-core` (lib) generated 1 warning
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:357:15
+    |
+357 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:360:15
+    |
+360 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:376:15
+    |
+376 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:388:15
+    |
+388 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:410:15
+    |
+410 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:413:15
+    |
+413 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `register-viewer` (lib) generated 6 warnings
+warning: constant `LAYOUT_ID_DEFAULT` is never used
+ --> crates\registrar\register-lens\src\layout.rs:3:11
+  |
+3 | pub const LAYOUT_ID_DEFAULT: &str = "layout:default";
+  |           ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `LAYOUT_ID_GRID` is never used
+ --> crates\registrar\register-lens\src\layout.rs:4:11
+  |
+4 | pub const LAYOUT_ID_GRID: &str = "layout:grid";
+  |           ^^^^^^^^^^^^^^
+
+warning: struct `LayoutResolution` is never constructed
+  --> crates\registrar\register-lens\src\layout.rs:19:12
+   |
+19 | pub struct LayoutResolution {
+   |            ^^^^^^^^^^^^^^^^
+
+warning: function `resolve_layout_mode` is never used
+  --> crates\registrar\register-lens\src\layout.rs:27:8
+   |
+27 | pub fn resolve_layout_mode(layout_id: &str) -> LayoutResolution {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `layout_mode_id` is never used
+  --> crates\registrar\register-lens\src\layout.rs:66:8
+   |
+66 | pub fn layout_mode_id(layout: &LayoutMode) -> &'static str {
+   |        ^^^^^^^^^^^^^^
+
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:106:11
+    |
+106 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:323:11
+    |
+323 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `register-lens` (lib) generated 5 warnings
+warning: `register-input` (lib) generated 2 warnings
+   Compiling graphshell v0.0.1 (C:\Users\mark_\Code\repos\graphshell)
+warning: unused imports: `FrameHintTabRuntime`, `FrameTileGroupRuntimeState`, `GraphTooltipTarget`, and `WorkbenchNavigationGeometry`
+   --> graph_app.rs:203:20
+    |
+203 |     ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphTooltipTarget,
+    |                    ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+204 |     GraphViewRuntimeState, NavigatorSpecialtyView, SemanticNavigationNodeRuntime,
+205 |     SemanticNavigationRuntimeState, VisibleNavigationRegionSet, WorkbenchNavigationGeometry,
+    |                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED`, `CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED`, and `CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT`
+  --> app\runtime_ports.rs:25:46
+   |
+25 |     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
+   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |     CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED, CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GraphBrowserApp`
+  --> input\mod.rs:12:18
+   |
+12 |     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
+   |                  ^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK`
+  --> shell\desktop\runtime\diagnostics.rs:21:5
+   |
+21 | use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> shell\desktop\ui\gui_state.rs:6:5
+  |
+6 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::viewer_host::ViewerSurfaceHost`
+  --> shell\desktop\ui\gui_state.rs:32:5
+   |
+32 | use graphshell_core::viewer_host::ViewerSurfaceHost;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToolbarEditable`
+  --> shell\desktop\ui\gui_state.rs:62:19
+   |
+62 |     ToolbarDraft, ToolbarEditable, ToolbarState,
+   |                   ^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::FocusAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:143:16
+    |
+143 | pub(crate) use graphshell_core::shell_state::authorities::FocusAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::CommandAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:266:16
+    |
+266 | pub(crate) use graphshell_core::shell_state::authorities::CommandAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AtomicU64` and `Ordering`
+  --> shell\desktop\ui\iced_app\mod.rs:80:25
+   |
+80 | use std::sync::atomic::{AtomicU64, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `ContextMenuEntry`
+  --> shell\desktop\ui\iced_app\mod.rs:88:44
+   |
+88 | use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, animation, tokens};
+   |                                            ^^^^^^^^^^^^^^^^
+
+warning: unused import: `euclid::default::Vector2D`
+  --> shell\desktop\ui\iced_app\state.rs:14:5
+   |
+14 | use euclid::default::Vector2D;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GraphCanvasState`
+  --> shell\desktop\ui\iced_graph_canvas.rs:26:45
+   |
+26 |     GraphCanvasMessage, GraphCanvasProgram, GraphCanvasState,
+   |                                             ^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashSet`
+  --> shell\desktop\workbench\ux_tree_source.rs:34:5
+   |
+34 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `GRAPHSHELL_SCHEME_PREFIX`, `GRAPH_SCHEME_PREFIX`, `NODE_SCHEME_PREFIX`, `NOTES_SCHEME_PREFIX`, `VERSO_SCHEME_PREFIX`, and `truncate_with_ellipsis`
+  --> util.rs:22:5
+   |
+22 |     GRAPHSHELL_SCHEME_PREFIX, GRAPH_SCHEME_PREFIX, GraphAddress, GraphshellSettingsPath,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+23 |     NODE_SCHEME_PREFIX, NOTES_SCHEME_PREFIX, NodeAddress, NoteAddress, VERSO_SCHEME_PREFIX,
+   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^
+24 |     VersoAddress, VersoViewTarget, truncate_with_ellipsis,
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `UdcEntry`
+  --> registries\atomic\knowledge.rs:14:79
+   |
+14 |     CompactCode, KnowledgeRegistry, SemanticClassVector, TagValidationResult, UdcEntry,
+   |                                                                               ^^^^^^^^
+
+warning: unused imports: `ContentStream`, `ProtocolContractResolution`, `ProtocolError`, and `ProtocolHandler`
+  --> registries\atomic\protocol.rs:16:5
+   |
+16 |     ContentStream, ProtocolContractRegistry, ProtocolContractResolution, ProtocolError,
+   |     ^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+17 |     ProtocolHandler,
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `ProtocolHandlerProvider`
+  --> registries\atomic\protocol_provider.rs:14:36
+   |
+14 | pub(crate) use register_protocol::{ProtocolHandlerProvider, ProtocolHandlerProviders};
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> registries\atomic\viewer.rs:13:5
+   |
+13 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `VIEWER_ID_FALLBACK`, `ViewerDescriptor`, and `ViewerHandler`
+  --> registries\atomic\viewer.rs:18:23
+   |
+18 |     ViewerCapability, ViewerDescriptor, ViewerHandler, ViewerRegistry, ViewerRenderMode,
+   |                       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+19 |     ViewerSelection, ViewerSubsystemCapabilities, VIEWER_ID_FALLBACK,
+   |                                                   ^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `source`
+    --> app\workspace_routing\workspace_routing.rs:1763:13
+     |
+1763 |         let source =
+     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_source`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graphshell` (lib test) generated 21 warnings (run `cargo fix --lib -p graphshell --tests` to apply 21 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.92s
+     Running unittests lib.rs (target\debug\deps\graphshell-2637e8c2b527cd66.exe)
+
+running 163 tests
+test app::action_surface::tests::graph_clear_closes_all_graph_scoped_surfaces ... ok
+test app::graph_runtime::graph_cartography::tests::cartography_adapter_maps_existing_graph_mutation_intents ... ok
+test app::graph_runtime::graph_cartography::tests::cartography_adapter_maps_existing_runtime_lifecycle_intents ... ok
+test app::graph_runtime::graph_layout::tests::layout_resolution_accepts_legacy_aliases ... ok
+test app::graph_runtime::graph_views::tests::apply_physics_policy_override_updates_policy_fields ... ok
+test app::graph_runtime::graph_views::tests::apply_filter_override_marks_view_override_provenance ... ok
+test app::graph_runtime::graph_views::tests::graph_view_state_defaults_to_browse_scene_mode ... ok
+test app::graph_runtime::graph_views::tests::graph_view_state_scene_simulate_toggles_default_off ... ok
+test app::graph_runtime::graph_layout::tests::grid_layout_repositions_nodes ... ok
+test app::graph_runtime::graph_views::tests::deserialize_legacy_lens_snapshot_upgrades_into_policy_surfaces ... ok
+test app::graph_runtime::graph_layout::tests::tree_layout_assigns_layered_y_positions ... ok
+test app::graph_runtime::graph_views::tests::graph_view_state_scene_mode_round_trips_through_serde ... ok
+test app::graph_runtime::graph_views::tests::replace_graph_view_scene_region_updates_label_and_effect ... ok
+test app::graph_runtime::graph_views::tests::clearing_scene_regions_preserves_bounds_override_runtime ... ok
+test app::graph_runtime::graph_views::tests::clearing_scene_regions_removes_empty_runtime_entry ... ok
+test app::graph_runtime::graph_views::tests::clearing_scene_runtime_removes_selected_scene_region ... ok
+test app::graph_runtime::graph_views::tests::remove_graph_view_scene_region_clears_selection_when_deleted ... ok
+test app::graph_runtime::graph_views::tests::set_graph_view_scene_mode_creates_missing_view_and_marks_dirty ... ok
+test app::graph_runtime::graph_views::tests::set_graph_view_scene_regions_registers_runtime_regions ... ok
+test app::graph_runtime::graph_views::tests::set_graph_view_scene_simulate_toggles_create_missing_view_and_mark_dirty ... ok
+test app::graph_runtime::graph_views::tests::move_graph_view_slot_swaps_with_occupied_slot ... ok
+test app::graph_runtime::graph_views::tests::resize_graph_view_scene_region_to_pointer_updates_circle_radius ... ok
+test app::graph_runtime::graph_cartography::tests::graph_app_queues_cartography_invalidations_from_reducer ... ok
+test app::graph_runtime::graph_views::tests::clear_graph_view_scene_runtime_removes_all_scene_state ... ok
+test app::graph_runtime::graph_views::tests::translate_graph_view_scene_region_moves_region_shape ... ok
+test app::intent_system::intents::tests::workspace_grant_requirement_marks_graph_and_trust_mutations_as_readwrite ... ok
+test app::tests::graph_intent_category_helpers_expose_view_runtime_and_mutation_seams ... ok
+test app::tests::apply_view_actions_dispatches_without_graph_intent_wrapper ... ok
+test app::tests::graph_view_layout_manager_entry_exit_and_toggle_intents_update_state ... ok
+test app::sanctioned_writes_tests::host_adapters_do_not_call_apply_graph_delta_and_sync ... ok
+test app::tests::graph_view_slot_move_swaps_with_existing_occupant ... ok
+test app::tests::history_preview_render_graph_prefers_detached_preview_graph ... ok
+test app::tests::graph_view_slot_lifecycle_create_rename_move_archive_restore ... ok
+test app::tests::create_graph_view_slot_starts_empty_when_ownership_partition_is_active ... ok
+test app::tests::history_preview_blocks_graph_mutations_and_records_isolation_violation ... ok
+test app::tests::persisted_graph_view_layout_manager_shape_round_trips ... ok
+test app::graph_runtime::graph_views::tests::apply_resolved_lens_identity_preserves_layout_and_physics_overrides ... ok
+test app::tests::resolve_graph_route_accepts_graph_scheme ... ok
+test app::tests::resolve_view_route_accepts_graph_target_variant ... ok
+test app::tests::apply_runtime_events_dispatches_without_graph_intent_wrapper ... ok
+test app::graph_runtime::graph_views::tests::set_view_lens_id_preserves_existing_overrides ... ok
+test app::graph_runtime::graph_views::tests::refresh_registry_backed_view_lenses_preserves_active_filter_override ... ok
+test app::tests::route_graph_view_to_workbench_enqueues_open_graph_view_pane_intent ... ok
+test app::tests::test_camera_locks_are_scoped_per_graph_view ... ok
+test app::tests::test_clear_graph_and_persistence_in_memory_reset ... ok
+test app::tests::set_navigator_specialty_view_creates_view_with_graphlet_mask ... ok
+test app::tests::test_clear_graph_clears_runtime_crash_state ... ok
+test app::tests::import_webfinger_into_graph_reuses_existing_nodes_without_clobbering_titles ... ok
+test app::tests::graph_view_region_mutations_emit_diagnostic_channel ... ok
+test app::tests::graph_view_transfer_emits_success_and_blocked_channels ... ok
+test app::tests::clear_graph_focused_view_reset_emits_ux_navigation_transition_channel ... ok
+test app::tests::import_person_identity_into_graph_reuses_existing_person_for_resolved_identity_matches ... ok
+test app::tests::test_clear_graph_resets_everything ... ok
+test app::tests::test_clear_graph_resets_navigator_projection_state ... ok
+test app::tests::test_placeholder_id_scan_empty_graph ... ok
+test app::tests::test_create_new_node_near_center_empty_graph ... ok
+test app::tests::test_navigator_projection_state_defaults_are_graph_owned ... ok
+test app::workspace_routing::routing::tests::resolve_graph_route_valid ... ok
+test app::tests::test_file_tree_projection_rebuild_populates_node_rows_for_graph_source ... ok
+test app::tests::test_set_view_filter_does_not_mutate_graph_node_identity ... ok
+test app::tests::transfer_selected_nodes_to_graph_view_materializes_ownership_and_moves_selection ... ok
+test app::ux_navigation::tests::open_scene_overlay_targets_requested_graph_view ... ok
+test app::workspace_routing::workspace_commands::tests::graph_search_request_can_explicitly_clear_query ... ok
+test app::workspace_routing::workspace_commands::tests::graph_search_request_replaces_previous_request ... ok
+test app::workspace_routing::workspace_routing::tests::graphlet_peers_for_view_uses_graph_default_projection ... ok
+test graph::frame_affinity::tests::derive_regions_empty_graph ... ok
+test app::workspace_routing::workspace_routing::tests::graphlet_partitions_for_view_respects_visible_view_scope ... ok
+test graph::frame_affinity::tests::stable_frame_color_wraps ... ok
+test graph::frame_affinity::tests::derive_regions_two_members_included ... ok
+test graph::graphlet::tests::derive_component_includes_full_connected_region ... ok
+test graph::frame_affinity::tests::derive_regions_single_member_excluded ... ok
+test graph::graphlet::tests::derive_corridor_finds_shortest_path ... ok
+test app::workspace_routing::workspace_routing::tests::graphlet_peers_for_view_prefers_selection_override_for_selected_seed ... ok
+test graph::graphlet::tests::derive_corridor_with_unreachable_nodes_returns_anchors ... ok
+test graph::graphlet::tests::derive_ego_radius_1_returns_direct_neighbors_only ... ok
+test graph::graphlet::tests::derive_ego_radius_2_includes_two_hop_nodes ... ok
+test graph::graphlet::tests::derive_graphlet_internal_edges_are_collected ... ok
+test graph::graphlet::tests::derive_graphlet_scope_max_hops_bounds_ego ... ok
+test graph::graphlet::tests::derive_frontier_members_excludes_second_hop ... ok
+test graph::graphlet::tests::derive_session_follows_traversal_edges ... ok
+test graph::graphlet::tests::derive_workbench_correspondence_returns_anchors_as_members ... ok
+test graph::graphlet::tests::empty_graph_returns_empty ... ok
+test graph::graphlet::tests::direct_neighbors_follow_selector_projection ... ok
+test graph::graphlet::tests::direct_durable_neighbors_one_hop_only ... ok
+test graph::graphlet::tests::frame_member_edge_links_peers ... ok
+test graph::graphlet::tests::graphlet_members_for_multiple_seeds_follows_selector_projection ... ok
+test graph::graphlet::tests::history_edge_does_not_link_peers ... ok
+test graph::graphlet::tests::isolated_node_has_no_peers ... ok
+test graph::graphlet::tests::hyperlink_edge_does_not_link_peers ... ok
+test app::tests::import_webfinger_into_graph_creates_identity_cluster ... ok
+test graph::physics::tests::apply_graph_physics_tuning_updates_force_directed_state ... ok
+test graph::graphlet::tests::tile_group_arrangement_does_not_link_peers ... ok
+test graph::graphlet::tests::user_grouped_edge_links_peers ... ok
+test graph::physics::tests::graph_physics_extension_config_preserves_parameterized_helpers ... ok
+test app::tests::import_person_identity_into_graph_binds_supported_identities_to_person_node ... ok
+test graph::physics::tests::domain_clustering_pulls_same_domain_nodes_toward_shared_centroid ... ok
+test graph::physics::tests::registrable_domain_key_uses_common_etld_plus_one_heuristic ... ok
+test graph::physics::tests::graph_physics_extension_config_reports_enabled_extensions ... ok
+test graph::physics::tests::archipelago_profile_reduces_same_domain_distance_vs_drift ... ok
+test graph::physics::tests::constellation_profile_keeps_leaves_closer_to_hub_than_settle ... ok
+test graph::physics::tests::degree_repulsion_moves_high_degree_hub_neighbors_apart ... ok
+test graph::physics::tests::hub_pull_moves_leaf_toward_nearby_hub ... ok
+test graph::scene_runtime::tests::node_separation_moves_overlapping_nodes_apart ... ok
+test graph::scene_runtime::tests::region_effect_scale_amplifies_scene_region_motion ... ok
+test graph::physics::tests::resonance_profile_reduces_semantic_pair_distance_vs_drift ... ok
+test graph::scene_runtime::tests::float_preset_coasts_farther_than_packed ... ok
+test graph::scene_runtime::tests::lower_containment_response_leaves_more_drift_after_one_pass ... ok
+test graph::scene_runtime::tests::region_attractor_pulls_node_toward_region_center ... ok
+test graph::scene_runtime::tests::pinned_nodes_do_not_move_during_node_separation ... ok
+test graph::scene_runtime::tests::resize_shape_updates_circle_radius_from_pointer_distance ... ok
+test graph::scene_runtime::tests::resize_shape_updates_rect_from_dragged_corner ... ok
+test graph::scene_runtime::tests::region_repulsor_pushes_node_away_from_region_center ... ok
+test graph::scene_runtime::tests::scene_runtime_is_isolated_per_view ... ok
+test graph::scene_runtime::tests::simulate_release_impulses_clear_outside_simulate_mode ... ok
+test graph::scene_runtime::tests::simulate_release_impulses_coast_then_decay ... ok
+test graph::scene_runtime::tests::translate_shape_moves_circle_center_without_changing_radius ... ok
+test graph::scene_runtime::tests::translate_shape_moves_rect_bounds ... ok
+test model::graph::badge::tests::badges_for_starred_node_prioritizes_star ... ok
+test model::graph::badge::tests::badges_for_pinned_node_prioritizes_pin ... ok
+test model::graph::badge::tests::badges_priority_order_places_crash_and_workspace_first ... ok
+test model::graph::badge::tests::badges_for_node_prefers_presentation_order_and_icon_override ... ok
+test model::graph::badge::tests::compact_badge_token_uses_emoji_or_initial ... ok
+test model::graph::badge::tests::ordered_tags_fall_back_to_sorted_membership_for_missing_entries ... ok
+test model::graph::edge_style_registry::tests::agent_decay_reduces_opacity ... ok
+test model::graph::edge_style_registry::tests::monochrome_mode_preserves_pattern_identity ... ok
+test model::graph::edge_style_registry::tests::family_styles_have_distinct_non_color_signatures ... ok
+test model::graph::edge_style_registry::tests::grayscale_luminance_separates_semantic_from_arrangement ... ok
+test model::graph::edge_style_registry::tests::theme_tokens_satisfy_default_contract ... ok
+test services::facts::projector::tests::projects_add_node_as_graph_structure_addition ... ok
+test graph::scene_runtime::tests::viewport_containment_clamps_nodes_inside_canvas_bounds ... ok
+test services::facts::projector::tests::projects_remove_node_as_graph_structure_removal ... ok
+test services::persistence::types::tests::test_graph_snapshot_roundtrip ... ok
+test graph::scene_runtime::tests::wall_regions_respect_containment_response_scale ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_navigate_handlers_emit_traversal_intents ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_edge_create_emits_grouped_edge_intent ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_executes_graph_view_submit_action ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_node_close_emits_demote_intent ... ok
+test shell::desktop::runtime::registries::protocol::tests::protocol_resolution_supports_graphshell_frame_route_with_internal_hint ... ok
+test shell::desktop::runtime::registries::protocol::tests::protocol_resolution_supports_graphshell_scheme_with_settings_hint ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_node_open_emits_select_and_activate ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_select_and_deselect_emit_selection_intents ... ok
+test shell::desktop::runtime::registries::protocol::tests::protocol_resolution_supports_legacy_graphshell_scheme_with_settings_hint ... ok
+test shell::desktop::runtime::registries::tests::phase3_layout_registry_applies_grid_positions_to_graph ... ok
+test shell::desktop::runtime::registries::tests::phase2_action_registry_graph_submit_updates_selected_node ... ok
+test shell::desktop::runtime::registries::action::tests::action_registry_graph_set_physics_profile_emits_reducer_intent ... ok
+test shell::desktop::runtime::registries::nostr_core::tests::nostr_core_sign_event_produces_cryptographic_local_signature ... ok
+test shell::desktop::workbench::pane_model::tests::graph_pane_ref_round_trips ... ok
+test shell::desktop::ui::iced_app::tests::finder_seeded_from_runtime_graph_on_open ... ok
+test shell::desktop::ui::iced_app::tests::graph_fit_graphlet_action_dispatches ... ok
+test shell::desktop::ui::iced_app::tests::graph_command_palette_action_routes_through_host_intercept ... ok
+test shell::desktop::workbench::pane_model::tests::pane_view_state_graph_round_trips ... ok
+test shell::desktop::ui::iced_app::tests::view_renders_swatches_bucket_empty_graph ... ok
+test shell::desktop::workbench::pane_model::tests::pane_view_state_graph_view_id_accessor ... ok
+test shell::desktop::ui::iced_app::tests::graph_fit_action_dispatches_without_panicking ... ok
+test app::tests::test_new_from_dir_recovers_logged_graph ... ok
+test app::tests::test_clear_graph_and_persistence_wipes_store ... ok
+test services::persistence::tests::test_named_graph_snapshot_roundtrip_and_list_delete ... ok
+test app::tests::history_preview_replay_builds_detached_graph_without_mutating_live_state ... ok
+test app::tests::contract_only_trusted_writers_call_graph_topology_mutators ... ok
+test services::persistence::tests::test_log_clear_graph_recover ... ok
+test app::tests::graph_view_layout_manager_round_trip_and_restore_archived_slot ... ok
+test services::persistence::tests::test_replay_to_timestamp_produces_subset_of_full_graph ... ok
+test app::sanctioned_writes_tests::no_unsanctioned_apply_graph_delta_kernel_calls ... ok
+
+test result: ok. 163 passed; 0 failed; 0 ignored; 0 measured; 852 filtered out; finished in 0.53s
+

@@ -13,7 +13,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
-use crate::shell::desktop::runtime::registries::input::{
+use register_input::{
     InputBinding, InputBindingRemap, InputContext, Keycode, ModifierMask, NamedKey,
 };
 use crate::shell::desktop::runtime::registries::workbench_surface::WorkbenchSurfaceRegistry;

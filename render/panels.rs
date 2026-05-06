@@ -18,7 +18,7 @@ use crate::graph::{
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::input::{
+use register_input::{
     InputBinding, InputBindingSection, InputContext, action_id,
 };
 use crate::shell::desktop::runtime::registries::{

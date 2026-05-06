@@ -1,0 +1,15 @@
+   Compiling serde_derive v1.0.228
+   Compiling serde v1.0.228
+   Compiling middlenet-core v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\middlenet-core)
+   Compiling middlenet-render v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\middlenet-render)
+   Compiling middlenet-netrender-bridge v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\middlenet-netrender-bridge)
+error[E0559]: variant `SemanticBlock::CodeFence` has no field named `language`
+  --> crates\middlenet-netrender-bridge\examples\smoke_render_scene.rs:77:17
+   |
+77 |                 language: Some("rust".to_string()),
+   |                 ^^^^^^^^ `SemanticBlock::CodeFence` does not have this field
+   |
+   = note: available fields are: `lang`
+
+For more information about this error, try `rustc --explain E0559`.
+error: could not compile `middlenet-netrender-bridge` (example "smoke_render_scene") due to 1 previous error

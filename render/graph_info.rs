@@ -555,37 +555,37 @@ pub(super) fn draw_graph_info(
     let lasso_hint = super::canvas_lasso_binding_label(app.lasso_binding_preference());
     let command_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::COMMAND_PALETTE_OPEN,
+            register_input::action_id::graph::COMMAND_PALETTE_OPEN,
         )
         .join(" / ");
     let radial_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::RADIAL_MENU_OPEN,
+            register_input::action_id::graph::RADIAL_MENU_OPEN,
         )
         .join(" / ");
     let help_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::workbench::HELP_OPEN,
+            register_input::action_id::workbench::HELP_OPEN,
         )
         .join(" / ");
     let zoom_in_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_IN,
+            register_input::action_id::graph::ZOOM_IN,
         )
         .join(" / ");
     let zoom_out_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_OUT,
+            register_input::action_id::graph::ZOOM_OUT,
         )
         .join(" / ");
     let zoom_reset_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::ZOOM_RESET,
+            register_input::action_id::graph::ZOOM_RESET,
         )
         .join(" / ");
     let tags_hint =
         crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-            crate::shell::desktop::runtime::registries::input::action_id::graph::NODE_EDIT_TAGS,
+            register_input::action_id::graph::NODE_EDIT_TAGS,
         )
         .join(" / ");
     let controls_text = format!(

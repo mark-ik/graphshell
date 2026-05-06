@@ -1,0 +1,140 @@
+    Updating git repository `https://github.com/linebender/vello`
+    Updating crates.io index
+     Locking 6 packages to latest Rust 1.92.0 compatible versions
+      Adding futures-intrusive v0.5.0
+      Adding netrender v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender)
+      Adding netrender_device v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender_device)
+      Adding vello v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+      Adding vello_encoding v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+      Adding vello_shaders v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.117
+   Compiling naga v29.0.1
+   Compiling kurbo v0.13.0
+   Compiling color v0.3.2
+   Compiling futures-core v0.3.32
+   Compiling futures-intrusive v0.5.0
+   Compiling ordered-float v5.3.0
+   Compiling euclid v0.22.14
+   Compiling peniko v0.6.0
+   Compiling guillotiere v0.7.0
+   Compiling bytemuck_derive v1.10.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling thiserror-impl v2.0.18
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling windows-core v0.62.2
+   Compiling bytemuck v1.25.0
+   Compiling thiserror v2.0.18
+   Compiling zerocopy v0.8.48
+   Compiling wgpu-types v29.0.1
+   Compiling font-types v0.11.3
+   Compiling windows-numerics v0.3.1
+   Compiling windows-future v0.3.2
+   Compiling windows-collections v0.3.2
+   Compiling read-fonts v0.39.2
+   Compiling windows v0.62.2
+   Compiling half v2.7.1
+   Compiling skrifa v0.42.1
+   Compiling gpu-allocator v0.28.0 (C:\Users\mark_\Code\repos\servo-wgpu\support\patches\gpu-allocator)
+   Compiling vello_encoding v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling vello_shaders v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling wgpu-naga-bridge v29.0.1
+   Compiling wgpu-hal v29.0.1
+   Compiling wgpu-core-deps-windows-linux-android v29.0.0
+   Compiling wgpu-core v29.0.1
+   Compiling wgpu v29.0.1
+   Compiling netrender_device v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender_device)
+   Compiling vello v0.8.0 (https://github.com/linebender/vello?branch=main#ac0a35b4)
+   Compiling netrender v0.0.1 (C:\Users\mark_\Code\repos\webrender-wgpu\netrender)
+   Compiling middlenet-netrender-bridge v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\middlenet-netrender-bridge)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:59:20
+   |
+59 |         dimension: wgpu::TextureDimension::D2,
+   |                    ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:60:17
+   |
+60 |         format: wgpu::TextureFormat::Rgba8Unorm,
+   |                 ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:61:16
+   |
+61 |         usage: wgpu::TextureUsages::STORAGE_BINDING
+   |                ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:62:15
+   |
+62 |             | wgpu::TextureUsages::TEXTURE_BINDING
+   |               ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:63:15
+   |
+63 |             | wgpu::TextureUsages::COPY_SRC,
+   |               ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:64:25
+   |
+64 |         view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+   |                         ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:68:22
+   |
+68 |         format: Some(wgpu::TextureFormat::Rgba8Unorm),
+   |                      ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:72:59
+   |
+72 |     renderer.render_vello(&scene, &view, ColorLoad::Clear(wgpu::Color::BLACK));
+   |                                                           ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:54:49
+   |
+54 |     let target = handles.device.create_texture(&wgpu::TextureDescriptor {
+   |                                                 ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:56:15
+   |
+56 |         size: wgpu::Extent3d { width: VW, height: VH, depth_or_array_layers: 1 },
+   |               ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wgpu`
+  --> crates\middlenet-netrender-bridge\examples\smoke_one_rect.rs:66:36
+   |
+66 |     let view = target.create_view(&wgpu::TextureViewDescriptor {
+   |                                    ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `middlenet-netrender-bridge` (example "smoke_one_rect") due to 11 previous errors

@@ -1,0 +1,405 @@
+   Compiling rustls v0.23.38
+   Compiling iced_core v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\core)
+   Compiling naga v29.0.1
+   Compiling wgpu-types v29.0.1
+   Compiling av1-grain v0.2.5
+   Compiling av-scenechange v0.14.1
+   Compiling cosmic-text v0.18.2
+   Compiling gpu-allocator v0.28.0 (C:\Users\mark_\Code\repos\servo-wgpu\support\patches\gpu-allocator)
+   Compiling tiny-skia v0.11.4
+   Compiling h2 v0.4.13
+warning: unused import: `crate::layout::SplitBoundary`
+   --> crates\graph-tree\src\tree.rs:228:13
+    |
+228 |         use crate::layout::SplitBoundary;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::layout::SplitBoundary`
+   --> crates\graph-tree\src\tree.rs:291:13
+    |
+291 |         use crate::layout::SplitBoundary;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling regalloc2 v0.13.5
+warning: `graph-tree` (lib) generated 2 warnings (run `cargo fix --lib -p graph-tree` to apply 2 suggestions)
+warning: unused import: `HashSet`
+  --> crates\graph-canvas\src\layout\static_layouts.rs:19:33
+   |
+19 | use std::collections::{HashMap, HashSet, VecDeque};
+   |                                 ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graph-canvas` (lib) generated 1 warning (run `cargo fix --lib -p graph-canvas` to apply 1 suggestion)
+warning: method `matches_text` is never used
+  --> crates\graphshell-core\src\graph\filter.rs:52:8
+   |
+51 | impl FacetScalar {
+   | ---------------- method in this implementation
+52 |     fn matches_text(&self, text: &str) -> bool {
+   |        ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graphshell-core` (lib) generated 1 warning
+   Compiling wasmtime-environ v41.0.4
+   Compiling softbuffer v0.4.8
+   Compiling wit-parser v0.243.0
+   Compiling winit v0.30.8 (https://github.com/iced-rs/winit.git?rev=05b8ff17a06562f0a10bb46e6eaacbe2a95cb5ed#05b8ff17)
+   Compiling selectors v0.37.0 (https://github.com/servo/stylo?rev=bfa746c957ce12bf12936e118b78a806d9ae0d66#bfa746c9)
+   Compiling rav1e v0.8.1
+   Compiling iced_futures v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\futures)
+   Compiling iced_graphics v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\graphics)
+   Compiling iced_debug v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\debug)
+   Compiling cranelift-codegen v0.128.4
+   Compiling iced_tiny_skia v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\tiny_skia)
+   Compiling iced_runtime v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\runtime)
+   Compiling stylo_malloc_size_of v0.16.0 (https://github.com/servo/stylo?rev=bfa746c957ce12bf12936e118b78a806d9ae0d66#bfa746c9)
+   Compiling wasmtime-internal-wit-bindgen v41.0.4
+   Compiling iced_program v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\program)
+   Compiling noq-udp v0.9.0
+   Compiling hyper v1.9.0
+   Compiling tokio-rustls v0.26.4
+   Compiling rustybuzz v0.20.1
+   Compiling wasm-compose v0.243.0
+   Compiling stylo v0.16.0 (https://github.com/servo/stylo?rev=bfa746c957ce12bf12936e118b78a806d9ae0d66#bfa746c9)
+   Compiling noq-proto v0.16.0
+   Compiling wr_glyph_rasterizer v0.68.0
+   Compiling ravif v0.13.0
+   Compiling hyper-util v0.1.20
+   Compiling wasmtime-internal-component-macro v41.0.4
+   Compiling wmi v0.18.4
+   Compiling image v0.25.10
+   Compiling wasmtime-internal-cache v41.0.4
+   Compiling wasmtime-internal-fiber v41.0.4
+   Compiling usvg v0.45.1
+   Compiling hyper-rustls v0.27.8
+   Compiling reqwest v0.12.28
+   Compiling hickory-proto v0.25.2
+   Compiling cbindgen v0.29.2
+   Compiling stylo_traits v0.16.0 (https://github.com/servo/stylo?rev=bfa746c957ce12bf12936e118b78a806d9ae0d66#bfa746c9)
+   Compiling stylo_dom v0.16.0 (https://github.com/servo/stylo?rev=bfa746c957ce12bf12936e118b78a806d9ae0d66#bfa746c9)
+   Compiling attohttpc v0.30.1
+   Compiling wgpu-naga-bridge v29.0.1
+   Compiling plane-split v0.18.0
+   Compiling wgpu-hal v29.0.1
+   Compiling tracing-subscriber v0.3.23
+   Compiling webrender v0.68.0
+   Compiling arboard v3.6.1
+   Compiling iced_winit v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\winit)
+   Compiling noq v0.17.0
+   Compiling hickory-resolver v0.25.2
+   Compiling verso v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\verso)
+   Compiling igd-next v0.16.2
+   Compiling resvg v0.45.1
+   Compiling markup5ever v0.39.0
+   Compiling extism v1.21.0
+   Compiling wgpu-core-deps-windows-linux-android v29.0.0
+   Compiling wgpu-core v29.0.1
+   Compiling netwatch v0.15.0
+   Compiling tokio-websockets v0.12.3
+   Compiling lsm-tree v3.1.3
+   Compiling ureq v3.3.0
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:357:15
+    |
+357 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:360:15
+    |
+360 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:376:15
+    |
+376 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:388:15
+    |
+388 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `pdf`
+   --> crates\registrar\register-viewer\src\lib.rs:410:15
+    |
+410 |         #[cfg(feature = "pdf")]
+    |               ^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `pdf` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `audio`
+   --> crates\registrar\register-viewer\src\lib.rs:413:15
+    |
+413 |         #[cfg(feature = "audio")]
+    |               ^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `audio` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `register-viewer` (lib) generated 6 warnings
+   Compiling portmapper v0.15.0
+   Compiling graphshell v0.0.1 (C:\Users\mark_\Code\repos\graphshell)
+   Compiling tungstenite v0.26.2
+   Compiling iroh-relay v0.97.0
+   Compiling register-diagnostics v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\registrar\register-diagnostics)
+   Compiling parry2d v0.26.0
+   Compiling register-mod-loader v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\registrar\register-mod-loader)
+   Compiling fjall v3.1.3
+   Compiling tokio-tungstenite v0.26.2
+   Compiling tracing-test v0.2.6
+   Compiling graphshell-comms v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\graphshell-comms)
+   Compiling verso-host v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\verso-host)
+   Compiling qrcode v0.14.1
+   Compiling wgpu v29.0.1
+warning: constant `LAYOUT_ID_DEFAULT` is never used
+ --> crates\registrar\register-lens\src\layout.rs:3:11
+  |
+3 | pub const LAYOUT_ID_DEFAULT: &str = "layout:default";
+  |           ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `LAYOUT_ID_GRID` is never used
+ --> crates\registrar\register-lens\src\layout.rs:4:11
+  |
+4 | pub const LAYOUT_ID_GRID: &str = "layout:grid";
+  |           ^^^^^^^^^^^^^^
+
+warning: struct `LayoutResolution` is never constructed
+  --> crates\registrar\register-lens\src\layout.rs:19:12
+   |
+19 | pub struct LayoutResolution {
+   |            ^^^^^^^^^^^^^^^^
+
+warning: function `resolve_layout_mode` is never used
+  --> crates\registrar\register-lens\src\layout.rs:27:8
+   |
+27 | pub fn resolve_layout_mode(layout_id: &str) -> LayoutResolution {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `layout_mode_id` is never used
+  --> crates\registrar\register-lens\src\layout.rs:66:8
+   |
+66 | pub fn layout_mode_id(layout: &LayoutMode) -> &'static str {
+   |        ^^^^^^^^^^^^^^
+
+warning: `register-lens` (lib) generated 5 warnings
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:106:11
+    |
+106 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:323:11
+    |
+323 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `register-input` (lib) generated 2 warnings
+   Compiling wasmtime-internal-unwinder v41.0.4
+   Compiling cranelift-native v0.128.4
+   Compiling cranelift-frontend v0.128.4
+   Compiling cryoglyph v0.1.0 (C:\Users\mark_\Code\repos\graphshell\vendor\cryoglyph)
+   Compiling wasmtime-internal-cranelift v41.0.4
+   Compiling iced_wgpu v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\wgpu)
+   Compiling iced_renderer v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\renderer)
+   Compiling iroh v0.97.0
+   Compiling iced_widget v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced\widget)
+   Compiling wasmtime v41.0.4
+   Compiling iced v0.15.0-dev (C:\Users\mark_\Code\repos\graphshell\vendor\iced)
+   Compiling graphshell-iced-widgets v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\graphshell-iced-widgets)
+   Compiling iced-graph-canvas-viewer v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\iced-graph-canvas-viewer)
+   Compiling iced-middlenet-viewer v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\iced-middlenet-viewer)
+   Compiling iced-wry-viewer v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\iced-wry-viewer)
+   Compiling servo-malloc-size-of v0.1.0 (C:\Users\mark_\Code\repos\servo-wgpu\components\malloc_size_of)
+   Compiling servo-base v0.1.0 (C:\Users\mark_\Code\repos\servo-wgpu\components\shared\base)
+   Compiling wiggle v41.0.4
+   Compiling wasi-common v41.0.4
+error[E0432]: unresolved import `register_mod_loader::loader::compute_active_capabilities_with_disabled`
+   --> registries\infrastructure\mod_loader.rs:18:16
+    |
+ 18 | pub(crate) use register_mod_loader::loader::compute_active_capabilities_with_disabled;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `compute_active_capabilities_with_disabled` in `loader`
+    |
+note: found an item that was configured out
+   --> C:\Users\mark_\Code\repos\graphshell\crates\registrar\register-mod-loader\src\loader.rs:463:8
+    |
+462 | #[cfg(any(test, feature = "test-utils"))]
+    |          ------------------------------ the item is gated here
+463 | pub fn compute_active_capabilities_with_disabled(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED`, `CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED`, and `CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT`
+  --> app\runtime_ports.rs:25:46
+   |
+25 |     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
+   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |     CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED, CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `GraphBrowserApp`
+  --> input\mod.rs:12:18
+   |
+12 |     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
+   |                  ^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK`
+  --> shell\desktop\runtime\diagnostics.rs:21:5
+   |
+21 | use crate::shell::desktop::runtime::registries::CHANNEL_UI_COMMAND_SURFACE_ROUTE_FALLBACK;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> shell\desktop\ui\gui_state.rs:6:5
+  |
+6 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::viewer_host::ViewerSurfaceHost`
+  --> shell\desktop\ui\gui_state.rs:32:5
+   |
+32 | use graphshell_core::viewer_host::ViewerSurfaceHost;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ToolbarEditable`
+  --> shell\desktop\ui\gui_state.rs:62:19
+   |
+62 |     ToolbarDraft, ToolbarEditable, ToolbarState,
+   |                   ^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::FocusAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:143:16
+    |
+143 | pub(crate) use graphshell_core::shell_state::authorities::FocusAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `graphshell_core::shell_state::authorities::CommandAuthorityMut`
+   --> shell\desktop\ui\gui_state.rs:266:16
+    |
+266 | pub(crate) use graphshell_core::shell_state::authorities::CommandAuthorityMut;
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AtomicU64` and `Ordering`
+  --> shell\desktop\ui\iced_app\mod.rs:80:25
+   |
+80 | use std::sync::atomic::{AtomicU64, Ordering};
+   |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `ContextMenuEntry`
+  --> shell\desktop\ui\iced_app\mod.rs:88:44
+   |
+88 | use graphshell_iced_widgets::{ContextMenu, ContextMenuEntry, Modal, TileTab, TileTabs, animation, tokens};
+   |                                            ^^^^^^^^^^^^^^^^
+
+warning: unused import: `euclid::default::Vector2D`
+  --> shell\desktop\ui\iced_app\state.rs:14:5
+   |
+14 | use euclid::default::Vector2D;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GraphCanvasState`
+  --> shell\desktop\ui\iced_graph_canvas.rs:26:45
+   |
+26 |     GraphCanvasMessage, GraphCanvasProgram, GraphCanvasState,
+   |                                             ^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashSet`
+  --> shell\desktop\workbench\ux_tree_source.rs:34:5
+   |
+34 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `GRAPHSHELL_SCHEME_PREFIX`, `GRAPH_SCHEME_PREFIX`, `NODE_SCHEME_PREFIX`, `NOTES_SCHEME_PREFIX`, `VERSO_SCHEME_PREFIX`, and `truncate_with_ellipsis`
+  --> util.rs:22:5
+   |
+22 |     GRAPHSHELL_SCHEME_PREFIX, GRAPH_SCHEME_PREFIX, GraphAddress, GraphshellSettingsPath,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+23 |     NODE_SCHEME_PREFIX, NOTES_SCHEME_PREFIX, NodeAddress, NoteAddress, VERSO_SCHEME_PREFIX,
+   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^
+24 |     VersoAddress, VersoViewTarget, truncate_with_ellipsis,
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `UdcEntry`
+  --> registries\atomic\knowledge.rs:14:79
+   |
+14 |     CompactCode, KnowledgeRegistry, SemanticClassVector, TagValidationResult, UdcEntry,
+   |                                                                               ^^^^^^^^
+
+warning: unused imports: `ContentStream`, `ProtocolContractResolution`, `ProtocolError`, and `ProtocolHandler`
+  --> registries\atomic\protocol.rs:16:5
+   |
+16 |     ContentStream, ProtocolContractRegistry, ProtocolContractResolution, ProtocolError,
+   |     ^^^^^^^^^^^^^                            ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+17 |     ProtocolHandler,
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `ProtocolHandlerProvider`
+  --> registries\atomic\protocol_provider.rs:14:36
+   |
+14 | pub(crate) use register_protocol::{ProtocolHandlerProvider, ProtocolHandlerProviders};
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> registries\atomic\viewer.rs:13:5
+   |
+13 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `VIEWER_ID_FALLBACK`, `ViewerDescriptor`, and `ViewerHandler`
+  --> registries\atomic\viewer.rs:18:23
+   |
+18 |     ViewerCapability, ViewerDescriptor, ViewerHandler, ViewerRegistry, ViewerRenderMode,
+   |                       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+19 |     ViewerSelection, ViewerSubsystemCapabilities, VIEWER_ID_FALLBACK,
+   |                                                   ^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `source`
+    --> app\workspace_routing.rs:1763:13
+     |
+1763 |         let source =
+     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_source`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0432`.
+warning: `graphshell` (lib test) generated 20 warnings
+error: could not compile `graphshell` (lib test) due to 1 previous error; 20 warnings emitted

@@ -48,7 +48,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: April 24, 2026
+Last updated: May 3, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -56,7 +56,8 @@ Project status source: [../README.md](../README.md)
 - [DOC_POLICY.md](DOC_POLICY.md) - Documentation policy and lifecycle rules.
 - [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md) - Maintainer-owned product vision and long-term scope.
 - [DOC_README.md](DOC_README.md) - AI context and canonical documentation index.
-- [TERMINOLOGY.md](TERMINOLOGY.md) - Canonical project terminology and definitions.
+- [TERMINOLOGY.md](TERMINOLOGY.md) - Canonical project terminology and definitions (pre-Lemni; still authoritative for terms not addressed in the lexicon brief).
+- [2026-05-03_lexicon_brief.md](2026-05-03_lexicon_brief.md) - Strophos lexicon brief: post-rename naming scheme (Strophos product + Verso/Murmur/Mootcore supercrates) and in-product vocabulary (moot, demesne, suzerainty, volvelle, astroid, tessera, engram, flora, mnem, kith/kin, strophalos). Authoritative for terms covered until TERMINOLOGY.md is revised. All renames unexecuted in code.
 
 ## Graphshell Active Docs
 

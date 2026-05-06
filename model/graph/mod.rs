@@ -34,4 +34,6 @@ pub use graphshell_core::address::{
 
 // Host-only sub-modules (depend on egui, platform I/O, etc.).
 pub mod badge;
-pub mod edge_style_registry;
+// edge_style_registry moved to `register-theme::edge_style` per the
+// 2026-05-04 bundle decision (proposal §B.2). Theme is the sole consumer
+// and lives alongside in `register-theme::theme`.

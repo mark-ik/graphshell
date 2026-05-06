@@ -11,7 +11,7 @@
 
 pub(crate) use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
 pub(crate) use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-pub(crate) use crate::shell::desktop::runtime::registries::input::{
+pub(crate) use register_input::{
     InputBinding, InputBindingRemap, InputConflict as InputRemapConflict, InputContext,
 };
 pub(crate) use crate::shell::desktop::runtime::registries::{

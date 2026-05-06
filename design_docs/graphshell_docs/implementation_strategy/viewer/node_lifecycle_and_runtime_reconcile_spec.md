@@ -122,6 +122,15 @@ Consistency invariants:
 - lifecycle transition completion must leave pane state in a representable mode (`CompositedTexture`, `NativeOverlay`, `EmbeddedHost`, `Placeholder`),
 - reconcile failures must set explicit blocked/degraded state, never silent no-op.
 
+> **2026-05-04 retirement note**: `EmbeddedHost` is scheduled for retirement
+> per the [renderer plan §4.5](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md);
+> post-retirement the representable mode set narrows to
+> (`CompositedTexture`, `NativeOverlay`, `Placeholder`) and tool/diagnostic
+> panes carry no render-mode tag (they're plain iced widget trees per
+> §4.4 of that plan). The variant remains in code during the iced
+> transition; serde aliases are preserved for one release cycle past
+> removal.
+
 Opening-mode / lifecycle invariant:
 
 - `PaneOpeningMode` is consulted before lifecycle mutation.

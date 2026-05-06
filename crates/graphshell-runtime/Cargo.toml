@@ -24,3 +24,11 @@ accesskit = { version = "0.24.0", features = ["serde"] }
 # `SplitBoundary` come from `graph-tree`. Already a dep of
 # graphshell main and graphshell-core's frame_model.
 graph-tree = { path = "../graph-tree" }
+# 2026-05-04 Slice 51 (Phase 2): system/signal_bus consolidation
+# from shell/desktop/runtime/registries/signal_routing.rs. The
+# signal bus emits diagnostics on the lagged-receiver channel
+# (`register_diagnostics::channels::CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED`)
+# and uses tokio broadcast for async fan-out.
+register-diagnostics = { path = "../registrar/register-diagnostics" }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+log = "0.4.29"

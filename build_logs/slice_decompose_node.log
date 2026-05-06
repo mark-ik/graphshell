@@ -1,0 +1,127 @@
+crates\graph-tree\src\tree.rs:228:13: warning: unused import: `crate::layout::SplitBoundary`
+crates\graph-tree\src\tree.rs:291:13: warning: unused import: `crate::layout::SplitBoundary`
+warning: `graph-tree` (lib) generated 2 warnings (run `cargo fix --lib -p graph-tree` to apply 2 suggestions)
+warning: unused import: `HashSet`
+  --> crates\graph-canvas\src\layout\static_layouts.rs:19:33
+   |
+19 | use std::collections::{HashMap, HashSet, VecDeque};
+   |                                 ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `graph-canvas` (lib) generated 1 warning (run `cargo fix --lib -p graph-canvas` to apply 1 suggestion)
+    Checking graphshell-core v0.0.1 (C:\Users\mark_\Code\repos\graphshell\crates\graphshell-core)
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:106:11
+    |
+106 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `egui-host`
+   --> crates\registrar\register-input\src\lib.rs:323:11
+    |
+323 |     #[cfg(feature = "egui-host")]
+    |           ^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `egui-host` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `register-input` (lib) generated 2 warnings
+warning: unused imports: `EdgeIndex` and `NodeIndex`
+  --> crates\graphshell-core\src\graph\mod.rs:20:30
+   |
+20 | use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
+   |                              ^^^^^^^^^  ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `Point2DAsTuple` and `Vector2DAsTuple`
+  --> crates\graphshell-core\src\graph\mod.rs:64:27
+   |
+64 | pub(crate) use identity::{Point2DAsTuple, UuidAsBytes, Vector2DAsTuple};
+   |                           ^^^^^^^^^^^^^^               ^^^^^^^^^^^^^^^
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2113:17
+     |
+2113 |         if node.position == position && node.committed_position == position {
+     |                 ^^^^^^^^ private field
+
+error[E0616]: field `committed_position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2113:46
+     |
+2113 |         if node.position == position && node.committed_position == position {
+     |                                              ^^^^^^^^^^^^^^^^^^ private field
+     |
+help: a method `committed_position` also exists, call it with parentheses
+     |
+2113 |         if node.position == position && node.committed_position() == position {
+     |                                                                ++
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2116:14
+     |
+2116 |         node.position = position;
+     |              ^^^^^^^^ private field
+
+error[E0616]: field `committed_position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2117:14
+     |
+2117 |         node.committed_position = position;
+     |              ^^^^^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2125:17
+     |
+2125 |         if node.position == position {
+     |                 ^^^^^^^^ private field
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2128:14
+     |
+2128 |         node.position = position;
+     |              ^^^^^^^^ private field
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2145:27
+     |
+2145 |             sum_x += node.position.x;
+     |                           ^^^^^^^^ private field
+
+error[E0616]: field `position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:2146:27
+     |
+2146 |             sum_y += node.position.y;
+     |                           ^^^^^^^^ private field
+
+error[E0616]: field `committed_position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:3016:34
+     |
+3016 |                 position_x: node.committed_position.x,
+     |                                  ^^^^^^^^^^^^^^^^^^ private field
+     |
+help: a method `committed_position` also exists, call it with parentheses
+     |
+3016 |                 position_x: node.committed_position().x,
+     |                                                    ++
+
+error[E0616]: field `committed_position` of struct `node::Node` is private
+    --> crates\graphshell-core\src\graph\mod.rs:3017:34
+     |
+3017 |                 position_y: node.committed_position.y,
+     |                                  ^^^^^^^^^^^^^^^^^^ private field
+     |
+help: a method `committed_position` also exists, call it with parentheses
+     |
+3017 |                 position_y: node.committed_position().y,
+     |                                                    ++
+
+For more information about this error, try `rustc --explain E0616`.
+warning: `graphshell-core` (lib) generated 2 warnings
+error: could not compile `graphshell-core` (lib) due to 10 previous errors; 2 warnings emitted

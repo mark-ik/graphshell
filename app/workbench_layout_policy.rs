@@ -7,7 +7,7 @@ use crate::shell::desktop::workbench::ux_tree::UxNodeRole;
 use crate::shell::desktop::workbench::ux_tree::{UxDomainIdentity, UxTreeSnapshot};
 
 use super::WorkbenchIntent;
-use super::settings_persistence::NavigatorSidebarSidePreference;
+use super::NavigatorSidebarSidePreference;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AnchorEdge {

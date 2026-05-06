@@ -17,6 +17,7 @@ pub mod frame_projection;
 pub mod portable_time;
 pub mod ports;
 pub mod rendering_context_producer;
+pub mod system;
 pub mod webview_backpressure;
 
 // 2026-04-25 graphshell-runtime extraction Slice 3: portable_now()

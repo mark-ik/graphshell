@@ -3,16 +3,24 @@ pub(crate) mod agent;
 pub(crate) mod canvas;
 pub(crate) mod identity;
 pub(crate) mod index;
-pub(crate) mod input;
+// `input` and `lens` shims were deleted (Slice 2026-05-04 cleanup); the
+// canonical bodies live in `register-input` / `register-lens`. Aliases
+// preserve the existing `registries::input::*` and `registries::lens::*`
+// caller paths until those callers are migrated to direct `register_input::*`
+// / `register_lens::*` imports.
+pub(crate) use register_input as input;
 pub(crate) mod knowledge;
 pub(crate) mod layout;
-pub(crate) mod lens;
+pub(crate) use register_lens as lens;
 pub(crate) mod nostr_core;
 pub(crate) mod physics_profile;
 pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
-pub(crate) mod theme;
+// theme.rs moved to register-theme/src/theme.rs (Slice 2026-05-04, bundle
+// decision per proposal §B.2). Alias preserves
+// `crate::shell::desktop::runtime::registries::theme::*` paths.
+pub(crate) use register_theme::theme as theme;
 // 2026-04-25 servo-into-verso S2b: workbench_surface is the
 // egui-host tile-tree registry; gated together with the workbench
 // tile pipeline. workflow consumes workbench_surface, so it's gated

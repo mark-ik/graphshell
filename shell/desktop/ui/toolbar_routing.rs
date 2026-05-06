@@ -13,7 +13,7 @@ use crate::shell::desktop::runtime::diagnostics::{
     emit_message_sent_with_payload, structured_payload_field,
 };
 use crate::shell::desktop::runtime::registries;
-use crate::shell::desktop::runtime::registries::input::binding_id;
+use register_input::binding_id;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_COMMAND_BAR_COMMAND_PALETTE_REQUESTED, CHANNEL_UI_COMMAND_BAR_NAV_ACTION_BLOCKED,
     CHANNEL_UI_COMMAND_BAR_NAV_ACTION_REQUESTED,

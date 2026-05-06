@@ -43,6 +43,12 @@ members = [
     "crates/registrar/register-mod-loader",
     "crates/registrar/register-viewer",
     "crates/registrar/register-protocol",
+    "crates/registrar/register-theme",
+    # crates/middlenet-netrender-bridge is its own workspace —
+    # blitz-dom's stylo (^0.16) conflicts with Servo's bundled stylo
+    # via the `links = "servo_style_crate"` build directive. The
+    # bridge owns its own Cargo.lock and resolves independently.
+    # "crates/middlenet-netrender-bridge",
     "crates/iced-middlenet-viewer",
     "crates/iced-graph-canvas-viewer",
     "crates/iced-wry-viewer",
@@ -132,6 +138,7 @@ register-layout = { path = "crates/registrar/register-layout" }
 register-lens = { path = "crates/registrar/register-lens" }
 register-mod-loader = { path = "crates/registrar/register-mod-loader" }
 register-protocol = { path = "crates/registrar/register-protocol" }
+register-theme = { path = "crates/registrar/register-theme" }
 register-viewer = { path = "crates/registrar/register-viewer" }
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.24", features = ["derive"] }
@@ -305,8 +312,8 @@ gpu-allocator = { path = "../servo-wgpu/support/patches/gpu-allocator" }
 # the old wgpu-28-based git revision alongside the local wgpu-29 path,
 # producing "two different versions of wgpu" type errors.
 [patch."https://github.com/mark-ik/wgpu-gui-bridge"]
-servo-wgpu-interop-adapter = { path = "../wgpu-gui-bridge/servo-wgpu-interop-adapter" }
-wgpu-native-texture-interop = { path = "../wgpu-gui-bridge/wgpu-native-texture-interop" }
+servo-wgpu-interop-adapter = { path = "../wgpu-graft/servo-wgpu-interop-adapter" }
+wgpu-native-texture-interop = { path = "../wgpu-graft/wgpu-native-texture-interop" }
 
 [patch."https://github.com/iced-rs/cryoglyph.git"]
 cryoglyph = { path = "vendor/cryoglyph" }

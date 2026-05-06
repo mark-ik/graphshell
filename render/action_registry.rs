@@ -11,7 +11,7 @@
 
 use crate::app::{GraphViewId, SurfaceHostId};
 use crate::graph::NodeKey;
-use crate::shell::desktop::runtime::registries::input::action_id as input_action;
+use register_input::action_id as input_action;
 use std::sync::Once;
 
 // The portable action taxonomy — `InputMode`, `ActionCategory`,

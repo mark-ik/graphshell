@@ -13,6 +13,8 @@
 pub(crate) use register_mod_loader::*;
 // Test-utils gated: register-mod-loader has its own test-utils feature
 // that exposes compute_active_capabilities_with_disabled. The root
-// crate's test-utils feature propagates to it via Cargo.toml.
-#[cfg(any(test, feature = "test-utils"))]
+// crate's test-utils feature propagates to it via Cargo.toml. Gate on
+// the feature only — the `test` cfg is per-crate, so register-mod-loader
+// (built as a dep) doesn't see it during this crate's `cargo test`.
+#[cfg(feature = "test-utils")]
 pub(crate) use register_mod_loader::loader::compute_active_capabilities_with_disabled;

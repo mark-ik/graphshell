@@ -73,8 +73,19 @@ Graphshell currently reasons about these render modes:
 
 1. **CompositedTexture**
 2. **NativeOverlay**
-3. **EmbeddedHost**
+3. **EmbeddedHost** (scheduled for retirement — see note below)
 4. **Placeholder**
+
+**Retirement note (2026-05-04)**: `EmbeddedHost` is scheduled for retirement per the
+[2026-04-30 renderer plan §4.5](../aspect_render/2026-04-30_renderer_and_host_refactor_plan.md).
+Tool/diagnostic panes migrate to plain iced widget trees with no
+render-mode tag (per that plan's §4.4); GPU-textured non-web viewers
+move to `CompositedTexture`; viewer-side migrations for content
+viewers (markdown, gemini, etc.) are HOLD pending the Netrender
+outcome (renderer plan's 2026-05-04 status note). The variant remains
+in code during the iced bring-up; final retirement is sequenced with
+S6 of the iced jump-ship plan, with serde aliases preserved for one
+release cycle.
 
 ### 2.2 Baseline viewer classes
 

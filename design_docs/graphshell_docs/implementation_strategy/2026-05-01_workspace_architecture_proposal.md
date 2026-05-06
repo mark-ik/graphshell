@@ -316,32 +316,53 @@ integration around them.
 
 | Candidate (today's path) | Verdict (§3.3) | Destination |
 |---|---|---|
-| `shell/desktop/runtime/registries/action.rs` (2825 LOC) | **REGISTRY** | `crates/graphshell/registrar/register-action/` (huge — likely needs internal decomposition during extraction) |
+| `shell/desktop/runtime/registries/action.rs` (2825 LOC) | **REGISTRY** | `crates/registrar/register-action/` (huge — likely needs internal decomposition during extraction) |
 | `shell/desktop/runtime/registries/agent.rs` (195 LOC) | **REGISTRY** (`Agent` trait + factory + descriptor + `agent:*` keys + `register()` API) | `registrar/register-agent/` |
-| `shell/desktop/runtime/registries/canvas.rs` (116 LOC) | **NOT** — "active canvas profile selector" state, delegates lookup to `registries/domain/layout/canvas.rs` | folds into `graphshell-runtime/system/` (active-state); the canonical canvas-profile registry is `registries/domain/layout/canvas.rs` |
+| `shell/desktop/runtime/registries/canvas.rs` (116 LOC) | **NOT** — "active canvas profile selector" state, delegates lookup to `registries/domain/layout/canvas.rs` | folds into `graphshell-runtime/src/system/` (active-state) — **BLOCKED**: `system/` subdirectory does not yet exist in `graphshell-runtime`; create-system-module is a Phase 2 prerequisite |
 | `shell/desktop/runtime/registries/identity.rs` (1200 LOC) | **REGISTRY** (`register_*_persona` + `resolve_user_identity_id`) | `registrar/register-identity/` |
 | `shell/desktop/runtime/registries/index.rs` (751 LOC) | **REGISTRY** (`register_provider`) | `registrar/register-index/` |
-| `shell/desktop/runtime/registries/input.rs` (1463 LOC) | **REGISTRY** (`register_binding` + `resolve_binding_id`) | `registrar/register-input/` |
-| `shell/desktop/runtime/registries/knowledge.rs` (407 LOC) | **NOT** — re-exports `KnowledgeRegistry` from `registries/atomic/knowledge.rs` and adds `reconcile_semantics` (app logic) | the registry itself moves with `registries/atomic/knowledge.rs` to `registrar/register-knowledge/`; `reconcile_semantics` and the `SemanticReconcileReport` shape land in `graphshell-app/` |
-| `shell/desktop/runtime/registries/layout.rs` (145 LOC) | **REGISTRY** (small but registry-shaped, 4 register / 2 lookup / 2 dyn) | merge with `registries/domain/layout/profile_registry.rs` → `registrar/register-layout/` |
-| `shell/desktop/runtime/registries/lens.rs` (3 LOC) | **NOT** — re-exports only | delete; canonical is `registries/atomic/lens/registry.rs` → `registrar/register-lens/` |
+| `shell/desktop/runtime/registries/input.rs` (was 1463 LOC, then 14-LOC shim) | **REGISTRY** (`register_binding` + `resolve_binding_id`) | **DONE** — `registrar/register-input/` (1477 LOC in extracted crate). 2026-05-04 cleanup: shell-side 14-LOC shim deleted; `mod.rs` now uses `pub(crate) use register_input as input;` alias. |
+| `shell/desktop/runtime/registries/knowledge.rs` (407 LOC) | **NOT** — re-exports `KnowledgeRegistry` from `registries/atomic/knowledge.rs` and adds `reconcile_semantics` (app logic) | **DONE (registry half)** — canonical `KnowledgeRegistry` lives in `registrar/register-knowledge/` (475 LOC); `reconcile_semantics` + `SemanticReconcileReport` still in shell-side `knowledge.rs` awaiting `graphshell-app/` extraction |
+| `shell/desktop/runtime/registries/layout.rs` (145 LOC) | **REGISTRY** (4 register / 2 lookup / 2 dyn) — but it's a layout-*algorithm* registry (`HashMap<String, Box<dyn LayoutAlgorithm>>` of force-directed / grid / tree / barnes-hut), conceptually distinct from the layout-*profile* registry the proposal originally lumped it with | **PARTIAL — design question pending.** `registries/domain/layout/profile_registry.rs` ✅ landed in `registrar/register-layout/` (103 LOC; canvas + profile_registry + workbench_surface modules + `ConformanceLevel`/`CapabilityDeclaration` types). Shell-side `layout.rs` LayoutRegistry remains in tree. **Question for next-pass review:** does the algorithm registry belong in `register-layout/` (alongside profiles, despite the conceptual split), in `register-graph-layout-algorithms/` of its own, or as a module of `graph-canvas/` (Layer A)? The algorithms depend on `crate::app::graph_layout::*` and `crate::graph::Graph` — root-crate types — so extraction needs a host-neutral target first. |
+| `shell/desktop/runtime/registries/lens.rs` (was 3 LOC) | **NOT** — re-exports only | **DONE 2026-05-04** — file deleted; `mod.rs` now uses `pub(crate) use register_lens as lens;` alias so existing `crate::shell::desktop::runtime::registries::lens::*` paths resolve directly to `register_lens::*`. 11 callers redirected: 8 simple-file callers switched to direct `register_lens::*` imports; the bare `lens::*` references inside `mod.rs` and `registries::lens::*` references inside test files keep working through the alias. |
 | `shell/desktop/runtime/registries/nostr_core.rs` (large; contains `NostrCoreRegistry`) | **NOT** a pure registry — primarily nostr integration that wraps a few registry-shaped sub-tables (relays, permissions) | extract as `crates/graphshell/graphshell-nostr` integration crate; clean registry sub-surfaces (relay set, permission grants) optionally extracted as `registrar/register-nostr-relays/` etc. once the integration extract is done |
-| `shell/desktop/runtime/registries/physics_profile.rs` (92 LOC) | **NOT** — "active profile selector" state delegating to `registries/atomic/lens/physics.rs` | folds into `graphshell-runtime/system/` (active state); the canonical physics-profile registry is `registries/atomic/lens/physics.rs` and travels with `register-lens/` |
-| `shell/desktop/runtime/registries/protocol.rs` (378 LOC) | **NOT** — protocol resolver/dispatcher using `protocols::registry as scaffold` | folds into `graphshell-runtime/system/` or `graphshell-app/`; the canonical `ProtocolContractRegistry` is in `registries/atomic/protocol.rs` → `registrar/register-protocol/` |
-| `shell/desktop/runtime/registries/renderer.rs` (162 LOC) | **NOT** — bidirectional `pane ↔ renderer` attachment table; no late-bound extension entries (just runtime relationships) | folds into `graphshell-runtime/system/` as `pane_renderer_attachments` runtime state |
-| `shell/desktop/runtime/registries/signal_routing.rs` + `shell/desktop/runtime/registry_signal_router.rs` | **NOT** — signal-bus seam | inside `graphshell-runtime/system/signal_bus.rs` per §3.2 |
-| `shell/desktop/runtime/registries/theme.rs` (640 LOC) | **REGISTRY** (`register_theme` + `unregister_theme` + `resolve_theme` + `themes: HashMap<String, ThemeTokenSet>` + `theme:*` keys) | `registrar/register-theme/` — **chosen as the Slice 50 proof-of-concept** |
+| `shell/desktop/runtime/registries/physics_profile.rs` (92 LOC) | **NOT** — "active profile selector" state delegating to `registries/atomic/lens/physics.rs` | folds into `graphshell-runtime/src/system/` (active state) — **BLOCKED**: `system/` subdirectory does not yet exist; the canonical physics-profile registry travels with `register-lens/` (✅ landed) |
+| `shell/desktop/runtime/registries/protocol.rs` (378 LOC) | **NOT** — protocol resolver/dispatcher using `protocols::registry as scaffold` | folds into `graphshell-runtime/src/system/` or `graphshell-app/` — **BLOCKED**: `system/` subdirectory does not yet exist; the canonical `ProtocolContractRegistry` ✅ landed in `registrar/register-protocol/` (33 LOC) |
+| `shell/desktop/runtime/registries/renderer.rs` (162 LOC) | **NOT** — bidirectional `pane ↔ renderer` attachment table; no late-bound extension entries (just runtime relationships) | folds into `graphshell-runtime/src/system/` as `pane_renderer_attachments` runtime state — **BLOCKED**: `system/` subdirectory does not yet exist |
+| `shell/desktop/runtime/registries/signal_routing.rs` (was 842 LOC) + `shell/desktop/runtime/registry_signal_router.rs` (89 LOC, host-side adapter) | **NOT** — signal-bus seam | **DONE 2026-05-04 (signal_routing half)** — body moved to `graphshell-runtime/src/system/signal_bus.rs`; shell-side `signal_routing.rs` is now a 12-LOC `pub(crate) use graphshell_runtime::system::signal_bus::*;` shim. Cross-crate retargets: `crate::graph::NodeKey → graphshell_core::graph::NodeKey`; `crate::shell::desktop::runtime::diagnostics::* → register_diagnostics::*`; `super::CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED → register_diagnostics::channels::*`. Visibility widened `pub(crate) → pub`. The 89-LOC `registry_signal_router.rs` (host-side adapter using `phase3_subscribe_signal_async`) stays in tree as host wiring, per §3.2 layer split. |
+| `shell/desktop/runtime/registries/theme.rs` (was 608 LOC) + `model/graph/edge_style_registry.rs` (666 LOC, bundled per the 2026-05-04 decision) | **REGISTRY** (`register_theme` + `unregister_theme` + `resolve_theme` + `themes: HashMap<String, ThemeTokenSet>` + `theme:*` keys) | **DONE 2026-05-04** — `registrar/register-theme/` (1274 LOC consolidated; `edge_style` + `theme` modules). Bundled per §B.2 because `theme` was the sole consumer of `edge_style_registry` and `register_theme()` validates tokens via `edge_style::validate_theme_edge_tokens` — the two move in lockstep. The dead `#[cfg(feature = "egui-host")] use egui::Color32;` alias gate was dropped (egui no longer in dep graph; see root `Cargo.toml:96`); register-theme always uses `graphshell_core::color::Color32`. Shell-side `theme.rs` deleted; `mod.rs` uses `pub(crate) use register_theme::theme as theme;` alias. `model/graph/edge_style_registry.rs` deleted; `pub mod edge_style_registry;` removed from `model/graph/mod.rs`. |
 | `shell/desktop/runtime/registries/workbench_surface*` | **REGISTRY** (`resolve_*` for layout/interaction/focus/profile, profile-keyed) | `registrar/register-workbench-surface/` |
 | `shell/desktop/runtime/registries/workflow.rs` (340 LOC) | **REGISTRY** (`WorkflowRegistry` + `resolve_workflow`) | `registrar/register-workflow/` |
-| `registries/atomic/diagnostics.rs` (2425 LOC) | **REGISTRY** (`channels` / `configs` / `invariants` HashMaps + descriptor-literal registration; the channel catalog accounts for most of the LOC) | `registrar/register-diagnostics/` |
-| `registries/atomic/knowledge.rs` (455 LOC) | **REGISTRY** (`KnowledgeRegistry` struct; the actual registry surface) | `registrar/register-knowledge/` (the shell-side reconcile_semantics moves to graphshell-app per the row above) |
-| `registries/atomic/protocol.rs` (108 LOC) | **REGISTRY** (`ProtocolContractRegistry` + `register_scheme`) | `registrar/register-protocol/` |
-| `registries/atomic/protocol_provider.rs` (52 LOC) | **REGISTRY** (provider registration) | `registrar/register-protocol/` (sibling to protocol.rs in same crate) |
-| `registries/atomic/lens/registry.rs` (314 LOC) + `lens/{layout,physics,theme}.rs` | **REGISTRY** (`LensRegistry` + `RegisteredLens` + entry types) | `registrar/register-lens/` (with sub-modules per lens subsystem) |
-| `registries/atomic/viewer.rs` (952 LOC) + `viewer_provider.rs` (52 LOC) + `registries/viewers/*` (audio/directory/image/middlenet/pdf/plaintext) | **REGISTRY** (viewer trait + register pattern); each `viewers/*.rs` file is an *entry* IN the viewer registry, not a separate registry | `registrar/register-viewer/` (viewer entries become sub-modules: `register-viewer/src/entries/{audio,directory,image,middlenet,pdf,plaintext}.rs`) |
-| `registries/domain/layout/canvas.rs` + `profile_registry.rs` + `viewer_surface.rs` + `workbench_surface.rs` | **REGISTRY** (profile registries) | the layout-profile registries fold into `registrar/register-layout/`; viewer-surface and workbench-surface profile registries pair with their respective registers |
+| `registries/atomic/diagnostics.rs` (2425 LOC) | **REGISTRY** (`channels` / `configs` / `invariants` HashMaps + descriptor-literal registration; the channel catalog accounts for most of the LOC) | **DONE** — `registrar/register-diagnostics/` (descriptor + emit + channels modules; was the keystone unblocker per §B.2) |
+| `registries/atomic/knowledge.rs` (455 LOC) | **REGISTRY** (`KnowledgeRegistry` struct; the actual registry surface) | **DONE** — `registrar/register-knowledge/` (475 LOC). The shell-side `reconcile_semantics` moves to graphshell-app per the row above (still in tree). |
+| `registries/atomic/protocol.rs` (108 LOC) | **REGISTRY** (`ProtocolContractRegistry` + `register_scheme`) | **DONE** — `registrar/register-protocol/` (33 LOC) |
+| `registries/atomic/protocol_provider.rs` (52 LOC) | **REGISTRY** (provider registration) | **DONE** — co-located with `registrar/register-protocol/` |
+| `registries/atomic/lens/registry.rs` (314 LOC) + `lens/{layout,physics,theme}.rs` | **REGISTRY** (`LensRegistry` + `RegisteredLens` + entry types) | **DONE** — `registrar/register-lens/` (with `layout`, `physics`, `registry`, `theme` sub-modules). `registries/atomic/lens/` reduced to a 44-LOC shim tree re-exporting `register_lens::*`; that shim is itself a future cleanup target. |
+| `registries/atomic/viewer.rs` (952 LOC) + `viewer_provider.rs` (52 LOC) + `registries/viewers/*` (audio/directory/image/middlenet/pdf/plaintext) | **REGISTRY** (viewer trait + register pattern); each `viewers/*.rs` file is an *entry* IN the viewer registry, not a separate registry | **DONE** — `registrar/register-viewer/` (852 LOC consolidated) |
+| `registries/domain/layout/canvas.rs` + `profile_registry.rs` + `viewer_surface.rs` + `workbench_surface.rs` | **REGISTRY** (profile registries) | the layout-profile registries fold into `registrar/register-layout/` (✅ done for `profile_registry`); viewer-surface and workbench-surface profile registries pair with their respective registers (workbench-surface still pending) |
 | `registries/infrastructure/mod_loader.rs` | **REGISTRY** (mod registration is the canonical extension seam). Extracted in Slice 68c after Slices 68a + 68b designed and shipped the `WasmModRuntime` + `NativeModRuntime` DI seam traits. Both runtimes are now host-injected at registry construction (`with_wasm_runtime` / `with_native_runtime` builder methods); the mod_loader body has zero `crate::mods::*` references. | **DONE** — `registrar/register-mod-loader/` (Slice 68c). 18 unit tests pass standalone (one ignored: `discovers_native_mods_including_verso_and_nostrcore` depends on `inventory::submit!` calls in the binary root's `mods/native/*` and only passes when run from the binary build context). |
 | `registries/infrastructure/mod_activation.rs` | **NOT a registry per §3.3** — host-side native-mod activation table that hardcodes function pointers to `crate::mods::native::*::activate`. Stays in tree as the host's binding layer; the host wraps it with a `NativeModRuntime` impl (`GraphshellNativeRuntime`) that mod_loader calls via DI. | stays in tree (intrinsically host-side) |
+
+**Landing summary (audit re-run 2026-05-04, post-CHANNEL_-keystone)**:
+
+- **9 of 15 registries extracted to `crates/registrar/`**:
+  `register-{diagnostics, input, knowledge, layout, lens, mod-loader, protocol, theme, viewer}`.
+- **6 still in shell-side runtime**:
+  `register-{action, agent, identity, index, workflow, workbench-surface}`.
+- **Path drift from §3.2**: registrar lives at `crates/registrar/`, not the
+  prescribed `crates/graphshell/registrar/`. Either the proposal updates §3.2
+  to match reality, or a future slice nests the directory; this proposal
+  recommends the former (the simpler `crates/registrar/` is fine — Cargo doesn't
+  care, and humans don't have to navigate three levels of nesting to find a
+  registry crate).
+- **5 NOT-a-registry residue files in `shell/desktop/runtime/registries/`**:
+  `lens.rs` (deletable now — see row above); `canvas.rs`, `physics_profile.rs`,
+  `renderer.rs`, `protocol.rs` (all blocked on creating `graphshell-runtime/src/system/`).
+- **Phase 2 prerequisite, newly visible**: 4 of the 5 NOT-a-registry files name
+  `graphshell-runtime/src/system/` as their destination, but that subdirectory
+  doesn't exist yet. Phase 2 (signal-bus consolidation, §5) is therefore *also*
+  the create-the-system-module slice; the canvas/physics_profile/renderer/protocol
+  folds ride along once the module is created.
 
 **Summary of surprises**:
 
@@ -382,38 +403,60 @@ a pattern: **every remaining canonical-side registry has at least
 one in-tree blocker** that needs a pre-cleanup slice before the
 extraction is mechanical. The blockers cluster into four buckets:
 
-| Blocker | Affects | Pre-cleanup needed |
-|---|---|---|
-| **`CHANNEL_*` constant catalog** — 253 channel-name `pub(crate) const` items live in `shell/desktop/runtime/registries/mod.rs` (lines 213-581) but are referenced by `registries/atomic/diagnostics.rs` and the runtime body of `registries/infrastructure/mod_loader.rs` (via `use crate::shell::desktop::runtime::registries::CHANNEL_*` inside fn bodies) | diagnostics, mod-loader, action, agent, identity, input, theme, workflow, workbench-surface | promote the `CHANNEL_*` catalog (the channel-name strings + descriptor literals together) into `register-diagnostics` as the keystone; shell-side mod.rs gets `pub(crate) use register_diagnostics::channels::*;` |
-| **`crate::util::VersoAddress`** — a portable URI-parsing enum + companion address types in the root crate's `util.rs` (582 LOC, only `egui::Pos2` blocks it from being trivially portable; the rest is `euclid` + std) | viewer (and downstream: viewers/* entries, register-layout's viewer_surface sub-module) | promote `VersoAddress`, `GraphAddress`, `NodeAddress`, `NoteAddress`, `GraphshellSettingsPath` to `graphshell-core::address` (the `CoordBridge` egui-glue trait stays in util.rs) |
-| **`crate::graph::physics::*` + `crate::graph::scene_runtime::*`** — physics tuning types and scene-collision policy types live in the root crate's `graph/` directory, depended on by `registries/atomic/lens/physics.rs` | lens (whole tree) | promote the physics tuning + scene-collision types to `graph-canvas` (where the rest of the physics surface lives) or to a new `graph-physics-config` crate |
-| **`crate::services::persistence::types::NodeAuditEventKind`** — audit event type used by `registries/viewers/middlenet.rs` for its persistence integration | viewers/middlenet | promote the audit-event taxonomy out of `services/persistence/` into a portable types crate (likely `graphshell-core::persistence` or a new `graphshell-persistence-types`) |
+| Blocker | Affects | Pre-cleanup needed | Status |
+|---|---|---|---|
+| **`CHANNEL_*` constant catalog** — 253 channel-name `pub(crate) const` items lived in `shell/desktop/runtime/registries/mod.rs` (lines 213-581 pre-Slice-53) but were referenced by `registries/atomic/diagnostics.rs` and the runtime body of `registries/infrastructure/mod_loader.rs` (via `use crate::shell::desktop::runtime::registries::CHANNEL_*` inside fn bodies) | diagnostics, mod-loader, action, agent, identity, input, theme, workflow, workbench-surface | promote the `CHANNEL_*` catalog (the channel-name strings + descriptor literals together) into `register-diagnostics` as the keystone; shell-side mod.rs gets `pub(crate) use register_diagnostics::channels::*;` | **✅ RESOLVED.** Catalog lives at [`crates/registrar/register-diagnostics/src/channels.rs`](../../../crates/registrar/register-diagnostics/src/channels.rs) (253 `pub const`); zero `CHANNEL_*` constants remain in the shell-side mod.rs; single re-export at mod.rs:215 (`pub(crate) use register_diagnostics::channels::*;`). Audit-confirmed 2026-05-04. |
+| **`crate::util::VersoAddress`** — a portable URI-parsing enum + companion address types in the root crate's `util.rs` (582 LOC, only `egui::Pos2` blocks it from being trivially portable; the rest is `euclid` + std) | viewer (and downstream: viewers/* entries, register-layout's viewer_surface sub-module) | promote `VersoAddress`, `GraphAddress`, `NodeAddress`, `NoteAddress`, `GraphshellSettingsPath` to `graphshell-core::address` (the `CoordBridge` egui-glue trait stays in util.rs) | **✅ RESOLVED** (per the post-2026-05-01 status note in the parent message; verify in `graphshell-core` before next viewer-related slice). |
+| **`crate::graph::physics::*` + `crate::graph::scene_runtime::*`** — physics tuning types and scene-collision policy types live in the root crate's `graph/` directory, depended on by `registries/atomic/lens/physics.rs` | lens (whole tree) | promote the physics tuning + scene-collision types to `graph-canvas` (where the rest of the physics surface lives) or to a new `graph-physics-config` crate | **✅ RESOLVED** by Slice 65 (`graph_canvas::physics_config`); `register-lens` now contains the previously-blocked physics surface. |
+| **`crate::services::persistence::types::NodeAuditEventKind`** — audit event type used by `registries/viewers/middlenet.rs` for its persistence integration | viewers/middlenet | promote the audit-event taxonomy out of `services/persistence/` into a portable types crate (likely `graphshell-core::persistence` or a new `graphshell-persistence-types`) | **✅ RESOLVED** (`register-viewer` extracted with the middlenet entry intact). |
 
-**Strategic options going forward**:
+**B.2 status (2026-05-04)**: All four originally-listed pre-extraction
+blockers are resolved. **One additional blocker surfaced during the
+Slice 51 follow-on attempt to extract `register-theme`** (see the row below).
 
-1. **Keystone-first** — take on the `CHANNEL_*` catalog as the next
-   slice. Largest single move (~370 lines of constants + 2425 lines
-   of descriptor file = ~2800 lines moved together) but unblocks
-   the most registries (8 of the remaining 12 candidates). This is
-   the high-leverage move.
-2. **Drip-feed pre-cleanups** — promote `VersoAddress` first
-   (smallest, ~50 LOC moved), then extract `register-viewer` (with
-   viewers/middlenet still blocked by services::persistence).
-   Smaller per-slice scope but slower aggregate progress.
-3. **Pause and consolidate** — accept the four cleanly-extracted
-   crates (`graphshell-comms` membership fix, `middlenet-gopher`,
-   `register-protocol`, `register-knowledge`) as the registrar
-   bring-up's first proof-of-concept layer; defer further
-   extractions until the broader cleanup pass on `app/`,
-   `services/`, and the shell-side runtime is sequenced.
+| Blocker | Affects | Pre-cleanup needed | Status |
+|---|---|---|---|
+| **`crate::graph::edge_style_registry::*`** — 5 types (`EdgeAccessibilityMode`, `ThemeAccessibilitySupport`, `ThemeContract`, `ThemeEdgeTokens`, `validate_theme_edge_tokens`) lived in the root crate's `model/graph/edge_style_registry.rs` (666 LOC). The file itself was fully portable — its only non-std import was `graphshell_core::color::Color32` — and `theme.rs` was its sole consumer (verified by exhaustive grep 2026-05-04). | theme | **Resolution chosen: bundle, drop egui gate.** `register-theme/` is a 2-module crate (`edge_style` + `theme`, 1274 LOC). Bundled because theme is the sole consumer and `register_theme()` validates tokens via `edge_style::validate_theme_edge_tokens`. The dead `#[cfg(feature = "egui-host")] use egui::Color32;` gate was dropped — `egui-host = []` is a no-op feature in root `Cargo.toml:96` and egui is no longer in the dep graph, so the cfg branch was already unreachable. | **✅ RESOLVED 2026-05-04** — Slice C of the audit-and-cleanup combo session; `cargo check --tests --lib` passes (1m 17s, 0 new warnings). |
 
-The proposal originally assumed canonical-side registries (in
-`registries/atomic/` and `registries/domain/`) would be largely
-self-contained primitives. Slice 53's failed attempt showed that
-assumption was wrong — even the canonical files reach into the root
-crate for channel constants, address parsing, physics types, and
-audit-event taxonomies. The registrar sweep is therefore gated on
-those promotions, not on registry-shaped audits alone.
+**Historical note (kept for sequencing context)**: when this section
+was first written, three strategic options were under consideration —
+keystone-first (`CHANNEL_*` promotion), drip-feed pre-cleanups
+(`VersoAddress` first), or pause-and-consolidate. The keystone-first
+path was taken (✅ landed) and the other three blockers were resolved
+in subsequent slices. The proposal originally assumed canonical-side
+registries (in `registries/atomic/` and `registries/domain/`) would
+be largely self-contained primitives. Slice 53's first attempt showed
+that assumption was wrong — even the canonical files reached into the
+root crate for channel constants, address parsing, physics types,
+and audit-event taxonomies. The registrar sweep was therefore gated
+on those promotions, not on registry-shaped audits alone.
+
+**Strategic options going forward (2026-05-04)**:
+
+With B.2's blockers resolved, the next-move space narrows to:
+
+1. **Resume the registrar sweep** — pick up the 7 remaining registry
+   crates. Suggested leaves-before-roots order: `theme` → `workflow`
+   → `index` → `agent` → `workbench-surface` → `identity` → `action`
+   (action is 2825 LOC and per §B.1 likely needs internal
+   decomposition during extraction, so it should be last).
+2. **Phase 2 first (create `graphshell-runtime/src/system/`)** — the
+   signal-bus consolidation slice; once `system/` exists, the four
+   substantive NOT-a-registry residue files
+   (canvas/physics_profile/renderer/protocol) can fold into it as
+   follow-up slices. This is the prerequisite for shrinking the
+   shell-side `registries/` directory to the genuine-registry subset.
+3. **Cleanup punch list** — delete `shell/desktop/runtime/registries/lens.rs`
+   (3-LOC pure shim), redirect 11 callers to the existing
+   `crate::registries::atomic::lens::*` shim (or directly to
+   `register_lens::*`); separately, the 44-LOC
+   `registries/atomic/lens/` shim tree is itself a candidate for
+   inline-replacement once those callers update.
+
+The most-leverage *single* move depends on whether the goal is
+"shrink shell-side `registries/`" (option 2 unblocks the most
+files) or "complete Layer B" (option 1 closes out the registrar
+spec). They're independent and can run in parallel slices.
 
 ### Layer C — App services (NEW; one crate, modules per service)
 
@@ -534,7 +577,7 @@ Two tasks:
 The audit is the gating step. Without it, the registrar folder
 becomes the junk drawer §3.3 warns against.
 
-### Phase 2 — Consolidate the signal bus (Slice 51)
+### Phase 2 — Create `graphshell-runtime/src/system/` and consolidate the signal bus (Slice 51)
 
 Per §3.2 / Layer D, the signal-routing surface lands as a module
 **inside** `graphshell-runtime`'s `src/system/signal_bus.rs`, not as
@@ -545,6 +588,29 @@ into that module. Other system-layer concerns
 (`caches.rs`, `protocol_probe.rs`, `snapshots/`, `tracing.rs`)
 follow as `system/` siblings in subsequent slices when they need to
 move.
+
+**2026-05-04 update — Phase 2 has wider scope than originally thought.**
+The B.1 audit re-run flagged that 4 of the 5 NOT-a-registry residue
+files in `shell/desktop/runtime/registries/` (canvas, physics_profile,
+renderer, protocol) all name `graphshell-runtime/src/system/` as their
+destination, but that subdirectory does not exist yet — it is created
+*by* this Phase 2 slice. Once Phase 2 lands, those four file folds
+become straightforward follow-up slices (each is 92-378 LOC of
+self-contained active-state or attachment-table code with its own tests).
+Treat Phase 2 not just as "move signal_bus" but as "open the
+`system/` module" — the signal_bus is the inaugural occupant.
+
+**Phase 2 status — DONE 2026-05-04**: `crates/graphshell-runtime/src/system/`
+created with `signal_bus.rs` (842 LOC moved from the shell-side runtime).
+`graphshell-runtime/Cargo.toml` gained three new deps:
+`register-diagnostics`, `tokio = { version = "1", features = ["sync", "rt", "macros"] }`,
+and `log = "0.4.29"`. Shell-side `signal_routing.rs` is a 12-LOC
+re-export shim. `cargo check --tests --lib` passes (21.91s incremental,
+21 unrelated warnings). The `registry_signal_router.rs` host-side adapter
+stays in tree (uses `phase3_subscribe_signal_async` from the runtime mod,
+which is host-coupled). The four NOT-a-registry folds (canvas,
+physics_profile, renderer, protocol) are now unblocked on the destination
+side; each can be its own discrete follow-up slice.
 
 ### Phase 3 — Service extraction (Slice 52)
 

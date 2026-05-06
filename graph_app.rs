@@ -81,11 +81,11 @@ macro_rules! impl_display_from_str {
     };
 }
 
-#[path = "app/selection.rs"]
-mod selection;
+#[path = "app/intent_system/mod.rs"]
+mod intent_system;
 pub use graphshell_runtime::{ClipboardCopyKind, ClipboardCopyRequest, UiNotificationLevel};
-pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
-pub use selection::{SelectionState, SelectionUpdateMode};
+pub(crate) use intent_system::{SelectionScope, UndoRedoSnapshot};
+pub use intent_system::{SelectionState, SelectionUpdateMode};
 
 #[path = "app/history.rs"]
 mod history;
@@ -109,97 +109,91 @@ pub struct PersistenceHealthSummary {
 #[path = "app/history_runtime.rs"]
 mod history_runtime;
 
-#[path = "app/intents.rs"]
-mod intents;
-pub use intents::{
+pub use intent_system::{
     AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation,
     NodeStatusNoticeRequest, RuntimeEvent, RuntimeUserStylesheetSpec, ViewAction,
 };
 
-#[path = "app/clip_capture.rs"]
-mod clip_capture;
+#[path = "app/app_ux/mod.rs"]
+mod app_ux;
+
+// Re-export action_surface as a module so existing
+// `crate::app::action_surface::ActionSurfaceState` call sites
+// (graph_app.rs default-builders, workspace_state field type)
+// resolve unchanged after the move.
+pub(crate) use app_ux::action_surface;
+
 #[allow(unused_imports)]
-pub use clip_capture::ClipCaptureData;
+pub use app_ux::clip_capture::ClipCaptureData;
 #[allow(unused_imports)]
-pub use clip_capture::{
+pub use app_ux::clip_capture::{
     ClipInspectorFilter, ClipInspectorState, clip_capture_matches_filter,
     clip_capture_matches_query,
 };
-pub(crate) use clip_capture::{user_visible_node_title_from_data, user_visible_node_url_from_data};
+pub(crate) use app_ux::clip_capture::{
+    user_visible_node_title_from_data, user_visible_node_url_from_data,
+};
 
 #[path = "app/agents/mod.rs"]
 pub(crate) mod agents;
 
-#[path = "app/workspace_commands.rs"]
-mod workspace_commands;
-
-#[path = "app/routing.rs"]
-mod routing;
-#[allow(unused_imports)]
-pub use routing::{SettingsRouteTarget, ToolSurfaceReturnTarget};
-
-#[path = "app/workspace_routing.rs"]
+#[path = "app/workspace_routing/mod.rs"]
 mod workspace_routing;
 #[allow(unused_imports)]
-pub use workspace_routing::ViewGraphletPartition;
+pub use workspace_routing::{SettingsRouteTarget, ToolSurfaceReturnTarget, ViewGraphletPartition};
 
 #[path = "app/workbench_commands.rs"]
 mod workbench_commands;
 
-#[path = "app/arrangement_graph_bridge.rs"]
-mod arrangement_graph_bridge;
+#[path = "app/composition/mod.rs"]
+mod composition;
 
-#[path = "app/focus_selection.rs"]
-mod focus_selection;
+// Re-export canvas_scene as a module so existing
+// `crate::app::canvas_scene::build_scene_input` call sites in
+// render/canvas_bridge.rs and shell/desktop/ui/iced_graph_canvas.rs
+// resolve unchanged after the move.
+pub(crate) use composition::canvas_scene;
 
-#[path = "app/graph_views.rs"]
-mod graph_views;
+#[path = "app/graph_runtime/mod.rs"]
+mod graph_runtime;
+
+// Re-export inner modules at crate::app::* so existing
+// `crate::app::graph_layout::FOO` and `crate::app::graph_views::Bar`
+// call sites in registries/, render/, intent_phases.rs, etc. resolve
+// unchanged after the move. Stay `pub(crate)` since these are
+// in-tree implementation surfaces.
+pub(crate) use graph_runtime::{graph_layout, graph_views};
+
 #[cfg(test)]
-pub use graph_views::GraphViewSlot;
+pub use graph_runtime::graph_views::GraphViewSlot;
 #[cfg(test)]
-pub(crate) use graph_views::PersistedGraphViewLayoutManager;
+pub(crate) use graph_runtime::graph_views::PersistedGraphViewLayoutManager;
 #[allow(unused_imports)]
-pub use graph_views::{
+pub use graph_runtime::graph_views::{
     Camera, EdgeProjectionState, GraphViewFrame, GraphViewId, GraphViewLayoutDirection,
     GraphViewLayoutManagerState, GraphViewState, PolicyValueSource, ResolvedLensPreset, SceneMode,
     SelectionEdgeProjectionOverride, SimulateBehaviorPreset, ThreeDMode, ViewDimension, ZSource,
 };
 #[allow(unused_imports)]
-pub(crate) use graph_views::{
+pub(crate) use graph_runtime::graph_views::{
     default_semantic_depth_dimension, default_view_dimension_for_mode, is_semantic_depth_dimension,
     view_dimension_summary,
 };
-
-#[path = "app/graph_layout.rs"]
-pub(crate) mod graph_layout;
 
 #[path = "app/runtime_lifecycle.rs"]
 mod runtime_lifecycle;
 #[allow(unused_imports)]
 pub use runtime_lifecycle::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken};
 
-#[path = "app/graph_mutations.rs"]
-mod graph_mutations;
-pub use graph_mutations::{NoteId, NoteRecord};
+pub use graph_runtime::graph_mutations::{NoteId, NoteRecord};
 
-#[path = "app/graph_cartography.rs"]
-mod graph_cartography;
+pub use app_ux::ux_navigation::ModalSurface;
+pub use app_ux::action_surface::{ActionScope, ActionSurfaceState, Anchor, ScopeTarget};
 
-#[path = "app/ux_navigation.rs"]
-mod ux_navigation;
-pub use ux_navigation::ModalSurface;
-
-#[path = "app/action_surface.rs"]
-pub(crate) mod action_surface;
-pub use action_surface::{ActionScope, ActionSurfaceState, Anchor, ScopeTarget};
-
-#[path = "app/startup_persistence.rs"]
-mod startup_persistence;
-
-#[path = "app/settings_persistence.rs"]
-mod settings_persistence;
+#[path = "app/persistence/mod.rs"]
+mod persistence;
 #[allow(unused_imports)]
-pub use settings_persistence::{
+pub use persistence::{
     DefaultWebViewerBackend, FocusRingCurve, FocusRingSettings, NavigatorSidebarSidePreference,
     SettingsToolPage, ThemeMode, ThumbnailAspect, ThumbnailFilter, ThumbnailFormat,
     ThumbnailSettings, WorkspaceUserStylesheetSetting, WryRenderModePreference,
@@ -212,28 +206,17 @@ pub use workbench_layout_policy::{
     WorkbenchLayoutConstraint, WorkbenchProfile,
 };
 
-#[path = "app/persistence_facade.rs"]
-mod persistence_facade;
-
 #[path = "app/storage_interop/mod.rs"]
 mod storage_interop;
 
-#[path = "app/workspace_state.rs"]
-mod workspace_state;
-#[allow(unused_imports)]
-pub use workspace_state::{
+pub use workspace_routing::{
     ChromeUiState, FrameHintTabRuntime, FrameTileGroupRuntimeState, GraphTooltipTarget,
     GraphViewRuntimeState, NavigatorSpecialtyView, SemanticNavigationNodeRuntime,
     SemanticNavigationRuntimeState, VisibleNavigationRegionSet, WorkbenchNavigationGeometry,
     WorkbenchSessionState,
 };
 
-#[path = "app/intent_phases.rs"]
-mod intent_phases;
-
-#[path = "app/graph_app_types.rs"]
-mod graph_app_types;
-pub use graph_app_types::*;
+pub use graph_runtime::graph_app_types::*;
 
 #[path = "app/runtime_ports.rs"]
 pub(crate) mod runtime_ports;
@@ -241,9 +224,6 @@ pub(crate) mod runtime_ports;
 #[path = "app/renderer_id.rs"]
 pub(crate) mod renderer_id;
 pub(crate) use renderer_id::RendererId;
-
-#[path = "app/canvas_scene.rs"]
-pub(crate) mod canvas_scene;
 
 #[derive(Default)]
 pub struct AppServices {
@@ -618,13 +598,13 @@ impl GraphBrowserApp {
                     webview_preview_warm_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
                     navigator_sidebar_side_preference:
-                        settings_persistence::NavigatorSidebarSidePreference::Left,
+                        NavigatorSidebarSidePreference::Left,
                     workbench_display_mode: WorkbenchDisplayMode::Split,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                         .is_some(),
-                    focus_ring_settings: settings_persistence::FocusRingSettings::default(),
-                    thumbnail_settings: settings_persistence::ThumbnailSettings::default(),
+                    focus_ring_settings: FocusRingSettings::default(),
+                    thumbnail_settings: ThumbnailSettings::default(),
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
@@ -821,12 +801,12 @@ impl GraphBrowserApp {
                     webview_preview_warm_refresh_secs:
                         Self::DEFAULT_WEBVIEW_PREVIEW_WARM_REFRESH_SECS,
                     navigator_sidebar_side_preference:
-                        settings_persistence::NavigatorSidebarSidePreference::Left,
+                        NavigatorSidebarSidePreference::Left,
                     workbench_display_mode: WorkbenchDisplayMode::Split,
                     workbench_host_pinned: false,
                     form_draft_capture_enabled: false,
-                    focus_ring_settings: settings_persistence::FocusRingSettings::default(),
-                    thumbnail_settings: settings_persistence::ThumbnailSettings::default(),
+                    focus_ring_settings: FocusRingSettings::default(),
+                    thumbnail_settings: ThumbnailSettings::default(),
                     default_registry_lens_id: None,
                     default_registry_physics_id: None,
                     default_registry_theme_id: None,
