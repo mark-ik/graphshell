@@ -12,13 +12,15 @@ rust-version = "1.92.0"
 [workspace]
 exclude = ["vendor"]
 members = [
+    # 2026-05-17: graph-memory, graph-cartography, graphshell-core, and
+    # graphshell-runtime were donor-superseded and removed. Mere's
+    # node-lineage, cartography, mere-kernel, and mere-host-runtime
+    # absorb their roles. Remaining members below are left in place
+    # but graphshell repo is no longer expected to build as-is; the
+    # plan is to archive the repo as a unit, not maintain it.
     "crates/graph-canvas",
-    "crates/graph-cartography",
-    "crates/graph-memory",
     "crates/graph-tree",
     "crates/graphshell-comms",
-    "crates/graphshell-core",
-    "crates/graphshell-runtime",
     "crates/middlenet-core",
     "crates/middlenet-adapters",
     "crates/middlenet-feed",
