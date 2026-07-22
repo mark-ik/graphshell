@@ -80,6 +80,7 @@ dependencies = [
  "graphshell-endpoint",
  "graphshell-protocol",
  "sceno",
+ "scenotime",
  "serde_json",
 ]
 
@@ -89,6 +90,8 @@ version = "0.0.1"
 dependencies = [
  "graphshell-protocol",
  "sceno",
+ "scenotime",
+ "serde",
  "serde_json",
 ]
 
@@ -105,6 +108,7 @@ version = "0.0.1"
 dependencies = [
  "blake3",
  "sceno",
+ "scenotime",
  "serde",
  "serde_json",
 ]
@@ -149,6 +153,14 @@ dependencies = [
 name = "sceno"
 version = "0.0.1"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "scenotime"
+version = "0.0.1"
+dependencies = [
+ "sceno",
  "serde",
 ]
 

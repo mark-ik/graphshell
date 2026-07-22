@@ -12,4 +12,5 @@ graphshell-client = { path = "../graphshell-client" }
 graphshell-endpoint = { path = "../graphshell-endpoint" }
 graphshell-protocol = { path = "../graphshell-protocol" }
 sceno.workspace = true
+scenotime.workspace = true
 serde_json.workspace = true

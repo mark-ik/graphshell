@@ -9,4 +9,6 @@ description = "Transport-independent local curation state for Graphshell."
 [dependencies]
 graphshell-protocol = { path = "../graphshell-protocol" }
 sceno.workspace = true
+scenotime.workspace = true
+serde.workspace = true
 serde_json.workspace = true

@@ -2,7 +2,7 @@
 
 use graphshell_protocol::{
     IntentInvocation, IntentResult, ProjectionRequest, ProjectionSnapshot, ResourceRequest,
-    ResourceResponse,
+    ResourceResponse, ResumeReply, ResumeRequest,
 };
 
 /// The read boundary. Implementations authorize selection before they disclose
@@ -19,6 +19,14 @@ pub trait PresentationSource {
     type Error;
 
     fn resource(&mut self, request: ResourceRequest) -> Result<ResourceResponse, Self::Error>;
+}
+
+/// Reconnect and acknowledgement boundary. An endpoint may replay contiguous
+/// diffs or fall back to an epoch-preserving snapshot.
+pub trait ResumableProjectionSource {
+    type Error;
+
+    fn resume(&mut self, request: ResumeRequest) -> Result<ResumeReply, Self::Error>;
 }
 
 /// The write boundary. Implementations validate revision and authority before

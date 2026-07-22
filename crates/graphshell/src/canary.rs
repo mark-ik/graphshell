@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use graphshell_client::{
     AccessibilityTree, ClientState, PresentationResolution, ResolutionError, ResolvedPresentation,
-    ResourceCacheError,
+    ResourceCacheError, SnapshotApplyError,
 };
 use graphshell_endpoint::{IntentSink, PresentationSource, ProjectionSource};
 use graphshell_protocol::{
-    AdvertisedAction, BoundsRelationship, CapabilityProfile, CardValueV1, ContentHash,
+    AdvertisedAction, BoundsRelationship, CachePolicy, CapabilityProfile, CardValueV1, ContentHash,
     IntentEffect, IntentInvocation, IntentReference, IntentResult, NativeGlyphV1, PortableCardV1,
     PresentationBinding, PresentationCapability, PresentationCodec, PresentationKey,
     PresentationManifest, PresentationOffer, PresentationSemantics, ProjectionRequest,
@@ -17,6 +17,7 @@ use sceno::{
     Arrangement, Footprint, InstanceId, ProjectedItem, Rect, Representation, Scene, Score, Size2,
     SourceRef, Transform2, Vec2,
 };
+use scenotime::{Revision, SceneEpoch, SceneSnapshot};
 
 const FIXTURE_SESSION: &str = "loopback:g1-presentation";
 
@@ -26,6 +27,7 @@ pub enum CanaryError {
     MissingResource,
     Cache(ResourceCacheError),
     Resolution(ResolutionError),
+    Snapshot(SnapshotApplyError),
 }
 
 impl From<ResourceCacheError> for CanaryError {
@@ -37,6 +39,12 @@ impl From<ResourceCacheError> for CanaryError {
 impl From<ResolutionError> for CanaryError {
     fn from(value: ResolutionError) -> Self {
         Self::Resolution(value)
+    }
+}
+
+impl From<SnapshotApplyError> for CanaryError {
+    fn from(value: SnapshotApplyError) -> Self {
+        Self::Snapshot(value)
     }
 }
 
@@ -191,12 +199,14 @@ impl FixtureEndpoint {
             (glyph_hash, glyph_bytes),
             (image_hash, image_bytes),
         ]);
+        let scene = SceneSnapshot::from_dense(SceneEpoch(1), Revision(1), scene)
+            .expect("fixture scene is valid");
         let snapshot = ProjectionSnapshot {
             version: ProtocolVersion::V1,
             session: session.clone(),
-            revision: 1,
             scene,
             presentation,
+            cache_policy: CachePolicy::default(),
         };
         Self {
             session,
@@ -250,9 +260,12 @@ impl IntentSink for FixtureEndpoint {
         if intent.session != self.session {
             return Err(CanaryError::WrongSession);
         }
-        if intent.observed_revision != self.snapshot.revision {
+        if intent.observed_epoch != self.snapshot.scene.epoch
+            || intent.observed_revision != self.snapshot.scene.revision
+        {
             return Ok(IntentResult::Stale {
-                current_revision: self.snapshot.revision,
+                current_epoch: self.snapshot.scene.epoch,
+                current_revision: self.snapshot.scene.revision,
             });
         }
         Ok(match intent.intent.as_str() {
@@ -282,9 +295,9 @@ pub fn run_loopback_canary() -> Result<CanaryRun, CanaryError> {
         score: Score::new(Arrangement::Spiral(Default::default())),
     };
     let snapshot = endpoint.snapshot(request)?;
-    let item_count = snapshot.scene.items.len();
+    let item_count = snapshot.scene.active_item_count();
     let mut client = ClientState::default();
-    client.apply_snapshot(snapshot);
+    client.apply_snapshot(snapshot)?;
 
     let rich_profile = CapabilityProfile::new([
         PresentationCapability::NativeGlyph,

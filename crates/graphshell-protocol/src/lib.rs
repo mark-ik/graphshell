@@ -6,8 +6,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use sceno::{InstanceId, Scene, Score};
+use sceno::{InstanceId, Score};
 use serde::{Deserialize, Serialize};
+
+pub use scenotime::{Revision, SceneDiff, SceneEpoch, SceneSnapshot};
 
 /// The first compatible Graphshell wire version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,15 +177,94 @@ impl PresentationManifest {
     }
 }
 
-/// A complete scene snapshot. Diffs wait for Scenotime's epoch/revision proof.
+/// Whether disclosed scene and resource data may survive process exit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CacheRetention {
+    #[default]
+    MemoryOnly,
+    EncryptedPersistent,
+    Exportable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachePolicy {
+    pub retention: CacheRetention,
+    pub expires_at_ms: Option<u64>,
+    pub purge_on_revocation: bool,
+}
+
+impl Default for CachePolicy {
+    fn default() -> Self {
+        Self {
+            retention: CacheRetention::MemoryOnly,
+            expires_at_ms: None,
+            purge_on_revocation: true,
+        }
+    }
+}
+
+/// A complete epoch-preserving scene snapshot plus its presentation sidecar.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionSnapshot {
     pub version: ProtocolVersion,
     pub session: ProjectionSession,
-    pub revision: u64,
-    pub scene: Scene,
+    pub scene: SceneSnapshot,
     #[serde(default)]
     pub presentation: PresentationManifest,
+    #[serde(default)]
+    pub cache_policy: CachePolicy,
+}
+
+/// Presentation and cache changes that accompany a Scenotime scene diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresentationChange {
+    Bind(PresentationBinding),
+    Unbind {
+        instance: InstanceId,
+    },
+    ReplaceOffers {
+        key: PresentationKey,
+        offers: Vec<PresentationOffer>,
+    },
+    RemoveOffers {
+        key: PresentationKey,
+    },
+    InvalidateResource {
+        resource: ContentHash,
+    },
+}
+
+/// One revision transition in a projection session.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProjectionDiff {
+    pub version: ProtocolVersion,
+    pub session: ProjectionSession,
+    pub scene: SceneDiff,
+    pub presentation: Vec<PresentationChange>,
+    pub status: Option<SessionStatus>,
+}
+
+/// The last revision a client has durably applied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectionAck {
+    pub session: ProjectionSession,
+    pub epoch: SceneEpoch,
+    pub revision: Revision,
+}
+
+/// Reconnect from a client's last acknowledged epoch and revision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeRequest {
+    pub session: ProjectionSession,
+    pub epoch: SceneEpoch,
+    pub revision: Revision,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ResumeReply {
+    Current(ProjectionAck),
+    Diffs(Vec<ProjectionDiff>),
+    Snapshot(Box<ProjectionSnapshot>),
 }
 
 /// A content-addressed resource request scoped to the disclosing session.
@@ -246,7 +327,8 @@ pub struct PortableCardV1 {
 pub struct IntentInvocation {
     pub session: ProjectionSession,
     pub target: InstanceId,
-    pub observed_revision: u64,
+    pub observed_epoch: SceneEpoch,
+    pub observed_revision: Revision,
     pub intent: String,
     pub payload: Vec<u8>,
 }
@@ -255,12 +337,17 @@ pub struct IntentInvocation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IntentResult {
     Accepted,
-    Rejected { reason: String },
-    Stale { current_revision: u64 },
+    Rejected {
+        reason: String,
+    },
+    Stale {
+        current_epoch: SceneEpoch,
+        current_revision: Revision,
+    },
 }
 
 /// The session status a client may render without inferring authority.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionStatus {
     Live,
     Stale,
@@ -272,7 +359,7 @@ pub enum SessionStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sceno::{Arrangement, Spiral};
+    use sceno::{Arrangement, Scene, Spiral};
 
     #[test]
     fn request_serializes_a_product_free_score() {
@@ -294,9 +381,9 @@ mod tests {
         let snapshot = ProjectionSnapshot {
             version: ProtocolVersion::V1,
             session: ProjectionSession("local:fixture".into()),
-            revision: 1,
-            scene: Scene::new(),
+            scene: SceneSnapshot::from_dense(SceneEpoch(1), Revision(1), Scene::new()).unwrap(),
             presentation: PresentationManifest::default(),
+            cache_policy: CachePolicy::default(),
         };
         let json = serde_json::to_string(&snapshot).unwrap();
         assert!(json.contains("presentation"));
@@ -315,5 +402,23 @@ mod tests {
         assert!(response.has_valid_address());
         response.bytes.push(b'!');
         assert!(!response.has_valid_address());
+    }
+
+    #[test]
+    fn diff_replay_round_trips_as_a_carrier_neutral_message() {
+        let reply = ResumeReply::Diffs(vec![ProjectionDiff {
+            version: ProtocolVersion::V1,
+            session: ProjectionSession("local:fixture".into()),
+            scene: SceneDiff {
+                epoch: SceneEpoch(5),
+                base: Revision(8),
+                revision: Revision(9),
+                operations: Vec::new(),
+            },
+            presentation: Vec::new(),
+            status: Some(SessionStatus::Live),
+        }]);
+        let json = serde_json::to_string(&reply).unwrap();
+        assert_eq!(serde_json::from_str::<ResumeReply>(&json).unwrap(), reply);
     }
 }

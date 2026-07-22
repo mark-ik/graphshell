@@ -31,7 +31,8 @@ archived donor rename required by G0.
 ## Deliberate limits
 
 The buttons expose advertised intents but G1 does not invoke them. Scene diffs,
-resume, persistence policy, authenticated carriers, product adapters, rendered
-NetRender fragments, and live panes remain later proofs. The receipt view is
-native semantic HTML; composing the application through Genet and Cambium is
-also later host work.
+resume, and persistence policy are exercised separately by the
+[G2 receipt](2026-07-22_g2_diff_resume_receipt.md). Authenticated carriers,
+product adapters, rendered NetRender fragments, and live panes remain later
+proofs. The receipt view is native semantic HTML; composing the application
+through Genet and Cambium is also later host work.

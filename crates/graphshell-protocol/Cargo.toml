@@ -9,6 +9,7 @@ description = "Versioned carrier-neutral projection messages for Graphshell."
 [dependencies]
 blake3.workspace = true
 sceno.workspace = true
+scenotime.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

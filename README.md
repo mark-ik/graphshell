@@ -8,10 +8,11 @@ scenes, and presentation preferences.
 
 The workspace is intentionally portable:
 
-- `graphshell-protocol` carries versioned score, scene, status, and intent
-  messages over an unspecified carrier.
-- `graphshell-client` keeps endpoint-scoped scene snapshots and curation-local
-  state.
+- `graphshell-protocol` carries versioned score, epoch-preserving scene,
+  presentation, resume, status, and intent messages over an unspecified
+  carrier.
+- `graphshell-client` keeps endpoint-scoped snapshots, applies transactional
+  diffs and resume replies, and persists only when session policy permits it.
 - `graphshell-endpoint` defines injected projection and intent traits for
   applications to implement beside their own truth.
 - `graphshell` is the presentation host. Its first native semantic view is the
@@ -23,7 +24,7 @@ content-addressing primitives. They must not depend on Mere, Merecat, Isometry,
 Genet, Cambium, NetRender, a network runtime, or an application model. Product
 adapters depend on `graphshell-endpoint` in the other direction.
 
-## G1 loopback proof
+## G1 and G2 loopback proofs
 
 G1 keeps presentation outside `sceno::Scene`. A snapshot carries a Graphshell
 sidecar manifest that binds scene instances to ordered, versioned resource
@@ -47,6 +48,17 @@ cargo run -p graphshell --bin g1_receipt -- docs/receipts/g1_loopback.html
 
 The committed [G1 receipt](docs/receipts/g1_loopback.html) is compared
 byte-for-byte with fresh output by the test suite.
+
+G2 adds stable scene epochs and revisions through Scenotime. The client applies
+scene, presentation-resource, and status changes together; retains stale or
+disconnected scenes; acknowledges revisions; and resumes from replay or a full
+epoch-preserving snapshot. Persisted caches use an injected store and require
+the protection promised by the session's cache policy.
+
+The deterministic resume fixture disconnects after revision 2, replays
+revision 3, and reaches the same scene as the endpoint's complete snapshot.
+Its removed item remains a tombstone at slot 0 while later items stay at slots
+1 and 2. See the [G2 receipt note](docs/2026-07-22_g2_diff_resume_receipt.md).
 
 The donor repository must be renamed and its live citations repaired before
 this local G0 workspace is published under the Graphshell name.

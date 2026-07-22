@@ -4,6 +4,7 @@
 //! product models, and source authority remain injected at the edge.
 
 pub mod canary;
+pub mod resume;
 pub mod view;
 
 pub use graphshell_client as client;
