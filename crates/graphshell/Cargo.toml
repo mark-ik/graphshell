@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Graphshell facade; the presentation host arrives after loopback proof."
+description = "Graphshell presentation host and loopback acceptance view."
 
 [dependencies]
+base64.workspace = true
 graphshell-client = { path = "../graphshell-client" }
 graphshell-endpoint = { path = "../graphshell-endpoint" }
 graphshell-protocol = { path = "../graphshell-protocol" }
+sceno.workspace = true
+serde_json.workspace = true

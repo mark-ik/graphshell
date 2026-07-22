@@ -8,4 +8,3 @@ description = "Application-injected projection and intent boundary for Graphshel
 
 [dependencies]
 graphshell-protocol = { path = "../graphshell-protocol" }
-sceno.workspace = true

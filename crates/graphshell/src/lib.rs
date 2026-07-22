@@ -1,7 +1,10 @@
-//! Graphshell's G0 facade.
+//! Graphshell's presentation host.
 //!
-//! This crate intentionally has no renderer or carrier. Its job at this stage
-//! is to make the portable protocol boundary importable as one package.
+//! G1 adds a native semantic view over the portable client state. Networking,
+//! product models, and source authority remain injected at the edge.
+
+pub mod canary;
+pub mod view;
 
 pub use graphshell_client as client;
 pub use graphshell_endpoint as endpoint;
