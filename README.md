@@ -15,16 +15,16 @@ The workspace is intentionally portable:
   diffs and resume replies, and persists only when session policy permits it.
 - `graphshell-endpoint` defines injected projection and intent traits for
   applications to implement beside their own truth.
-- `graphshell` is the presentation host. Its first native semantic view is the
-  deterministic G1 loopback receipt; Genet/Cambium composition remains later
-  application work.
+- `graphshell` is the presentation host. Its native receipt view can place
+  resolved presentations at disclosed Scenograph origins, draw disclosed
+  relations, and collapse to a semantic card stack on narrow screens.
 
 The portable crates may depend on Scenograph contracts, serialization, and
 content-addressing primitives. They must not depend on Mere, Merecat, Isometry,
 Genet, Cambium, NetRender, a network runtime, or an application model. Product
 adapters depend on `graphshell-endpoint` in the other direction.
 
-## G1 and G2 loopback proofs
+## G1, G2, and the first product endpoint
 
 G1 keeps presentation outside `sceno::Scene`. A snapshot carries a Graphshell
 sidecar manifest that binds scene instances to ordered, versioned resource
@@ -59,6 +59,12 @@ The deterministic resume fixture disconnects after revision 2, replays
 revision 3, and reaches the same scene as the endpoint's complete snapshot.
 Its removed item remains a tombstone at slot 0 while later items stay at slots
 1 and 2. See the [G2 receipt note](docs/2026-07-22_g2_diff_resume_receipt.md).
+
+G3 lives in Merecat, in the required dependency direction. Its endpoint reads
+live Mere graph truth through Mere cartography, returns the resulting score,
+scene, routed relations, and content-addressed card offers, and maps advertised
+intents back through Merecat's Servitor gate. Graphshell gains only the generic
+spatial receipt view; this repository still has no Mere or Merecat dependency.
 
 The donor repository must be renamed and its live citations repaired before
 this local G0 workspace is published under the Graphshell name.
