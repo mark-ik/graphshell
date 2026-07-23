@@ -34,6 +34,23 @@ pub struct ProjectionRequest {
     pub score: Score,
 }
 
+/// One endpoint-advertised projection that a generic Graphshell host may open.
+///
+/// The request carries only the product-free score vocabulary needed to select
+/// the projection. Source data remains endpoint-side until `snapshot`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProjectionOffer {
+    pub label: String,
+    pub request: ProjectionRequest,
+}
+
+/// The projections available from one endpoint process.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EndpointDescriptor {
+    pub label: String,
+    pub projections: Vec<ProjectionOffer>,
+}
+
 /// Client presentation features negotiated independently of the renderer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PresentationCapability {
@@ -356,6 +373,44 @@ pub enum SessionStatus {
     Revoked,
 }
 
+/// Carrier-neutral requests used by the local process proof and future
+/// transports. The carrier supplies framing; these variants supply meaning.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CarrierRequestBody {
+    Discover,
+    Snapshot(ProjectionRequest),
+    Resource(ResourceRequest),
+    Resume(ResumeRequest),
+    Intent(IntentInvocation),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CarrierRequest {
+    pub id: u64,
+    pub body: CarrierRequestBody,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CarrierResponseBody {
+    Descriptor(EndpointDescriptor),
+    Snapshot(Box<ProjectionSnapshot>),
+    Resource(ResourceResponse),
+    Resume(ResumeReply),
+    Intent(IntentResult),
+}
+
+/// A failure reported by an endpoint without exposing its native error type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CarrierFailure {
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CarrierResponse {
+    pub id: u64,
+    pub body: Result<CarrierResponseBody, CarrierFailure>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,5 +475,39 @@ mod tests {
         }]);
         let json = serde_json::to_string(&reply).unwrap();
         assert_eq!(serde_json::from_str::<ResumeReply>(&json).unwrap(), reply);
+    }
+
+    #[test]
+    fn discovery_and_requests_share_one_framed_vocabulary() {
+        let request = CarrierRequest {
+            id: 7,
+            body: CarrierRequestBody::Discover,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert_eq!(
+            serde_json::from_str::<CarrierRequest>(&json).unwrap(),
+            request
+        );
+
+        let descriptor = EndpointDescriptor {
+            label: "Fixture".into(),
+            projections: vec![ProjectionOffer {
+                label: "Notes".into(),
+                request: ProjectionRequest {
+                    version: ProtocolVersion::V1,
+                    session: ProjectionSession("fixture:notes".into()),
+                    score: Score::new(Arrangement::Spiral(Spiral::default())),
+                },
+            }],
+        };
+        let response = CarrierResponse {
+            id: 7,
+            body: Ok(CarrierResponseBody::Descriptor(descriptor)),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert_eq!(
+            serde_json::from_str::<CarrierResponse>(&json).unwrap(),
+            response
+        );
     }
 }

@@ -1,9 +1,14 @@
 //! Traits application adapters implement beside their own source truth.
 
 use graphshell_protocol::{
-    IntentInvocation, IntentResult, ProjectionRequest, ProjectionSnapshot, ResourceRequest,
-    ResourceResponse, ResumeReply, ResumeRequest,
+    EndpointDescriptor, IntentInvocation, IntentResult, ProjectionRequest, ProjectionSnapshot,
+    ResourceRequest, ResourceResponse, ResumeReply, ResumeRequest,
 };
+
+/// Discovery boundary for a product-neutral host.
+pub trait ProjectionCatalog {
+    fn describe(&self) -> EndpointDescriptor;
+}
 
 /// The read boundary. Implementations authorize selection before they disclose
 /// a score or scene and retain ownership of native source data.

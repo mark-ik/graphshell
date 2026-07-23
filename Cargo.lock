@@ -79,6 +79,7 @@ dependencies = [
  "graphshell-client",
  "graphshell-endpoint",
  "graphshell-protocol",
+ "graphshell-stdio",
  "sceno",
  "scenotime",
  "serde_json",
@@ -110,6 +111,17 @@ dependencies = [
  "sceno",
  "scenotime",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "graphshell-stdio"
+version = "0.0.1"
+dependencies = [
+ "graphshell-endpoint",
+ "graphshell-protocol",
+ "sceno",
+ "scenotime",
  "serde_json",
 ]
 

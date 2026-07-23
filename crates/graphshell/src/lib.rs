@@ -5,6 +5,8 @@
 
 pub mod canary;
 pub mod resume;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sessions;
 pub mod view;
 
 pub use graphshell_client as client;

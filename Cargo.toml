@@ -4,6 +4,7 @@ members = [
     "crates/graphshell-protocol",
     "crates/graphshell-client",
     "crates/graphshell-endpoint",
+    "crates/graphshell-stdio",
     "crates/graphshell",
 ]
 
