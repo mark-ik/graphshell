@@ -66,5 +66,6 @@ scene, routed relations, and content-addressed card offers, and maps advertised
 intents back through Merecat's Servitor gate. Graphshell gains only the generic
 spatial receipt view; this repository still has no Mere or Merecat dependency.
 
-The donor repository must be renamed and its live citations repaired before
-this local G0 workspace is published under the Graphshell name.
+The portable workspace was published on 2026-07-22 as the active Graphshell
+tree. The retired browser donor remains intact in this repository's Git
+history rather than appearing as current source or documentation.
