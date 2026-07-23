@@ -1,7 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.05s
-     Running `target\debug\examples\smoke_iced_shader.exe`
-App::new — render_document produced 8 blocks
-App::new — netrender Scene encoded; handing to shader widget
-BridgePipeline::new — iced target format = Bgra8Unorm, constructing fake handles
-BridgePipeline::new — netrender + blitter ready
-BridgePipeline: (re)creating intermediate Rgba8Unorm texture 1024x768
