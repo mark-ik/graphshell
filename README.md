@@ -15,6 +15,8 @@ The workspace is intentionally portable:
   diffs and resume replies, and persists only when session policy permits it.
 - `graphshell-endpoint` defines injected projection and intent traits for
   applications to implement beside their own truth.
+- `graphshell-stdio` provides the first local carrier: a newline-delimited JSON
+  process boundary for discovery, snapshots, resources, resume, and intents.
 - `graphshell` is the presentation host. Its native receipt view can place
   resolved presentations at disclosed Scenograph origins, draw disclosed
   relations, and collapse to a semantic card stack on narrow screens.
@@ -69,3 +71,20 @@ spatial receipt view; this repository still has no Mere or Merecat dependency.
 The portable workspace was published on 2026-07-22 as the active Graphshell
 tree. The retired browser donor remains intact in this repository's Git
 history rather than appearing as current source or documentation.
+
+## G4 local sessions
+
+Graphshell can now discover and mount projections from arbitrary local endpoint
+processes. The `g4_sessions` host has no product dependency: it asks each
+endpoint for its catalog, mounts every advertised projection through the same
+client state machine, resolves resources, invokes advertised actions, and puts
+the resulting sessions behind keyboard-reachable tabs.
+
+The committed [G4 receipt](docs/receipts/g4_session_switch.html) was generated
+from the Merecat browsing endpoint and Isometry's player-overmap and tile-board
+endpoints. It proves three independently owned projections through one
+Graphshell binary. The [receipt note](docs/2026-07-22_g4_cross_product_receipt.md)
+records the commands and acceptance boundary.
+
+This carrier is deliberately local and unauthenticated. Identity, negotiated
+grants, revocation, reconnect, and cross-device transport belong to G5.

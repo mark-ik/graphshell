@@ -297,4 +297,16 @@ mod tests {
         assert_eq!(html.matches("<iframe").count(), 2);
         assert!(html.contains("data-session=\"session-1\""));
     }
+
+    #[test]
+    fn committed_g4_receipt_contains_both_products_and_all_three_sessions() {
+        let html = include_str!("../../../docs/receipts/g4_session_switch.html");
+        assert_eq!(html.matches("role=\"tab\"").count(), 3);
+        assert_eq!(html.matches("<iframe").count(), 3);
+        assert!(html.contains("Merecat · Browsing graph"));
+        assert!(html.contains("Isometry · Player overmap"));
+        assert!(html.contains("Isometry · Moor crossing"));
+        assert!(html.contains("open-address requires an address"));
+        assert!(html.contains("player projection grant is read-only for campaign travel"));
+    }
 }
