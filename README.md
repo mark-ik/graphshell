@@ -1,3 +1,9 @@
+> **Moved.** This repository is archived. `graphshell` now lives in [mark-ik/mere](https://github.com/mark-ik/mere) as of the 2026-07-23 repo
+> consolidation. Crate names, versions, and licenses are unchanged; only the
+> repository home moved, and this history was carried across with it. The
+> history here is preserved for the record and for links from published
+> crates.io versions.
+
 # Graphshell
 
 Graphshell is a remote, local-first projection host. Applications retain their
